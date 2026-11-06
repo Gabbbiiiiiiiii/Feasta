@@ -112,6 +112,15 @@ describe("provider package modal and media", () => {
     render(<ProviderPackageForm {...props} onSaved={vi.fn()} onCancel={vi.fn()} />);
     fireEvent.change(screen.getByLabelText(/Package name/), {target: {value: "Birthday catering"}});
     fireEvent.change(screen.getByLabelText(/Description/), {target: {value: "A complete birthday package"}});
+    fireEvent.click(screen.getByRole("button", {name: "Next"}));
+    expect(screen.getByRole("heading", {name: "Step 1: Package details"})).toBeVisible();
+    expect(screen.getByText("Choose a package structure.")).toBeVisible();
+    fireEvent.change(screen.getByLabelText(/Package structure/), {target: {value: "fixed"}});
+    fireEvent.change(screen.getByLabelText(/Package style/), {target: {value: "Buffet Catering"}});
+    fireEvent.change(screen.getByLabelText(/Suitable occasions/), {target: {value: "birthday"}});
+    fireEvent.click(screen.getByRole("button", {name: "Next"}));
+    expect(screen.getByRole("heading", {name: "Step 1: Package details"})).toBeVisible();
+    fireEvent.click(screen.getByRole("button", {name: "Add selected occasion"}));
     goToStep(2);
     expect(screen.getByLabelText(/Payment terms/)).toHaveValue("full_payment");
     fireEvent.change(screen.getByLabelText(/Payment terms/), {target: {value: "deposit_then_balance"}});
@@ -161,7 +170,7 @@ describe("provider package modal and media", () => {
     expect(within(dialog).getByRole("textbox", {name: /Package name/})).toHaveValue(record.name);
     expect(within(dialog).getByRole("textbox", {name: /Description/})).toHaveValue(record.description);
     goToStep(2);
-    expect(within(dialog).getByRole("spinbutton", {name: /Starting price/})).toHaveValue(record.price);
+    expect(within(dialog).getByRole("textbox", {name: /Starting price/})).toHaveValue("10,000.00");
     goToStep(3);
     expect(within(dialog).getByRole("button", {name: "Edit dish Rice"})).toBeVisible();
     goToStep(4);
@@ -174,6 +183,8 @@ describe("provider package modal and media", () => {
     await waitFor(() => expect(edit).toHaveFocus());
     await user.click(edit);
     await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog", {name: "Discard package changes?"})).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", {name: "Close dialog"}));
     expect(screen.getByRole("dialog", {name: "Discard package changes?"})).toBeVisible();
     await user.click(screen.getByRole("button", {name: "Discard changes"}));
     await waitFor(() => expect(edit).toHaveFocus());
@@ -205,7 +216,7 @@ describe("provider package modal and media", () => {
     expect(screen.getByRole("button", {name: "Edit Party package"})).toHaveFocus();
   });
 
-  it("opens the creation dialog over the retained listing and restores focus on Escape", async () => {
+  it("opens the creation dialog over the retained listing and restores focus after explicit close", async () => {
     const user = userEvent.setup();
     render(<ProviderPackagesClient {...props} providerId="provider-one" />);
     const trigger = screen.getByRole("button", {name: "New package"});
@@ -215,6 +226,8 @@ describe("provider package modal and media", () => {
     expect(screen.getByRole("dialog", {name: "Create package"})).toBeVisible();
     expect(document.querySelector('section[aria-label="Provider package results"]')).toBeInTheDocument();
     await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog", {name: "Discard package changes?"})).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", {name: "Close dialog"}));
     expect(screen.getByRole("dialog", {name: "Discard package changes?"})).toBeVisible();
     await user.click(screen.getByRole("button", {name: "Discard changes"}));
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
@@ -309,10 +322,17 @@ describe("provider package modal and media", () => {
     const name = screen.getByRole("textbox", {name: /Package name/});
     expect(name).toHaveAttribute("aria-invalid", "true");
     expect(name).toHaveAccessibleDescription("Package name must be between 2 and 120 characters.");
-    expect(screen.getByRole("region", {name: "Package details"})).toContainElement(screen.getByRole("alert"));
+    const details = screen.getByRole("region", {name: "Package details"});
+    const alerts = screen.getAllByRole("alert");
+    expect(alerts).toHaveLength(2);
+    for (const alert of alerts) expect(details).toContainElement(alert);
+    expect(within(details).getByText("Package name must be between 2 and 120 characters.")).toHaveAttribute("role", "alert");
+    const occasions = screen.getByRole("combobox", {name: /Suitable occasions/});
+    expect(occasions).toHaveAttribute("aria-invalid", "true");
+    expect(occasions).toHaveAccessibleDescription("Add one occasion supported by your business before continuing.");
     expect(screen.queryByRole("button", {name: "Create draft package"})).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", {name: "Next"}));
-    expect(screen.getByRole("heading", {name: "Step 1: Basic details"})).toBeVisible();
+    expect(screen.getByRole("heading", {name: "Step 1: Package details"})).toBeVisible();
     expect(mocks.create).not.toHaveBeenCalled();
   });
 
@@ -338,10 +358,10 @@ describe("provider package modal and media", () => {
     render(<ProviderPackageForm {...props} initialPackage={record} onSaved={vi.fn()} onCancel={vi.fn()} />);
     goToStep(2);
     expect(screen.getByRole("checkbox", {name: /Drop-Off Catering/})).toBeChecked();
-    expect(screen.getByRole("textbox", {name: /Drop-Off Catering price/})).toHaveValue("10000");
+    expect(screen.getByRole("textbox", {name: /Drop-Off Catering price/})).toHaveValue("10,000.00");
     fireEvent.click(screen.getByRole("checkbox", {name: /Buffet Setup/}));
     fireEvent.change(screen.getByRole("textbox", {name: /Buffet Setup price/}), {target: {value: "8500.5"}});
-    expect(screen.getByRole("spinbutton", {name: /Starting price/})).toHaveValue(8500.5);
+    expect(screen.getByRole("textbox", {name: /Starting price/})).toHaveValue("8,500.50");
     goToStep(5);
     fireEvent.click(screen.getByRole("button", {name: "Save changes"}));
     await waitFor(() => expect(mocks.update).toHaveBeenCalledWith(record.id, expect.objectContaining({
@@ -360,7 +380,7 @@ describe("provider package modal and media", () => {
     render(<ProviderPackageForm {...props} initialPackage={record} onSaved={vi.fn()} onCancel={vi.fn()} />);
     goToStep(4);
     expect(screen.queryByRole("button", {name: "Add Theme"})).not.toBeInTheDocument();
-    expect(screen.getByText("Enable Buffet Setup or Full-Service Catering to add themes.")).toBeVisible();
+    expect(screen.getByText("Drop-Off Catering includes delivery without venue setup, so themes are unavailable for that tier. Enable Buffet Setup or Full-Service Catering to add optional themes.")).toBeVisible();
     goToStep(2);
     fireEvent.click(screen.getByRole("checkbox", {name: /Full-Service Catering/}));
     fireEvent.change(screen.getByRole("textbox", {name: /Full-Service Catering price/}), {target: {value: "15000"}});
@@ -444,5 +464,36 @@ describe("catalog validation and customer gallery", () => {
     expect(screen.getByRole("dialog", {name: "Chicken"})).toBeVisible();
     await user.keyboard("{Escape}");
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  });
+});
+
+
+describe("starting price PHP display", () => {
+  it.each([750, 1500, 25000.5, 0.29])("reads back saved %s pesos without changing its meaning", (price) => {
+    render(<ProviderPackageForm {...props} initialPackage={{...record, price,
+      serviceOptions: {drop_off: {price, includedServices: []}}}} onSaved={vi.fn()} onCancel={vi.fn()} />);
+    goToStep(2);
+    const input = screen.getByRole("textbox", {name: /Starting price/});
+    expect(input).toHaveValue(price.toLocaleString("en-PH", {minimumFractionDigits: 2, maximumFractionDigits: 2}));
+    expect(input).toHaveAttribute("readonly");
+    expect(input.parentElement).toHaveTextContent("\u20b1");
+    fireEvent.focus(input);
+    expect(input).toHaveValue(String(price));
+    fireEvent.blur(input);
+    expect(input).toHaveValue(price.toLocaleString("en-PH", {minimumFractionDigits: 2, maximumFractionDigits: 2}));
+  });
+
+  it.each(["fixed", "customizable"])("formats new %s packages with the shared currency input", (structure) => {
+    render(<ProviderPackageForm {...props} onSaved={vi.fn()} onCancel={vi.fn()} />);
+    fireEvent.change(screen.getByLabelText(/Package name/), {target: {value: "Currency package"}});
+    fireEvent.change(screen.getByLabelText(/Description/), {target: {value: "Currency display regression package"}});
+    fireEvent.change(screen.getByLabelText(/Package structure/), {target: {value: structure}});
+    fireEvent.change(screen.getByLabelText(/Package style/), {target: {value: "Buffet Catering"}});
+    fireEvent.change(screen.getByLabelText(/Suitable occasions/), {target: {value: "birthday"}});
+    fireEvent.click(screen.getByRole("button", {name: "Add selected occasion"}));
+    goToStep(2);
+    fireEvent.click(screen.getByRole("checkbox", {name: /Drop-Off Catering/}));
+    fireEvent.change(screen.getByLabelText(/Drop-Off Catering price/), {target: {value: "25000.50"}});
+    expect(screen.getByRole("textbox", {name: /Starting price/})).toHaveValue("25,000.50");
   });
 });

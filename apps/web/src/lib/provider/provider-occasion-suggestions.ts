@@ -1,8 +1,10 @@
-﻿"use client";
+"use client";
 import type {SubmitOccasionSuggestionRequest, SubmitOccasionSuggestionResponse, ListMyOccasionSuggestionsRequest, OccasionSuggestionPage} from "@feasta/shared-types/provider-package-v2";
 // Local contract review does not verify deployment, App Check, policy or cursor-secret readiness.
 // Keep both browser operations blocked until that integration is explicitly verified.
-export function occasionRequestsAvailable(): boolean { return false; }
+export function occasionRequestsAvailable(): boolean {
+  return process.env.NEXT_PUBLIC_FEASTA_OCCASION_REQUESTS_ENABLED === "true";
+}
 const unsafe = /[\p{Cc}\p{Cf}\p{Cs}\p{Zl}\p{Zp}\p{Default_Ignorable_Code_Point}]/u;
 export function validateOccasionRequest(name: string, reason: string) {
   const collapsed = name.trim().replace(/\s+/gu, " ");

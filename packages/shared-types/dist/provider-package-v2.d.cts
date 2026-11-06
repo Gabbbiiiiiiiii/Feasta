@@ -253,6 +253,8 @@ export interface PackageEditorProgressV2 {
     name?: string;
     description?: string;
     serviceCategoryCode?: string;
+    offerStructure?: 'fixed' | 'customizable' | 'individual';
+    packageStyle?: string;
     occasion?: {
         occasionSchemaVersion: 2;
         occasionScope?: 'specific' | 'all';
@@ -352,7 +354,10 @@ export interface ExistingPackageWriteInput {
     furnitureInclusions: string[];
     serviceInclusions: string[];
 }
-export type PackageV2Write = Omit<ExistingPackageWriteInput, 'eventType' | 'serviceOptions' | 'serviceInclusions' | 'decorInclusions' | 'furnitureInclusions' | 'foodInclusions' | 'price' | 'pricingModel'> & WritableOccasionV2 & OfferV2;
+export type PackageV2Write = Omit<ExistingPackageWriteInput, 'eventType' | 'serviceOptions' | 'serviceInclusions' | 'decorInclusions' | 'furnitureInclusions' | 'foodInclusions' | 'price' | 'pricingModel'> & WritableOccasionV2 & OfferV2 & {
+    offerStructure?: 'fixed' | 'customizable' | 'individual';
+    packageStyle?: string;
+};
 export type CreateProviderPackageV2Request = PackageV2Write & {
     sharedContractVersion: 2;
     idempotencyKey: string;

@@ -6,6 +6,8 @@ import type {
 } from "@feasta/shared-types";
 
 export type ProviderAvailabilitySettings = {
+  supportedOccasionIds?: readonly string[];
+  availabilitySettingsRevision?: number;
   providerId: string;
   providerServiceType: ProviderServiceType;
   serviceCategories: readonly ServiceCategoryCode[];
@@ -24,6 +26,9 @@ export type ProviderAvailabilitySettings = {
 };
 
 export type UpdateProviderAvailabilitySettingsInput = {
+  supportedOccasionIds?: readonly string[];
+  expectedSettingsRevision: number;
+  occasionCatalogRevision?: number;
   operatingDays: readonly ProviderOperatingDay[];
   bookingLeadTimeDays: number;
   acceptsMultipleEventsPerDay: boolean;
@@ -36,7 +41,10 @@ export type UpdateProviderAvailabilitySettingsInput = {
 
 export type UpdateProviderAvailabilitySettingsResult = {
   providerId: string;
-  settings: UpdateProviderAvailabilitySettingsInput;
+  settings: Omit<
+    UpdateProviderAvailabilitySettingsInput,
+    "expectedSettingsRevision" | "occasionCatalogRevision"
+  > & {availabilitySettingsRevision: number};
   capacityCapabilities: ProviderCapacityCapabilities;
 };
 

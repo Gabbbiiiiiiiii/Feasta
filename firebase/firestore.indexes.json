@@ -1,6 +1,30 @@
 {
   "indexes": [
     {
+      "collectionGroup": "providerPackageEditorDrafts",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {"fieldPath": "state", "order": "ASCENDING"},
+        {"fieldPath": "discardNextAuditAtMs", "order": "ASCENDING"}
+      ]
+    },
+    {
+      "collectionGroup": "mediaUploadReservations",
+      "queryScope": "COLLECTION_GROUP",
+      "fields": [
+        {"fieldPath": "state", "order": "ASCENDING"},
+        {"fieldPath": "expiresAtMs", "order": "ASCENDING"}
+      ]
+    },
+    {
+      "collectionGroup": "mediaUploadReservations",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {"fieldPath": "state", "order": "ASCENDING"},
+        {"fieldPath": "expiresAtMs", "order": "ASCENDING"}
+      ]
+    },
+    {
       "collectionGroup": "packages",
       "queryScope": "COLLECTION",
       "fields": [

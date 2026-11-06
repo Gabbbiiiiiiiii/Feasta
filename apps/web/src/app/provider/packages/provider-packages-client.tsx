@@ -1,4 +1,5 @@
 "use client";
+import {usePackageConfirmation} from "./use-package-confirmation";
 import {onAuthStateChanged} from "firebase/auth";
 import {auth, initializeBrowserFirebase} from "@/lib/firebase/client";
 import {
@@ -175,8 +176,9 @@ export function ProviderPackagesClient({
     }
   }
 
+  const {confirm, confirmationDialog} = usePackageConfirmation();
   async function discardProgress(draft: SavedEditorDraft) {
-    if (!window.confirm("Permanently discard this saved package progress?")) return;
+    if (!await confirm({message: "Permanently discard this saved package progress?", confirmLabel: "Discard Progress"})) return;
     setSavedProgressError(null);
     setProgressListBusy(true);
     try {
@@ -357,6 +359,8 @@ export function ProviderPackagesClient({
   const newPackageButton = useRef<HTMLButtonElement | null>(null);
 
   return (
+    <>
+    {confirmationDialog}
     <Dialog open={createOpen} onOpenChange={(open) => {
       if (open) { if (!saveBusy.current) setCreateOpen(true); }
       else requestEditorClose();
@@ -392,8 +396,8 @@ export function ProviderPackagesClient({
           (opener?.isConnected ? opener : document.getElementById(opener?.id ?? "") ?? newPackageButton.current)?.focus();
         }}
         showCloseButton={!formBusy}
-        onEscapeKeyDown={(event) => { event.preventDefault(); requestEditorClose(); }}
-        onPointerDownOutside={(event) => event.preventDefault()}>
+        onEscapeKeyDown={(event) => event.preventDefault()}
+        onInteractOutside={(event) => event.preventDefault()}>
         <DialogHeader className="shrink-0 border-b border-border px-5 py-4 pr-16 sm:pl-6">
           <DialogTitle>{editingPackage ? "Edit package" : "Create package"}</DialogTitle>
           <DialogDescription>{editingPackage ? "Update your draft package. Changes take effect when you save." : "Save a draft to review before publishing. Closing asks you to confirm discarding unsaved changes."}</DialogDescription>
@@ -746,6 +750,7 @@ export function ProviderPackagesClient({
       />
     </div>
     </Dialog>
+    </>
   );
 }
 

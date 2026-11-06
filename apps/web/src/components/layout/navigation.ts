@@ -203,7 +203,6 @@ const adminNavigation: readonly NavigationItem[] = [
   {kind: "link", section: "Overview", label: "Dashboard", href: "/admin", icon: LayoutDashboard},
   {kind: "link", section: "People", label: "Users", href: "/admin/users", icon: Users},
   {kind: "link", section: "People", label: "Provider Verification", href: "/admin/providers", icon: ShieldCheck},
-  {kind: "link", section: "People", label: "Provider Occasions", href: "/admin/provider-occasions", icon: CalendarDays},
   {kind: "link", section: "Transactions", label: "Bookings", href: "/admin/bookings", icon: CalendarDays},
   {kind: "link", section: "Transactions", label: "Payments", href: "/admin/payments", icon: CreditCard},
   {kind: "link", section: "Support", label: "Reviews", href: "/admin/reviews", icon: MessageSquareText},

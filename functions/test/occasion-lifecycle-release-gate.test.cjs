@@ -1,298 +1,64 @@
-/** Regression for the missing lifecycle release authorization gate.
- * Uses the compiled callable with mocked Firebase dependencies. These checks
- * do not claim live App Check, IAM, Firestore or old-client E2E evidence.
- */
+/** Callable routing regression. Routine transaction security is exercised by
+ * occasion-routine-deactivation.test.mjs; no Firebase services are contacted. */
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const {readFileSync} = require('node:fs');
 const {resolve} = require('node:path');
 const vm = require('node:vm');
-
-const srcRoot = resolve(__dirname, '../src');
 const code = readFileSync(resolve(__dirname, '../lib/admin/occasion-lifecycle-actions.js'), 'utf8');
-const readinessSource = readFileSync(resolve(srcRoot, 'admin/occasion-activation-readiness.ts'), 'utf8');
-const actionsSource = readFileSync(resolve(srcRoot, 'admin/occasion-lifecycle-actions.ts'), 'utf8');
-
-const requiredSafeguards = [
-  'RELEASE_AUTHORIZATION_UNVERIFIED',
-  'ELIGIBILITY_WRITER_COVERAGE_UNVERIFIED',
-  'AFFECTED_INVENTORY_UNVERIFIED',
-  'PUBLICATION_WITHDRAWAL_UNAVAILABLE',
-  'BOOKING_COMPATIBILITY_UNVERIFIED',
-  'CUSTOMER_WEB_COMPATIBILITY_UNVERIFIED',
-  'FLUTTER_COMPATIBILITY_UNVERIFIED',
-  'INDEX_QUERY_READINESS_UNVERIFIED',
-  'GENERATION_COORDINATION_UNAVAILABLE',
-  'DEPLOYMENT_SECURITY_GATES_UNVERIFIED',
-];
-
-function fixture({completed = false, packages = [], events = [], requests = []} = {}) {
-  let atomicCalls = 0;
-  let txWrites = 0;
-  let transactionCalls = 0;
-  let readinessCalls = 0;
-  const checks = Array.from({length: 7}, (_, i) => ({
-    code: `BASE_${i}`, status: 'SATISFIED', message: 'Validated basic catalog state',
-  })).concat(requiredSafeguards.map(code => ({code, status: 'BLOCKED', message: 'Not independently verified'})));
-  const expected = {occasionId: 'birthday', expectedOccasionRevision: 2,
-    expectedCatalogRevision: 3};
-  const tx = {
-    get: async ref => {
-      if (ref.kind === 'query') {
-         const records = ref.name === 'packages' ? packages :
-           ref.name === 'mainEvents' ? events :
-           ref.name === 'providerRequests' ? requests : [];
-         const docs = records.slice(0, ref.limit).map(([id, data]) => ({
-           id, data: () => data,
-         }));
-         return {docs, size: docs.length, empty: docs.length === 0};
-       }
-      if (ref.path.startsWith('occasionLifecycleOperations/')) {
-        return {data: () => completed ? {state: 'completed'} : undefined};
-      }
-      return {data: () => ref.path === 'occasions/birthday' ?
-        {applicableServiceCategoryCodes: ['catering_service']} : undefined};
-    },
-    create() {txWrites++;}, update() {txWrites++;}, set() {txWrites++;}, delete() {txWrites++;},
-  };
-  const ref = (name, id) => ({path: `${name}/${id}`, id});
-  const db = {
-    collection(name) {return {
-      doc(id) {return ref(name,id);},
-      orderBy() {return {limit(n){return {kind:'query',name,limit:n};}}},
-    };},
-    collectionGroup() {return {limit(){return {kind:'query'};}}},
-    async runTransaction(fn) { transactionCalls++; return fn(tx); },
-  };
-  const fail = (reason, code='failed-precondition') => {
-    const error = new Error(reason); error.code=code; error.details={reason}; throw error;
-  };
-  const packageChecks = require('../lib/admin/occasion-package-dependencies.js');
-  const bookingChecks = require('../lib/admin/occasion-booking-dependencies.js');
-  const mocks = {
-    './occasion-package-dependencies.js': packageChecks,
-    './occasion-booking-dependencies.js': bookingChecks,
-    'firebase-functions/v2/https': {onCall: (_opts, handler) => handler},
-    'firebase-admin/firestore': {FieldPath:{documentId:()=> '__name__'}},
-    '../shared/firestore.js': {db},
-    '../shared/function-options.js': {appCheckCallableOptions: {}},
-    '../packages/occasion-suggestion-v2-core.js': {fail},
-    '../packages/occasion-v2-validation.js': {occasionId: value => value},
-    '../packages/occasion-transition-inventory-scan.js': {
-      scanOccasionPackageInventory: async () => ({candidatePackageIds: []}),
-    },
-    '../packages/v2-validation.js': {
-      exact: value => value,
-      mutationKey: value => value,
-      plainText: value => value,
-      positiveRevision: value => value,
-    },
-    './occasion-activation-readiness.js': {
-      requireOccasionLifecycleActor: async () => 'admin_123',
-      requireOccasionLifecycleAdmin: async () => {},
-      parseOccasionReadinessInput: value => value,
-      readOccasionReadiness: async (_transaction, _request, _action) => {
-        readinessCalls++;
-        return {...expected, status: 'BLOCKED', lifecycleAvailable: false,
-          checks, blockers: requiredSafeguards, occasionRevision: 2, catalogRevision: 3};
-      },
-    },
-    './occasion-routine-transaction.js': {
-      activateRoutineOccasion: async () => {
-        throw new Error('UNEXPECTED_ROUTINE_ACTIVATION');
-      },
-      inspectRoutineOccasionActivation: async () => {
-        throw new Error('UNEXPECTED_ROUTINE_PREVIEW');
-      },
-    },
-    './occasion-lifecycle-atomic.js': {
-      completeAtomicOccasionLifecycle: async () => {atomicCalls++; return {state:'completed'};},
-      planOccasionGalleryWithdrawal: () => [],
-      occasionLifecycleOperationId: () => 'known_test_operation',
-    },
-  };
-  const exports={};
-  vm.runInNewContext(code, {exports, Error, require:(name)=>{
-    assert.ok(Object.prototype.hasOwnProperty.call(mocks,name), `Unexpected import: ${name}`);
-    return mocks[name];
-  }});
-  const request = {data:{...expected, idempotencyKey:'lifecycle_test_key_123',
-    reason:'A complete test reason'}};
-  return {exports, request, checks, counters:()=>({atomicCalls,txWrites,transactionCalls,readinessCalls})};
+function fixture({failure, denied = false} = {}) {
+ const calls = [];
+ const result = {state:'completed', operationId:'routine_operation'};
+ const preview = {status:'BLOCKED', lifecycleAvailable:false, blockers:['OCCASION_LIVE_BOOKING_DEPENDENCY']};
+ const input = {occasionId:'birthday', expectedOccasionRevision:2, expectedCatalogRevision:3,idempotencyKey:'lifecycle_test_key_123',reason:'A complete test reason'};
+ const unexpected = () => {throw new Error('UNEXPECTED_LEGACY_PATH');};
+ const fail = (reason, code='failed-precondition') => {const error=new Error(reason);error.code=code;error.details={reason};throw error;};
+ const mocks = {
+  'firebase-functions/v2/https':{onCall:(_options,handler)=>handler},
+  'firebase-admin/firestore':{FieldPath:{documentId:()=> '__name__'}},
+  '../shared/firestore.js':{db:{runTransaction:unexpected,collection:unexpected}},
+  '../shared/function-options.js':{appCheckCallableOptions:{}},
+  '../packages/occasion-suggestion-v2-core.js':{fail},
+  '../packages/occasion-v2-validation.js':{occasionId:value=>value},
+  '../packages/v2-validation.js':{exact:value=>value,mutationKey:value=>value,plainText:value=>value,positiveRevision:value=>value},
+  '../packages/occasion-transition-inventory-scan.js':{scanOccasionPackageInventory:unexpected},
+  './occasion-package-dependencies.js':{assertNoOccasionPackageDependencies:unexpected},
+  './occasion-booking-dependencies.js':{assertNoOccasionBookingDependencies:unexpected},
+  './occasion-activation-readiness.js':{
+   requireOccasionLifecycleActor:async(request,scope)=>{calls.push(['actor',scope]);if(denied)fail('ADMIN_REQUIRED','permission-denied');return 'admin_123';},
+   requireOccasionLifecycleAdmin:unexpected,readOccasionReadiness:unexpected,parseOccasionReadinessInput:value=>value,
+  },
+  './occasion-routine-transaction.js':{activateRoutineOccasion:unexpected,inspectRoutineOccasionActivation:unexpected},
+  './occasion-routine-deactivation.js':{
+   deactivateRoutineOccasion:async(uid,value)=>{calls.push(['execute',uid,value]);if(failure)throw failure;return result;},
+   inspectRoutineOccasionDeactivation:async(uid,value)=>{calls.push(['preview',uid,value]);return preview;},
+  },
+  './occasion-lifecycle-atomic.js':{completeAtomicOccasionLifecycle:unexpected,planOccasionGalleryWithdrawal:unexpected,occasionLifecycleOperationId:unexpected},
+ };
+ const exports={};vm.runInNewContext(code,{exports,Error,require:name=>{assert.ok(Object.hasOwn(mocks,name),'Unexpected import: '+name);return mocks[name];}});
+ return {exports,calls,input,result,preview};
 }
-
-test('every originally required safeguard is retained in the backend readiness contract',()=>{
-  for(const code of requiredSafeguards) {
-    assert.ok(readinessSource.includes(`"${code}"`), code);
-  }
-  assert.match(actionsSource,/const checks = basic\.checks;/u);
-  assert.match(actionsSource,/const blockers = \[\.\.\.basic\.blockers\];/u);
+test('deactivation delegates validated input and authenticated actor to routine transaction',async()=>{
+ const f=fixture();assert.equal(await f.exports.deactivateAdminOccasion({data:f.input}),f.result);
+ assert.deepEqual(f.calls[0],['actor','adminOccasions.deactivate.execute']);
+ assert.equal(f.calls[1][0],'execute');assert.equal(f.calls[1][1],'admin_123');
+ assert.deepEqual(JSON.parse(JSON.stringify(f.calls[1][2])),f.input);
 });
-
-test('Deactivate refuses missing release evidence before atomic writes',async()=>{
-  for(const action of ['deactivateAdminOccasion']){
-    const f=fixture();
-    await assert.rejects(f.exports[action](f.request), error=>
-      error.code === 'failed-precondition' &&
-      error.details.reason === 'OCCASION_LIFECYCLE_RELEASE_UNVERIFIED');
-    assert.deepEqual(f.counters(), {atomicCalls:0,txWrites:0,transactionCalls:1,readinessCalls:1});
-  }
+test('deactivation preview returns routine dependency evidence unchanged',async()=>{
+ const f=fixture();const {idempotencyKey,reason,...input}=f.input;
+ assert.equal(await f.exports.inspectAdminOccasionAtomicReadiness({data:{...input,action:'deactivate'}}),f.preview);
+ assert.deepEqual(f.calls[0],['actor','adminOccasions.atomic.readiness']);
+ assert.equal(f.calls[1][0],'preview');assert.equal(f.calls[1][1],'admin_123');
+ assert.deepEqual(JSON.parse(JSON.stringify(f.calls[1][2])),input);
 });
-
-test('Admin preview includes ten unresolved release safeguards even with zero inventory',async()=>{
-  const f=fixture();
-  const preview=await f.exports.inspectAdminOccasionAtomicReadiness({data:{
-    occasionId:'birthday',action:'deactivate',expectedOccasionRevision:2,expectedCatalogRevision:3,
-  }});
-  assert.equal(preview.status,'BLOCKED');
-  assert.equal(preview.lifecycleAvailable,false);
-  assert.equal(preview.checks.length,17);
-  assert.equal(preview.blockers.length,12);
-  assert.equal(preview.packageCount,0);
-  assert.equal(preview.galleryCount,0);
-  for(const code of requiredSafeguards) assert.ok(preview.blockers.includes(code));
-  assert.equal(f.counters().txWrites,0);
+test('actor denial prevents transaction invocation',async()=>{
+ const f=fixture({denied:true});await assert.rejects(f.exports.deactivateAdminOccasion({data:f.input}),{code:'permission-denied'});assert.equal(f.calls.length,1);
 });
-
- test('preview reports a live private package dependency', async () => {
-  const f = fixture({packages: [['private_draft', {
-    occasionSchemaVersion: 2,
-    occasionScope: 'specific',
-    occasionIds: ['birthday'],
-    occasionMatchIds: ['birthday'],
-    serviceCategoryCode: 'catering_service',
-    status: 'draft',
-    isDeleted: false,
-  }]]});
-
-  const preview = await f.exports.inspectAdminOccasionAtomicReadiness({
-    data: {
-      occasionId: 'birthday',
-      action: 'deactivate',
-      expectedOccasionRevision: 2,
-      expectedCatalogRevision: 3,
-    },
-  });
-
-  assert.ok(preview.blockers.includes('OCCASION_LIVE_PACKAGE_DEPENDENCY'));
-  assert.equal(preview.status, 'BLOCKED');
-  assert.equal(f.counters().txWrites, 0);
-});
-
-test('preview reports a live booking dependency', async () => {
-  const f = fixture({
-    events: [['event_001', {
-      eventType: 'birthday',
-      status: 'confirmed',
-      providerRequestIds: ['request_001'],
-      providerRequestCount: 1,
-    }]],
-    requests: [['request_001', {
-      mainEventId: 'event_001',
-      eventType: 'birthday',
-      status: 'confirmed',
-    }]],
-  });
-
-  const preview = await f.exports.inspectAdminOccasionAtomicReadiness({
-    data: {
-      occasionId: 'birthday',
-      action: 'deactivate',
-      expectedOccasionRevision: 2,
-      expectedCatalogRevision: 3,
-    },
-  });
-
-  assert.ok(preview.blockers.includes('OCCASION_LIVE_BOOKING_DEPENDENCY'));
-  assert.equal(preview.status, 'BLOCKED');
-  assert.equal(f.counters().txWrites, 0);
-});
-
-test('terminal booking history creates no live dependency blocker', async () => {
-  const f = fixture({
-    events: [['event_001', {
-      eventType: 'birthday',
-      status: 'completed',
-      providerRequestIds: ['request_001'],
-      providerRequestCount: 1,
-    }]],
-    requests: [['request_001', {
-      mainEventId: 'event_001',
-      eventType: 'birthday',
-      status: 'completed',
-    }]],
-  });
-
-  const preview = await f.exports.inspectAdminOccasionAtomicReadiness({
-    data: {
-      occasionId: 'birthday',
-      action: 'deactivate',
-      expectedOccasionRevision: 2,
-      expectedCatalogRevision: 3,
-    },
-  });
-
-  assert.ok(!preview.blockers.includes('OCCASION_LIVE_BOOKING_DEPENDENCY'));
-  assert.ok(preview.blockers.includes('OCCASION_BOOKING_DEPENDENCIES_UNVERIFIED'));
-  assert.equal(preview.status, 'BLOCKED');
-  assert.equal(f.counters().txWrites, 0);
-});
-
-test('missing booking relationship fails closed in preview', async () => {
-  const f = fixture({
-    events: [['event_001', {
-      eventType: 'birthday',
-      status: 'completed',
-      providerRequestIds: ['request_missing'],
-      providerRequestCount: 1,
-    }]],
-  });
-
-  const preview = await f.exports.inspectAdminOccasionAtomicReadiness({
-    data: {
-      occasionId: 'birthday',
-      action: 'deactivate',
-      expectedOccasionRevision: 2,
-      expectedCatalogRevision: 3,
-    },
-  });
-
-  assert.ok(preview.blockers.includes('OCCASION_BOOKING_DEPENDENCIES_UNVERIFIED'));
-  assert.equal(preview.status, 'BLOCKED');
-  assert.equal(f.counters().txWrites, 0);
-});
-
-test('oversized booking inventory blocks preview', async () => {
-  const events = Array.from({length: 41}, (_, i) => [
-    `event_${String(i).padStart(3, '0')}`,
-    {
-      eventType: 'wedding',
-      status: 'completed',
-      providerRequestIds: [],
-      providerRequestCount: 0,
-    },
-  ]);
-
-  const f = fixture({events});
-
-  const preview = await f.exports.inspectAdminOccasionAtomicReadiness({
-    data: {
-      occasionId: 'birthday',
-      action: 'deactivate',
-      expectedOccasionRevision: 2,
-      expectedCatalogRevision: 3,
-    },
-  });
-
-  assert.ok(preview.blockers.includes('OCCASION_BOOKING_INVENTORY_TOO_LARGE'));
-  assert.equal(preview.status, 'BLOCKED');
-  assert.equal(f.counters().txWrites, 0);
-});
-test('completed callable retries reach atomic actor, fingerprint and audit validation without stale readiness', async () => {
-  for (const action of ['deactivateAdminOccasion']) {
-    const f = fixture({completed: true});
-    const result = await f.exports[action](f.request);
-    assert.equal(result.state, 'completed');
-    assert.deepEqual(f.counters(), {atomicCalls: 1, txWrites: 0, transactionCalls: 1, readinessCalls: 0});
-  }
+for(const reason of ['ADMIN_REQUIRED','IDEMPOTENCY_CONFLICT','ROUTINE_DEACTIVATION_AUDIT_MISSING','OCCASION_LIFECYCLE_REVISION_OR_STATE_CONFLICT','OCCASION_LIVE_PACKAGE_DEPENDENCY','OCCASION_PACKAGE_DEPENDENCY_REQUIRES_REVIEW','OCCASION_LIVE_BOOKING_DEPENDENCY','OCCASION_BOOKING_DEPENDENCIES_UNVERIFIED']) {
+ test('routine refusal remains actionable: '+reason,async()=>{
+  const f=fixture({failure:new Error(reason)});await assert.rejects(f.exports.deactivateAdminOccasion({data:f.input}),error=>error.code===(reason==='ADMIN_REQUIRED'?'permission-denied':'failed-precondition')&&error.details.reason===reason);
+ });
+}
+test('unknown transaction faults are not disguised as successful saves',async()=>{
+ const error=new Error('unexpected');const f=fixture({failure:error});await assert.rejects(f.exports.deactivateAdminOccasion({data:f.input}),value=>value===error);
 });

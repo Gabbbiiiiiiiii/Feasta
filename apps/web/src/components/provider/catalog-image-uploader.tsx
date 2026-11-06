@@ -64,8 +64,19 @@ export function CatalogImageUploader({
       if (!current.has(url)) { URL.revokeObjectURL(url); previews.current.delete(url); }
     }
   }, [images]);
+  function selectFiles(files: File[]) {
+    if (disabled || !files.length) return;
+    try {
+      validateCatalogFiles(files, images.length, maximumImages);
+      const selected = files.map((file) => {
+        const url = URL.createObjectURL(file); previews.current.add(url);
+        return {id: crypto.randomUUID(), title: "", url, file};
+      });
+      onChange([...images, ...selected]); setError(null);
+    } catch (caught) { setError(caught instanceof Error ? caught.message : "Could not select images."); }
+  }
   return <div ref={uploader} tabIndex={-1} className="grid min-w-0 content-start gap-3">
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-dashed border-input bg-muted/30 p-3">
+    <div onDragOver={(event) => {event.preventDefault();}} onDrop={(event) => {event.preventDefault(); selectFiles(Array.from(event.dataTransfer.files));}} className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-dashed border-input bg-muted/30 p-3">
       <ImagePlus aria-hidden="true" className="size-7 text-primary-strong" />
       <div className="min-w-0 flex-1 basis-48">
       <h4 className="text-base font-bold">{heading ?? (titles ? "Add menu images" : "Add package images")}</h4>
@@ -75,15 +86,7 @@ export function CatalogImageUploader({
         aria-label={inputLabel ?? (titles ? "Menu images" : "Package images")} aria-describedby={`${inputId}-limits ${inputId}-count`}
         type="file" accept={CATALOG_IMAGE_TYPES.join(",")} multiple disabled={disabled || images.length >= maximumImages}
         onChange={(event) => {
-          const files = Array.from(event.target.files ?? []);
-          try {
-            validateCatalogFiles(files, images.length, maximumImages);
-            const selected = files.map((file) => {
-              const url = URL.createObjectURL(file); previews.current.add(url);
-              return {id: crypto.randomUUID(), title: "", url, file};
-            });
-            onChange([...images, ...selected]); setError(null);
-          } catch (caught) { setError(caught instanceof Error ? caught.message : "Could not select images."); }
+          selectFiles(Array.from(event.target.files ?? []));
           event.target.value = "";
         }} />
       <Button size="compact" variant="secondary" className="my-1" disabled={disabled || images.length >= maximumImages}
@@ -91,7 +94,7 @@ export function CatalogImageUploader({
         {images.length ? "Add more images" : "Choose images"}
       </Button>
       <p id={`${inputId}-limits`} className="w-full text-xs text-muted-foreground">JPEG, PNG or WebP • Up to {maximumImages} images • 5 MB each</p>
-      <p className="w-full text-xs text-muted-foreground">Upload starts when you save. {titles ? "Titles are optional." : "The first image will be used as the cover."}</p>
+      <p className="w-full text-xs text-muted-foreground">Drag images here or choose files. Upload starts when you save. {titles ? "Titles are optional." : "The first image will be used as the cover."}</p>
     </div>
     <p id={`${inputId}-count`} role="status" aria-live="polite" aria-atomic="true" className="text-sm font-medium">{images.length} of {maximumImages} images selected</p>
     {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
@@ -102,6 +105,7 @@ export function CatalogImageUploader({
         <img src={image.url} alt={image.title || `Selected image ${index + 1}`} className="h-36 w-full bg-muted object-contain" />
         </button>
         <div className="grid gap-1 border-t border-border p-2">
+        <p className="text-xs text-muted-foreground">{image.file ? (disabled ? "Waiting for save confirmation..." : "Selected - uploads on save") : "Uploaded image"}</p>
         {titles ? <label className="grid gap-1 text-xs">Title / category {index + 1}<Input maxLength={80} value={image.title} disabled={disabled}
           onChange={(event) => onChange(images.map((entry) => entry.id === image.id ? {...entry, title: event.target.value} : entry))} /></label>
           : <div className="flex h-7 items-center">{index === 0 ? <Badge className="border-primary/20 bg-primary/10 px-2 py-0.5 text-xs text-primary-strong">Cover</Badge> : <span className="px-2 text-xs font-semibold">Image {index + 1}</span>}</div>}

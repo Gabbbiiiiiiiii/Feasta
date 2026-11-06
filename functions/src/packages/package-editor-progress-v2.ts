@@ -5,6 +5,10 @@
  * Match packages/shared-types/src/provider-package-v2.cts.
  */
 
+import {
+  parseIndividualFoodItemsV2,
+  IndividualFoodItemValidationError,
+} from "./individual-food-items-v2.js";
 import {parseFoodChoiceGroupsV2} from "./food-choice-groups-v2.js";
 import {FoodChoiceValidationError} from "./food-choice-groups-v2.js";
 
@@ -81,8 +85,8 @@ export function validatePackageEditorProgress(
       limits.maxThemeImages < 1 || limits.maxThemeImages > 4) return invalid();
 
   const input = object(value, [
-    "name", "description", "serviceCategoryCode", "occasion", "pricingModel", "priceText",
-    "minimumGuestsText", "maximumGuestsText", "tiers", "foodInclusions", "foodChoiceGroups", "serviceInclusions",
+    "name", "description", "serviceCategoryCode", "occasion", "offerStructure", "packageStyle", "pricingModel", "priceText",
+    "minimumGuestsText", "maximumGuestsText", "tiers", "foodInclusions", "foodChoiceGroups", "individualFoodItems", "individualFoodDraft", "serviceInclusions",
     "decorInclusions", "furnitureInclusions", "equipmentInclusions", "themes",
     "marketingAssetIds", "paymentPolicy", "depositPercentageText",
   ]);
@@ -94,6 +98,19 @@ export function validatePackageEditorProgress(
   optional(input, "minimumGuestsText", (v) => string(v, 64), output);
   optional(input, "maximumGuestsText", (v) => string(v, 64), output);
   optional(input, "depositPercentageText", (v) => string(v, 64), output);
+  optional(input, "offerStructure", (v) => {
+    if (typeof v !== "string" ||
+        !["fixed", "customizable", "individual"].includes(v)) return invalid();
+    return v;
+  }, output);
+
+  // Package Style is provider-defined, not a hardcoded enum.
+  // This validates a private draft label, not catalog membership.
+  optional(input, "packageStyle", (v) => {
+    const label = string(v, 80, false).trim();
+    if ([...label].length < 2) return invalid();
+    return label;
+  }, output);
   optional(input, "pricingModel", (v) => {
     if (!["legacy", "per_pax", "per_bundle"].includes(v as string)) return invalid();
     return v;
@@ -149,6 +166,64 @@ export function validatePackageEditorProgress(
   optional(input, "foodChoiceGroups", (v) => {
     try { return parseFoodChoiceGroupsV2(v, true); }
     catch (error) {if (error instanceof FoodChoiceValidationError) return invalid(); throw error;}
+  }, output);
+
+  // Only complete, structurally valid individual items enter saved progress.
+  // The UI may hold unfinished input locally until it is ready to save.
+  // One individual offer represents one product with serving variants.
+  optional(input, "individualFoodItems", (v) => {
+    try {
+      const items = parseIndividualFoodItemsV2(v);
+      if (items.length > 1) return invalid();
+      return items;
+    } catch (error) {
+      if (error instanceof IndividualFoodItemValidationError) return invalid();
+      throw error;
+    }
+  }, output);
+
+  // Preserve incomplete provider inputs without inventing numeric values.
+  // This is private editor progress, never a canonical package write.
+  optional(input, "individualFoodDraft", (v) => {
+    const draft = object(v, ["id", "name", "servingOptions"]);
+    if (Object.keys(draft).length !== 3 ||
+        typeof draft.id !== "string" ||
+        !/^[A-Za-z0-9_-]{1,64}$/u.test(draft.id) ||
+        !Array.isArray(draft.servingOptions) ||
+        draft.servingOptions.length > 8 ||
+        Object.keys(draft.servingOptions).length !== draft.servingOptions.length) {
+      return invalid();
+    }
+
+    const ids = new Set<string>();
+    const options = draft.servingOptions.map((value) => {
+      const fields = [
+        "id", "name", "minimumServingsText",
+        "maximumServingsText", "priceText",
+        "minimumQuantityText", "maximumQuantityText",
+      ] as const;
+      const option = object(value, fields);
+      if (Object.keys(option).length !== fields.length ||
+          typeof option.id !== "string" ||
+          !/^[A-Za-z0-9_-]{1,64}$/u.test(option.id) ||
+          ids.has(option.id)) return invalid();
+      ids.add(option.id);
+      return {
+        id: option.id,
+        name: string(option.name, 80),
+        minimumServingsText: string(option.minimumServingsText, 64),
+        maximumServingsText: string(option.maximumServingsText, 64),
+        priceText: string(option.priceText, 64),
+        minimumQuantityText: string(option.minimumQuantityText, 64),
+        maximumQuantityText: string(option.maximumQuantityText, 64),
+      };
+    });
+
+    return {
+      id: draft.id,
+      name: string(draft.name, 120),
+      servingOptions: options,
+    };
   }, output);
   optional(input, "marketingAssetIds", (v) => list(v, 8, id), output);
   optional(input, "themes", (v) => {

@@ -64,6 +64,23 @@ describe("decimal tier prices", () => {
     expect(input).toHaveValue("42.75");
   });
 
+  it("formats on blur without changing the serialized value and restores raw editing", async () => {
+    const user = userEvent.setup();
+    render(<MoneyHarness initial="25000" />);
+    const input = screen.getByRole("textbox");
+    expect(input).toHaveValue("25,000.00");
+    expect(screen.getByText("\u20b1")).toBeInTheDocument();
+    await user.click(input);
+    expect(input).toHaveValue("25000");
+    await user.clear(input);
+    await user.paste("35000.25");
+    expect(input).toHaveValue("35000.25");
+    await user.tab();
+    expect(input).toHaveValue("35,000.25");
+    await user.click(input);
+    expect(packageMoneyCentavos((input as HTMLInputElement).value)).toBe(3500025);
+  });
+
   it("stages IME text and validates only the completed composition", () => {
     render(<MoneyHarness initial="12.35" />);
     const input = screen.getByRole("textbox");
@@ -132,4 +149,13 @@ describe("dynamic price preview", () => {
     expect(screen.queryByRole("status")).not.toBeInTheDocument();
     expect(packagePreviewSubtotal({pricingModel: "per_pax", unitPrice: "10000000", guestCount: 2})).toBeNull();
   });
+});
+
+
+it.each(["0.29", "1.01", "25000.50", "10000000.00"])("serializes %s through exact centavos and preserves backend pesos", (value) => {
+  const draft = createProviderPackageOfferDraft({serviceOptions: {drop_off: {price: Number(value), includedServices: []}}});
+  const serialized = serializeProviderPackageOfferDraft(draft);
+  expect(serialized.error).toBeNull();
+  expect(serialized.startingPrice).toBe(packageMoneyCentavos(value)! / 100);
+  expect(serialized.serviceOptions.drop_off?.price).toBe(Number(value));
 });

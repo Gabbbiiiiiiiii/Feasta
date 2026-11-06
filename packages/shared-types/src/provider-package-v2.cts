@@ -174,16 +174,62 @@ export interface ProviderCapabilityChangeResult {
 // updateProviderOccasionCapabilities(request): ProviderCapabilityChangeResult
 // getProviderOccasionCapabilityChange({operationId:string}): ProviderCapabilityChangeResult
 
+/**
+ * Private editor-progress model for an individual food product.
+ * Not part of a published package or customer booking contract.
+ */
+export interface IndividualServingOptionV2 {
+  id: string;
+  name: string;
+  minimumServings: number;
+  maximumServings: number;
+  priceCentavos: number;
+  minimumQuantity: number;
+  maximumQuantity: number;
+}
+
+export interface IndividualFoodItemV2 {
+  id: string;
+  name: string;
+  servingOptions: IndividualServingOptionV2[];
+}
+/**
+ * Private editing state for one individual food product.
+ * Numeric values remain text until the complete item can be validated.
+ * Never use these strings as customer prices or booking amounts.
+ */
+export interface IndividualServingDraftV2 {
+  id: string;
+  name: string;
+  minimumServingsText: string;
+  maximumServingsText: string;
+  priceText: string;
+  minimumQuantityText: string;
+  maximumQuantityText: string;
+}
+
+export interface IndividualFoodDraftV2 {
+  id: string;
+  name: string;
+  servingOptions: IndividualServingDraftV2[];
+}
 export interface PackageEditorProgressV2 {
   // All fields optional; empty text and unfinished numeric text are allowed.
   name?: string; description?: string; serviceCategoryCode?: string;
+  offerStructure?: 'fixed'|'customizable'|'individual';
+  // Provider-defined style label for private editor progress only.
+  // A reusable catalog ID requires a separate catalog/ownership contract.
+  packageStyle?: string;
   occasion?: {occasionSchemaVersion:2; occasionScope?:'specific'|'all'; occasionIds?:string[]};
   pricingModel?: 'legacy'|'per_pax'|'per_bundle';
   priceText?: string; minimumGuestsText?: string; maximumGuestsText?: string;
   tiers?: Partial<Record<Tier, {enabled:boolean; priceText:string;
     includedServices:string[]; decorInclusions:string[];
     furnitureInclusions:string[]; equipmentInclusions:string[]}>>;
-  foodInclusions?:string[]; foodChoiceGroups?:FoodChoiceGroupV2[]; serviceInclusions?:string[];
+  foodInclusions?:string[]; foodChoiceGroups?:FoodChoiceGroupV2[];
+  individualFoodItems?:IndividualFoodItemV2[]; // complete, private only
+  individualFoodDraft?:IndividualFoodDraftV2; // unfinished editing state
+  serviceInclusions?:string[];
   decorInclusions?:string[]; furnitureInclusions?:string[]; equipmentInclusions?:string[];
   themes?: {editorThemeId:string; name:string; description:string; assetIds:string[]}[];
   marketingAssetIds?:string[];
@@ -234,9 +280,34 @@ export interface ExistingPackageWriteInput {
   minimumGuests:number; maximumGuests:number; imageUrl:string; imageUrls?:string[];
   foodInclusions:string[]; decorInclusions:string[]; furnitureInclusions:string[]; serviceInclusions:string[];
 }
+/**
+ * Draft-only canonical individual-item pricing.
+ *
+ * This is separate from OfferV2 because individual serving sizes
+ * cannot be represented by one authoritative package-level price.
+ *
+ * This contract does not authorize publication, discovery,
+ * booking, checkout or payments.
+ */
+export interface IndividualCanonicalDraftPricingV1 {
+  offerStructure: 'individual';
+  individualPricing: {
+    pricingSchemaVersion: 1;
+    individualFoodItems: IndividualFoodItemV2[];
+  };
+
+  // Explicitly disallow legacy package-level price interpretation.
+  price?: never;
+  pricingModel?: never;
+  serviceOptions?: never;
+}
 export type PackageV2Write = Omit<ExistingPackageWriteInput,
   'eventType'|'serviceOptions'|'serviceInclusions'|'decorInclusions'|
-  'furnitureInclusions'|'foodInclusions'|'price'|'pricingModel'> & WritableOccasionV2 & OfferV2;
+  'furnitureInclusions'|'foodInclusions'|'price'|'pricingModel'> &
+  WritableOccasionV2 & OfferV2 & {
+    offerStructure?: 'fixed'|'customizable'|'individual';
+    packageStyle?: string;
+  };
 export type CreateProviderPackageV2Request = PackageV2Write & {sharedContractVersion:2; idempotencyKey:string};
 export type UpdateProviderPackageV2Request = CreateProviderPackageV2Request & {packageId:string; expectedRevision:number};
 export interface PackageDiscoveryProjectionV2 {

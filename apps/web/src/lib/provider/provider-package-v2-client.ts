@@ -1,4 +1,5 @@
 "use client";
+import {validateV2DraftResponse} from "./provider-package-mutation-response";
 import {httpsCallable} from "firebase/functions";
 import type {CreateProviderPackageV2Request, UpdateProviderPackageV2Request,
   CompletePackageEditorDraftRequest, CompletePackageEditorDraftResponse,
@@ -22,7 +23,12 @@ export function hasPendingV2Draft(): boolean {
 async function send<Output extends PackageMutationV2Response | CompletePackageEditorDraftResponse>(mutation: Mutation): Promise<Output> {
   initializeBrowserFirebase();
   await auth.authStateReady();
-  if (!packageV2Enabled) throw new Error("FEATURE_DISABLED");
+  // Production create/update are limited by the server to customizable drafts.
+  // Completion reads and validates the saved progress on the server.
+  if (!packageV2Enabled && mutation.name !== "completeProviderPackageEditorDraft" &&
+      (mutation.input.sharedContractVersion !== 2 || mutation.input.offerStructure !== "customizable")) {
+    throw new Error("FEATURE_DISABLED");
+  }
   if (!auth.currentUser) throw new Error("AUTHENTICATION_REQUIRED");
   // Persist the exact request before sending. Ambiguous network failures must
   // be resolved before another create, even after closing/reloading the editor.
@@ -32,9 +38,11 @@ async function send<Output extends PackageMutationV2Response | CompletePackageEd
   try {
     const result = (await httpsCallable<unknown, PackageMutationV2Response | CompletePackageEditorDraftResponse>(
       functions, mutation.name)(mutation.input)).data;
-    if (result.status !== "draft" || !Number.isSafeInteger(result.packageRevision) || result.packageRevision < 1 || !result.packageId) {
-      throw new Error("INVALID_DRAFT_RESPONSE");
-    }
+    validateV2DraftResponse(result, mutation.name === "completeProviderPackageEditorDraft" ?
+      {kind: "complete", editorDraftId: mutation.input.editorDraftId, revision: mutation.input.expectedRevision} :
+      mutation.name === "updateProviderPackageV2" ?
+        {kind: "update", packageId: mutation.input.packageId, revision: mutation.input.expectedRevision} :
+        {kind: "create"});
     sessionStorage.removeItem(slot());
     return result as Output;
   } catch (error) {

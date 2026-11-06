@@ -1,5 +1,7 @@
 "use client";
 
+import {validatePackageMutationResponse} from "./provider-package-mutation-response";
+
 import {
   collection,
   getDocs,
@@ -36,7 +38,10 @@ import {packageV2Enabled, packageV2PublicationEnabled} from "./provider-package-
 import {parseFoodChoiceGroupsV2} from "./food-choice-groups-v2";
 export type ProviderPackageV2 = {revision:number; occasionScope:"specific"|"all";
   occasionIds:string[]; serviceOptions:OfferV2["serviceOptions"]; equipmentInclusions:string[];
-  foodChoiceGroups?:NonNullable<OfferV2["foodChoiceGroups"]>};
+  foodChoiceGroups?:NonNullable<OfferV2["foodChoiceGroups"]>;
+  offerStructure?: "fixed" | "customizable" | "individual";
+  packageStyle?: string;
+};
 export type ProviderPackageStatus =
   | "draft"
   | "published"
@@ -47,6 +52,8 @@ export type ProviderPackagePaymentPolicy =
   | "deposit_then_balance";
 
 export type ProviderPackageInput = {
+  offerStructure?: "fixed" | "customizable" | "individual";
+  packageStyle?: string;
   pricingModel?: "per_pax" | "per_bundle";
   name: string;
   description: string;
@@ -78,6 +85,8 @@ export type ProviderPackageInput = {
 };
 
 export type ProviderPackage = {
+  offerStructure?: "fixed" | "customizable" | "individual";
+  packageStyle?: string;
   v2?: ProviderPackageV2;
   pricingModel?: "per_pax" | "per_bundle";
   id: string;
@@ -249,6 +258,10 @@ function normalizePackageInput(
   }
   return {
     ...(input.pricingModel !== undefined ? {pricingModel: input.pricingModel} : {}),
+    ...(input.offerStructure !== undefined
+      ? {offerStructure: input.offerStructure} : {}),
+    ...(input.packageStyle !== undefined
+      ? {packageStyle: input.packageStyle.trim()} : {}),
     name: input.name.trim(),
 
     description:
@@ -318,7 +331,7 @@ function parseProviderPackage(
     "occasionMatchIds", "occasionCatalogRevision", "providerEligibilityRevision", "occasionEligibilityState"];
   let v2: ProviderPackageV2 | undefined;
   if (v2Fields.some((field) => Object.hasOwn(data, field) && !(field === "offerSchemaVersion" && data[field] === 1))) {
-    if (!packageV2Enabled || data.sharedContractVersion !== 2 || data.occasionSchemaVersion !== 2 ||
+    if ((!packageV2Enabled && !(data.offerStructure === "customizable" && data.status === "draft")) || data.sharedContractVersion !== 2 || data.occasionSchemaVersion !== 2 ||
       data.offerSchemaVersion !== 2 || !Number.isSafeInteger(data.revision) || Number(data.revision) < 1 ||
       !["specific", "all"].includes(String(data.occasionScope)) || !Array.isArray(data.occasionIds) ||
       !data.occasionIds.every((id: unknown) => typeof id === "string") ||
@@ -353,7 +366,16 @@ function parseProviderPackage(
       occasionIds:[...data.occasionIds] as string[], serviceOptions,
       equipmentInclusions:stringArray(data.equipmentInclusions),
       foodChoiceGroups:Object.hasOwn(data,"foodChoiceGroups") ?
-        parseFoodChoiceGroupsV2(data.foodChoiceGroups) : []};
+        parseFoodChoiceGroupsV2(data.foodChoiceGroups) : [],
+      ...(data.offerStructure === "fixed" ||
+          data.offerStructure === "customizable" ||
+          data.offerStructure === "individual" ?
+        {offerStructure: data.offerStructure} : {}),
+      ...(typeof data.packageStyle === "string" &&
+          data.packageStyle.trim().length >= 2 &&
+          [...data.packageStyle].length <= 80 ?
+        {packageStyle: data.packageStyle} : {}),
+    };
   }
 
   const status =
@@ -428,6 +450,15 @@ function parseProviderPackage(
   }
 
   return {
+    ...(data.offerStructure === "fixed" ||
+        data.offerStructure === "customizable" ||
+        data.offerStructure === "individual"
+      ? {offerStructure: data.offerStructure} : {}),
+    ...(typeof data.packageStyle === "string" &&
+        data.packageStyle === data.packageStyle.trim() &&
+        [...data.packageStyle].length >= 2 &&
+        [...data.packageStyle].length <= 80
+      ? {packageStyle: data.packageStyle} : {}),
     ...(v2 ? {v2} : {}),
     id,
     ...(data.pricingModel === "per_pax" || data.pricingModel === "per_bundle" ? {pricingModel: data.pricingModel} : {}),
@@ -556,6 +587,8 @@ async function callPackageMutation(
   const response =
     await callable(data);
 
+  validatePackageMutationResponse(response.data, name === "publishProviderPackage" ? "published" :
+    name === "archiveProviderPackage" ? "archived" : "draft", data.packageId);
   return response.data;
 }
 

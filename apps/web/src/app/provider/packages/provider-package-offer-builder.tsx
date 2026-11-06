@@ -345,7 +345,7 @@ export function ProviderPackageOfferBuilder({
                   </span>
                 </label>
 
-                <p id={`tier-inclusions-${tier}`} className="mt-3 text-xs text-muted-foreground">Included services apply only to this tier. Shared package inclusions are configured in Step 4.</p>
+                <p id={`tier-inclusions-${tier}`} className="mt-3 text-xs text-muted-foreground">Configure included services for this tier in Step 4.</p>
                 <p className="mt-3 text-xs font-semibold text-muted-foreground">{option.enabled ? "Enabled" : "Not offered in this package"}</p>
                 {option.enabled ? (
                   <div className="mt-4 grid gap-4">
@@ -356,23 +356,7 @@ export function ProviderPackageOfferBuilder({
                         onChange={(price, inputError) => updateService(tier, {price, inputError})}
                       />
                     </label>
-                    <label className="grid gap-2 text-sm font-medium">
-                      Included services for {label}
-                      <Textarea
-                        rows={4}
-                        value={option.includedServicesText}
-                        disabled={disabled}
-                        placeholder="Enter one included service per line"
-                        aria-label={`Included services for ${label}`}
-                        aria-describedby={`tier-inclusions-${tier}`}
-                        onChange={(event) =>
-                          updateService(tier, {
-                            includedServicesText:
-                              event.currentTarget.value,
-                          })
-                        }
-                      />
-                    </label>
+
                   </div>
                 ) : null}
               </article>
@@ -387,11 +371,11 @@ export function ProviderPackageOfferBuilder({
         ) : null}
       </section> : null}
 
-      {section === "tier-inclusions" ? <section aria-label="Tier-specific inclusions"
+      {section === "tier-inclusions" || section === "all" ? <section aria-label="Tier-specific inclusions"
         className="space-y-4 rounded-2xl border border-border bg-muted/20 p-4 sm:p-5">
         <div>
           <h3 className="text-sm font-bold uppercase text-primary-strong">Inclusions per service tier</h3>
-          <p className="text-sm text-muted-foreground">These decorations, furniture, and equipment are specific to each enabled tier. Shared inclusions below apply to all tiers.</p>
+          <p className="text-sm text-muted-foreground">Enter one included service per line for each enabled tier. Shared inclusions below apply to all tiers.</p>
         </div>
         <div className="grid gap-4 lg:grid-cols-3">
           {CATERING_PACKAGE_SERVICE_TIERS.filter((tier) => value.serviceOptions[tier].enabled)
@@ -401,6 +385,25 @@ export function ProviderPackageOfferBuilder({
               return <section key={tier} className="space-y-3 rounded-lg border bg-card p-3"
                 aria-label={`${label} inclusions`}>
                 <h4 className="font-semibold">{label}</h4>
+                    <label className="grid gap-2 text-sm font-medium">
+                      Included services for {label}
+                      <Textarea
+                        rows={4}
+                        value={draft.includedServicesText}
+                        disabled={disabled}
+                        placeholder="Enter one included service per line"
+                        aria-label={`Included services for ${label}`}
+                        onChange={(event) =>
+                          updateService(tier, {
+                            includedServicesText:
+                              event.currentTarget.value,
+                          })
+                        }
+                      />
+                    </label>
+                {Boolean(draft.decorInclusionsText || draft.furnitureInclusionsText || draft.equipmentInclusionsText) ? <details>
+                  <summary className="cursor-pointer text-sm font-medium">Compatibility editor: saved category-specific inclusions</summary>
+                  <p className="my-2 text-xs text-muted-foreground">These saved values have separate contracts. Edit them here without combining them with Included Services.</p>
                 {([
                   ["Decoration", "decorInclusionsText"],
                   ["Furniture", "furnitureInclusionsText"],
@@ -413,6 +416,7 @@ export function ProviderPackageOfferBuilder({
                     placeholder="One inclusion per line"
                     onChange={(event) => updateService(tier, {[field]: event.currentTarget.value})} />
                 </label>)}
+                </details> : null}
               </section>;
             })}
         </div>
@@ -494,16 +498,20 @@ function PackageThemeEditor({value, onChange, disabled, supportsThemes}: {
           <p className="mt-1 text-sm text-muted-foreground">Optional visual choices for setup-based tiers. Themes do not change the service-tier price.</p></div>
         {supportsThemes ? <Button ref={addThemeTrigger} type="button" variant="secondary" disabled={disabled || value.themeOptions.length >= 12} onClick={(event) => open(event.currentTarget)}>Add Theme</Button> : null}
       </div>
-      {!supportsThemes ? <p className="text-sm text-muted-foreground">Enable Buffet Setup or Full-Service Catering to add themes.</p> : null}
+      {!supportsThemes ? <p className="text-sm text-muted-foreground">Drop-Off Catering includes delivery without venue setup, so themes are unavailable for that tier. Enable Buffet Setup or Full-Service Catering to add optional themes.</p> : null}
       {supportsThemes && value.themeOptions.length === 0 ? <p className="rounded-xl border border-dashed p-4 text-sm text-muted-foreground">No themes added. Themes are optional.</p> : null}
       <div className="grid gap-3 sm:grid-cols-2">
         {value.themeOptions.map((theme, index) => <article key={theme.id} className="flex items-center justify-between gap-3 rounded-xl border bg-background p-3">
-          <div className="min-w-0"><h4 className="break-words font-semibold">{theme.name || `Theme ${index + 1}`}</h4><p className="text-xs text-muted-foreground">{theme.images.length} images</p></div>
+          <div className="min-w-0">
+            {theme.images[0] ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={theme.images[0].url} alt={theme.name || "Theme preview"} className="mb-2 h-24 w-32 rounded-lg object-cover" />
+            ) : null}<h4 className="break-words font-semibold">{theme.name || `Theme ${index + 1}`}</h4><p className="text-xs text-muted-foreground">{theme.images.length} images</p></div>
           <Button type="button" variant="secondary" disabled={disabled || !supportsThemes} aria-label={`Edit theme ${theme.name || index + 1}`} onClick={(event) => open(event.currentTarget, theme)}>Edit</Button>
         </article>)}
       </div>
       <Dialog open={draft !== null} onOpenChange={(open) => { if (!open) setDraft(null); }}>
-        <DialogContent className="z-[70] max-w-xl" overlayClassName="z-[60]" onCloseAutoFocus={(event) => {
+        <DialogContent onInteractOutside={(event) => event.preventDefault()} className="z-[70] max-w-xl" overlayClassName="z-[60]" onCloseAutoFocus={(event) => {
           event.preventDefault(); (opener.current?.isConnected ? opener.current : addThemeTrigger.current)?.focus();
         }} onEscapeKeyDown={(event) => event.stopPropagation()}>
           <DialogHeader><DialogTitle>{editing ? "Edit Theme" : "Add Theme"}</DialogTitle><DialogDescription>Theme changes stay local until you save the package.</DialogDescription></DialogHeader>

@@ -608,6 +608,20 @@ export function assertPackagePaymentTermsWithinPolicy(
 export function assertPackagePublishable(
   packageData: Readonly<Record<string, unknown>>,
 ): void {
+  // Individual-item pricing requires a separate customer selection,
+  // booking and payment contract. Never publish an unsupported draft,
+  // even if it contains legacy-compatible package price fields.
+  if (
+    packageData.offerStructure === "individual" ||
+    Object.hasOwn(packageData, "individualFoodItems") ||
+    Object.hasOwn(packageData, "individualPricing")
+  ) {
+    throw new HttpsError(
+      "failed-precondition",
+      "INDIVIDUAL_FOOD_PACKAGE_UNSUPPORTED",
+    );
+  }
+
   parsePackageInput(packageData);
   if (packageData.pricingModel !== undefined) {
     throw new HttpsError("failed-precondition", "Per Pax and Per Bundle packages are draft-only until Customer Web and Mobile pricing compatibility is verified.");

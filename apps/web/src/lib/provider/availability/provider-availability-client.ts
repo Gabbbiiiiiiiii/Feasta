@@ -99,6 +99,7 @@ function normalizeProviderAvailabilityError(
         );
       case "functions/not-found":
         return new Error("Your provider account could not be found.");
+      case "functions/aborted":
       case "functions/invalid-argument":
       case "functions/failed-precondition":
         return new Error(error.message || invalidArgumentFallback);
@@ -117,4 +118,21 @@ function normalizeProviderAvailabilityError(
   }
 
   return new Error(invalidArgumentFallback);
+}
+
+export type AvailabilityOccasionCatalog = {
+  revision: number;
+  items: {id: string; label: string}[];
+};
+
+export async function getProviderAvailabilityOccasions(): Promise<AvailabilityOccasionCatalog> {
+  requireAuthenticatedProviderSession();
+  initializeBrowserAppCheck();
+  try {
+    return (await httpsCallable<Record<string, never>, AvailabilityOccasionCatalog>(
+      functions, "getProviderAvailabilityOccasions", {timeout: 30_000},
+    )({})).data;
+  } catch (error) {
+    throw normalizeProviderAvailabilityError(error, "Event types could not be loaded. Try again.");
+  }
 }

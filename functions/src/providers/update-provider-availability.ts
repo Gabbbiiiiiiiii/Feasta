@@ -50,6 +50,10 @@ import {
   requireString,
 } from "../shared/validation.js";
 
+import {projectPublicOccasionV2} from "../packages/provider-package-v2-public-occasion-contract.js";
+import {isGloballyEligibleOccasion} from "../packages/global-occasion-eligibility.js";
+import {loadOccasionCatalogReadPolicy} from "../packages/provider-package-v2-policy-read.js";
+
 const MAX_UNAVAILABLE_DATES = 366;
 
 type AvailabilityAction =
@@ -57,6 +61,9 @@ type AvailabilityAction =
   | "mark_available";
 
 const AVAILABILITY_SETTINGS_FIELDS = [
+  "supportedOccasionIds",
+  "expectedSettingsRevision",
+  "occasionCatalogRevision",
   "operatingDays",
   "bookingLeadTimeDays",
   "acceptsMultipleEventsPerDay",
@@ -349,6 +356,18 @@ export const updateProviderAvailabilitySettings =
         AVAILABILITY_SETTINGS_FIELDS,
       );
 
+      const expectedSettingsRevision = requireInteger(
+        input.expectedSettingsRevision, "expectedSettingsRevision", 0, Number.MAX_SAFE_INTEGER - 1,
+      );
+      // Schedule-only changes remain available if the catalog cannot be loaded.
+      // Omitting this field preserves the existing event preferences.
+      const selectedIds = input.supportedOccasionIds === undefined ? undefined :
+        requireSupportedOccasionIds(input.supportedOccasionIds);
+      const occasionCatalogRevision = selectedIds === undefined ? undefined : requireInteger(
+        input.occasionCatalogRevision, "occasionCatalogRevision", 1, Number.MAX_SAFE_INTEGER,
+      );
+      if (selectedIds !== undefined) await loadOccasionCatalogReadPolicy();
+
       const operatingDays =
         requireOperatingDays(
           input.operatingDays,
@@ -459,6 +478,26 @@ export const updateProviderAvailabilitySettings =
             );
           }
 
+          if ((providerData.availabilitySettingsRevision ?? 0) !== expectedSettingsRevision) {
+            throw new HttpsError("aborted",
+              "Availability settings changed. Reload before saving; " +
+              "your edits have not been saved.");
+          }
+          if (providerData.isBlocked === true) {
+            throw new HttpsError("failed-precondition",
+              "Your provider account is not available for operations.");
+          }
+          if (selectedIds !== undefined) {
+            const catalog = await readAvailabilityOccasions(transaction, providerData);
+            if (catalog.revision !== occasionCatalogRevision) {
+              throw new HttpsError("aborted",
+                "Event types changed. Reload and review your selections before saving.");
+            }
+            if (selectedIds.some(id => !catalog.items.some(item => item.id === id))) {
+              throw new HttpsError("invalid-argument",
+                "Select only currently approved event types available to your services.");
+            }
+          }
           const capabilities =
             providerCapacityCapabilities(
               providerServiceCategories(
@@ -471,6 +510,10 @@ export const updateProviderAvailabilitySettings =
               capabilities,
             );
           const settings = {
+            // Provider acceptance preferences do not grant package eligibility.
+            // Legacy eventTypesSupported and eligibility authorities stay protected.
+            ...(selectedIds === undefined ? {} : {supportedOccasionIds: selectedIds}),
+            availabilitySettingsRevision: expectedSettingsRevision + 1,
             operatingDays,
             bookingLeadTimeDays,
             acceptsMultipleEventsPerDay,
@@ -513,7 +556,10 @@ export const updateProviderAvailabilitySettings =
           return {
             providerId:
               providerReference.id,
-            settings,
+            settings: {
+              ...settings,
+              supportedOccasionIds: selectedIds ?? providerData.supportedOccasionIds ?? [],
+            },
             capacityCapabilities:
               capabilities,
           };
@@ -633,7 +679,9 @@ function availabilitySettingsSnapshot(
     Readonly<Record<string, unknown>>,
 ) {
   return Object.fromEntries(
-    AVAILABILITY_SETTINGS_FIELDS.map(
+    AVAILABILITY_SETTINGS_FIELDS.filter(field =>
+      field !== "expectedSettingsRevision" && field !== "occasionCatalogRevision"
+    ).map(
       (field) => [
         field,
         provider[field] ?? null,
@@ -789,3 +837,70 @@ function isIsoDate(
     date.getUTCDate() === day
   );
 }
+
+function requireSupportedOccasionIds(value: unknown): string[] {
+  if (!Array.isArray(value) || value.length > 200 ||
+      value.some(id => typeof id !== "string" || !/^[a-z][a-z0-9_]{1,63}$/u.test(id)) ||
+      new Set(value).size !== value.length) {
+    throw new HttpsError("invalid-argument",
+      "Supported event types must contain unique valid occasion IDs.");
+  }
+  return [...value].sort();
+}
+
+async function readAvailabilityOccasions(
+  transaction: FirebaseFirestore.Transaction,
+  provider: FirebaseFirestore.DocumentData,
+) {
+  const catalog = (await transaction.get(db.collection("occasionCatalog").doc("current"))).data();
+  if (!catalog || catalog.activationState !== "stable" ||
+      !Number.isSafeInteger(catalog.revision) || catalog.revision < 1) {
+    throw new HttpsError("failed-precondition",
+      "The event type catalog is temporarily unavailable.");
+  }
+  const categories: string[] = [];
+  for (const code of providerServiceCategories(provider)) {
+    const category = (await transaction.get(db.collection("serviceCategories").doc(code))).data();
+    if (category?.code === code && category.status === "active" &&
+        ["catering", "addon"].includes(category.serviceType)) categories.push(code);
+  }
+  const occasions = await transaction.get(
+    db.collection("occasions").where("active", "==", true).limit(201),
+  );
+  if (occasions.size > 200) {
+    throw new HttpsError("failed-precondition", "The event type catalog requires reconciliation.");
+  }
+  const items = occasions.docs.flatMap(document => {
+    const occasion = document.data();
+    if (!categories.some(serviceCategoryCode => isGloballyEligibleOccasion({
+          occasion, provider, serviceCategoryCode, occasionId: document.id,
+        }))) return [];
+    return [projectPublicOccasionV2(document.id, occasion)];
+  }).sort((a, b) => a.sortOrder - b.sortOrder || a.id.localeCompare(b.id));
+  return {revision: catalog.revision as number, items};
+}
+
+export const getProviderAvailabilityOccasions = onCall(
+  {...appCheckCallableOptions, timeoutSeconds: 30},
+  async request => {
+    const actor = requireAuth(request);
+    rejectUnknownFields(requireObject(request.data), []);
+    await requireRole(actor.uid, [USER_ROLES.provider]);
+    await enforceCallableRateLimit(request, {
+      scope: "providerAvailability.occasions", limit: 60, windowSeconds: 3600,
+    });
+    await loadOccasionCatalogReadPolicy();
+    const reference = await ownedProviderReference(actor.uid);
+    return db.runTransaction(async transaction => {
+      const provider = (await transaction.get(reference)).data();
+      if (!provider || provider.ownerId !== actor.uid) {
+        throw new HttpsError("permission-denied", "You do not own this provider account.");
+      }
+      if (!isApprovedProviderForOperations(provider) || provider.isBlocked === true) {
+        throw new HttpsError("failed-precondition",
+          "Your provider account is not available for operations.");
+      }
+      return readAvailabilityOccasions(transaction, provider);
+    });
+  },
+);

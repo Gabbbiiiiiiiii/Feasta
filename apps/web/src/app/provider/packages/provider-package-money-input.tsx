@@ -6,11 +6,15 @@ import {isPackageMoneyEdit, packageMoneyCentavos} from "@/lib/provider/package-p
 
 const INVALID_MONEY = "Use digits and one decimal point, with at most two decimal places. Exponents and signs are not allowed.";
 
-export function ProviderPackageMoneyInput({value, error, disabled, onChange}: {
-  value: string; error?: string; disabled?: boolean;
+export function ProviderPackageMoneyInput({value, error, disabled, onChange, readOnly = false, description}: {
+  value: string; error?: string; disabled?: boolean; readOnly?: boolean; description?: string;
   onChange: (value: string, error?: string) => void;
 }) {
   const id = useId();
+  const [focused, setFocused] = useState(false);
+  const cents = packageMoneyCentavos(value);
+  const display = !focused && cents !== null
+    ? (cents / 100).toLocaleString("en-PH", {minimumFractionDigits: 2, maximumFractionDigits: 2}) : value;
   const input = useRef<HTMLInputElement>(null);
   const composing = useRef(false);
   const selection = useRef({start: 0, end: 0});
@@ -35,8 +39,10 @@ export function ProviderPackageMoneyInput({value, error, disabled, onChange}: {
   }
 
   return <>
-    <Input ref={input} type="text" inputMode="decimal" autoComplete="off" spellCheck={false}
-      value={compositionText ?? value} disabled={disabled} aria-invalid={Boolean(validation)}
+    <span className="relative block">
+    <span aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2">₱</span>
+    <Input className="pl-7" ref={input} type="text" inputMode="decimal" autoComplete="off" spellCheck={false}
+      value={compositionText ?? display} onFocus={() => setFocused(true)} disabled={disabled} readOnly={readOnly} aria-invalid={Boolean(validation)}
       aria-describedby={id} onBeforeInput={(event) => rememberSelection(event.currentTarget)}
       onPaste={(event) => rememberSelection(event.currentTarget)}
       onSelect={(event) => { if (!composing.current) rememberSelection(event.currentTarget); }}
@@ -52,9 +58,11 @@ export function ProviderPackageMoneyInput({value, error, disabled, onChange}: {
         if (composing.current) setCompositionText(event.currentTarget.value);
         else commit(event.currentTarget.value);
       }} onBlur={() => {
-        if (!composing.current && value === "") onChange(value, "Enter the price you charge for this service tier.");
+        setFocused(false);
+        if (!readOnly && !composing.current && value === "") onChange(value, "Enter the price you charge for this service tier.");
       }} />
+    </span>
     <span id={id} className={validation ? "text-xs text-destructive" : "text-xs text-muted-foreground"}
-      role={validation ? "alert" : undefined}>{validation || "Enter the price you charge for this service tier."}</span>
+      role={validation ? "alert" : undefined}>{validation || description || "Enter the price you charge for this service tier."}</span>
   </>;
 }

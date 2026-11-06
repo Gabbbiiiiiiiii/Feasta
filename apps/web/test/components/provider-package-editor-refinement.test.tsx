@@ -171,3 +171,23 @@ describe("safe package save errors", () => {
     expect(providerPackageSaveError(new Error("private secret"))).not.toContain("private secret");
   });
 });
+
+it("keeps empty custom categories session-only and restores Rice from a saved dish", () => {
+  const view = render(<FoodHarness />);
+  expect(screen.getByText(/Empty categories are available only during this editing session/)).toBeVisible();
+  fireEvent.click(screen.getByRole("button", {name: "Add Category"}));
+  fireEvent.change(screen.getByLabelText("Category name"), {target: {value: "Native Delicacies"}});
+  fireEvent.click(within(screen.getByRole("dialog", {name: "Add Category"})).getByRole("button", {name: "Add Category"}));
+  expect(screen.getByTestId("food-value")).toBeEmptyDOMElement();
+  view.unmount();
+  const empty = render(<FoodHarness />);
+  fireEvent.click(screen.getByRole("button", {name: "Add Dish"}));
+  expect(screen.queryByRole("option", {name: "Native Delicacies"})).not.toBeInTheDocument();
+  empty.unmount();
+  render(<FoodHarness initial="Rice: Steamed Rice" />);
+  expect(screen.getByRole("heading", {name: "Rice"})).toBeVisible();
+  expect(screen.getByText("Steamed Rice")).toBeVisible();
+  fireEvent.click(screen.getByRole("button", {name: "Edit dish Steamed Rice"}));
+  expect(screen.getByLabelText("Category")).toHaveValue("Rice");
+  expect(screen.getByLabelText("Dish name")).toHaveValue("Steamed Rice");
+});

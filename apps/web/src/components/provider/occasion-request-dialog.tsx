@@ -10,7 +10,7 @@ import {occasionRequestsAvailable, listOccasionRequests, submitOccasionRequest, 
 export function OccasionRequestDialog() {
   const [open, setOpen] = useState(false);
   const [identities] = useState(() => new Map<string, string>());
-  return <Dialog open={open} onOpenChange={setOpen}><DialogTrigger asChild><Button type="button" variant="secondary">+ Add Occasion</Button></DialogTrigger>
+  return <Dialog open={open} onOpenChange={setOpen}><DialogTrigger asChild><Button type="button" variant="secondary">Request an Occasion</Button></DialogTrigger>
     <DialogContent><DialogHeader><DialogTitle>Request an occasion</DialogTitle><DialogDescription>Administrator review is required. Approval alone does not make an occasion selectable: catalog activation and provider capability approval are also required.</DialogDescription></DialogHeader>
       {open ? (occasionRequestsAvailable() ? <RequestContent close={() => setOpen(false)} identities={identities} /> : <div className="grid gap-4"><p role="status">Occasion request submission and history are unavailable until backend integration is verified.</p><Button type="button" variant="secondary" onClick={() => setOpen(false)}>Cancel</Button></div>) : null}</DialogContent></Dialog>;
 }
@@ -21,6 +21,8 @@ function RequestContent({close, identities}: {close: () => void; identities: Map
   const [attempted, setAttempted] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
+  const [confirmed, setConfirmed] = useState<"created" | "own_duplicate" | "canonical_match" | null>(null);
+  const requestsRef = useRef<HTMLElement | null>(null);
   const [error, setError] = useState("");
   const [items, setItems] = useState<OccasionSuggestionListItem[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
@@ -60,18 +62,88 @@ function RequestContent({close, identities}: {close: () => void; identities: Map
       else if (result.outcome === "own_duplicate") feedback = `You already requested ${result.suggestion.name}. Status: ${result.suggestion.status}.`;
       else if (result.outcome === "canonical_match") feedback = `${result.match.label} already exists in the catalog. Selection still requires catalog activation and provider eligibility.`;
       else throw new Error("Unexpected response");
-      if (alive.current) {setMessage(feedback); void load();}
+      if (alive.current) {
+        setMessage(feedback);
+        setConfirmed(result.outcome);
+        void load();
+      }
     } catch (e) {if (alive.current) setError(occasionRequestError(e));}
     finally {submitting.current = false; if (alive.current) setBusy(false);}
   }
   return <div className="grid gap-4">
+    {confirmed ? (
+      <div
+        className="grid gap-4 rounded-xl border border-border p-4"
+        aria-label="Occasion request confirmation"
+      >
+        <div className="flex items-start gap-3">
+          <span
+            aria-hidden="true"
+            className="flex size-10 shrink-0 items-center justify-center rounded-full bg-muted text-lg"
+          >
+            ✓
+          </span>
+          <div className="min-w-0">
+            <h3 className="font-semibold">
+              {confirmed === "created" ? "Request submitted!" :
+                confirmed === "own_duplicate" ? "Request already recorded" :
+                "Occasion already exists"}
+            </h3>
+            <p role="status" className="mt-1 text-sm text-muted-foreground">
+              {message}
+            </p>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-muted/40 p-3">
+          <span className="break-words font-medium">{name.trim()}</span>
+          <span className="rounded-full border px-3 py-1 text-xs">
+            {confirmed === "created" ? "Pending review" :
+              confirmed === "own_duplicate" ? "Already requested" :
+              "Catalog match"}
+          </span>
+        </div>
+
+        <p className="text-sm text-muted-foreground">
+          You can track your request below. Approval still requires separate
+          catalog activation and provider eligibility.
+        </p>
+
+        <div className="grid gap-2 sm:grid-cols-2">
+          <Button type="button" variant="secondary" onClick={() => {
+            requestsRef.current?.scrollIntoView?.({
+              behavior: "smooth",
+              block: "start",
+            });
+          }}>
+            View My Requests
+          </Button>
+          <Button type="button" variant="secondary" onClick={() => {
+            setConfirmed(null);
+            setName("");
+            setReason("");
+            setMessage("");
+            setError("");
+            setAttempted(false);
+          }}>
+            Request Another Occasion
+          </Button>
+        </div>
+
+        <Button type="button" onClick={close}>Done</Button>
+        <Button type="button" variant="secondary" onClick={close}>Cancel</Button>
+      </div>
+    ) : (
+      <>
     <div className="grid gap-2"><label htmlFor={`${id}-name`}>Occasion Name *</label><Input id={`${id}-name`} required value={name} disabled={busy} onChange={(e) => {setName(e.target.value); setMessage("");}} aria-invalid={attempted && !!validation.name} aria-describedby={attempted && validation.name ? `${id}-name-error` : undefined} />
       {attempted && validation.name ? <p id={`${id}-name-error`} className="text-sm text-destructive">{validation.name}</p> : null}</div>
     <div className="grid gap-2"><label htmlFor={`${id}-reason`}>Reason for Request (optional)</label><Textarea id={`${id}-reason`} value={reason} disabled={busy} onChange={(e) => {setReason(e.target.value); setMessage("");}} aria-invalid={attempted && !!validation.reason} aria-describedby={`${id}-reason-help`} />
       <p id={`${id}-reason-help`} className="text-sm text-muted-foreground">{attempted && validation.reason ? validation.reason : "Up to 500 characters. Use a single paragraph."}</p></div>
     {message ? <p role="status">{message}</p> : null}{error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
     <div className="flex flex-wrap justify-end gap-2"><Button type="button" variant="secondary" onClick={close}>Cancel</Button><Button type="button" disabled={busy} onClick={() => void submit()}>{busy ? "Submitting…" : "Submit Request"}</Button></div>
-    <section aria-label="My Occasion Requests" className="grid gap-3 border-t border-border pt-4"><h3 className="font-semibold">My Occasion Requests</h3>
+      </>
+    )}
+    <section ref={requestsRef} aria-label="My Occasion Requests" className="grid gap-3 border-t border-border pt-4"><h3 className="font-semibold">My Occasion Requests</h3>
       <Button type="button" variant="secondary" disabled={loading} onClick={() => void load()}>Refresh requests</Button>
       {loading ? <p role="status">Loading requests…</p> : null}{historyError ? <p role="alert">{historyError}</p> : !loading && !items.length ? <p>No occasion requests yet.</p> : null}
       <ul className="grid gap-3">{items.map((item) => <li key={item.suggestionId} className="rounded-lg border border-border p-3"><p className="font-medium">{item.name}</p><StatusBadge status={item.status} />

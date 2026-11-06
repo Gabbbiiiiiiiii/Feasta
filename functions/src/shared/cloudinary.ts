@@ -1,3 +1,8 @@
+import {lookupVerifiedEditorDraftCloudinaryV1} from "../packages/editor-draft-cloudinary-lookup-v1.js";
+import {
+  editorDraftUploadPlanV1,
+  type EditorDraftUploadScopeV1,
+} from "../packages/editor-draft-upload-plan-v1.js";
 import {
   v2 as cloudinary,
 } from "cloudinary";
@@ -25,6 +30,25 @@ export const cloudinarySecrets = [
   cloudinaryApiKey,
   cloudinaryApiSecret,
 ];
+
+/** Internal only; callers must first persist an authorized upload reservation. */
+export function createEditorDraftUploadSignatureV1(
+  scope: EditorDraftUploadScopeV1,
+  timestamp = Math.floor(Date.now() / 1000),
+) {
+  const parameters = editorDraftUploadPlanV1(
+    scope, timestamp,
+  );
+  const configuration = configureCloudinary();
+  return {
+    apiKey: configuration.apiKey,
+    cloudName: configuration.cloudName,
+    parameters,
+    signature: cloudinary.utils.api_sign_request(
+      parameters, configuration.apiSecret,
+    ),
+  };
+}
 
 export type ProviderMediaType =
   | "logo"
@@ -420,6 +444,33 @@ export async function verifyProviderServiceImage(
   }
 }
 
+/**
+ * Server-only Cloudinary verification for private editor media.
+ * Does not authorize upload, registration, deletion or publication.
+ */
+export async function verifyEditorDraftCloudinaryAssetV1(
+  scope: Parameters<typeof lookupVerifiedEditorDraftCloudinaryV1>[0],
+) {
+  const configuration = configureCloudinary();
+
+  try {
+    return await lookupVerifiedEditorDraftCloudinaryV1(
+      scope,
+      configuration.cloudName,
+      (publicId) => cloudinary.api.resource(publicId, {
+        resource_type: "image",
+        type: "upload",
+      }),
+    );
+  } catch {
+    throw new HttpsError(
+      "failed-precondition",
+      "EDITOR_DRAFT_MEDIA_VERIFICATION_FAILED",
+      {reason: "EDITOR_DRAFT_MEDIA_VERIFICATION_FAILED"},
+    );
+  }
+}
+
 export async function deleteProviderServiceImage(
   ownerId: string,
   serviceId: string,
@@ -460,6 +511,44 @@ export async function deleteProviderServiceImage(
 
     publicId,
   };
+}
+
+/** Trusted cleanup lookup: only an authenticated Admin API 404 means missing. */
+export async function lookupEditorDraftCleanupResourceV1(publicId: string) {
+  const pattern = new RegExp("^feasta/providers/[A-Za-z0-9_-]+/editor-drafts/" +
+    "[A-Za-z0-9_-]+/(?:package|themes/[A-Za-z0-9_-]+)/[A-Za-z0-9_-]+$", "u");
+  if (!pattern.test(publicId)) throw new Error("INVALID_EDITOR_DRAFT_CLEANUP_SCOPE");
+  configureCloudinary();
+  try {
+    const value = await cloudinary.api.resource(publicId,
+      {resource_type: "image", type: "upload", timeout: 5000});
+    if (value.public_id !== publicId || value.resource_type !== "image" ||
+        value.type !== "upload" ||
+        typeof value.asset_id !== "string" || !/^[A-Za-z0-9_-]{1,128}$/u.test(value.asset_id) ||
+        !Number.isSafeInteger(value.version) || value.version < 1) {
+      throw new Error("INVALID_EDITOR_DRAFT_CLEANUP_RESOURCE");
+    }
+    return {publicId, assetId: value.asset_id as string, version: value.version as number};
+  } catch (error) {
+    if ((error as {error?: {http_code?: number}; http_code?: number})?.error?.http_code === 404 ||
+        (error as {http_code?: number})?.http_code === 404) return null;
+    throw error;
+  }
+}
+
+/** Immutable asset ID deletion; never destroy an unchecked public ID. */
+export async function deleteEditorDraftCleanupResourceV1(assetId: string, publicId: string) {
+  requireCloudinaryIdentifier(assetId, "asset ID");
+  configureCloudinary();
+  const response = await cloudinary.api.delete_resources_by_asset_ids([assetId],
+    {invalidate: true, timeout: 5000}) as unknown as {
+      deleted?: Record<string, unknown>; partial?: boolean;
+    };
+  const deleted = response.deleted as Record<string, unknown> | undefined;
+  if (!deleted || Object.keys(deleted).length !== 1 || response.partial === true ||
+      !["deleted", "not_found"].includes((deleted[publicId] ?? deleted[assetId]) as string)) {
+    throw new Error("EDITOR_DRAFT_MEDIA_DELETE_NOT_CONFIRMED");
+  }
 }
 
 function requireCloudinaryIdentifier(

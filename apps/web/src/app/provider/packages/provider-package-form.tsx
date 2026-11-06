@@ -1,4 +1,7 @@
 "use client";
+import {ProviderPackageMoneyInput} from "./provider-package-money-input";
+import {ProviderPackageIntegerInput, isPackageIntegerEdit} from "./provider-package-integer-input";
+import {usePackageConfirmation} from "./use-package-confirmation";
 
 import {
   useMemo,
@@ -28,6 +31,10 @@ import {packageV2Enabled, createV2PackageDraft, updateV2PackageDraft,
 import type {CreateProviderPackageV2Request, FoodChoiceGroupV2} from "@feasta/shared-types/provider-package-v2";
 import {parseFoodChoiceGroupsV2} from "@/lib/provider/food-choice-groups-v2";
 import {ProviderPackageFoodChoices} from "./provider-package-food-choices";
+import {
+  ProviderPackageIndividualFood,
+  type IndividualFoodDraftV2,
+} from "./provider-package-individual-food";
 import {CatalogImageUploader, uploadCatalogImages} from "@/components/provider/catalog-image-uploader";
 import {packageImageDrafts} from "@/lib/provider/catalog-media";
 
@@ -55,6 +62,8 @@ import {
   uploadProviderPackageThemeImages,
   type ProviderPackageOfferDraft,
 } from "./provider-package-offer-builder";
+
+type PackageStructure = "" | "fixed" | "customizable" | "individual";
 
 type ProviderPackageFormProps = {
   occasionCatalog?: PackageOccasionOptions | null;
@@ -101,8 +110,8 @@ export function ProviderPackageForm({
   onCancel,
   onSubmittingChange,
 }: ProviderPackageFormProps) {
-  const usesV2 = initialPackage ? Boolean(initialPackage.v2) : packageV2Enabled;
-  const [pendingV2, setPendingV2] = useState(() => packageV2Enabled && hasPendingV2Draft());
+  const {confirm, confirmationDialog} = usePackageConfirmation();
+  const [pendingV2, setPendingV2] = useState(() => hasPendingV2Draft());
   const [draftSaved, setDraftSaved] = useState(false);
   const [step, setStep] = useState(initialEditorProgress?.currentStep ?? 0);
   const [savedProgress, setSavedProgress] = useState<SavedEditorDraft | null>(initialEditorProgress ?? null);
@@ -114,7 +123,17 @@ export function ProviderPackageForm({
   const scrollContainer = useRef<HTMLDivElement>(null);
   const stepHeading = useRef<HTMLHeadingElement>(null);
   const [pricingModel, setPricingModel] = useState<"per_pax" | "per_bundle" | "legacy">(initialEditorProgress?.progress.pricingModel ?? (initialPackage ? initialPackage.pricingModel ?? "legacy" : "per_pax"));
-  const steps = ["Basic details", "Pricing & capacity", "Food menu", "Services & media", "Review & save"];
+  const [offerStructure, setOfferStructure] = useState<PackageStructure>(
+    initialEditorProgress?.progress.offerStructure ??
+      initialPackage?.offerStructure ?? initialPackage?.v2?.offerStructure ?? "",
+  );
+  const usesV2 = initialPackage ? Boolean(initialPackage.v2) :
+    packageV2Enabled || offerStructure === "customizable";
+  const [packageStyle, setPackageStyle] = useState(
+    initialEditorProgress?.progress.packageStyle ??
+      initialPackage?.packageStyle ?? initialPackage?.v2?.packageStyle ?? "",
+  );
+  const steps = ["Package details", "Pricing & capacity", "Food menu", "Services & media", "Review & save"];
   function goToStep(next: number) {
     if (!Number.isInteger(next) || next < 0 || next > 4) return;
     setStep(next as 0 | 1 | 2 | 3 | 4);
@@ -156,7 +175,7 @@ export function ProviderPackageForm({
       return initialEditorProgress.progress.occasion.occasionIds ?? [];
     }
     if (initialPackage?.v2) return initialPackage.v2.occasionIds;
-    const initial = initialPackage?.eventType ?? availableEventTypes[0];
+    const initial = initialPackage?.eventType;
     return initial ? [initial] : [];
   });
   const [occasionScope, setOccasionScope] = useState<"specific" | "all">(initialEditorProgress?.progress.occasion?.occasionScope ?? initialPackage?.v2?.occasionScope ?? "specific");
@@ -193,6 +212,9 @@ export function ProviderPackageForm({
     occasionSelector.current?.focus();
   }
 
+  const [guestInputErrors, setGuestInputErrors] = useState<{minimum?: string; maximum?: string}>({});
+  const guestCapacityLimit = Math.min(maxGuestsPerEvent, 400);
+
   const [
     minimumGuests,
     setMinimumGuests,
@@ -224,6 +246,21 @@ export function ProviderPackageForm({
 
   const [foodChoiceGroups, setFoodChoiceGroups] = useState<FoodChoiceGroupV2[]>(
     initialEditorProgress?.progress.foodChoiceGroups ?? initialPackage?.v2?.foodChoiceGroups ?? [],
+  );
+
+  // The Web package currently resolves older generated shared declarations.
+  // This local type mirrors the current private progress source contract.
+  const restoredIndividualFoodDraft = (
+    initialEditorProgress?.progress as
+      (EditorProgress & {individualFoodDraft?: IndividualFoodDraftV2}) | undefined
+  )?.individualFoodDraft;
+
+  const [individualFoodDraft, setIndividualFoodDraft] = useState<IndividualFoodDraftV2>(
+    () => restoredIndividualFoodDraft ?? {
+      id: "individual_item",
+      name: "",
+      servingOptions: [],
+    },
   );
 
   const [
@@ -298,6 +335,7 @@ export function ProviderPackageForm({
   const [offerInteracted, setOfferInteracted] =
     useState(false);
 
+  const submissionPending = useRef(false);
   const [submitting, setSubmitting] =
     useState(false);
 
@@ -312,18 +350,39 @@ export function ProviderPackageForm({
     offerConfiguration.startingPrice ??
     Number.NaN;
 
-  const foodError = foodInclusionsError(foodInclusions) || (usesV2 ? (() => {
+  // Preserve existing V2 fixed-package choice groups.
+  // Do not send unsupported food-selection contracts to the legacy writer.
+  const foodStructureError =
+    offerStructure === "individual"
+      ? "Individual Food Item requires serving-size, quantity, and pricing contracts before saving."
+      : offerStructure === "customizable" && !usesV2
+        ? "This older draft cannot be converted to the customizable V2 contract in place. Create a new customizable private draft to preserve food selections."
+        : offerStructure === "customizable" && foodChoiceGroups.length === 0
+          ? "Add at least one customer-selectable food group for this customizable package."
+          : null;
+
+  const foodError = (!usesV2 && foodChoiceGroups.length ? "Return to Customizable Package to save the food-choice groups, or remove them before changing structure." : null) || foodStructureError || foodInclusionsError(foodInclusions) || (usesV2 ? (() => {
     try {parseFoodChoiceGroupsV2(foodChoiceGroups); return null;}
     catch {return "Complete each food-choice group with a title, valid options, and a possible selection count.";}
   })() : null);
 
+  // Keep invalid or incomplete guest counts invalid.
+  // Number("") would otherwise incorrectly become zero.
+  const parseGuestCount = (value: string): number => {
+    if (!value || !isPackageIntegerEdit(value, guestCapacityLimit)) return Number.NaN;
+    const parsed = Number(value);
+    return Number.isSafeInteger(parsed) ? parsed : Number.NaN;
+  };
+
   const parsedMinimumGuests =
-    Number(minimumGuests);
+    parseGuestCount(minimumGuests);
   const parsedMaximumGuests =
-    Number(maximumGuests);
+    parseGuestCount(maximumGuests);
 
   const validationError =
     useMemo(() => {
+      if (guestInputErrors.minimum) return {field: "minimumGuests", message: guestInputErrors.minimum};
+      if (guestInputErrors.maximum) return {field: "maximumGuests", message: guestInputErrors.maximum};
       if (
         name.trim().length < 2 ||
         name.trim().length > (usesV2 ? 80 : 120)
@@ -380,9 +439,9 @@ export function ProviderPackageForm({
         parsedMinimumGuests <
             minGuestsPerEvent ||
         parsedMinimumGuests >
-            maxGuestsPerEvent
+            guestCapacityLimit
         ) {
-        return {field: "minimumGuests", message: `Minimum guests must be between ${minGuestsPerEvent} and ${maxGuestsPerEvent}.`};
+        return {field: "minimumGuests", message: `Minimum guests must be between ${minGuestsPerEvent} and ${guestCapacityLimit}.`};
         }
 
       if (
@@ -392,9 +451,9 @@ export function ProviderPackageForm({
         parsedMaximumGuests <
             parsedMinimumGuests ||
         parsedMaximumGuests >
-            maxGuestsPerEvent
+            guestCapacityLimit
         ) {
-        return {field: "maximumGuests", message: `Maximum guests must be between the selected minimum and ${maxGuestsPerEvent}.`};
+        return {field: "maximumGuests", message: `Maximum guests must be between the selected minimum and ${guestCapacityLimit}.`};
         }
 
       return null;
@@ -410,9 +469,40 @@ export function ProviderPackageForm({
       packageCategoryOptions,
       serviceCategoryCode,
       minGuestsPerEvent,
-      maxGuestsPerEvent,
+      guestInputErrors,
+      guestCapacityLimit,
     ]);
 
+
+  function packageClassificationError(): string | null {
+    // Historical legacy packages remain editable without new metadata.
+    // New packages and any partially classified package require both fields.
+    const historicalUnclassified =
+      editing &&
+      !usesV2 &&
+      !initialPackage?.offerStructure &&
+      !initialPackage?.packageStyle &&
+      !offerStructure &&
+      !packageStyle.trim();
+
+    if (historicalUnclassified) return null;
+
+    if (!offerStructure) {
+      return "Choose a package structure.";
+    }
+
+    const style = packageStyle.trim();
+
+    if ([...style].length < 2 || [...style].length > 80) {
+      return "Enter a package style between 2 and 80 characters.";
+    }
+
+    if (/[\p{Cc}\p{Cf}\p{Cs}\p{Zl}\p{Zp}\p{Default_Ignorable_Code_Point}]/u.test(style)) {
+      return "Remove unsupported characters from the package style.";
+    }
+
+    return null;
+  }
 
   async function persistProgress(): Promise<SavedEditorDraft> {
       const tiers: NonNullable<EditorProgress["tiers"]> = {};
@@ -427,10 +517,15 @@ export function ProviderPackageForm({
       }
       const progress: EditorProgress = {
         name, description, serviceCategoryCode,
+        ...(offerStructure ? {offerStructure} : {}),
+        ...(packageStyle.trim() ?
+          {packageStyle: packageStyle.trim()} : {}),
         occasion: {occasionSchemaVersion: 2, occasionScope,
           occasionIds: occasionScope === "all" ? [] : selectedOccasions},
         pricingModel, minimumGuestsText: minimumGuests, maximumGuestsText: maximumGuests,
-        tiers, foodInclusions, ...(usesV2 ? {foodChoiceGroups} : {}),
+        tiers, foodInclusions, ...(usesV2 || foodChoiceGroups.length ? {foodChoiceGroups} : {}),
+        ...(usesV2 && offerStructure === "individual" ?
+          {individualFoodDraft} : {}),
         serviceInclusions: parseInclusions(serviceInclusionsText),
         decorInclusions: parseInclusions(decorInclusionsText),
         furnitureInclusions: parseInclusions(furnitureInclusionsText),
@@ -466,7 +561,7 @@ export function ProviderPackageForm({
     // The current server deliberately rejects unverified or unattached media.
     // Do not create a misleading "saved" acknowledgement for media not recoverable.
     if (images.length > 0 || offerDraft.themeOptions.some((theme) => theme.images.length > 0)) {
-      setProgressError("Remove or finish saving package/theme images first. Image uploads are not part of private progress yet.");
+      setProgressError("Save Progress & Exit cannot preserve selected package or theme images yet. Remove these image selections before saving unfinished progress, or use a supported package-save flow when your package is ready.");
       return;
     }
     setProgressSaving(true);
@@ -485,21 +580,23 @@ export function ProviderPackageForm({
     if (saved) onProgressExit?.();
   }
 
-  async function handleSubmit(
-    event: React.FormEvent<HTMLFormElement>,
-  ) {
-    event.preventDefault();
-
-    if (step !== 4 || submitting || occasionSaveGate || occasionError || validationError || depositError || foodError ||
-      offerConfiguration.error) {
+  async function handleSavePackageDraft() {
+    if (step !== 4 || submissionPending.current || submitting || occasionSaveGate || occasionError || validationError || depositError || foodError ||
+      offerConfiguration.error || packageClassificationError()) {
       return;
     }
     // The final network mutation is an independent, explicit user decision.
     // A fast second click on Next must not silently create a private package.
-    if (usesV2 && !window.confirm(editing ?
-      "Confirm saving these changes to your private package draft?" :
-      "Create this private package draft? It will not be published.")) return;
+    if (usesV2 && !await confirm({
+      message: editing ? "Confirm saving these changes to your private package draft?" : "Create private package draft?",
+      supportingText: editing ? undefined : "Your package will be saved as a private draft. It will not be published or visible to customers. You can review and edit your package later.",
+      confirmLabel: editing ? "Save changes" : "Create Draft",
+    })) return;
+    if (submissionPending.current || submitting || draftSaved) return;
 
+
+
+    submissionPending.current = true;
     setSubmitting(true);
     onSubmittingChange?.(true);
     setError(null);
@@ -539,6 +636,8 @@ export function ProviderPackageForm({
         );
       const input: ProviderPackageInput = {
         ...(pricingModel !== "legacy" ? {pricingModel} : {}),
+        ...(offerStructure ? {offerStructure} : {}),
+        ...(packageStyle.trim() ? {packageStyle: packageStyle.trim()} : {}),
         name: name.trim(),
         description:
           description.trim(),
@@ -583,6 +682,8 @@ export function ProviderPackageForm({
         }]));
         const v2: CreateProviderPackageV2Request = {...fields, serviceOptions,
           equipmentInclusions: initialPackage?.v2?.equipmentInclusions ?? initialEditorProgress?.progress.equipmentInclusions ?? [],
+          ...(offerStructure ? {offerStructure} : {}),
+          ...(packageStyle.trim() ? {packageStyle: packageStyle.trim()} : {}),
           ...(foodChoiceGroups.length ? {foodChoiceGroups: parseFoodChoiceGroupsV2(foodChoiceGroups)} : {}),
           sharedContractVersion:2, offerSchemaVersion:2, occasionSchemaVersion:2,
           occasionScope, occasionIds:occasionScope === "all" ? [] : selectedOccasions,
@@ -609,6 +710,7 @@ export function ProviderPackageForm({
         ? "Saved progress cannot attach images yet. Remove images before completing this progress draft."
         : providerPackageSaveError(caught));
     } finally {
+      submissionPending.current = false;
       setSubmitting(false);
       onSubmittingChange?.(false);
     }
@@ -646,9 +748,12 @@ export function ProviderPackageForm({
   return (
     <form
       noValidate
-      onSubmit={handleSubmit}
+      // Only the explicit save button may request confirmation. Native form
+      // submission must never turn a navigation click into a save action.
+      onSubmit={(event) => event.preventDefault()}
       className={dialogLayout ? "flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden" : "min-w-0"}
     >
+      {confirmationDialog}
       <fieldset
         disabled={submitting || progressSaving || pendingV2 || draftSaved}
         className={
@@ -669,6 +774,15 @@ export function ProviderPackageForm({
       }>
       <h3 ref={stepHeading} tabIndex={-1} className="text-lg font-bold focus:outline-none">Step {step + 1}: {steps[step]}</h3>
       <section hidden={step !== 0} className="space-y-4">
+        <div className="rounded-xl border border-border bg-muted/30 p-4">
+          <h4 className="font-semibold">Tell us about your package</h4>
+          <p className="mt-1 text-sm leading-6 text-muted-foreground">
+            Start with a clear package name, choose suitable occasions,
+            and describe what customers can expect.
+            You will set prices, add food, and configure services
+            in the next steps.
+          </p>
+        </div>
       <div className="grid min-w-0 gap-4 sm:grid-cols-2">
         <FormField
           label="Package name"
@@ -682,15 +796,24 @@ export function ProviderPackageForm({
             }
             maxLength={usesV2 ? 80 : 120}
             autoComplete="off"
+            placeholder="e.g., Busog Na Set or Wedding Buffet Package"
           />
+          <p className="mt-1 text-xs text-muted-foreground">
+            Use a name customers can easily recognize.
+            You can add the menu details in Step 3.
+          </p>
         </FormField>
 
         <FormField label="Suitable occasions" required error={occasionError} className="min-w-0">
+          <p className="mb-2 text-xs leading-5 text-muted-foreground">
+            Choose an approved occasion, then click Add.
+            You can add more than one if your business is eligible.
+          </p>
           <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-start gap-2">
             <Select ref={occasionSelector} value={occasionToAdd} required={false}
               onChange={(event) => setOccasionToAdd(event.target.value)}
               onKeyDown={(event) => {
-                if (event.key === "Enter") { event.preventDefault(); addOccasion(); }
+                if (event.key === "Enter") event.preventDefault();
               }}>
               <option value="">Choose an approved occasion</option>
               {availableEventTypes.map((value) => (
@@ -706,6 +829,10 @@ export function ProviderPackageForm({
             onClick={() => { setOccasionScope("all"); setSelectedOccasions([]); setOccasionToAdd(""); setError(null); }}>Fits All Occasions</Button>
           {occasionScope === "all" ? <ul aria-label="Selected occasions"><li>Fits All Occasions <Button type="button" variant="ghost" aria-label="Remove Fits All Occasions" onClick={() => setOccasionScope("specific")}>Remove</Button></li></ul> : null}
           <OccasionRequestDialog />
+          <p className="text-xs leading-5 text-muted-foreground">
+            Cannot find the occasion you need? Use Request an Occasion.
+            Requests are reviewed separately and do not grant immediate approval.
+          </p>
           <p className="text-xs text-muted-foreground">Fits All requires approval for every active occasion applicable to this category. Future catalog changes require server revalidation.</p>
           {retainingLegacyScope ? <p className="text-sm text-muted-foreground">Approved occasion choices are unavailable. You can save this draft with its existing occasion and category; changing either requires reloading the approved choices.</p> : null}
           {occasionSaveGate ? <p role="status" className="text-sm text-muted-foreground">{occasionSaveGate}</p> : null}
@@ -737,6 +864,10 @@ export function ProviderPackageForm({
         }
         required
       >
+        <p className="mb-2 text-xs leading-5 text-muted-foreground">
+          Select the service category your business is authorized to offer.
+          If only one category is approved, it is already selected.
+        </p>
         {packageCategoryOptions.length === 1 && serviceCategoryCode === packageCategoryOptions[0].code ? (
           <Input readOnly value={packageCategoryOptions[0].name} />
         ) : <Select
@@ -776,6 +907,42 @@ export function ProviderPackageForm({
 
       </div>
 
+        <div className="grid min-w-0 gap-4 sm:grid-cols-2">
+            <FormField label="Package structure" required>
+              <Select
+                value={offerStructure}
+                onChange={(event) =>
+                  setOfferStructure(event.target.value as PackageStructure)
+                }
+              >
+                <option value="">Choose package structure</option>
+                <option value="fixed">Fixed Package</option>
+                <option value="customizable">Customizable Package</option>
+                {/* Keep restored records readable without offering this structure for creation. */}
+                {offerStructure === "individual" ? (
+                  <option value="individual" disabled>Individual Food Item</option>
+                ) : null}
+              </Select>
+              <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                Classifies this offer. Customer checkout follows
+                existing supported booking rules.
+              </p>
+            </FormField>
+
+            <FormField label="Package style" required>
+              <Input
+                value={packageStyle}
+                onChange={(event) => setPackageStyle(event.target.value)}
+                maxLength={80}
+                autoComplete="off"
+                placeholder="e.g., Grazing Table, Bilao, Packed Meals"
+              />
+              <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                Enter your own catering style.
+                There is no predefined style list.
+              </p>
+            </FormField>
+        </div>
       <FormField
         label="Description"
         error={validationError?.field === "description" ? validationError.message : undefined}
@@ -790,8 +957,13 @@ export function ProviderPackageForm({
           }
           maxLength={2000}
           rows={3}
+          placeholder="Describe your package, what makes it special, and who it is suitable for."
           className="w-full rounded-md border bg-background px-3 py-2 text-sm"
         />
+        <p className="mt-1 text-xs leading-5 text-muted-foreground">
+          Keep this easy to understand. Exact dishes, quantities,
+          prices, and service inclusions belong in the next steps.
+        </p>
       </FormField>
 
       </section>
@@ -836,22 +1008,12 @@ export function ProviderPackageForm({
           error={validationError?.field === "price" ? validationError.message : undefined}
           required
         >
-          <Input
-            type="number"
-            value={
-              Number.isFinite(parsedPrice)
-                ? parsedPrice
-                : ""
-            }
+          <ProviderPackageMoneyInput
+            value={Number.isFinite(parsedPrice) ? String(parsedPrice) : ""}
             readOnly
-            aria-describedby="package-starting-price-help"
+            onChange={() => {}}
+            description="Automatically set to the lowest enabled service-tier price."
           />
-          <p
-            id="package-starting-price-help"
-            className="text-xs text-muted-foreground"
-          >
-            Automatically set to the lowest enabled service-tier price.
-          </p>
         </FormField>
 
         <div className="grid gap-4 sm:col-span-2">
@@ -895,18 +1057,8 @@ export function ProviderPackageForm({
           error={validationError?.field === "minimumGuests" ? validationError.message : undefined}
           required
         >
-          <Input
-            type="number"
-            min={minGuestsPerEvent}
-            max={maxGuestsPerEvent}
-            step="1"
-            value={minimumGuests}
-            onChange={(event) =>
-              setMinimumGuests(
-                event.target.value,
-              )
-            }
-          />
+          <ProviderPackageIntegerInput minimum={minGuestsPerEvent} maximum={guestCapacityLimit}
+              value={minimumGuests} onChange={(value, minimum) => {setMinimumGuests(value); setGuestInputErrors((errors) => ({...errors, minimum}));}} />
         </FormField>
 
         <FormField
@@ -914,23 +1066,8 @@ export function ProviderPackageForm({
           error={validationError?.field === "maximumGuests" ? validationError.message : undefined}
           required
         >
-          <Input
-            type="number"
-            min={
-                parsedMinimumGuests >=
-                minGuestsPerEvent
-                ? parsedMinimumGuests
-                : minGuestsPerEvent
-            }
-            max={maxGuestsPerEvent}
-            step="1"
-            value={maximumGuests}
-            onChange={(event) =>
-              setMaximumGuests(
-                event.target.value,
-              )
-            }
-          />
+          <ProviderPackageIntegerInput minimum={Number.isSafeInteger(parsedMinimumGuests) ? Math.max(minGuestsPerEvent, parsedMinimumGuests) : minGuestsPerEvent} maximum={guestCapacityLimit}
+              value={maximumGuests} onChange={(value, maximum) => {setMaximumGuests(value); setGuestInputErrors((errors) => ({...errors, maximum}));}} />
         </FormField>
       </div>
 
@@ -938,7 +1075,7 @@ export function ProviderPackageForm({
         Your business is configured for{" "}
         <span className="font-medium text-foreground">
             {minGuestsPerEvent}–
-            {maxGuestsPerEvent} guests
+            {guestCapacityLimit} guests
         </span>{" "}
         per event.
         </p>
@@ -946,17 +1083,58 @@ export function ProviderPackageForm({
 
       </section>
       <section hidden={step !== 2} className="space-y-4">
-        <ProviderPackageFoodMenu value={foodInclusions} onChange={setFoodInclusions} />
-        {usesV2 ? <ProviderPackageFoodChoices value={foodChoiceGroups} onChange={setFoodChoiceGroups}
-          disabled={submitting || progressSaving} /> : null}
+        {offerStructure === "fixed" ? (
+          <p className="text-sm text-muted-foreground">
+            Fixed package: list included dishes. Where supported,
+            you can also offer optional customer food selections
+            without changing the fixed package pricing model.
+          </p>
+        ) : null}
+        {offerStructure === "customizable" ? (
+          <p className="text-sm text-muted-foreground">
+            Customizable package: list dishes included for every
+            customer, then configure the dishes customers must select.
+          </p>
+        ) : null}
+        {offerStructure === "individual" ? (
+          <div className="grid gap-4">
+            <p role="status" className="rounded-xl border border-border bg-muted/20 p-4 text-sm">
+              Individual food items can be edited in private progress.
+              Final package saving and customer booking remain unavailable.
+            </p>
+            <ProviderPackageIndividualFood
+              value={individualFoodDraft}
+              onChange={setIndividualFoodDraft}
+              disabled={submitting || progressSaving}
+            />
+          </div>
+        ) : (
+          <ProviderPackageFoodMenu
+            value={foodInclusions}
+            onChange={setFoodInclusions}
+          />
+        )}
+        {usesV2 && offerStructure !== "individual" ? (
+          <ProviderPackageFoodChoices
+            value={foodChoiceGroups}
+            onChange={setFoodChoiceGroups}
+            disabled={submitting || progressSaving}
+          />
+        ) : null}
         {foodError ? <p role="alert" className="text-sm text-destructive">{foodError}</p> : null}
       </section>
       <section hidden={step !== 3} className="space-y-4">
       <ProviderPackageOfferBuilder section="themes" value={offerDraft} onChange={setOfferDraft} disabled={submitting} />
-      {usesV2 ? <ProviderPackageOfferBuilder section="tier-inclusions" value={offerDraft}
-        onChange={setOfferDraft} disabled={submitting} /> : null}
+      <ProviderPackageOfferBuilder section="tier-inclusions" value={offerDraft}
+        onChange={setOfferDraft} disabled={submitting} />
       <section aria-label="Images" className="grid gap-3 rounded-2xl border border-border bg-muted/20 p-4 sm:p-5"><h3 className="text-sm font-bold uppercase text-primary-strong">Package images</h3>
         <CatalogImageUploader images={images} onChange={setImages} disabled={submitting} />
+        <p className="text-xs text-muted-foreground">
+          Images selected here remain in this editing session until a
+          supported package save uploads them. Save Progress &amp; Exit
+          does not preserve package or theme images yet.
+          Remove image selections before saving unfinished progress.
+        </p>
       </section>
 
 
@@ -1008,15 +1186,17 @@ export function ProviderPackageForm({
       {savedProgress ? <p role="status" className="text-xs text-muted-foreground">Private progress saved (revision {savedProgress.revision}). This is not a package draft or publication.</p> : null}
       {progressError ? <p role="alert" className="text-sm text-destructive">{progressError}</p> : null}
       {error && !(step === 0 && error === occasionError) ? (
-        <p
+        <div
           role="alert"
           className="text-sm text-destructive"
         >
           {error}
-        </p>
+          {/^Step [1-4]:/u.test(error) ? <Button type="button" variant="secondary" onClick={() => goToStep(Number(error.charAt(5)) - 1)}>Return to Step {error.charAt(5)}</Button> : null}
+        </div>
       ) : null}
 
-      <div className="flex flex-wrap justify-end gap-3 [&>button]:flex-1 sm:[&>button]:flex-none">
+      <div role="group" aria-label="Package wizard actions" className="grid min-w-0 items-center gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,20rem)] lg:gap-6 [&_button]:px-3 [&_button]:text-sm">
+        <div className="flex min-w-0 flex-wrap items-center gap-3 lg:flex-col lg:items-start">
         <Button
           type="button"
           variant="secondary"
@@ -1031,17 +1211,23 @@ export function ProviderPackageForm({
           {progressSaving ? "Saving progress..." : onProgressExit ? "Save Progress & Exit" :
             savedProgress ? "Update saved progress" : "Save progress"}
         </Button> : null}
-        {usesV2 ? <p className="text-xs text-muted-foreground">Save Progress keeps unfinished editor state. Save Package Draft creates a private package; it does not publish.</p> : null}
-        {step > 0 ? <Button type="button" variant="secondary" onClick={() => goToStep(step - 1)}>Back</Button> : null}
-        {step < 4 ? <Button type="button" onClick={() => {
+        </div>
+        <div className="min-w-0 text-center">
+          {usesV2 ? <p className="mx-auto max-w-prose text-xs leading-5 text-muted-foreground">Save Progress keeps unfinished editor state. Save Package Draft creates a private package; it does not publish.</p> : null}
+        </div>
+        <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_minmax(0,2fr)] items-center gap-3 [&>button]:w-full [&>button]:min-w-0">
+        {step > 0 ? <Button type="button" variant="secondary" onClick={() => goToStep(step - 1)}>Back</Button> : <span aria-hidden="true" />}
+        {step < 4 ? <Button key="next-step" type="button" onClick={() => {
           const fields = step === 0 ? ["name", "description", "eventType", "serviceCategoryCode"] : step === 1 ? ["price", "minimumGuests", "maximumGuests", "serviceOptions"] : step === 3 ? ["serviceOptions"] : [];
           const pricingError = step === 1 ? serializeProviderPackageOfferDraft({...offerDraft, themeOptions: []}).error : null;
-          const guestError = step === 1 && (!Number.isInteger(parsedMinimumGuests) || !Number.isInteger(parsedMaximumGuests) || parsedMinimumGuests < minGuestsPerEvent || parsedMaximumGuests > maxGuestsPerEvent || parsedMaximumGuests < parsedMinimumGuests) ? "Enter a guest range within your business capacity." : null;
-          const message = (step === 2 ? foodError : null) || pricingError || guestError || (validationError && fields.includes(validationError.field) && !(step === 1 && validationError.field === "serviceOptions") ? validationError.message : null) || (step === 1 ? depositError : null);
+          const guestError = step === 1 && (!Number.isInteger(parsedMinimumGuests) || !Number.isInteger(parsedMaximumGuests) || parsedMinimumGuests < minGuestsPerEvent || parsedMaximumGuests > guestCapacityLimit || parsedMaximumGuests < parsedMinimumGuests) ? "Enter a guest range within your business capacity." : null;
+          const message = (step === 0 ? packageClassificationError() : null) || (step === 2 ? foodError : null) || pricingError || guestError || (validationError && fields.includes(validationError.field) && !(step === 1 && validationError.field === "serviceOptions") ? validationError.message : null) || (step === 1 ? depositError : null);
           if (message) { setError(message); return; }
           goToStep(step + 1);
         }}>Next</Button> : <Button
-          type="submit"
+          key="save-package"
+          type="button"
+          onClick={() => void handleSavePackageDraft()}
           disabled={
             submitting || progressSaving || Boolean(occasionSaveGate) ||
             Boolean(
@@ -1059,6 +1245,7 @@ export function ProviderPackageForm({
           ? "Save changes"
           : usesV2 ? "Save Package Draft" : "Create draft package"}
         </Button>}
+        </div>
       </div>
       </div>
       </fieldset>

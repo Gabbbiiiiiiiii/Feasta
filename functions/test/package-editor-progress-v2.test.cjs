@@ -40,6 +40,63 @@ test('intentionally partial progress, numeric text and steps are allowed', () =>
   assert.equal(parseSaveEditorProgress(base({}, {currentStep:4}), limits).currentStep,4);
 });
 
+test('Step 1 allows provider-defined package styles in private progress', () => {
+  const styles = [
+    'Bilao Package',
+    'Buffet Catering',
+    'Grazing Table',
+    'Lechon Package',
+    'Packed Meals',
+    'Dessert Station',
+    'Provider Custom Specialty',
+  ];
+
+  for (const offerStructure of ['fixed', 'customizable', 'individual']) {
+    for (const packageStyle of styles) {
+      const progress = {offerStructure, packageStyle};
+
+      assert.deepEqual(
+        parseSaveEditorProgress(base(progress), limits).progress,
+        progress,
+      );
+    }
+  }
+});
+
+test('Step 1 supports older progress without classifications', () => {
+  assert.deepEqual(validatePackageEditorProgress({}, limits), {});
+  assert.deepEqual(parseSaveEditorProgress(base(), limits).progress, {});
+});
+
+test('Step 1 rejects invalid classifications and unsafe styles', () => {
+  for (const progress of [
+    {offerStructure: 'unknown'},
+    {offerStructure: ''},
+    {offerStructure: null},
+    {offerStructure: 123},
+    {packageStyle: ''},
+    {packageStyle: ' '},
+    {packageStyle: 'A'},
+    {packageStyle: null},
+    {packageStyle: 123},
+    {packageStyle: 'x'.repeat(81)},
+    {packageStyle: 'Unsafe\nStyle'},
+    {offerStructure: 'fixed', unauthorized: true},
+  ]) {
+    fails(
+      () => validatePackageEditorProgress(progress, limits),
+      'INVALID_EDITOR_PROGRESS',
+    );
+  }
+});
+
+test('Step 1 normalizes provider-defined style whitespace', () => {
+  const progress = validatePackageEditorProgress({
+    packageStyle: '  Grazing Table  ',
+  }, limits);
+
+  assert.equal(progress.packageStyle, 'Grazing Table');
+});
 test('unknown keys, forged authorizations, URLs and malformed arrays fail closed', () => {
   const invalid = [
     {occasion:{occasionSchemaVersion:2,occasionIds:['birthday'],occasionMatchIds:['birthday']}},

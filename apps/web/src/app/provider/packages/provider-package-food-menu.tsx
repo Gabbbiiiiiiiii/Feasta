@@ -6,7 +6,7 @@ import {Input} from "@/components/ui/input";
 import {Select} from "@/components/ui/select";
 import {Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle} from "@/components/ui/dialog";
 import {categoryKey, categoryNameError, foodInclusionsError, parsePackageDishes,
-  serializePackageDish, SUGGESTED_FOOD_CATEGORIES, type PackageDish} from "@/lib/provider/package-food-inclusions";
+  serializePackageDish, packageFoodCategoryOptions, type PackageDish} from "@/lib/provider/package-food-inclusions";
 
 type DishDraft = {id: string | null; category: string; name: string};
 
@@ -25,9 +25,7 @@ export function ProviderPackageFoodMenu({value, onChange}: {
   const addDishTrigger = useRef<HTMLButtonElement>(null);
   const dishNameInput = useRef<HTMLInputElement>(null);
   const packageCategories = Array.from(new Set([...rows.map((row) => row.category).filter(Boolean), ...customCategories]));
-  const categories = [...packageCategories, ...SUGGESTED_FOOD_CATEGORIES.filter((suggestion) =>
-    !packageCategories.some((category) => categoryKey(category) === categoryKey(suggestion)),
-  )];
+  const categories = packageFoodCategoryOptions(packageCategories, draft.id ? draft.category : "");
   const groups = Array.from(new Set(rows.map((row) => row.category)));
 
   function openDish(button: HTMLButtonElement, row?: PackageDish) {
@@ -55,7 +53,7 @@ export function ProviderPackageFoodMenu({value, onChange}: {
     const name = categoryName.trim().replace(/\s+/gu, " ");
     const invalid = categoryNameError(categoryName);
     if (invalid) { setError(invalid); return; }
-    if (categories.some((category) => categoryKey(category) === categoryKey(name))) {
+    if ([...categories, ...packageCategories, "Other", "Uncategorized"].some((category) => categoryKey(category) === categoryKey(name))) {
       setError("That category already exists. Choose it from the category selector.");
       return;
     }
@@ -87,7 +85,7 @@ export function ProviderPackageFoodMenu({value, onChange}: {
     onChange(next);
     setError(null);
     if (another) {
-      setDraft({id: null, category: draft.category, name: ""});
+      setDraft({id: null, category: categoryKey(draft.category) === "other" ? "" : draft.category, name: ""});
       requestAnimationFrame(() => dishNameInput.current?.focus());
     } else setMode(null);
   }
@@ -117,7 +115,7 @@ export function ProviderPackageFoodMenu({value, onChange}: {
       ))}
       <p className="text-xs text-muted-foreground">{rows.length}/50 dishes. Category and dish together: at most 160 characters.</p>
       <Dialog open={mode !== null} onOpenChange={(open) => { if (!open) { setMode(null); setError(null); } }}>
-        <DialogContent className="z-[70] max-w-lg" overlayClassName="z-[60]" onCloseAutoFocus={(event) => {
+        <DialogContent onInteractOutside={(event) => event.preventDefault()} className="z-[70] max-w-lg" overlayClassName="z-[60]" onCloseAutoFocus={(event) => {
           event.preventDefault();
           (opener.current?.isConnected ? opener.current : addDishTrigger.current)?.focus();
         }} onEscapeKeyDown={(event) => {
@@ -133,7 +131,7 @@ export function ProviderPackageFoodMenu({value, onChange}: {
               <label className="grid gap-2 text-sm font-medium">Category<Select value={draft.category} onChange={(event) => {
                 if (event.target.value === ":create:") openCategory();
                 else setDraft({...draft, category: event.target.value});
-              }}><option value="">Uncategorized</option>{categories.map((category) => <option key={category} value={category}>{category}</option>)}<option value=":create:">Create a custom category…</option></Select></label>
+              }}>{categories.map((category) => <option key={category} value={category}>{category}</option>)}<option value="">Uncategorized</option><option value=":create:">Create a custom category…</option></Select></label>
               <label className="grid gap-2 text-sm font-medium">Dish name<Input ref={dishNameInput} value={draft.name} onChange={(event) => setDraft({...draft, name: event.target.value})} /></label>
               <p className="text-xs text-muted-foreground">{serializePackageDish(draft.category, draft.name).length}/160 characters including the category.</p>
             </div>

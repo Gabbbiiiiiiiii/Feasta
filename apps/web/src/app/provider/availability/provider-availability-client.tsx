@@ -9,7 +9,7 @@ import {
   UsersRound,
 } from "lucide-react";
 import {useRouter} from "next/navigation";
-import {useMemo, useState} from "react";
+import {useEffect, useMemo, useRef, useState} from "react";
 
 import {
   PROVIDER_OPERATING_DAYS,
@@ -24,12 +24,15 @@ import {Button} from "@/components/ui/button";
 import {Input} from "@/components/ui/input";
 import {formatPhilippineDate} from "@/lib/dates/philippine-date";
 import {
+  getProviderAvailabilityOccasions,
+  type AvailabilityOccasionCatalog,
   updateProviderAvailability,
   updateProviderAvailabilitySettings,
 } from "@/lib/provider/availability/provider-availability-client";
 import type {
   ProviderAvailabilitySettings,
   UpdateProviderAvailabilitySettingsInput,
+  UpdateProviderAvailabilitySettingsResult,
 } from "@/lib/provider/availability/provider-availability-types";
 
 type ProviderAvailabilityClientProps = {
@@ -37,6 +40,7 @@ type ProviderAvailabilityClientProps = {
 };
 
 type AvailabilityFormState = {
+  supportedOccasionIds: string[];
   operatingDays: ProviderOperatingDay[];
   bookingLeadTimeDays: string;
   minGuestsPerEvent: string;
@@ -57,6 +61,20 @@ export function ProviderAvailabilityClient({
   initialSettings,
 }: ProviderAvailabilityClientProps) {
   const router = useRouter();
+  const savePending = useRef(false);
+  const [settingsRevision, setSettingsRevision] = useState(initialSettings.availabilitySettingsRevision ?? 0);
+  const [catalog, setCatalog] = useState<AvailabilityOccasionCatalog | null>(null);
+  const [catalogError, setCatalogError] = useState<string | null>(null);
+  const [catalogAttempt, setCatalogAttempt] = useState(0);
+  useEffect(() => {
+    let active = true;
+    getProviderAvailabilityOccasions().then(result => {
+      if (active) setCatalog(result);
+    }).catch(error => {
+      if (active) setCatalogError(safeErrorMessage(error, "Event types could not be loaded."));
+    });
+    return () => { active = false; };
+  }, [catalogAttempt]);
   const initialForm = useMemo(
     () => formFromSettings(initialSettings),
     [initialSettings],
@@ -98,7 +116,7 @@ export function ProviderAvailabilityClient({
   }
 
   async function saveSettings() {
-    if (savingSettings || !dirty) return;
+    if (savePending.current || !dirty) return;
 
     setFormError(null);
     setSuccessMessage(null);
@@ -106,17 +124,26 @@ export function ProviderAvailabilityClient({
     let input: UpdateProviderAvailabilitySettingsInput;
 
     try {
-      input = settingsInput(form, initialSettings);
+      input = {
+        ...settingsInput(form, initialSettings),
+        ...(catalog ? {
+          supportedOccasionIds: form.supportedOccasionIds,
+          occasionCatalogRevision: catalog.revision,
+        } : {}),
+        expectedSettingsRevision: settingsRevision,
+      };
     } catch (error) {
       setFormError(safeErrorMessage(error, "Check the highlighted availability values."));
       return;
     }
 
+    savePending.current = true;
     setSavingSettings(true);
 
     try {
       const result = await updateProviderAvailabilitySettings(input);
       const savedForm = formFromMutation(result.settings);
+      setSettingsRevision(result.settings.availabilitySettingsRevision ?? settingsRevision + 1);
       setForm(savedForm);
       setCanonicalForm(savedForm);
       setSuccessMessage("Availability settings saved.");
@@ -130,6 +157,7 @@ export function ProviderAvailabilityClient({
       setFormError(message);
       feastaToast.error(message);
     } finally {
+      savePending.current = false;
       setSavingSettings(false);
     }
   }
@@ -316,6 +344,51 @@ export function ProviderAvailabilityClient({
         </AvailabilityCard>
       </div>
 
+      <AvailabilityCard
+        icon={<CalendarRange className="size-5" />}
+        title="Supported Event Types"
+        description="Choose the event types your business accepts."
+        action={catalog ? (
+          <div className="flex justify-end">
+            <Button type="button" variant="ghost" size="compact" disabled={savingSettings || catalog.items.length === 0}
+              onClick={() => {
+                setSuccessMessage(null);
+                setFormError(null);
+                setForm(current => ({...current, supportedOccasionIds:
+                  catalog.items.every(item => current.supportedOccasionIds.includes(item.id))
+                    ? [] : catalog.items.map(item => item.id).sort()}));
+              }}>
+              {catalog.items.length > 0 && catalog.items.every(item => form.supportedOccasionIds.includes(item.id)) ? "Deselect all" : "Select all"}
+            </Button>
+          </div>
+        ) : null}
+      >
+        {!catalog && !catalogError ? <p role="status">Loading event types...</p> : null}
+        {catalogError ? <div role="alert"><p>{catalogError}</p><Button type="button" variant="secondary" onClick={() => { setCatalogError(null); setCatalogAttempt(value => value + 1); }}>Retry event types</Button></div> : null}
+        {catalog ? <>
+
+          {catalog.items.length === 0 ? <p className="text-sm text-muted-foreground">No approved event types are currently available for your service categories.</p> : null}
+          <fieldset disabled={savingSettings} className="grid gap-2 sm:grid-cols-2">
+            <legend className="sr-only">Select supported event types</legend>
+            {catalog.items.map(item => <label key={item.id} className="flex min-h-12 cursor-pointer items-center gap-3 rounded-lg border border-border px-3 py-2 transition-colors hover:bg-secondary focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2 has-[:checked]:border-primary has-[:checked]:bg-primary/5">
+              <input type="checkbox" name="supportedOccasionIds" value={item.id}
+                checked={form.supportedOccasionIds.includes(item.id)} className="size-5 shrink-0 accent-primary"
+                onChange={() => {
+                  setSuccessMessage(null);
+                  setFormError(null);
+                  setForm(current => ({...current, supportedOccasionIds: current.supportedOccasionIds.includes(item.id)
+                    ? current.supportedOccasionIds.filter(id => id !== item.id) : [...current.supportedOccasionIds, item.id].sort()}));
+                }} />
+              <span className="font-semibold">{item.label}</span>
+            </label>)}
+          </fieldset>
+          {form.supportedOccasionIds.some(id => !catalog.items.some(item => item.id === id)) ?
+            <div role="alert" className="text-sm text-muted-foreground">Some saved event types are no longer eligible. Remove them before saving.
+              <Button type="button" variant="ghost" disabled={savingSettings} onClick={() => setForm(current => ({...current, supportedOccasionIds: current.supportedOccasionIds.filter(id => catalog.items.some(item => item.id === id))}))}>Remove unavailable event types</Button>
+            </div> : null}
+        </> : null}
+      </AvailabilityCard>
+
       <section
         className="grid min-w-0 gap-5 rounded-card border border-border bg-card p-5 shadow-card sm:p-6"
         aria-labelledby="unavailable-dates-heading"
@@ -471,6 +544,7 @@ function AvailabilityCard({
   title,
   description,
   requiredMark = false,
+  action,
   children,
 }: {
   icon: React.ReactNode;
@@ -478,6 +552,7 @@ function AvailabilityCard({
   description: string;
   requiredMark?: boolean;
   children: React.ReactNode;
+  action?: React.ReactNode;
 }) {
   const id = `availability-${title.toLowerCase().replaceAll(/[^a-z0-9]+/gu, "-").replaceAll(/^-|-$/gu, "")}`;
 
@@ -486,13 +561,16 @@ function AvailabilityCard({
       className="grid min-w-0 gap-5 rounded-card border border-border bg-card p-5 shadow-card sm:p-6"
       aria-labelledby={id}
     >
-      <CardHeading
-        icon={icon}
-        id={id}
-        title={title}
-        description={description}
-        requiredMark={requiredMark}
-      />
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <CardHeading
+          icon={icon}
+          id={id}
+          title={title}
+          description={description}
+          requiredMark={requiredMark}
+        />
+        {action}
+      </div>
       {children}
     </section>
   );
@@ -567,6 +645,7 @@ function formFromSettings(
   settings: ProviderAvailabilitySettings,
 ): AvailabilityFormState {
   return {
+    supportedOccasionIds: [...(settings.supportedOccasionIds ?? [])].sort(),
     operatingDays: [...settings.operatingDays],
     bookingLeadTimeDays: String(settings.bookingLeadTimeDays),
     minGuestsPerEvent: String(settings.guestCapacity?.minimum ?? 0),
@@ -575,11 +654,12 @@ function formFromSettings(
 }
 
 function formFromMutation(
-  settings: UpdateProviderAvailabilitySettingsInput,
+  settings: UpdateProviderAvailabilitySettingsResult["settings"],
 ): AvailabilityFormState {
   return {
     operatingDays: [...settings.operatingDays],
     bookingLeadTimeDays: String(settings.bookingLeadTimeDays),
+    supportedOccasionIds: [...(settings.supportedOccasionIds ?? [])].sort(),
     minGuestsPerEvent: String(settings.minGuestsPerEvent),
     maxGuestsPerEvent: String(settings.maxGuestsPerEvent),
   };
@@ -588,7 +668,7 @@ function formFromMutation(
 function settingsInput(
   form: AvailabilityFormState,
   settings: ProviderAvailabilitySettings,
-): UpdateProviderAvailabilitySettingsInput {
+): Omit<UpdateProviderAvailabilitySettingsInput, "expectedSettingsRevision"> {
   if (form.operatingDays.length === 0) {
     throw new Error("Select at least one operating day.");
   }

@@ -1,6 +1,6 @@
+import {parsePackageClassification} from "./package-classification.js";
 import {requireLegacyPackageOccasionAuthority} from "./legacy-package-occasion-authority.js";
 import {occasionDependencyEntryPath, validOccasionDependencyEntry} from "../admin/occasion-dependency-registry.js";
-import {requireMaintenanceOpen, recordMaintenanceAdmission} from "../shared/maintenance.js";
 import {isLegacyPackageDraft} from "./legacy-occasion-publication-guard.js";
 import {BALANCE_DUE_HOURS_BEFORE_EVENT} from "../payments/canonical-balance-timing.js";
 import {cloudinarySecrets} from "../shared/cloudinary.js";
@@ -53,6 +53,8 @@ const ALLOWED_FIELDS = [
   "description",
   "eventType",
   "serviceCategoryCode",
+  "offerStructure",
+  "packageStyle",
   "pricingModel",
   "price",
   "serviceOptions",
@@ -109,6 +111,7 @@ export const updateProviderPackage = onCall(
       "packageId",
     );
 
+    const classification = parsePackageClassification(input);
     const validated = parseCanonicalPackageWrite({
       name: input.name,
       description: input.description,
@@ -178,7 +181,6 @@ export const updateProviderPackage = onCall(
 
     return db.runTransaction(
       async (transaction) => {
-        await requireMaintenanceOpen(transaction, db, "intake");
         const userSnapshot =
           await transaction.get(
             userReference,
@@ -346,7 +348,6 @@ export const updateProviderPackage = onCall(
           requireMatchingEntry(nextSnapshot.data(), nextEntry);
         }
 
-        recordMaintenanceAdmission(transaction, db);
         if (changedOccasion && previousSnapshot.exists) {
           transaction.delete(previousRef);
         }
@@ -364,6 +365,7 @@ export const updateProviderPackage = onCall(
             description:
               validated.description,
 
+            ...classification,
             eventType:
               validated.eventType,
 

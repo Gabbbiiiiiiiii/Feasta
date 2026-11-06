@@ -60,11 +60,16 @@ export function OccasionManagementClient({categories, onDirtyChange}: {
   const [previewOperation, setPreviewOperation] = useState<"activate" | "deactivate" | "applicability">("activate");
   const [proposedCategories, setProposedCategories] = useState<string[]>([]);
   const [suggestions, setSuggestions] = useState<OccasionSuggestionListItem[]>();
+  const [suggestionsOpen, setSuggestionsOpen] = useState(false);
+  const [pendingSummary, setPendingSummary] = useState<{count: number; hasMore: boolean} | null>(null);
+  const [pendingSummaryError, setPendingSummaryError] = useState(false);
   const [cursor, setCursor] = useState<string | null>(null);
   const [review, setReview] = useState<OccasionSuggestionListItem>();
   const [target, setTarget] = useState("");
   const [reviewReason, setReviewReason] = useState("");
   const [decision, setDecision] = useState("reject");
+  const [reviewNew, setReviewNew] = useState<NewInactiveOccasionInput>(empty());
+  const [reviewConfirm, setReviewConfirm] = useState(false);
   const pending = useRef<{signature: string; input: OccasionMutation} | undefined>(undefined);
   const reviewKey = useRef<{signature: string; key: string} | undefined>(undefined);
 
@@ -289,28 +294,136 @@ export function OccasionManagementClient({categories, onDirtyChange}: {
       setLifecycleError(message(error)); setLifecycleConfirm(false);
     } finally {setLifecycleBusy(false);}
   }
+  useEffect(() => {
+    let active = true;
+    void listOccasionSuggestions()
+      .then((page) => {
+        if (!active) return;
+        setPendingSummary({
+          count: page.items.length,
+          hasMore: Boolean(page.nextCursor),
+        });
+        setPendingSummaryError(false);
+      })
+      .catch(() => {
+        if (active) setPendingSummaryError(true);
+      });
+    return () => { active = false; };
+  }, []);
+
   async function queue(next?: string) {
     setBusy(true); setError("");
-    try {const page = await listOccasionSuggestions(next); setSuggestions(page.items); setCursor(page.nextCursor);}
+    try {
+      const page = await listOccasionSuggestions(next);
+      setSuggestions(page.items);
+      setCursor(page.nextCursor);
+      if (!next) {
+        setPendingSummary({
+          count: page.items.length,
+          hasMore: Boolean(page.nextCursor),
+        });
+        setPendingSummaryError(false);
+      }
+    }
     catch (e) {setError(message(e));} finally {setBusy(false);}
   }
-  async function moderate() {
-    if (!review || !catalog) return;
-    const selected = catalog.items.find((o) => o.id === target);
-    if (decision !== "reject" && !selected) return;
-    setBusy(true); setFormError("");
-    const signature = JSON.stringify([review.suggestionId, reviewReason, decision, target, catalog.revision]);
-    if (reviewKey.current?.signature !== signature) reviewKey.current = {signature, key: crypto.randomUUID()};
-    const base = {suggestionId: review.suggestionId, expectedRevision: review.revision,
-      expectedCatalogRevision: catalog.revision, reason: reviewReason, idempotencyKey: reviewKey.current.key};
-    try {
-      await reviewOccasionSuggestion(decision === "reject" ? {...base, decision: "reject"} :
-        {...base, decision: decision === "map" ? "map" : "approve_existing_inactive",
-          targetOccasionId: selected!.id, targetExpectedRevision: selected!.revision});
-      setReview(undefined); setReviewReason(""); await load(); await queue();
-    } catch (e) {setFormError(message(e));} finally {setBusy(false);}
-  }
+  const reviewNewValid =
+    validId(reviewNew.id) &&
+    reviewNew.label.trim().length >= 2 &&
+    reviewNew.label.trim().length <= 80 &&
+    Number.isSafeInteger(reviewNew.sortOrder) &&
+    reviewNew.applicableServiceCategoryCodes.length > 0 &&
+    reviewNew.applicableServiceCategoryCodes.every((code) =>
+      categories.some((category) =>
+        category.code === code && category.status === "active"));
 
+  async function moderate() {
+    if (!review || !catalog || busy) return;
+
+    if (!reviewReason.trim()) {
+      setFormError("A review reason is required.");
+      return;
+    }
+
+    const selected = catalog.items.find((o) => o.id === target);
+
+    if (decision === "approve_new" && !reviewNewValid) {
+      setFormError(
+        "Enter a valid occasion name, permanent ID, sort order, and at least one active service category."
+      );
+      return;
+    }
+
+    if (
+      decision !== "reject" &&
+      decision !== "approve_new" &&
+      !selected
+    ) {
+      setFormError("Choose an existing occasion.");
+      return;
+    }
+
+    setBusy(true);
+    setFormError("");
+
+    const signature = JSON.stringify([
+      review.suggestionId,
+      reviewReason,
+      decision,
+      target,
+      catalog.revision,
+      decision === "approve_new" ? reviewNew : null,
+    ]);
+
+    if (reviewKey.current?.signature !== signature) {
+      reviewKey.current = {
+        signature,
+        key: crypto.randomUUID(),
+      };
+    }
+
+    const base = {
+      suggestionId: review.suggestionId,
+      expectedRevision: review.revision,
+      expectedCatalogRevision: catalog.revision,
+      reason: reviewReason,
+      idempotencyKey: reviewKey.current.key,
+    };
+
+    try {
+      await reviewOccasionSuggestion(
+        decision === "reject"
+          ? {...base, decision: "reject"}
+          : decision === "approve_new"
+            ? {
+                ...base,
+                decision: "approve_new",
+                newOccasion: reviewNew,
+              }
+            : {
+                ...base,
+                decision: decision === "map"
+                  ? "map"
+                  : "approve_existing_inactive",
+                targetOccasionId: selected!.id,
+                targetExpectedRevision: selected!.revision,
+              }
+      );
+
+      setReview(undefined);
+      setReviewReason("");
+      setReviewNew(empty());
+      setTarget("");
+      setDecision("reject");
+
+      await load();
+      await queue();
+    } catch (error) {
+      setFormError(message(error));
+    } finally {
+      setBusy(false);
+    }
+  }
   const items = (catalog?.items ?? []).filter((o) =>
     `${o.id} ${o.label} ${o.aliases.join(" ")}`.toLocaleLowerCase().includes(search.toLocaleLowerCase()) &&
     (status === "all" || o.active === (status === "active")))
@@ -321,7 +434,10 @@ export function OccasionManagementClient({categories, onDirtyChange}: {
       <h2 className="text-xl font-semibold">Event Types / Occasions</h2>
       <div className="flex flex-wrap gap-2">
         <Button variant="secondary" disabled={loading || busy} onClick={() => void load()}>Refresh catalog</Button>
-        <Button variant="secondary" disabled={busy} onClick={() => void queue()}>Review provider suggestions</Button>
+        <Button variant="secondary" disabled={busy} onClick={() => {
+          setSuggestionsOpen(true);
+          void queue();
+        }}>Review provider suggestions</Button>
         <Button disabled={!catalog || loading || busy} onClick={() => open("create")}>Add Occasion</Button>
       </div>
     </div>
@@ -358,7 +474,7 @@ export function OccasionManagementClient({categories, onDirtyChange}: {
   ))}
   <span className="sr-only">Loading event types and occasions</span>
 </div> : catalog && <>
-      <div className="grid gap-3 sm:grid-cols-3" aria-label="Occasion overview">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" aria-label="Occasion overview">
         {[
           {label: "Total occasions", value: catalog.items.length},
           {label: "Active", value: catalog.items.filter((o) => o.active).length},
@@ -369,8 +485,29 @@ export function OccasionManagementClient({categories, onDirtyChange}: {
             <p className="mt-1 text-2xl font-semibold tabular-nums">{stat.value}</p>
           </div>
         ))}
+        <button
+          type="button"
+          aria-label="Review pending occasion requests"
+          disabled={busy}
+          onClick={() => {
+            setSuggestionsOpen(true);
+            void queue();
+          }}
+          className="rounded-xl border bg-card p-4 text-left transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
+        >
+          <p className="text-sm text-muted-foreground">Pending Requests</p>
+          <p className="mt-1 text-2xl font-semibold tabular-nums">
+            {pendingSummaryError ? "—" : pendingSummary
+              ? `${pendingSummary.count}${pendingSummary.hasMore ? "+" : ""}`
+              : "…"}
+          </p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {pendingSummaryError ? "Count unavailable — click to retry" :
+              pendingSummary?.hasMore ? "At least this many pending · Click to review" :
+              "Click to review"}
+          </p>
+        </button>
       </div>
-
       <div className="grid gap-3 sm:grid-cols-3">
         <Input
           aria-label="Search occasions"
@@ -659,13 +796,110 @@ export function OccasionManagementClient({categories, onDirtyChange}: {
         confirmLabel={readinessItem?.active ? "Deactivate occasion" : "Activate occasion"}
         loading={lifecycleBusy} onConfirm={() => void executeLifecycle()} />
     </DialogContent></Dialog>
-    {suggestions && <section className="grid gap-3" aria-label="Pending provider suggestions">
-      <h3 className="font-semibold">Pending provider suggestions</h3>
-      <p className="text-sm">Review uses the existing moderation workflow. To approve a new identity, add an inactive occasion first, then approve the matching suggestion against it.</p>
-      {!suggestions.length && <p>No pending suggestions.</p>}
-      {suggestions.map((s) => <div key={s.suggestionId} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border p-3"><span>{s.name}</span><Button variant="secondary" disabled={!catalog || busy} onClick={() => {setReview(s); setReviewReason(""); setTarget(""); setDecision("reject"); setFormError("");}}>Review {s.name}</Button></div>)}
-      <div className="flex gap-2"><Button variant="secondary" disabled={busy} onClick={() => void queue()}>Refresh suggestions</Button>{cursor && <Button disabled={busy} onClick={() => void queue(cursor)}>Next suggestions</Button>}</div>
-    </section>}
+    <Dialog
+      open={suggestionsOpen}
+      onOpenChange={(open) => {
+        if (!open && (busy || !!review)) return;
+        setSuggestionsOpen(open);
+      }}
+    >
+      <DialogContent
+        className="flex max-h-[90dvh] w-[calc(100vw-2rem)] max-w-2xl flex-col gap-0 overflow-hidden p-0 [&>button]:z-10"
+      >
+        <DialogHeader className="shrink-0 border-b p-5 pr-14 sm:p-6">
+          <DialogTitle>Provider Occasion Suggestions</DialogTitle>
+          <DialogDescription>
+            Review occasion requests submitted by providers.
+            Approval does not activate an occasion or grant provider capability.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-5 sm:p-6">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h3 className="font-semibold">Pending suggestions</h3>
+            <span className="rounded-full border px-3 py-1 text-xs font-medium">
+              {suggestions ? `${suggestions.length} on this page` : "Loading"}
+            </span>
+          </div>
+
+          <p className="text-sm text-muted-foreground">
+            To approve a new occasion identity, add an inactive occasion first.
+            Then approve the matching suggestion through the existing review workflow.
+          </p>
+
+          {!suggestions ? (
+            <p
+              role="status"
+              className="rounded-xl border p-6 text-center text-sm text-muted-foreground"
+            >
+              Loading provider suggestions...
+            </p>
+          ) : suggestions.length === 0 ? (
+            <div className="rounded-xl border border-dashed p-6 text-center">
+              <p className="font-medium">No pending suggestions</p>
+              <p className="mt-2 text-sm text-muted-foreground">
+                New provider occasion suggestions will appear here.
+              </p>
+            </div>
+          ) : (
+            <div className="grid gap-3" aria-label="Pending provider suggestions">
+              {suggestions.map((s) => (
+                <div
+                  key={s.suggestionId}
+                  className="flex flex-wrap items-center justify-between gap-3 rounded-xl border p-4"
+                >
+                  <span className="min-w-0 break-words font-medium">
+                    {s.name}
+                  </span>
+                  <Button
+                    variant="secondary"
+                    disabled={!catalog || busy}
+                    onClick={() => {
+                      setReview(s);
+                      setReviewReason("");
+                      setTarget("");
+                      setDecision("reject");
+                      setFormError("");
+                    }}
+                  >
+                    Review {s.name}
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t p-4 sm:px-6">
+          <Button
+            variant="secondary"
+            disabled={busy}
+            onClick={() => void queue()}
+          >
+            Refresh suggestions
+          </Button>
+
+          <div className="flex flex-wrap gap-2">
+            {cursor && (
+              <Button
+                disabled={busy}
+                onClick={() => void queue(cursor)}
+              >
+                Next suggestions
+              </Button>
+            )}
+
+            <Button
+              variant="secondary"
+              disabled={busy || !!review}
+              onClick={() => setSuggestionsOpen(false)}
+            >
+              Close
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
     <Dialog open={!!editor} onOpenChange={(open) => {if (!open) close();}}><DialogContent className="flex max-h-[90dvh] flex-col gap-0 overflow-hidden p-0 [&>button]:z-10"
       onEscapeKeyDown={(e) => {if (busy || confirm || discard) e.preventDefault();}}
       onInteractOutside={(e) => {if (busy || confirm || discard) e.preventDefault();}}>
@@ -723,14 +957,255 @@ export function OccasionManagementClient({categories, onDirtyChange}: {
       {impact && <div className="grid gap-3" role="status"><p>Catalog revision {impact.catalogRevision} · Occasion revision {impact.occasionRevision}</p>{impact.usage.map((u) => <p key={u.collection}>{u.collection}: {u.potentialReferences} potential references in {u.scanned} scanned records{u.truncated ? " (scan truncated)" : ""}</p>)}{impact.mappings.map((m) => <p key={m.code}>{m.code}: {m.valid ? "Active category" : "Invalid or inactive category"}</p>)}{impact.blockers.map((b) => <p key={b}>{b}</p>)}<p className="text-sm">{impact.disclaimer}</p></div>}
       <Button disabled>Apply lifecycle change — unavailable</Button>
     </DialogContent></Dialog>
-    <Dialog open={!!review} onOpenChange={(open) => {if (!open && !busy && (!reviewReason || window.confirm("Discard the unsaved review?"))) {setReview(undefined); setReviewReason("");}}}><DialogContent>
-      <DialogHeader><DialogTitle>Review {review?.name}</DialogTitle><DialogDescription>Moderation never activates an occasion or grants provider capability.</DialogDescription></DialogHeader>
-      {review?.reason && <p>{review.reason}</p>}
-      <Select aria-label="Review decision" disabled={busy} value={decision} onChange={(e) => setDecision(e.target.value)}><option value="reject">Reject</option><option value="map">Map to active occasion</option><option value="approve_existing_inactive">Approve matching inactive occasion</option></Select>
-      {decision !== "reject" && <Select aria-label="Review target" disabled={busy} value={target} onChange={(e) => setTarget(e.target.value)}><option value="">Choose occasion</option>{catalog?.items.filter((o) => o.active === (decision === "map")).map((o) => <option key={o.id} value={o.id}>{o.label} ({o.id})</option>)}</Select>}
-      <label className="grid gap-1">Review reason<Input disabled={busy} value={reviewReason} maxLength={500} onChange={(e) => setReviewReason(e.target.value)} /></label>
-      {formError && <p role="alert">{formError}</p>}
-      <Button disabled={busy || !reviewReason.trim() || (decision !== "reject" && !target)} onClick={() => {if (window.confirm("Submit this final suggestion review?")) void moderate();}}>Submit review</Button>
-    </DialogContent></Dialog>
+    <Dialog
+      open={!!review}
+      onOpenChange={(open) => {
+        if (!open && !busy &&
+          (!reviewReason || window.confirm("Discard the unsaved review?"))) {
+          setReview(undefined);
+          setReviewReason("");
+          setReviewNew(empty());
+          setFormError("");
+        }
+      }}
+    >
+      <DialogContent className="flex max-h-[90dvh] flex-col gap-0 overflow-hidden p-0">
+        <DialogHeader className="shrink-0 border-b p-5 pr-14">
+          <DialogTitle>Review {review?.name}</DialogTitle>
+          <DialogDescription>
+            Moderation never automatically activates an occasion or grants provider capability.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="min-h-0 space-y-4 overflow-y-auto p-5">
+          {review?.reason && (
+            <div className="rounded-lg border p-3 text-sm">
+              <p className="mb-1 font-medium">Provider&apos;s reason</p>
+              <p className="break-words">{review.reason}</p>
+            </div>
+          )}
+
+          <label className="grid gap-1">
+            Review decision
+            <Select
+              aria-label="Review decision"
+              disabled={busy}
+              value={decision}
+              onChange={(e) => {
+                const next = e.target.value;
+                setDecision(next);
+                setTarget("");
+                setFormError("");
+
+                if (next === "approve_new" && review) {
+                  setReviewNew({
+                    id: generateOccasionId(review.name),
+                    label: review.name,
+                    aliases: [],
+                    sortOrder:
+                      Math.max(
+                        0,
+                        ...(catalog?.items ?? []).map((o) => o.sortOrder)
+                      ) + 10,
+                    applicableServiceCategoryCodes: [],
+                  });
+                }
+              }}
+            >
+              <option value="reject">Reject request</option>
+              <option value="map">Map to active occasion</option>
+              <option value="approve_existing_inactive">
+                Approve matching inactive occasion
+              </option>
+              <option value="approve_new">
+                Create &amp; Approve New Occasion
+              </option>
+            </Select>
+          </label>
+
+          {(decision === "map" ||
+            decision === "approve_existing_inactive") && (
+            <label className="grid gap-1">
+              Choose occasion
+              <Select
+                aria-label="Review target"
+                disabled={busy}
+                value={target}
+                onChange={(e) => setTarget(e.target.value)}
+              >
+                <option value="">Choose occasion</option>
+                {catalog?.items
+                  .filter((o) => o.active === (decision === "map"))
+                  .map((o) => (
+                    <option key={o.id} value={o.id}>
+                      {o.label} ({o.id})
+                    </option>
+                  ))}
+              </Select>
+            </label>
+          )}
+
+          {decision === "approve_new" && (
+            <div className="grid gap-3 rounded-xl border p-4">
+              <div>
+                <p className="font-semibold">Create new inactive occasion</p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Creation and request approval happen together.
+                  Activation and provider eligibility remain separate.
+                </p>
+              </div>
+
+              <label className="grid gap-1">
+                New occasion name
+                <Input
+                  disabled={busy}
+                  maxLength={80}
+                  value={reviewNew.label}
+                  onChange={(e) => setReviewNew((current) => ({
+                    ...current,
+                    label: e.target.value,
+                  }))}
+                />
+              </label>
+
+              <label className="grid gap-1">
+                New occasion ID
+                <Input
+                  disabled={busy}
+                  value={reviewNew.id}
+                  onChange={(e) => setReviewNew((current) => ({
+                    ...current,
+                    id: e.target.value,
+                  }))}
+                />
+              </label>
+
+              <p className="text-xs text-muted-foreground">
+                The ID is permanent and must be unique.
+              </p>
+
+              <label className="grid gap-1">
+                New occasion sort order
+                <Input
+                  type="number"
+                  disabled={busy}
+                  value={reviewNew.sortOrder}
+                  onChange={(e) => setReviewNew((current) => ({
+                    ...current,
+                    sortOrder: Number(e.target.value),
+                  }))}
+                />
+              </label>
+
+              <fieldset className="grid gap-2" disabled={busy}>
+                <legend className="font-medium">
+                  Applicable service categories
+                </legend>
+
+                {categories
+                  .filter((category) => category.status === "active")
+                  .map((category) => (
+                    <label
+                      key={category.code}
+                      className="flex items-center gap-2 text-sm"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={reviewNew.applicableServiceCategoryCodes.includes(
+                          category.code
+                        )}
+                        onChange={(e) => setReviewNew((current) => ({
+                          ...current,
+                          applicableServiceCategoryCodes: e.target.checked
+                            ? [
+                                ...current.applicableServiceCategoryCodes,
+                                category.code,
+                              ]
+                            : current.applicableServiceCategoryCodes.filter(
+                                (code) => code !== category.code
+                              ),
+                        }))}
+                      />
+                      {category.name}
+                    </label>
+                  ))}
+              </fieldset>
+            </div>
+          )}
+
+          <label className="grid gap-1">
+            Review reason
+            <Input
+              disabled={busy}
+              value={reviewReason}
+              maxLength={500}
+              onChange={(e) => setReviewReason(e.target.value)}
+            />
+          </label>
+
+          {formError && (
+            <p role="alert" className="text-sm text-destructive">
+              {formError}
+            </p>
+          )}
+        </div>
+
+        <div className="flex shrink-0 justify-end gap-2 border-t p-4">
+          <Button
+            type="button"
+            variant="secondary"
+            disabled={busy}
+            onClick={() => {
+              if (
+                !reviewReason ||
+                window.confirm("Discard the unsaved review?")
+              ) {
+                setReview(undefined);
+                setReviewReason("");
+                setReviewNew(empty());
+                setFormError("");
+              }
+            }}
+          >
+            Cancel
+          </Button>
+
+          <Button
+            type="button"
+            disabled={
+              busy ||
+              !reviewReason.trim() ||
+              (decision === "approve_new"
+                ? !reviewNewValid
+                : decision !== "reject" && !target)
+            }
+            onClick={() => setReviewConfirm(true)}
+          >
+            {decision === "approve_new"
+              ? "Create & Approve Occasion"
+              : "Submit review"}
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>    <ConfirmationDialog
+      open={reviewConfirm}
+      onOpenChange={(open) => {
+        if (!busy) setReviewConfirm(open);
+      }}
+      title={decision === "approve_new"
+        ? `Create & Approve ${review?.name ?? "Occasion"}?`
+        : "Confirm occasion request review?"}
+      description={decision === "approve_new"
+        ? `FEASTA will create ${reviewNew.label} as an inactive occasion and approve this provider request. The request will leave Pending Requests. Activation and provider eligibility remain separate.`
+        : "FEASTA will submit this review decision. This does not automatically activate an occasion or grant provider eligibility."}
+      confirmLabel={decision === "approve_new"
+        ? "Create & Approve"
+        : "Confirm review"}
+      loading={busy}
+      onConfirm={() => {
+        setReviewConfirm(false);
+        void moderate();
+      }}
+    />
   </section>;
 }

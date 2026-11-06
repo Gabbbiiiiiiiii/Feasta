@@ -1,6 +1,21 @@
 export const SUGGESTED_FOOD_CATEGORIES = [
-  "Chicken", "Pork", "Beef", "Fish/Seafood", "Vegetables", "Pasta/Noodles", "Desserts", "Other",
-];
+  "Appetizers", "Beef", "Chicken", "Desserts", "Drinks", "Fish/Seafood",
+  "Main Dish", "Pasta/Noodles", "Pork", "Rice", "Soup", "Vegetables",
+] as const;
+
+/** Keep saved labels intact; expose historical Other only for the dish being edited. */
+export function packageFoodCategoryOptions(packageCategories: readonly string[], currentCategory = ""): string[] {
+  const existing = Array.from(new Set(packageCategories.filter(Boolean)));
+  const standards = SUGGESTED_FOOD_CATEGORIES.flatMap((standard) => {
+    const saved = existing.filter((category) => categoryKey(category) === categoryKey(standard));
+    return saved.length ? saved : [standard];
+  });
+  const custom = existing.filter((category) =>
+    !SUGGESTED_FOOD_CATEGORIES.some((standard) => categoryKey(category) === categoryKey(standard)) &&
+    (categoryKey(category) !== "other" || category === currentCategory),
+  ).sort((a, b) => a.localeCompare(b, "en-PH"));
+  return [...standards, ...custom];
+}
 
 export type PackageDish = {id: string; category: string; name: string; raw: string};
 

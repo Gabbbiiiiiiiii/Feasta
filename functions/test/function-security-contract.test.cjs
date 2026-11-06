@@ -81,6 +81,7 @@ const policies = [
       "resolveBookingRefundPolicies",
     ],
   ],
+  ["getProviderAvailabilityOccasions", "providers/update-provider-availability.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "appCheckCallableOptions", "ownedProviderReference", "readAvailabilityOccasions", "db.runTransaction"]],
   ["checkCustomerProviderAvailability", "provider-availability/check-customer-provider-availability.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "appCheckCallableOptions", "rejectUnknownFields", "validateBookingPackage", "validateProviderAvailability", "isProviderPubliclyEligible"]],
   ["getCustomerProviderCalendarAvailability", "provider-availability/get-customer-provider-calendar-availability.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "appCheckCallableOptions", "parseCalendarInput", "MAX_RECORDS", "isProviderPubliclyEligible", "providerRequestOccupiesAvailability"]],
   ["checkMarketplaceProviderAvailability", "provider-availability/check-marketplace-provider-availability.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "appCheckCallableOptions", "rejectUnknownFields", "MAX_PROVIDER_IDS", "validateProviderAvailability", "isProviderPubliclyEligible"]],
@@ -557,6 +558,7 @@ test("all deployed exports remain in the reviewed inventory", () => {
   assert.equal(names.has("getOccasionTransition"), false);
   assert.equal(names.has("prepareBlockedOccasionTransition"), false);
   assert.deepEqual([...names].sort(), [
+  "addAdminOccasionApplicableServices",
   "getCustomerPackageV2",
   "inspectIntakeMaintenance",
   "setIntakeMaintenance",
@@ -592,6 +594,7 @@ test("all deployed exports remain in the reviewed inventory", () => {
   "checkCustomerProviderAvailability",
   "checkMarketplaceProviderAvailability",
   "getCustomerProviderCalendarAvailability",
+  "getProviderAvailabilityOccasions",
   "completeProviderBooking",
   "createAgreementTemplate",
   "createAgreementVersion",

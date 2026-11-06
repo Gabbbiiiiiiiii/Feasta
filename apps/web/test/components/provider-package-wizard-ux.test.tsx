@@ -15,10 +15,19 @@ describe("wizard UX", () => {
     const {container} = render(<ProviderPackageForm {...props} />);
     expect(screen.queryByRole("complementary")).not.toBeInTheDocument();
     expect(screen.getByText(/your authorized service category/)).toBeVisible();
-    expect(screen.queryByRole("button", {name: /Request.*occasion/i})).not.toBeInTheDocument();
+    expect(screen.getByRole("button", {name: /Request.*occasion/i})).toBeVisible();
     fireEvent.change(screen.getByLabelText(/Package name/), {target: {value: "Birthday package"}});
     fireEvent.change(screen.getByLabelText(/Description/), {target: {value: "A complete birthday celebration"}});
+    fireEvent.change(screen.getByLabelText(/Suitable occasions/), {target: {value: "birthday"}});
+    fireEvent.click(screen.getByRole("button", {name: "Add selected occasion"}));
+    fireEvent.change(screen.getByLabelText(/Package structure/), {
+      target: {value: "fixed"},
+    });
+    fireEvent.change(screen.getByLabelText(/Package style/), {
+      target: {value: "Buffet Catering"},
+    });
     next();
+    expect(screen.getByRole("heading", {name: "Step 2: Pricing & capacity"})).toBeVisible();
     expect(screen.queryByRole("complementary", {name: "Live package summary"})).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Preview service tier")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Preview guest count")).not.toBeInTheDocument();
@@ -50,6 +59,112 @@ describe("wizard UX", () => {
       expect(payload).not.toHaveProperty(key);
     }
     expect(payload.serviceOptions).toEqual({drop_off: {price: 100.25, includedServices: []}});
+  });
+  function openPricingStep() {
+    render(<ProviderPackageForm {...props} />);
+    fireEvent.change(screen.getByLabelText(/Suitable occasions/), {target: {value: "birthday"}});
+    fireEvent.click(screen.getByRole("button", {name: "Add selected occasion"}));
+    fireEvent.change(screen.getByLabelText(/Package name/), {
+      target: {value: "Birthday catering"},
+    });
+    fireEvent.change(screen.getByLabelText(/Description/), {
+      target: {value: "Complete catering for birthday celebrations."},
+    });
+    fireEvent.change(screen.getByLabelText(/Package structure/), {
+      target: {value: "fixed"},
+    });
+    fireEvent.change(screen.getByLabelText(/Package style/), {
+      target: {value: "Buffet Catering"},
+    });
+    next();
+    expect(screen.getByRole("heading", {
+      name: "Step 2: Pricing & capacity",
+    })).toBeVisible();
+  }
+
+  function configurePricing() {
+    fireEvent.click(screen.getByRole("checkbox", {
+      name: /Drop-Off Catering/,
+    }));
+    fireEvent.change(screen.getByLabelText(/Drop-Off Catering price/), {
+      target: {value: "150.25"},
+    });
+    fireEvent.change(screen.getByLabelText(/Minimum guests/), {
+      target: {value: "10"},
+    });
+    fireEvent.change(screen.getByLabelText(/Maximum guests/), {
+      target: {value: "30"},
+    });
+  }
+
+  it("rejects invalid minimum guest counts on Step 2", () => {
+    openPricingStep();
+    configurePricing();
+
+    for (const invalid of ["", "10.5", "-1", "1e2", "9", "101"]) {
+      fireEvent.change(screen.getByLabelText(/Minimum guests/), {
+        target: {value: invalid},
+      });
+      next();
+      expect(screen.getByRole("heading", {
+        name: "Step 2: Pricing & capacity",
+      })).toBeVisible();
+    }
+
+    fireEvent.change(screen.getByLabelText(/Minimum guests/), {
+      target: {value: "10"},
+    });
+    next();
+    expect(screen.getByRole("heading", {
+      name: "Step 3: Food menu",
+    })).toBeVisible();
+  });
+
+  it("rejects invalid maximum guest counts on Step 2", () => {
+    openPricingStep();
+    configurePricing();
+
+    for (const invalid of ["", "30.5", "-1", "1e2", "9", "101"]) {
+      fireEvent.change(screen.getByLabelText(/Maximum guests/), {
+        target: {value: invalid},
+      });
+      next();
+      expect(screen.getByRole("heading", {
+        name: "Step 2: Pricing & capacity",
+      })).toBeVisible();
+    }
+
+    fireEvent.change(screen.getByLabelText(/Maximum guests/), {
+      target: {value: "30"},
+    });
+    next();
+    expect(screen.getByRole("heading", {
+      name: "Step 3: Food menu",
+    })).toBeVisible();
+  });
+
+  it("preserves tier prices when switching pricing models", () => {
+    openPricingStep();
+    configurePricing();
+
+    const price = screen.getByLabelText(/Drop-Off Catering price/);
+    const model = screen.getByLabelText(/Pricing model/);
+
+    expect(model).toHaveValue("per_pax");
+    expect(price).toHaveValue("150.25");
+
+    fireEvent.change(model, {target: {value: "per_bundle"}});
+    expect(model).toHaveValue("per_bundle");
+    expect(price).toHaveValue("150.25");
+
+    fireEvent.change(model, {target: {value: "per_pax"}});
+    expect(model).toHaveValue("per_pax");
+    expect(price).toHaveValue("150.25");
+
+    next();
+    expect(screen.getByRole("heading", {
+      name: "Step 3: Food menu",
+    })).toBeVisible();
   });
   it("retains the selector for multiple authorized categories", () => {
     render(<ProviderPackageForm {...props} packageCategoryOptions={[...props.packageCategoryOptions, {code: "other", name: "Other"}]} />);

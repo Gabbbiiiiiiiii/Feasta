@@ -78,6 +78,7 @@ export {
 } from "./providers/update-provider-availability.js";
 export {
   updateProviderAvailabilitySettings,
+  getProviderAvailabilityOccasions,
 } from "./providers/update-provider-availability.js";
 export {
   updateProviderBusinessProfile,
@@ -1193,3 +1194,4 @@ export {createProviderPackageV2, updateProviderPackageV2,
   completeProviderPackageEditorDraft} from "./packages/provider-package-drafts-v2.js";
 
 export {getCustomerPackageV2} from "./packages/customer-package-v2.js";
+export {initializeProviderOccasionCapabilities} from "./packages/provider-occasion-capabilities-v2.js";

@@ -1,6 +1,6 @@
+import {parsePackageClassification} from "./package-classification.js";
 import {requireLegacyPackageOccasionAuthority} from "./legacy-package-occasion-authority.js";
 import {occasionDependencyEntryPath} from "../admin/occasion-dependency-registry.js";
-import {requireMaintenanceOpen, recordMaintenanceAdmission} from "../shared/maintenance.js";
 import {BALANCE_DUE_HOURS_BEFORE_EVENT} from "../payments/canonical-balance-timing.js";
 import {cloudinarySecrets} from "../shared/cloudinary.js";
 import {
@@ -49,6 +49,8 @@ const ALLOWED_FIELDS = [
   "description",
   "eventType",
   "serviceCategoryCode",
+  "offerStructure",
+  "packageStyle",
   "pricingModel",
   "price",
   "serviceOptions",
@@ -100,6 +102,7 @@ export const createProviderPackage = onCall(
       ALLOWED_FIELDS,
     );
 
+    const classification = parsePackageClassification(input);
     const validated =
       parseCanonicalPackageWrite(input);
 
@@ -123,7 +126,6 @@ export const createProviderPackage = onCall(
 
     return db.runTransaction(
       async (transaction) => {
-        await requireMaintenanceOpen(transaction, db, "intake");
         const [
           userSnapshot,
           paymentPolicySnapshot,
@@ -224,7 +226,6 @@ export const createProviderPackage = onCall(
           sourcePath: packageReference.path,
         };
 
-        recordMaintenanceAdmission(transaction, db);
         transaction.create(
           db.doc(occasionDependencyEntryPath(occasionDependencyEntry)),
           occasionDependencyEntry,
@@ -240,6 +241,7 @@ export const createProviderPackage = onCall(
             description:
               validated.description,
 
+            ...classification,
             eventType:
               validated.eventType,
 

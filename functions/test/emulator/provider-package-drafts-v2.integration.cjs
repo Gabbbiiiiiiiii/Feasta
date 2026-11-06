@@ -217,6 +217,116 @@ test('create/replay writes one actual private package with authoritative V2 fiel
   assert.deepEqual(stored.serviceOptions.drop_off.equipmentInclusions, ['Warmers']);
   await reason(create({...data, name: 'changed'}), 'IDEMPOTENCY_CONFLICT');
 });
+test('Step 1 classification metadata round-trips through canonical V2 writes', async () => {
+  const created = await create(input({
+    offerStructure: 'fixed',
+    packageStyle: 'Grazing Table',
+  }));
+
+  const ref = db.doc('packages/' + created.packageId);
+  let stored = (await ref.get()).data();
+
+  assert.equal(stored.offerStructure, 'fixed');
+  assert.equal(stored.packageStyle, 'Grazing Table');
+  assert.equal(stored.status, 'draft');
+  assert.equal(stored.isPublished, false);
+
+  // Older clients may omit classification metadata during an update.
+  // Such updates must preserve previously saved classifications.
+  const preserved = await update(input({
+    packageId: created.packageId,
+    expectedRevision: created.packageRevision,
+  }));
+
+  stored = (await ref.get()).data();
+  assert.equal(stored.revision, preserved.packageRevision);
+  assert.equal(stored.offerStructure, 'fixed');
+  assert.equal(stored.packageStyle, 'Grazing Table');
+
+  // Providers can edit both classifications without changing pricing.
+  const replaced = await update(input({
+    packageId: created.packageId,
+    expectedRevision: preserved.packageRevision,
+    offerStructure: 'customizable',
+    packageStyle: 'Specialty Bilao Feast',
+  }));
+
+  stored = (await ref.get()).data();
+  assert.equal(stored.revision, replaced.packageRevision);
+  assert.equal(stored.offerStructure, 'customizable');
+  assert.equal(stored.packageStyle, 'Specialty Bilao Feast');
+  assert.equal(stored.price, 100.25);
+  assert.equal(stored.minimumGuests, 10);
+  assert.equal(stored.maximumGuests, 50);
+  assert.equal(stored.isPublished, false);
+
+  // Historical drafts without classifications remain valid.
+  const historical = await create(input());
+  const historicalData = (await db.doc('packages/' + historical.packageId).get()).data();
+  assert.equal(historicalData.offerStructure, undefined);
+  assert.equal(historicalData.packageStyle, undefined);
+
+  // Invalid classifications must fail before persistence.
+  await reason(create(input({offerStructure: 'unsupported'})), 'INVALID_OFFER_STRUCTURE');
+  await reason(create(input({packageStyle: ' Invalid style '})), 'INVALID_PACKAGE_STYLE');
+});
+
+test('Step 1 classifications survive private editor progress completion', async () => {
+  const saved = await progressApi.saveProviderPackageEditorDraft(req({
+    editorSchemaVersion: 2,
+    editorDraftId: null,
+    expectedRevision: 0,
+    packageId: null,
+    expectedPackageRevision: null,
+    currentStep: 4,
+    idempotencyKey: key(),
+    progress: {
+      name: 'Classification progress package',
+      description: 'Complete catering package from editor progress.',
+      serviceCategoryCode: 'catering_service',
+      offerStructure: 'individual',
+      packageStyle: 'Signature Lechon Tray',
+      occasion: {
+        occasionSchemaVersion: 2,
+        occasionScope: 'all',
+        occasionIds: [],
+      },
+      pricingModel: 'per_bundle',
+      minimumGuestsText: '10',
+      maximumGuestsText: '50',
+      paymentPolicy: 'full_payment',
+      tiers: {
+        drop_off: {
+          enabled: true,
+          priceText: '100',
+          includedServices: ['Delivery'],
+          decorInclusions: [],
+          furnitureInclusions: [],
+          equipmentInclusions: [],
+        },
+      },
+    },
+  }));
+
+  const draft = saved.draft ?? saved;
+
+  const completed = await api.completeProviderPackageEditorDraft(req({
+    editorDraftId: draft.editorDraftId,
+    expectedRevision: draft.revision,
+    expectedPackageRevision: null,
+    idempotencyKey: key(),
+  }));
+
+  const stored = (await db.doc('packages/' + completed.packageId).get()).data();
+
+  assert.equal(stored.offerStructure, 'individual');
+  assert.equal(stored.packageStyle, 'Signature Lechon Tray');
+  assert.equal(stored.status, 'draft');
+  assert.equal(stored.isPublished, false);
+  assert.equal(stored.pricingModel, 'per_bundle');
+  assert.equal(stored.minimumGuests, 10);
+  assert.equal(stored.maximumGuests, 50);
+});
 test('private food-choice groups are validated, persisted and cleared on explicit update', async () => {
   const groups = [{id: 'main', title: 'Main dish', selectionCount: 1, options: [
     {id: 'chicken', name: 'Chicken Afritada'}, {id: 'pork', name: 'Pork Menudo'},

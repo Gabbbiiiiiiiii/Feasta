@@ -57,6 +57,9 @@ Promise<ProviderAvailabilitySettings> {
   const maximumGuests = integer(provider.maxGuestsPerEvent, 0, 100_000, 0);
 
   return {
+    supportedOccasionIds: Array.isArray(provider.supportedOccasionIds)
+      ? provider.supportedOccasionIds.filter((id: unknown): id is string => typeof id === "string") : [],
+    availabilitySettingsRevision: integer(provider.availabilitySettingsRevision, 0, Number.MAX_SAFE_INTEGER, 0),
     providerId,
     providerServiceType,
     serviceCategories,

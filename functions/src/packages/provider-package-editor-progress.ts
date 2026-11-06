@@ -1,7 +1,7 @@
 /**
  * Phase 1C, stage A: private, incomplete, unbound editor progress.
- * Intentionally NOT exported from functions/src/index.ts. Publication and
- * canonical package creation/completion remain separate, gated operations.
+ * Exported with independent policy gating. Publication and canonical package
+ * creation/completion remain separate, gated operations.
  * Stage D completion preserves completed records for owner recovery reads.
  */
 import {createHash} from "node:crypto";
@@ -17,8 +17,13 @@ import {
   recordMaintenanceAdmission, requireMaintenanceOpen,
 } from "../shared/maintenance.js";
 import {authorizeProviderForPackageManagement} from "./package-domain.js";
+import {resolveBackendAccountState} from "../shared/account-state.js";
+import {resolveEditorDraftProgressMediaV1} from "./editor-draft-media-progress-v1.js";
 import {
-  EditorProgressError, assertNoUnverifiedEditorAssets, parseGetEditorProgress,
+  beginEditorDraftMediaDiscardV1, reconcileEditorDraftMediaDiscardV1,
+} from "./editor-draft-media-cleanup-v1.js";
+import {
+  EditorProgressError, parseGetEditorProgress,
   parseSaveEditorProgress,
   parseDiscardEditorProgress, parseListEditorProgress,
   type SaveEditorProgressInput, type EditorProgressLimits,
@@ -105,6 +110,10 @@ async function authorizedProvider(tx: FirebaseFirestore.Transaction, uid: string
       !/^[A-Za-z0-9_-]{1,128}$/u.test(profile.providerId)) {
     fail("PROVIDER_NOT_APPROVED");
   }
+  if (resolveBackendAccountState({authDisabled: false, profile,
+    allowedRoles: [USER_ROLES.provider]}).kind !== "active") {
+    fail("ACCOUNT_ACCESS_DENIED", "permission-denied");
+  }
   const providerRef = db.collection("providers").doc(profile.providerId);
   return authorizeProviderForPackageManagement({
     actorUid: uid, providerSnapshot: await tx.get(providerRef),
@@ -121,11 +130,12 @@ function requireOwnPrivateDraft(raw: FirebaseFirestore.DocumentData | undefined,
   if (raw.state !== "incomplete" && !(allowCompleted && raw.state === "completed")) {
     fail("EDITOR_DRAFT_COMPLETED");
   }
+  if (!allowCompleted && raw.mediaPromotionOperationId) fail("EDITOR_DRAFT_MEDIA_BUSY");
 }
 
 /**
  * Only unbound editor progress is supported. No canonical package write,
- * catalog authorization, media attachment or publication occurs.
+ * catalog authorization or publication occurs. Media admission is private only.
  */
 export const saveProviderPackageEditorDraft = onCall(
   {...appCheckCallableOptions, timeoutSeconds: 60}, async (request) => {
@@ -146,9 +156,11 @@ export const saveProviderPackageEditorDraft = onCall(
       let input: SaveEditorProgressInput;
       try {
         input = parseSaveEditorProgress(request.data, limits);
-        assertNoUnverifiedEditorAssets(input.progress);
       } catch (error) { return mapInputFailure(error); }
-      await requireMaintenanceOpen(tx, db, "publication");
+      // Unbound customizable progress grants no publication capability.
+      // Other editor structures retain their maintenance admission gate.
+      const privateCustomizableDraft = input.progress.offerStructure === "customizable";
+      if (!privateCustomizableDraft) await requireMaintenanceOpen(tx, db, "publication");
 
       const operationId = digest([actor.uid, "saveProviderPackageEditorDraft",
         input.idempotencyKey]);
@@ -158,7 +170,12 @@ export const saveProviderPackageEditorDraft = onCall(
       if (prior) {
         if (prior.actorUid !== actor.uid || prior.providerId !== providerId ||
             prior.requestHash !== requestHash) fail("IDEMPOTENCY_CONFLICT", "already-exists");
-        return {draft: prior.result};
+        const replayRef = db.collection(DRAFTS).doc(prior.editorDraftId);
+        const replayDraft = (await tx.get(replayRef)).data();
+        requireOwnPrivateDraft(replayDraft, actor.uid, providerId, true);
+        const media = await resolveEditorDraftProgressMediaV1(tx, replayRef,
+          {ownerUid: actor.uid, providerId, editorDraftId: replayRef.id}, prior.result.progress);
+        return {draft: {...prior.result, ...(media ? {media} : {})}};
       }
 
       const draftRef = db.collection(DRAFTS).doc(input.editorDraftId ?? newReference.id);
@@ -167,6 +184,11 @@ export const saveProviderPackageEditorDraft = onCall(
       if (input.editorDraftId !== null) {
         requireOwnPrivateDraft(current, actor.uid, providerId);
         if (current.revision !== input.expectedRevision) fail("REVISION_CONFLICT", "aborted");
+      }
+      const media = await resolveEditorDraftProgressMediaV1(tx, draftRef,
+        {ownerUid: actor.uid, providerId, editorDraftId: draftRef.id}, input.progress);
+      if (media && policy?.featureGates?.packageEditorMediaWrites !== true) {
+        fail("FEATURE_DISABLED");
       }
       const quotaRef = db.collection(QUOTAS).doc(providerId);
       const quota = input.editorDraftId === null ? (await tx.get(quotaRef)).data() : undefined;
@@ -182,8 +204,10 @@ export const saveProviderPackageEditorDraft = onCall(
         state: "incomplete", progress: input.progress, currentStep: input.currentStep,
         completedPackageId: null, completedPackageRevision: null,
         revision, createdAt: current?.createdAt ?? now, updatedAt: now,
+        ...(input.editorDraftId === null ?
+          {mediaLifecycleVersion: 1, mediaCleanupPendingCount: 0} : {}),
       };
-      const response = apiDraft(draftRef.id, stored);
+      const response = {...apiDraft(draftRef.id, stored), ...(media ? {media} : {})};
       if (input.editorDraftId === null) {
         tx.create(draftRef, stored);
         tx.set(quotaRef, {count: (quota?.count ?? 0) + 1, updatedAt: now}, {merge: true});
@@ -193,7 +217,7 @@ export const saveProviderPackageEditorDraft = onCall(
       }
       tx.create(opReference, {actorUid: actor.uid, providerId, requestHash,
         result: response, editorDraftId: draftRef.id, createdAt: now});
-      recordMaintenanceAdmission(tx, db);
+      if (!privateCustomizableDraft) recordMaintenanceAdmission(tx, db);
       return {draft: response};
     });
   },
@@ -217,7 +241,10 @@ export const getProviderPackageEditorDraft = onCall(
       const providerId = await authorizedProvider(tx, actor.uid);
       const current = (await tx.get(db.collection(DRAFTS).doc(id))).data();
       requireOwnPrivateDraft(current, actor.uid, providerId, true);
-      return {draft: apiDraft(id, current)};
+      const media = await resolveEditorDraftProgressMediaV1(tx,
+        db.collection(DRAFTS).doc(id),
+        {ownerUid: actor.uid, providerId, editorDraftId: id}, current.progress);
+      return {draft: {...apiDraft(id, current), ...(media ? {media} : {})}};
     });
   },
 );
@@ -241,13 +268,18 @@ export const listProviderPackageEditorDrafts = onCall(
         .where("ownerUid", "==", actor.uid).where("state", "==", "incomplete")
         .limit(MAX_PRIVATE_DRAFTS + 1));
       if (snapshots.size > MAX_PRIVATE_DRAFTS) fail("DRAFT_QUOTA_RECONCILIATION_REQUIRED");
-      const drafts = snapshots.docs.filter((doc) =>
+      const owned = snapshots.docs.filter((doc) =>
         doc.data().providerId === providerId &&
         doc.data().editorSchemaVersion === 2 &&
         doc.data().packageId === null &&
         doc.data().basePackageRevision === null &&
-        doc.data().state === "incomplete")
-        .map((doc) => apiDraft(doc.id, doc.data()));
+        doc.data().state === "incomplete");
+      const drafts = [];
+      for (const doc of owned) {
+        const media = await resolveEditorDraftProgressMediaV1(tx, doc.ref,
+          {ownerUid: actor.uid, providerId, editorDraftId: doc.id}, doc.data().progress);
+        drafts.push({...apiDraft(doc.id, doc.data()), ...(media ? {media} : {})});
+      }
       drafts.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
       return {drafts};
     });
@@ -267,7 +299,7 @@ export const discardProviderPackageEditorDraft = onCall(
     try { input = parseDiscardEditorProgress(request.data); } catch (error) {
       return mapInputFailure(error);
     }
-    return db.runTransaction(async (tx) => {
+    const outcome = await db.runTransaction(async (tx) => {
       const providerId = await authorizedProvider(tx, actor.uid);
       const requestHash = digest(input);
       const opId = digest([actor.uid, "discardProviderPackageEditorDraft", input.idempotencyKey]);
@@ -276,6 +308,9 @@ export const discardProviderPackageEditorDraft = onCall(
       if (prior) {
         if (prior.actorUid !== actor.uid || prior.providerId !== providerId ||
             prior.requestHash !== requestHash) fail("IDEMPOTENCY_CONFLICT", "already-exists");
+        if (prior.state === "pending_cleanup") {
+          return {discarded: false, cleanupPending: true, editorDraftId: input.editorDraftId};
+        }
         return {discarded: true, editorDraftId: input.editorDraftId};
       }
       const draftRef = db.collection(DRAFTS).doc(input.editorDraftId);
@@ -288,6 +323,24 @@ export const discardProviderPackageEditorDraft = onCall(
           quota.count < 1 || quota.count > MAX_PRIVATE_DRAFTS) {
         fail("DRAFT_QUOTA_RECONCILIATION_REQUIRED");
       }
+      // Firestore does not cascade-delete subcollections.
+      // Block discard while registered media needs lifecycle cleanup.
+      // Query is read before transaction writes.
+      const mediaSnapshot = await tx.get(
+        draftRef.collection("mediaAssets").limit(1),
+      );
+
+      // A signed upload may arrive after a browser disconnects. Never remove
+      // its owning draft while an unresolved reservation can still create media.
+      const reservations = await tx.get(
+        draftRef.collection("mediaUploadReservations").limit(1),
+      );
+      if (!mediaSnapshot.empty || !reservations.empty) {
+        return beginEditorDraftMediaDiscardV1(tx, draftRef, draft, opRef,
+          {actorUid: actor.uid, providerId, requestHash, editorDraftId: input.editorDraftId,
+            expectedRevision: input.expectedRevision, idempotencyKey: input.idempotencyKey});
+      }
+
       const now = Timestamp.now();
       tx.delete(draftRef);
       tx.update(quotaRef, {count: quota.count - 1, updatedAt: now});
@@ -296,5 +349,9 @@ export const discardProviderPackageEditorDraft = onCall(
         editorDraftId: input.editorDraftId, createdAt: now});
       return {discarded: true, editorDraftId: input.editorDraftId};
     });
+    if ("cleanupPending" in outcome && outcome.cleanupPending) {
+      return reconcileEditorDraftMediaDiscardV1({...input, actorUid: actor.uid});
+    }
+    return outcome;
   },
 );

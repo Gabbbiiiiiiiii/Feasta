@@ -138,11 +138,14 @@ describe("provider package offer configuration", () => {
 
 it("labels tier prices, units and inclusions without changing stored prices", () => {
   const value = createProviderPackageOfferDraft({serviceOptions: {buffet_setup: {price: 125.5, includedServices: ["Servers"]}}});
-  render(<ProviderPackageOfferBuilder value={value} onChange={() => {}} priceUnit="per guest" section="pricing" />);
+  const view = render(<ProviderPackageOfferBuilder value={value} onChange={() => {}} priceUnit="per guest" section="pricing" />);
   expect(screen.getByText("Enabled")).toBeVisible();
-  expect(screen.getByLabelText(/Buffet Setup price \(PHP per guest\)/)).toHaveValue("125.5");
-  expect(screen.getByLabelText("Included services for Buffet Setup")).toHaveValue("Servers");
+  expect(screen.getByLabelText(/Buffet Setup price \(PHP per guest\)/)).toHaveValue("125.50");
+  expect(screen.queryByLabelText("Included services for Buffet Setup")).not.toBeInTheDocument();
   expect(screen.getAllByText("Not offered in this package")).toHaveLength(2);
+  view.rerender(<ProviderPackageOfferBuilder value={value} onChange={() => {}} section="tier-inclusions" />);
+  expect(screen.getByLabelText("Included services for Buffet Setup")).toHaveValue("Servers");
+  expect(screen.queryByText(/Compatibility editor/)).not.toBeInTheDocument();
   expect(serializeProviderPackageOfferDraft(value).serviceOptions.buffet_setup?.price).toBe(125.5);
 });
 
@@ -165,4 +168,25 @@ it("round-trips independent tier services and strips unsupported draft fields", 
   expect(edited.serviceOptions.full_service).toEqual(original.full_service);
   expect(edited.serviceOptions.buffet_setup).toEqual({price: 250.5, includedServices: ["Tables", "Chafing dishes"]});
   expect(edited.startingPrice).toBe(100);
+});
+
+// Exercise every requested tier combination through the same save/hydration adapter.
+it.each([
+  ["drop_off"], ["buffet_setup"], ["full_service"],
+  ["buffet_setup", "full_service"], ["drop_off", "buffet_setup", "full_service"],
+])("preserves independent prices and services for %s", (...tiers) => {
+  const draft = createProviderPackageOfferDraft();
+  for (const [index, tier] of tiers.entries()) {
+    const option = draft.serviceOptions[tier as keyof typeof draft.serviceOptions];
+    Object.assign(option, {enabled: true, price: String(25000 + index + 0.25), includedServicesText: tier + " service"});
+    option.enabled = false;
+    option.enabled = true;
+  }
+  const saved = serializeProviderPackageOfferDraft(draft);
+  expect(saved.error).toBeNull();
+  const reopened = createProviderPackageOfferDraft(saved);
+  expect(serializeProviderPackageOfferDraft(reopened).serviceOptions).toEqual(saved.serviceOptions);
+  for (const tier of tiers) {
+    expect(saved.serviceOptions[tier as keyof typeof saved.serviceOptions]?.includedServices).toEqual([tier + " service"]);
+  }
 });

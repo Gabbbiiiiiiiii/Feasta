@@ -530,14 +530,202 @@ describe("Admin occasion maintenance", () => {
     expect(api.changeAdminOccasionState).not.toHaveBeenCalled();
     expect(api.previewAdminOccasionImpact).not.toHaveBeenCalled();
   });
+  it("shows pending requests in a clickable overview card", async () => {
+    api.listOccasionSuggestions.mockResolvedValue({
+      items: [{suggestionId: "s1", name: "Baby Shower", revision: 1}],
+      nextCursor: null,
+    });
+
+    mount();
+    await ready();
+
+    const card = screen.getByRole("button", {
+      name: "Review pending occasion requests",
+    });
+
+    await waitFor(() => expect(card).toHaveTextContent("1"));
+
+    await userEvent.click(card);
+
+    expect(await screen.findByRole("dialog", {
+      name: "Provider Occasion Suggestions",
+    })).toBeInTheDocument();
+
+    expect(await screen.findByRole("button", {
+      name: "Review Baby Shower",
+    })).toBeInTheDocument();
+  });
+
+  it("displays a lower bound when additional pending pages exist", async () => {
+    api.listOccasionSuggestions.mockResolvedValue({
+      items: Array.from({length: 20}, (_, index) => ({
+        suggestionId: `suggestion-${index}`,
+        name: `Suggestion ${index}`,
+        revision: 1,
+      })),
+      nextCursor: "more",
+    });
+
+    mount();
+    await ready();
+
+    const card = screen.getByRole("button", {
+      name: "Review pending occasion requests",
+    });
+
+    await waitFor(() => expect(card).toHaveTextContent("20+"));
+    expect(card).toHaveTextContent("At least this many pending");
+  });
+  it("opens provider suggestions inside a modal instead of rendering them inline", async () => {
+    api.listOccasionSuggestions.mockResolvedValue({
+      items: [],
+      nextCursor: null
+    });
+
+    mount();
+    await ready();
+
+    expect(screen.queryByRole("dialog", {
+      name: "Provider Occasion Suggestions"
+    })).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", {
+      name: "Review provider suggestions"
+    }));
+
+    const modal = await screen.findByRole("dialog", {
+      name: "Provider Occasion Suggestions"
+    });
+
+    expect(await within(modal).findByText(
+      "No pending suggestions"
+    )).toBeInTheDocument();
+
+    expect(within(modal).getByText(
+      "0 on this page"
+    )).toBeInTheDocument();
+
+    await userEvent.click(within(modal).getByRole("button", {
+      name: "Refresh suggestions"
+    }));
+
+    await waitFor(() => expect(
+      api.listOccasionSuggestions
+    ).toHaveBeenCalledTimes(3));
+
+    await userEvent.click(within(modal).getByRole("button", {
+      name: "Close"
+    }));
+
+    await waitFor(() => expect(screen.queryByRole("dialog", {
+      name: "Provider Occasion Suggestions"
+    })).not.toBeInTheDocument());
+
+    expect(screen.queryByText("No pending suggestions"))
+      .not.toBeInTheDocument();
+  });
+  it("atomically creates an inactive occasion and resolves the pending request", async () => {
+    let approved = false;
+
+    api.listOccasionSuggestions.mockImplementation(async () => ({
+      items: approved ? [] : [{
+        suggestionId: "baby-shower-1",
+        name: "Baby Shower",
+        revision: 1,
+        status: "pending",
+      }],
+      nextCursor: null,
+    }));
+
+    api.reviewOccasionSuggestion.mockImplementation(async () => {
+      approved = true;
+      return {
+        decision: "approve_new",
+        status: "approved",
+        resolvedOccasionId: "baby_shower",
+        catalogRevision: 9,
+        targetActive: false,
+      };
+    });
+
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+
+    mount();
+    await ready();
+
+    await userEvent.click(screen.getByRole("button", {
+      name: "Review provider suggestions",
+    }));
+
+    await userEvent.click(await screen.findByRole("button", {
+      name: "Review Baby Shower",
+    }));
+
+    fireEvent.change(screen.getByLabelText("Review decision"), {
+      target: {value: "approve_new"},
+    });
+
+    expect(screen.getByLabelText("New occasion name"))
+      .toHaveValue("Baby Shower");
+
+    expect(screen.getByLabelText("New occasion ID"))
+      .toHaveValue("baby_shower");
+
+    const fieldset = screen.getByRole("group", {
+      name: "Applicable service categories",
+    });
+
+    await userEvent.click(
+      within(fieldset).getAllByRole("checkbox")[0]
+    );
+
+    fireEvent.change(screen.getByLabelText("Review reason"), {
+      target: {value: "Approved Baby Shower for future activation"},
+    });
+
+    await userEvent.click(screen.getByRole("button", {
+      name: "Create & Approve Occasion",
+    }));
+
+    expect(await screen.findByRole("dialog", {
+      name: "Create & Approve Baby Shower?",
+    })).toBeInTheDocument();
+
+    expect(api.reviewOccasionSuggestion).not.toHaveBeenCalled();
+
+    await userEvent.click(screen.getByRole("button", {
+      name: "Create & Approve",
+    }));
+
+    await waitFor(() => expect(
+      api.reviewOccasionSuggestion
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        decision: "approve_new",
+        newOccasion: expect.objectContaining({
+          id: "baby_shower",
+          label: "Baby Shower",
+          aliases: [],
+        }),
+      })
+    ));
+
+    await waitFor(() => expect(screen.getByRole("button", {
+      name: "Review pending occasion requests",
+      hidden: true,
+    })).toHaveTextContent("0"));
+
+    expect(api.changeAdminOccasionState).not.toHaveBeenCalled();
+  });
   it("reuses pending suggestion paging and review with no catalog activation", async () => {
-    api.listOccasionSuggestions.mockResolvedValueOnce({items: [{suggestionId: "s1", name: "Birthday idea", revision: 4}], nextCursor: "next"});
+    api.listOccasionSuggestions.mockResolvedValue({items: [{suggestionId: "s1", name: "Birthday idea", revision: 4}], nextCursor: "next"});
     api.reviewOccasionSuggestion.mockResolvedValue({status: "rejected"});
     vi.spyOn(window, "confirm").mockReturnValue(true);
     mount(); await ready(); await userEvent.click(screen.getByRole("button", {name: "Review provider suggestions"}));
     await userEvent.click(await screen.findByRole("button", {name: "Review Birthday idea"}));
     fireEvent.change(screen.getByLabelText("Review reason"), {target: {value: "Duplicate suggestion"}});
     await userEvent.click(screen.getByRole("button", {name: "Submit review"}));
+    await userEvent.click(screen.getByRole("button", {name: "Confirm review"}));
     await waitFor(() => expect(api.reviewOccasionSuggestion).toHaveBeenCalledWith({suggestionId: "s1",
       expectedRevision: 4, expectedCatalogRevision: 7, reason: "Duplicate suggestion", decision: "reject", idempotencyKey: expect.any(String)}));
     expect(api.saveAdminOccasion).not.toHaveBeenCalled();

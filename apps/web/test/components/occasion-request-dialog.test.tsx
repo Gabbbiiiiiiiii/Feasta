@@ -7,14 +7,14 @@ const mocks = vi.hoisted(() => ({submit: vi.fn(), list: vi.fn(), available: vi.f
 vi.mock("@/lib/provider/provider-occasion-suggestions", async (original) => ({...await original<object>(), occasionRequestsAvailable: mocks.available, submitOccasionRequest: mocks.submit, listOccasionRequests: mocks.list}));
 const item = {suggestionId: "one", name: "Graduation", status: "approved", createdAt: "2026-10-25T00:00:00Z", reviewReason: "Approved for future activation"};
 beforeEach(() => {mocks.available.mockReset().mockReturnValue(true);mocks.submit.mockReset(); mocks.list.mockReset(); mocks.list.mockResolvedValue({items: [], nextCursor: null});});
-async function open() {const user = userEvent.setup(); render(<OccasionRequestDialog />); await user.click(screen.getByRole("button", {name: "+ Add Occasion"})); return user;}
+async function open() {const user = userEvent.setup(); render(<OccasionRequestDialog />); await user.click(screen.getByRole("button", {name: "Request an Occasion"})); return user;}
 async function fill(user: ReturnType<typeof userEvent.setup>) {await user.type(screen.getByLabelText("Occasion Name *"), "Graduation");}
 describe("occasion requests", () => {
   it("opens, focuses input, closes with Escape, restores trigger focus and clears feedback", async () => {
     const user = await open(); await waitFor(() => expect(screen.getByLabelText("Occasion Name *")).toHaveFocus());
     await user.keyboard("{Escape}"); await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
-    expect(screen.getByRole("button", {name: "+ Add Occasion"})).toHaveFocus();
-    await user.click(screen.getByRole("button", {name: "+ Add Occasion"})); await user.click(screen.getByRole("button", {name: "Cancel"})); expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", {name: "Request an Occasion"})).toHaveFocus();
+    await user.click(screen.getByRole("button", {name: "Request an Occasion"})); await user.click(screen.getByRole("button", {name: "Cancel"})); expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
   it.each(["", "a", "x".repeat(81), "Bad\nName", "Bad\u200bName"])("rejects invalid name %j", (name) => {expect(validateOccasionRequest(name, "").name).toBeTruthy();});
   it("normalizes names and validates optional reason against server rules", () => {
@@ -28,14 +28,42 @@ describe("occasion requests", () => {
     const result = {outcome: "created", suggestion: {...item, status: "pending"}};
     mocks.submit.mockResolvedValue(outcome === "idempotent_replay" ? {outcome, originalOutcome: "created", result} : outcome === "canonical_match" ? {outcome, match: {label: "Graduation"}} : {outcome, suggestion: item});
     const user = await open(); await fill(user); await user.click(screen.getByRole("button", {name: "Submit Request"}));
-    await waitFor(() => expect(screen.getByText(outcome === "own_duplicate" ? /You already requested/ : outcome === "canonical_match" ? /already exists in the catalog/ : /Request submitted/)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(outcome === "own_duplicate" ? /You already requested/ : outcome === "canonical_match" ? /already exists in the catalog/ : "Request submitted. Awaiting administrator review.")).toBeInTheDocument());
     expect(screen.queryByRole("option", {name: "Graduation"})).not.toBeInTheDocument();
-    await user.click(screen.getByRole("button", {name: "Cancel"})); await user.click(screen.getByRole("button", {name: "+ Add Occasion"})); expect(screen.queryByText(/Request submitted/)).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", {name: "Cancel"})); await user.click(screen.getByRole("button", {name: "Request an Occasion"})); expect(screen.queryByText("Request submitted. Awaiting administrator review.")).not.toBeInTheDocument();
+  });
+  it("shows confirmation without allowing accidental resubmission", async () => {
+    mocks.submit.mockResolvedValue({
+      outcome: "created",
+      suggestion: {...item, status: "pending"},
+    });
+
+    const user = await open();
+    await fill(user);
+    await user.click(screen.getByRole("button", {name: "Submit Request"}));
+
+    expect(await screen.findByRole("heading", {
+      name: "Request submitted!",
+    })).toBeInTheDocument();
+
+    expect(screen.queryByRole("button", {name: "Submit Request"}))
+      .not.toBeInTheDocument();
+
+    expect(mocks.submit).toHaveBeenCalledTimes(1);
+
+    await user.click(screen.getByRole("button", {
+      name: "Request Another Occasion",
+    }));
+
+    expect(screen.getByLabelText("Occasion Name *")).toHaveValue("");
+    expect(screen.getByRole("button", {name: "Submit Request"}))
+      .toBeEnabled();
+    expect(mocks.submit).toHaveBeenCalledTimes(1);
   });
   it("retries with the same identity and blocks double submission", async () => {
     mocks.submit.mockRejectedValueOnce({code: "functions/unavailable"}).mockResolvedValueOnce({outcome: "created", suggestion: item});
     const user = await open(); await fill(user); await user.click(screen.getByRole("button", {name: "Submit Request"})); await screen.findByText(/No submission is confirmed/);
-    await user.click(screen.getByRole("button", {name: "Submit Request"})); await screen.findByText(/Request submitted/);
+    await user.click(screen.getByRole("button", {name: "Submit Request"})); await screen.findByText("Request submitted. Awaiting administrator review.");
     expect(mocks.submit.mock.calls[0][0].idempotencyKey).toBe(mocks.submit.mock.calls[1][0].idempotencyKey);
   });
   it("loads history with a cursor and review remarks", async () => {
@@ -46,7 +74,7 @@ describe("occasion requests", () => {
   });
   it.each([{details: {reason: "FEATURE_DISABLED"}}, {details: {reason: "CONFIG_UNAVAILABLE"}}, {code: "functions/permission-denied"}, {code: "functions/unavailable"}])("reports service failure without success %j", async (error) => {
     mocks.submit.mockRejectedValue(error); const user = await open(); await fill(user); await user.click(screen.getByRole("button", {name: "Submit Request"}));
-    await screen.findByText(occasionRequestError(error)); expect(screen.queryByText(/Request submitted/)).not.toBeInTheDocument();
+    await screen.findByText(occasionRequestError(error)); expect(screen.queryByText("Request submitted. Awaiting administrator review.")).not.toBeInTheDocument();
   });
   it("shows history errors and allows refresh", async () => {mocks.list.mockRejectedValueOnce({code: "functions/unavailable"}); const user = await open(); await screen.findByRole("alert"); await user.click(screen.getByRole("button", {name: "Refresh requests"})); await screen.findByText("No occasion requests yet.");});
 });
@@ -59,7 +87,7 @@ it("prevents additional calls while a submission is pending", async () => {
   expect(screen.getByRole("button", {name: "Submitting…"})).toBeDisabled();
   await user.click(screen.getByRole("button", {name: "Submitting…"}));
   expect(mocks.submit).toHaveBeenCalledTimes(1);
-  finish({outcome: "created", suggestion: item}); await screen.findByText(/Request submitted/);
+  finish({outcome: "created", suggestion: item}); await screen.findByText("Request submitted. Awaiting administrator review.");
 });
 it("blocks submission and history while browser integration is unverified", async () => {
   mocks.available.mockReturnValue(false);

@@ -1,4 +1,4 @@
-import {fireEvent, render, screen, waitFor, within} from "@testing-library/react";
+import {act, fireEvent, render, screen, waitFor, within} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import {beforeEach, describe, expect, it, vi} from "vitest";
 
@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   refresh: vi.fn(),
   updateDate: vi.fn(),
   updateSettings: vi.fn(),
+  catalog: vi.fn(),
   success: vi.fn(),
   error: vi.fn(),
 }));
@@ -20,6 +21,7 @@ vi.mock("next/navigation", () => ({
 }));
 
 vi.mock("@/lib/provider/availability/provider-availability-client", () => ({
+  getProviderAvailabilityOccasions: mocks.catalog,
   updateProviderAvailability: mocks.updateDate,
   updateProviderAvailabilitySettings: mocks.updateSettings,
 }));
@@ -72,6 +74,7 @@ function successfulSettingsResult(
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.catalog.mockResolvedValue({revision: 7, items: [{id: "birthday", label: "Birthday"}, {id: "wedding", label: "Wedding"}]});
   mocks.updateSettings.mockImplementation(async (
     input: UpdateProviderAvailabilitySettingsInput,
   ) => successfulSettingsResult(input));
@@ -289,4 +292,94 @@ describe("provider availability workspace", () => {
     expect(screen.getByRole("button", {name: "Save Availability Settings"}))
       .toHaveAttribute("type", "button");
   });
+});
+
+ describe("supported event types", () => {
+  it("loads saved IDs, toggles individuals, selects all and clears all", async () => {
+    const user = userEvent.setup();
+    render(<ProviderAvailabilityClient initialSettings={settings({supportedOccasionIds: ["birthday"]})} />);
+    expect(await screen.findByRole("checkbox", {name: "Birthday"})).toBeChecked();
+    expect(screen.getByRole("checkbox", {name: "Wedding"})).not.toBeChecked();
+    await user.click(screen.getByRole("checkbox", {name: "Birthday"}));
+    expect(screen.getByRole("checkbox", {name: "Birthday"})).not.toBeChecked();
+    await user.click(screen.getByRole("button", {name: "Select all"}));
+    expect(screen.getByRole("checkbox", {name: "Wedding"})).toBeChecked();
+    await user.click(screen.getByRole("button", {name: "Deselect all"}));
+    expect(screen.getByRole("checkbox", {name: "Birthday"})).not.toBeChecked();
+    expect(screen.getByRole("checkbox", {name: "Wedding"})).not.toBeChecked();
+  });
+  it("saves IDs with concurrency tokens and restores them on reload", async () => {
+    const user = userEvent.setup();
+    const view = render(<ProviderAvailabilityClient initialSettings={settings()} />);
+    await user.click(await screen.findByRole("checkbox", {name: "Wedding"}));
+    await user.click(screen.getByRole("button", {name: "Save Availability Settings"}));
+    await waitFor(() => expect(mocks.updateSettings).toHaveBeenCalledWith(expect.objectContaining({
+      supportedOccasionIds: ["wedding"], expectedSettingsRevision: 0, occasionCatalogRevision: 7,
+      operatingDays: ["monday", "tuesday", "wednesday"], minGuestsPerEvent: 20, maxGuestsPerEvent: 150,
+    })));
+    view.unmount();
+    render(<ProviderAvailabilityClient initialSettings={settings({supportedOccasionIds: ["wedding"], availabilitySettingsRevision: 1})} />);
+    expect(await screen.findByRole("checkbox", {name: "Wedding"})).toBeChecked();
+  });
+  it("preserves selected IDs on a failed or stale save", async () => {
+    mocks.updateSettings.mockRejectedValueOnce(new Error("Event types changed. Reload and review your selections before saving."));
+    const user = userEvent.setup();
+    render(<ProviderAvailabilityClient initialSettings={settings()} />);
+    await user.click(await screen.findByRole("checkbox", {name: "Birthday"}));
+    await user.click(screen.getByRole("button", {name: "Save Availability Settings"}));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Event types changed");
+    expect(screen.getByRole("checkbox", {name: "Birthday"})).toBeChecked();
+    expect(screen.getByRole("button", {name: "Save Availability Settings"})).toBeEnabled();
+  });
+  it("shows an empty catalog without selecting defaults", async () => {
+    mocks.catalog.mockResolvedValueOnce({revision: 8, items: []});
+    render(<ProviderAvailabilityClient initialSettings={settings()} />);
+    expect(await screen.findByText(/No approved event types/)).toBeVisible();
+    expect(screen.getByRole("button", {name: "Select all"})).toBeDisabled();
+  });
+  it("reports loading failures and permits retry", async () => {
+    mocks.catalog.mockRejectedValueOnce(new Error("Event types unavailable"));
+    const user = userEvent.setup();
+    render(<ProviderAvailabilityClient initialSettings={settings()} />);
+    await user.click(await screen.findByRole("button", {name: "Retry event types"}));
+    expect(await screen.findByRole("checkbox", {name: "Birthday"})).not.toBeChecked();
+  });
+  it("requires explicit removal of saved types that became ineligible", async () => {
+    const user = userEvent.setup();
+    render(<ProviderAvailabilityClient initialSettings={settings({supportedOccasionIds: ["retired"]})} />);
+    await user.click(await screen.findByRole("button", {name: "Remove unavailable event types"}));
+    expect(screen.queryByText(/Some saved event types/)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", {name: "Save Availability Settings"})).toBeEnabled();
+  });
+});
+
+it("preserves event selections when saving schedule edits during a catalog failure", async () => {
+  mocks.catalog.mockRejectedValueOnce(new Error("Event types unavailable"));
+  const user = userEvent.setup();
+  render(<ProviderAvailabilityClient initialSettings={settings({supportedOccasionIds: ["birthday"]})} />);
+  await screen.findByRole("button", {name: "Retry event types"});
+  const notice = screen.getByRole("spinbutton", {name: /^Minimum booking notice/u});
+  await user.clear(notice);
+  await user.type(notice, "5");
+  await user.click(screen.getByRole("button", {name: "Save Availability Settings"}));
+  await waitFor(() => expect(mocks.updateSettings).toHaveBeenCalledWith(expect.objectContaining({
+    bookingLeadTimeDays: 5, expectedSettingsRevision: 0,
+  })));
+  expect(mocks.updateSettings.mock.calls[0][0]).not.toHaveProperty("supportedOccasionIds");
+});
+
+it("prevents duplicate settings submissions while preserving pending selections", async () => {
+  let finish!: (value: ReturnType<typeof successfulSettingsResult>) => void;
+  mocks.updateSettings.mockImplementationOnce(() => new Promise(resolve => {finish = resolve;}));
+  const user = userEvent.setup();
+  render(<ProviderAvailabilityClient initialSettings={settings()} />);
+  await user.click(await screen.findByRole("checkbox", {name: "Birthday"}));
+  const save = screen.getByRole("button", {name: "Save Availability Settings"});
+  fireEvent.click(save);
+  fireEvent.click(save);
+  expect(mocks.updateSettings).toHaveBeenCalledTimes(1);
+  expect(screen.getByRole("checkbox", {name: "Birthday"})).toBeDisabled();
+  await act(async () => finish(successfulSettingsResult(mocks.updateSettings.mock.calls[0][0])));
+  expect(screen.getByRole("checkbox", {name: "Birthday"})).toBeChecked();
+  expect(screen.getByRole("button", {name: "Save Availability Settings"})).toBeDisabled();
 });

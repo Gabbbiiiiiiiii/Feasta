@@ -40,6 +40,7 @@ import {
 } from "./package-domain.js";
 
 import {isLegacyOccasionPackage} from "./legacy-occasion-publication-guard.js";
+import {assertLegacyPackagePublication} from "./legacy-package-publication-guard.js";
 import {stableOccasionPublicationGeneration} from "./occasion-publication-generation.js";
 import {activeOccasionAuthority} from "./occasion-publication-generation.js";
 
@@ -160,6 +161,8 @@ export const publishProviderPackage = onCall(
         assertDraftPackage(
           packageRecord,
         );
+
+        assertLegacyPackagePublication(packageRecord.packageData);
 
         if (!isLegacyOccasionPackage(packageRecord.packageData)) {
           throw new HttpsError(
