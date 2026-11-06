@@ -1,3 +1,5 @@
+import 'widgets/provider_grid.dart';
+import 'marketplace_availability.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/theme/app_colors.dart';
@@ -7,7 +9,6 @@ import '../../core/theme/app_typography.dart';
 import '../../shared/models/customer_address_model.dart';
 import '../../shared/models/feasta_models.dart';
 import '../authentication/data/repositories/feasta_repository.dart';
-import 'provider_profile_screen.dart';
 
 class PlanMatchingServicesScreen extends StatelessWidget {
   const PlanMatchingServicesScreen({
@@ -95,6 +96,9 @@ class PlanMatchingServicesScreen extends StatelessWidget {
                     provider.maxGuestsPerEvent >= guestCount;
               }).toList(),
               eventDate: eventDate,
+              startTime: startTime,
+              endTime: endTime,
+              guestCount: guestCount,
             ),
             builder: (context, availabilitySnapshot) {
               if (availabilitySnapshot.connectionState ==
@@ -152,20 +156,11 @@ class PlanMatchingServicesScreen extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(height: AppSpacing.sm),
-                  ...available.map(
-                    (provider) => Padding(
-                      padding: const EdgeInsets.only(bottom: AppSpacing.sm),
-                      child: _AvailableProviderCard(
-                        provider: provider,
-                        onTap: () {
-                          Navigator.of(context).push(
-                            MaterialPageRoute(
-                              builder: (_) =>
-                                  ProviderProfileScreen(provider: provider),
-                            ),
-                          );
-                        },
-                      ),
+                  ProviderCardGrid(
+                    itemCount: available.length,
+                    itemBuilder: (context, index) => ProviderGridCard(
+                      provider: available[index],
+                      categoryNames: const {},
                     ),
                   ),
                 ],
@@ -182,20 +177,28 @@ Future<List<ProviderModel>> _availableProviders({
   required FeastaRepository repository,
   required List<ProviderModel> providers,
   required DateTime eventDate,
+  required TimeOfDay startTime,
+  required TimeOfDay endTime,
+  required int guestCount,
 }) async {
-  final checks = await Future.wait(
-    providers.map((provider) async {
-      final available = await repository.checkProviderAvailability(
-        providerId: provider.id,
-        eventDate: eventDate,
-        maxEventsPerDay: provider.maxEventsPerDay,
-      );
-
-      return available ? provider : null;
-    }),
+  if (providers.isEmpty) return [];
+  String clock(TimeOfDay time) =>
+      '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}';
+  final results = await checkMarketplaceAvailability(
+    providers.map((p) => p.id).toList(),
+    MarketplaceEventContext(
+      eventDate:
+          '${eventDate.year}-${eventDate.month.toString().padLeft(2, '0')}-${eventDate.day.toString().padLeft(2, '0')}',
+      eventTime: clock(startTime),
+      eventEndTime: clock(endTime),
+      guestCount: guestCount,
+    ),
   );
-
-  return checks.whereType<ProviderModel>().toList();
+  final available = results
+      .where((r) => r.available)
+      .map((r) => r.providerId)
+      .toSet();
+  return providers.where((p) => available.contains(p.id)).toList();
 }
 
 class _SearchSummary extends StatelessWidget {
@@ -280,169 +283,6 @@ class _SearchSummary extends StatelessWidget {
             ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _AvailableProviderCard extends StatelessWidget {
-  const _AvailableProviderCard({required this.provider, required this.onTap});
-
-  final ProviderModel provider;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final imageUrl = provider.coverImageUrl?.trim() ?? '';
-
-    return Material(
-      color: AppColors.surface,
-      borderRadius: BorderRadius.circular(AppRadius.large),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(AppRadius.large),
-        child: Container(
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(AppRadius.large),
-            border: Border.all(color: AppColors.border),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              ClipRRect(
-                borderRadius: const BorderRadius.vertical(
-                  top: Radius.circular(AppRadius.large),
-                ),
-                child: imageUrl.isEmpty
-                    ? Container(
-                        height: 128,
-                        width: double.infinity,
-                        color: AppColors.primarySubtle,
-                        alignment: Alignment.center,
-                        child: const Icon(
-                          Icons.storefront_outlined,
-                          color: AppColors.primary,
-                          size: 42,
-                        ),
-                      )
-                    : Image.network(
-                        imageUrl,
-                        height: 128,
-                        width: double.infinity,
-                        fit: BoxFit.cover,
-                        errorBuilder: (_, _, _) {
-                          return Container(
-                            height: 128,
-                            width: double.infinity,
-                            color: AppColors.primarySubtle,
-                            alignment: Alignment.center,
-                            child: const Icon(
-                              Icons.storefront_outlined,
-                              color: AppColors.primary,
-                              size: 42,
-                            ),
-                          );
-                        },
-                      ),
-              ),
-              Padding(
-                padding: const EdgeInsets.all(AppSpacing.md),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            provider.businessName,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: AppTypography.cardTitle.copyWith(
-                              color: AppColors.mainText,
-                              fontWeight: FontWeight.w900,
-                            ),
-                          ),
-                        ),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 5,
-                          ),
-                          decoration: BoxDecoration(
-                            color: AppColors.primarySubtle,
-                            borderRadius: BorderRadius.circular(AppRadius.pill),
-                          ),
-                          child: Text(
-                            'Available',
-                            style: AppTypography.caption.copyWith(
-                              color: AppColors.primaryStrong,
-                              fontWeight: FontWeight.w900,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      '${provider.city}, ${provider.province}',
-                      style: AppTypography.bodySmall.copyWith(
-                        color: AppColors.secondaryTextAccessible,
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    Row(
-                      children: [
-                        const Icon(
-                          Icons.star_rounded,
-                          color: AppColors.rating,
-                          size: 18,
-                        ),
-                        const SizedBox(width: 3),
-                        Text(
-                          '${provider.ratingAverage.toStringAsFixed(1)} '
-                          '(${provider.reviewCount} reviews)',
-                          style: AppTypography.caption.copyWith(
-                            color: AppColors.mainText,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      '₱${provider.minPrice.toStringAsFixed(0)} – '
-                      '₱${provider.maxPrice.toStringAsFixed(0)}',
-                      style: AppTypography.bodySmall.copyWith(
-                        color: AppColors.primaryStrong,
-                        fontWeight: FontWeight.w900,
-                      ),
-                    ),
-                    const SizedBox(height: AppSpacing.sm),
-                    SizedBox(
-                      width: double.infinity,
-                      child: OutlinedButton(
-                        onPressed: onTap,
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: AppColors.primaryStrong,
-                          side: const BorderSide(color: AppColors.primary),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(
-                              AppRadius.large,
-                            ),
-                          ),
-                        ),
-                        child: const Text(
-                          'View packages',
-                          style: TextStyle(fontWeight: FontWeight.w900),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
       ),
     );
   }

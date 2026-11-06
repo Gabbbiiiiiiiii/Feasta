@@ -168,13 +168,46 @@ class _CustomerEventListScreenState extends State<CustomerEventListScreen>
     final list = controller.list;
     return Scaffold(
       backgroundColor: AppColors.background,
-      appBar: AppBar(title: const Text('My Event List')),
+      appBar: AppBar(
+        backgroundColor: AppColors.background,
+        surfaceTintColor: Colors.transparent,
+        foregroundColor: AppColors.primary,
+        leading: BackButton(
+          onPressed: () => returnToCustomerRoot(Navigator.of(context)),
+        ),
+        title: const Text(
+          'My Event List',
+          style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
+        ),
+      ),
       body: SafeArea(
         child: ListView(
           padding: const EdgeInsets.all(20),
           children: [
-            const Text(
-              'Save packages while preparing your event. This is a planning list, not a reservation. Prices are estimates; availability is not guaranteed.',
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: AppColors.primarySubtle,
+                border: Border.all(color: AppColors.primarySubtleStrong),
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: const Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(Icons.info_rounded, size: 18, color: AppColors.primary),
+                  SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      'This is a planning list, not a reservation. Prices are estimates; availability is not guaranteed.',
+                      style: TextStyle(
+                        fontSize: 13,
+                        height: 1.6,
+                        color: AppColors.mainText,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
             const SizedBox(height: 16),
             if (!authorized)
@@ -204,8 +237,10 @@ class _CustomerEventListScreenState extends State<CustomerEventListScreen>
                   ),
                 ),
               if (list != null) ...[
-                Text('${list.entries.length} saved packages'),
-                Text('${groupEventList(list).length} saved providers'),
+                if (list.entries.isNotEmpty) ...[
+                  Text('${list.entries.length} saved packages'),
+                  Text('${groupEventList(list).length} saved providers'),
+                ],
                 if (list.entries.isNotEmpty)
                   TextButton.icon(
                     onPressed: () {
@@ -217,11 +252,8 @@ class _CustomerEventListScreenState extends State<CustomerEventListScreen>
                     label: const Text('Check latest details'),
                   ),
                 if (list.entries.isEmpty)
-                  const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 32),
-                    child: Text(
-                      'Your Event List is empty. Save a package to start planning.',
-                    ),
+                  _EmptyEventList(
+                    onBrowse: () => returnToCustomerRoot(Navigator.of(context)),
                   ),
                 for (final group in groupEventList(list)) ...[
                   Semantics(
@@ -262,6 +294,16 @@ class _CustomerEventListScreenState extends State<CustomerEventListScreen>
             ],
             const SizedBox(height: 16),
             FilledButton(
+              style: FilledButton.styleFrom(
+                backgroundColor: AppColors.primary,
+                foregroundColor: AppColors.primaryForeground,
+                minimumSize: const Size(double.infinity, 52),
+                shape: const StadiumBorder(),
+                textStyle: const TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
               onPressed: () => returnToCustomerRoot(Navigator.of(context)),
               child: const Text('Continue Browsing'),
             ),
@@ -395,4 +437,219 @@ class _CustomerEventListScreenState extends State<CustomerEventListScreen>
       ),
     ),
   );
+}
+
+class _EmptyEventList extends StatelessWidget {
+  const _EmptyEventList({required this.onBrowse});
+  final VoidCallback onBrowse;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(top: 48, bottom: 6),
+    child: Column(
+      children: [
+        const ExcludeSemantics(
+          child: SizedBox(
+            width: 160,
+            height: 148,
+            child: CustomPaint(painter: _EventPlanningPainter()),
+          ),
+        ),
+        const SizedBox(height: 20),
+        Semantics(
+          header: true,
+          child: const Text(
+            'Your Event List is Empty',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 22,
+              fontWeight: FontWeight.w700,
+              color: AppColors.primary,
+            ),
+          ),
+        ),
+        const SizedBox(height: 10),
+        const Text(
+          'Save packages and providers to start planning your event.',
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            fontSize: 15,
+            height: 1.6,
+            color: AppColors.secondaryTextAccessible,
+          ),
+        ),
+        const SizedBox(height: 22),
+        const Wrap(
+          alignment: WrapAlignment.center,
+          spacing: 16,
+          children: [Text('0 saved packages'), Text('0 saved providers')],
+        ),
+        const SizedBox(height: 10),
+        Wrap(
+          alignment: WrapAlignment.center,
+          spacing: 10,
+          runSpacing: 10,
+          children: [
+            _metric(Icons.inventory_2_outlined, '0 Packages'),
+            _metric(Icons.soup_kitchen_outlined, '0 Providers'),
+          ],
+        ),
+      ],
+    ),
+  );
+
+  Widget _metric(IconData icon, String label) => OutlinedButton.icon(
+    onPressed: onBrowse,
+    icon: Icon(icon, size: 19),
+    label: Text(label),
+    style: OutlinedButton.styleFrom(
+      backgroundColor: AppColors.surface,
+      foregroundColor: AppColors.primary,
+      side: const BorderSide(color: AppColors.primary, width: 1.4),
+      minimumSize: const Size(136, 46),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+    ),
+  );
+}
+
+class _EventPlanningPainter extends CustomPainter {
+  const _EventPlanningPainter();
+  @override
+  void paint(Canvas canvas, Size size) {
+    canvas.save();
+    canvas.scale(size.width / 160, size.height / 148);
+    final ink = Paint()
+      ..color = AppColors.primary
+      ..strokeWidth = 1.8;
+    void box(Rect rect, double radius, Color fill, Color border) {
+      final shape = RRect.fromRectAndRadius(rect, Radius.circular(radius));
+      canvas.drawRRect(shape, Paint()..color = fill);
+      canvas.drawRRect(
+        shape,
+        Paint()
+          ..color = border
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.7,
+      );
+    }
+
+    box(
+      const Rect.fromLTWH(30, 21, 82, 108),
+      5,
+      AppColors.surface,
+      AppColors.borderStrong,
+    );
+    box(
+      const Rect.fromLTWH(36, 27, 70, 96),
+      2,
+      AppColors.background,
+      AppColors.border,
+    );
+    final clip = Path()
+      ..moveTo(53, 33)
+      ..lineTo(53, 23)
+      ..quadraticBezierTo(53, 17, 64, 17)
+      ..cubicTo(64, 3, 81, 3, 81, 17)
+      ..quadraticBezierTo(91, 17, 91, 23)
+      ..lineTo(91, 33)
+      ..close();
+    canvas.drawPath(clip, Paint()..color = AppColors.primarySubtleStrong);
+    canvas.drawPath(
+      clip,
+      Paint()
+        ..color = ink.color
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.8,
+    );
+    canvas.drawCircle(const Offset(72.5, 15), 2.5, ink);
+    for (var i = 0; i < 4; i++) {
+      final y = 46.0 + i * 17;
+      box(
+        Rect.fromLTWH(46, y, 10, 10),
+        1,
+        i > 1 ? AppColors.primarySubtleStrong : AppColors.surface,
+        ink.color,
+      );
+      canvas.drawLine(
+        Offset(64, y + 5),
+        Offset(96, y + 5),
+        Paint()
+          ..color = AppColors.borderStrong
+          ..strokeWidth = 1.7,
+      );
+      if (i < 2) {
+        canvas.drawPath(
+          Path()
+            ..moveTo(48, y + 3)
+            ..lineTo(51, y + 6)
+            ..lineTo(59, y - 3),
+          Paint()
+            ..color = ink.color
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 1.8,
+        );
+      }
+    }
+    final roof = Path()
+      ..moveTo(86, 105)
+      ..lineTo(112, 82)
+      ..lineTo(139, 105)
+      ..close();
+    canvas.drawPath(roof, Paint()..color = AppColors.primarySubtleStrong);
+    canvas.drawPath(
+      roof,
+      Paint()
+        ..color = ink.color
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.8,
+    );
+    box(
+      const Rect.fromLTWH(92, 105, 41, 25),
+      1,
+      AppColors.primarySubtle,
+      ink.color,
+    );
+    for (final x in [92.0, 102.0, 112.0, 122.0]) {
+      canvas.drawPath(
+        Path()
+          ..moveTo(x, 106)
+          ..quadraticBezierTo(x + 5, 116, x + 10, 106),
+        Paint()
+          ..color = ink.color
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.5,
+      );
+    }
+    final opening = Path()
+      ..moveTo(99, 130)
+      ..lineTo(112, 110)
+      ..lineTo(126, 130)
+      ..close();
+    canvas.drawPath(opening, Paint()..color = AppColors.primarySubtleStrong);
+    canvas.drawPath(
+      opening,
+      Paint()
+        ..color = ink.color
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.5,
+    );
+    canvas.drawLine(
+      const Offset(92, 105),
+      const Offset(80, 131),
+      Paint()
+        ..color = AppColors.borderStrong
+        ..strokeWidth = 1.5,
+    );
+    canvas.drawLine(
+      const Offset(133, 105),
+      const Offset(145, 131),
+      Paint()
+        ..color = AppColors.borderStrong
+        ..strokeWidth = 1.5,
+    );
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(covariant _EventPlanningPainter oldDelegate) => false;
 }

@@ -1,5 +1,6 @@
 import 'booking_lifecycle_presentation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../core/constants/status_constants.dart';
 import '../../core/theme/app_colors.dart';
@@ -27,6 +28,32 @@ class CustomerBookingsScreen extends StatefulWidget {
 
 class _CustomerBookingsScreenState extends State<CustomerBookingsScreen> {
   late final CustomerBookingsController controller;
+  String _filter = 'All';
+  String _query = '';
+  bool _matches(BookingModel b) {
+    final terminal = const [
+      'completed',
+      'cancelled',
+      'expired',
+      'rejected',
+    ].contains(b.status);
+    final pending = const [
+      'pending',
+      'pending_provider_approval',
+      'needs_provider_replacement',
+      'accepted',
+      'waiting_payment',
+      'waiting_for_down_payment',
+      'payment_processing',
+    ].contains(b.status);
+    return (_filter == 'All' ||
+            (_filter == 'Past' && terminal) ||
+            (_filter == 'Pending' && pending) ||
+            (_filter == 'Upcoming' && !terminal && !pending)) &&
+        '${b.providerBusinessName} ${b.packageName} ${b.eventType} ${b.bookingCode}'
+            .toLowerCase()
+            .contains(_query.toLowerCase().trim());
+  }
 
   @override
   void initState() {
@@ -48,7 +75,36 @@ class _CustomerBookingsScreenState extends State<CustomerBookingsScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const FeastaPageHeader(title: 'My Bookings'),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 12, 12, 20),
+            child: Row(
+              children: [
+                const Expanded(
+                  child: Text(
+                    'My Bookings',
+                    style: TextStyle(
+                      fontSize: 28,
+                      fontWeight: FontWeight.w800,
+                      color: Color(0xFF0F4C3A),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
+            child: TextField(
+              onChanged: (value) => setState(() => _query = value),
+              decoration: InputDecoration(
+                hintText: 'Search loaded bookings',
+                prefixIcon: const Icon(Icons.search),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(28),
+                ),
+              ),
+            ),
+          ),
           Expanded(
             child: ListenableBuilder(
               listenable: controller,
@@ -78,9 +134,22 @@ class _CustomerBookingsScreenState extends State<CustomerBookingsScreen> {
                   );
                 }
 
-                final bookings = controller.bookings;
+                final bookings = controller.bookings.where(_matches).toList()
+                  ..sort((a, b) {
+                    bool past(BookingModel value) => const [
+                      'completed',
+                      'cancelled',
+                      'expired',
+                      'rejected',
+                    ].contains(value.status);
+                    if (past(a) != past(b)) return past(a) ? 1 : -1;
+                    final order = (a.eventDate ?? DateTime(9999)).compareTo(
+                      b.eventDate ?? DateTime(9999),
+                    );
+                    return past(a) ? -order : order;
+                  });
 
-                if (bookings.isEmpty) {
+                if (controller.bookings.isEmpty) {
                   return RefreshIndicator(
                     onRefresh: controller.refresh,
                     child: ListView(
@@ -102,7 +171,7 @@ class _CustomerBookingsScreenState extends State<CustomerBookingsScreen> {
                       AppSpacing.screen,
                       AppSpacing.sm,
                       AppSpacing.screen,
-                      AppSpacing.massive,
+                      100,
                     ),
                     itemCount: bookings.length + 2,
                     separatorBuilder: (context, index) {
@@ -110,7 +179,60 @@ class _CustomerBookingsScreenState extends State<CustomerBookingsScreen> {
                     },
                     itemBuilder: (context, index) {
                       if (index == 0) {
-                        return _BookingsIntro(bookingCount: bookings.length);
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            _BookingsIntro(bookingCount: bookings.length),
+                            const SizedBox(height: 16),
+                            SingleChildScrollView(
+                              scrollDirection: Axis.horizontal,
+                              child: Row(
+                                children: [
+                                  for (final label in [
+                                    'All',
+                                    'Upcoming',
+                                    'Pending',
+                                    'Past',
+                                  ])
+                                    Padding(
+                                      padding: const EdgeInsets.only(right: 8),
+                                      child: ChoiceChip(
+                                        label: Text(label),
+                                        selected: _filter == label,
+                                        selectedColor: const Color(0xFF0F4C3A),
+                                        labelStyle: TextStyle(
+                                          color: _filter == label
+                                              ? Colors.white
+                                              : const Color(0xFF0F4C3A),
+                                        ),
+                                        showCheckmark: false,
+                                        onSelected: (_) =>
+                                            setState(() => _filter = label),
+                                      ),
+                                    ),
+                                ],
+                              ),
+                            ),
+                            if (controller.hasMore)
+                              const Padding(
+                                padding: EdgeInsets.only(top: 8),
+                                child: Text(
+                                  'Search and filters apply to loaded bookings. Load more to see older events.',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: AppColors.secondaryTextAccessible,
+                                  ),
+                                ),
+                              ),
+                            if (bookings.isEmpty)
+                              const Padding(
+                                padding: EdgeInsets.symmetric(vertical: 24),
+                                child: Text(
+                                  'No bookings match. Try another filter or load more.',
+                                ),
+                              ),
+                          ],
+                        );
                       }
 
                       if (index == bookings.length + 1) {
@@ -423,7 +545,7 @@ class _StandardBookingContent extends StatelessWidget {
               Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _ProviderIcon(status: booking.status),
+                  _ProviderPicture(booking: booking),
 
                   const SizedBox(width: AppSpacing.md),
 
@@ -476,13 +598,31 @@ class _StandardBookingContent extends StatelessWidget {
                   ),
                   const SizedBox(width: AppSpacing.sm),
                   Flexible(
-                    child: Text(
-                      booking.bookingCode,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      textAlign: TextAlign.right,
-                      style: AppTypography.caption.copyWith(
-                        color: AppColors.secondaryTextAccessible,
+                    child: InkWell(
+                      onTap: () async {
+                        await Clipboard.setData(
+                          ClipboardData(text: booking.bookingCode),
+                        );
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Booking reference copied'),
+                            ),
+                          );
+                        }
+                      },
+                      child: Tooltip(
+                        message: 'Copy booking reference',
+                        child: Text(
+                          booking.bookingCode,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          textAlign: TextAlign.right,
+                          style: AppTypography.caption.copyWith(
+                            color: const Color(0xFF0F4C3A),
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
                       ),
                     ),
                   ),
@@ -512,7 +652,7 @@ class _StandardBookingContent extends StatelessWidget {
             onDetails: onDetails,
             onChat: onChat,
             onPayment: onPayment,
-            forceStack: false,
+            forceStack: true,
           ),
         ),
       ],
@@ -566,7 +706,7 @@ class _LargeTextBookingContent extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _ProviderIcon(status: booking.status),
+              _ProviderPicture(booking: booking),
 
               const SizedBox(height: AppSpacing.md),
 
@@ -975,15 +1115,13 @@ class _BookingCardActions extends StatelessWidget {
         vertical: AppSpacing.sm,
       ),
       side: const BorderSide(color: AppColors.border),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(AppRadius.large),
-      ),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
     );
   }
 
   ButtonStyle get _primaryStyle {
     return ElevatedButton.styleFrom(
-      backgroundColor: AppColors.primary,
+      backgroundColor: const Color(0xFF0F4C3A),
       foregroundColor: Colors.white,
       minimumSize: const Size(0, 52),
       padding: const EdgeInsets.symmetric(
@@ -1063,7 +1201,7 @@ class _BookingCardActions extends StatelessWidget {
               onPressed: onChat,
               style: _primaryStyle,
               child: Text(
-                'Chat',
+                'Message provider',
                 textAlign: TextAlign.center,
                 style: AppTypography.button.copyWith(
                   color: Colors.white,
@@ -1100,7 +1238,7 @@ class _BookingCardActions extends StatelessWidget {
               onPressed: onChat,
               style: _primaryStyle,
               child: Text(
-                'Chat',
+                'Message provider',
                 style: AppTypography.button.copyWith(
                   color: Colors.white,
                   fontWeight: FontWeight.w800,
@@ -1128,4 +1266,60 @@ class _BookingCardActions extends StatelessWidget {
       ),
     );
   }
+}
+
+class _ProviderPicture extends StatefulWidget {
+  const _ProviderPicture({required this.booking});
+  final BookingModel booking;
+  @override
+  State<_ProviderPicture> createState() => _ProviderPictureState();
+}
+
+class _ProviderPictureState extends State<_ProviderPicture> {
+  late Future<String?> _image;
+  @override
+  void initState() {
+    super.initState();
+    _image = _load();
+  }
+
+  @override
+  void didUpdateWidget(covariant _ProviderPicture oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.booking.providerId != widget.booking.providerId) {
+      _image = _load();
+    }
+  }
+
+  Future<String?> _load() async {
+    try {
+      return (await FeastaRepository().getProviderById(
+        widget.booking.providerId,
+      ))?.logoUrl;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+    width: 54,
+    height: 54,
+    child: ClipOval(
+      child: FutureBuilder<String?>(
+        future: _image,
+        builder: (context, snapshot) {
+          final url = snapshot.data?.trim();
+          final fallback = _ProviderIcon(status: widget.booking.status);
+          return url == null || url.isEmpty
+              ? fallback
+              : Image.network(
+                  url,
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, _, _) => fallback,
+                );
+        },
+      ),
+    ),
+  );
 }

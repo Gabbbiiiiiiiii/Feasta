@@ -1,3 +1,4 @@
+import 'widgets/provider_grid.dart';
 import 'event_list/event_list_navigation.dart';
 import 'widgets/provider_brand_visual.dart';
 import '../../core/domain/service_category.dart';
@@ -9,7 +10,6 @@ import '../../core/helpers/auth_guard.dart';
 import '../../core/helpers/provider_category_helper.dart';
 import '../../core/helpers/provider_discovery.dart';
 import '../../core/services/occasion_catalog_service.dart';
-import '../../core/widgets/badges/feasta_price_text.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_radius.dart';
 import '../../core/theme/app_spacing.dart';
@@ -23,10 +23,10 @@ import '../authentication/data/services/promotion_service.dart';
 
 import '../notifications/notifications_screen.dart';
 import 'home_text_colors.dart';
+import 'home_booking_timeline.dart';
 import 'customer_provider_collection_screen.dart';
 import 'customer_search_screen.dart';
 import 'location_picker_screen.dart';
-import 'provider_profile_screen.dart';
 
 class CustomerHomeScreen extends StatefulWidget {
   const CustomerHomeScreen({
@@ -53,6 +53,7 @@ class CustomerHomeScreen extends StatefulWidget {
 }
 
 class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
+  String? _selectedCategory;
   late final FeastaRepository _repository;
   late final CustomerAddressStorageService _addressStorage;
 
@@ -126,10 +127,6 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
     );
   }
 
-  void _openAllServices() {
-    _openSearch(autofocus: false);
-  }
-
   void _openPopular() {
     final screen = CustomerProviderCollectionScreen(
       title: 'Explore Providers',
@@ -171,11 +168,23 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
                   onFilterTap: () => _openSearch(showFilters: true),
                 ),
               ),
-              const SliverToBoxAdapter(child: SizedBox(height: AppSpacing.sm)),
+              const SliverToBoxAdapter(child: SizedBox(height: AppSpacing.xs)),
+              SliverToBoxAdapter(
+                child: StreamBuilder<User?>(
+                  stream: FirebaseAuth.instance.authStateChanges(),
+                  initialData: FirebaseAuth.instance.currentUser,
+                  builder: (context, snapshot) => snapshot.data == null
+                      ? const SizedBox.shrink()
+                      : HomeBookingTimeline(
+                          key: ValueKey(snapshot.data!.uid),
+                          repository: _repository,
+                        ),
+                ),
+              ),
               SliverToBoxAdapter(
                 child: _PromotionSection(stream: widget.promotions),
               ),
-              const SliverToBoxAdapter(child: SizedBox(height: AppSpacing.md)),
+              const SliverToBoxAdapter(child: SizedBox(height: AppSpacing.xs)),
               SliverToBoxAdapter(
                 child: FutureBuilder<List<ServiceCategory>>(
                   future: _eventServices,
@@ -192,8 +201,10 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
                           snapshot.hasError &&
                           snapshot.connectionState == ConnectionState.done,
                       onRetry: _refresh,
-                      onSeeAll: _openAllServices,
-                      onItemTap: (item) => _openSearch(categoryCode: item.code),
+                      selectedCategory: _selectedCategory,
+                      onSeeAll: () => setState(() => _selectedCategory = null),
+                      onItemTap: (item) =>
+                          setState(() => _selectedCategory = item.code),
                     );
                   },
                 ),
@@ -201,6 +212,7 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
               const SliverToBoxAdapter(child: SizedBox(height: AppSpacing.md)),
               SliverToBoxAdapter(
                 child: _PopularSection(
+                  selectedCategory: _selectedCategory,
                   repository: _repository,
                   onSeeAll: _openPopular,
                   onCategorySeeAll: (code) => _openSearch(categoryCode: code),
@@ -240,7 +252,7 @@ class _HomeHeader extends StatelessWidget {
         AppSpacing.screen,
         AppSpacing.sm,
         AppSpacing.screen,
-        AppSpacing.md,
+        AppSpacing.none,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -544,103 +556,50 @@ class _BellButton extends StatelessWidget {
   }
 }
 
-class _PromotionSection extends StatelessWidget {
+class _PromotionSection extends StatefulWidget {
   const _PromotionSection({this.stream});
-
   final Stream<List<PromotionModel>>? stream;
-
   @override
-  Widget build(BuildContext context) {
-    return StreamBuilder<List<PromotionModel>>(
-      stream:
-          stream ??
-          (FirebaseAuth.instance.currentUser == null
-              ? Stream<List<PromotionModel>>.value(const <PromotionModel>[])
-              : PromotionService().watchActivePromotions()),
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Padding(
-            padding: EdgeInsets.symmetric(horizontal: AppSpacing.screen),
-            child: _PromotionLoadingCard(),
-          );
-        }
-
-        final promotions = snapshot.data ?? const <PromotionModel>[];
-
-        if (snapshot.hasError || promotions.isEmpty) {
-          return const Padding(
-            padding: EdgeInsets.symmetric(horizontal: AppSpacing.screen),
-            child: HomePromotionEmptyCard(),
-          );
-        }
-
-        return _PromotionRail(promotions: promotions);
-      },
-    );
-  }
+  State<_PromotionSection> createState() => _PromotionSectionState();
 }
 
-class _PromotionLoadingCard extends StatelessWidget {
-  const _PromotionLoadingCard();
+class _PromotionSectionState extends State<_PromotionSection> {
+  late final Stream<User?> _authChanges = FirebaseAuth.instance
+      .authStateChanges();
+  Stream<List<PromotionModel>>? _promotions;
+  String? _uid;
 
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      height: 72,
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(AppRadius.large),
-        border: Border.all(color: AppColors.border),
-      ),
-      alignment: Alignment.center,
-      child: const CircularProgressIndicator(
-        strokeWidth: 2,
-        color: AppColors.primary,
-      ),
-    );
+  Stream<List<PromotionModel>> _forUser(User? user) {
+    if (_promotions == null || _uid != user?.uid) {
+      _uid = user?.uid;
+      _promotions = user == null
+          ? Stream.value(const <PromotionModel>[])
+          : PromotionService().watchActivePromotions();
+    }
+    return _promotions!;
   }
-}
 
-class HomePromotionEmptyCard extends StatelessWidget {
-  const HomePromotionEmptyCard({super.key});
+  Widget _content(Stream<List<PromotionModel>> stream) =>
+      StreamBuilder<List<PromotionModel>>(
+        stream: stream,
+        builder: (context, snapshot) {
+          final promotions = snapshot.data ?? const <PromotionModel>[];
+          if (snapshot.hasError || promotions.isEmpty) {
+            return const SizedBox.shrink();
+          }
+          return _PromotionRail(promotions: promotions);
+        },
+      );
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      constraints: const BoxConstraints(minHeight: 72),
-      padding: const EdgeInsets.all(AppSpacing.md),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(AppRadius.large),
-        border: Border.all(color: AppColors.border),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 42,
-            height: 42,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              color: AppColors.primarySubtle,
-              borderRadius: BorderRadius.circular(AppRadius.medium),
-            ),
-            child: const Icon(
-              Icons.celebration_outlined,
-              color: customerDecorativeIconColor,
-            ),
-          ),
-          const SizedBox(width: AppSpacing.sm),
-          Expanded(
-            child: Text(
-              'Find the right services for your celebration.',
-              style: AppTypography.bodySmall.copyWith(
-                color: HomeTextColors.secondary,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ),
-        ],
-      ),
+    if (widget.stream != null) {
+      return _content(widget.stream!);
+    }
+    return StreamBuilder<User?>(
+      stream: _authChanges,
+      initialData: FirebaseAuth.instance.currentUser,
+      builder: (context, snapshot) => _content(_forUser(snapshot.data)),
     );
   }
 }
@@ -761,6 +720,7 @@ class _PromotionCard extends StatelessWidget {
 
 class _EventServicesSection extends StatelessWidget {
   const _EventServicesSection({
+    required this.selectedCategory,
     required this.items,
     required this.onSeeAll,
     required this.onItemTap,
@@ -769,6 +729,7 @@ class _EventServicesSection extends StatelessWidget {
     required this.failed,
   });
 
+  final String? selectedCategory;
   final List<ServiceCategory> items;
   final VoidCallback onSeeAll, onRetry;
   final ValueChanged<ServiceCategory> onItemTap;
@@ -809,14 +770,14 @@ class _EventServicesSection extends StatelessWidget {
               children: [
                 _ServiceCategoryChip(
                   label: 'All services',
-                  selected: true,
+                  selected: !items.any((item) => item.code == selectedCategory),
                   onTap: onSeeAll,
                 ),
                 for (final item in items) ...[
                   const SizedBox(width: 8),
                   _ServiceCategoryChip(
                     label: item.name,
-                    selected: false,
+                    selected: item.code == selectedCategory,
                     onTap: () => onItemTap(item),
                   ),
                 ],
@@ -882,12 +843,14 @@ class _ServiceCategoryChip extends StatelessWidget {
 
 class _PopularSection extends StatefulWidget {
   const _PopularSection({
+    required this.selectedCategory,
     required this.repository,
     required this.onSeeAll,
     required this.onCategorySeeAll,
     required this.categories,
     required this.onRetry,
   });
+  final String? selectedCategory;
   final FeastaRepository repository;
   final Future<List<ServiceCategory>> categories;
   final ValueChanged<String> onCategorySeeAll;
@@ -900,7 +863,6 @@ class _PopularSection extends StatefulWidget {
 
 class _PopularSectionState extends State<_PopularSection> {
   late Stream<List<ProviderModel>> _providers;
-  String? _selectedCategory;
   @override
   void initState() {
     super.initState();
@@ -923,8 +885,8 @@ class _PopularSectionState extends State<_PopularSection> {
     builder: (context, categorySnapshot) {
       final categories = categorySnapshot.data ?? const <ServiceCategory>[];
       final names = serviceCategoryNameMap(categories);
-      final selected = categories.any((c) => c.code == _selectedCategory)
-          ? _selectedCategory
+      final selected = categories.any((c) => c.code == widget.selectedCategory)
+          ? widget.selectedCategory
           : null;
       return StreamBuilder<List<ProviderModel>>(
         stream: _providers,
@@ -934,37 +896,6 @@ class _PopularSectionState extends State<_PopularSection> {
           return Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              HomeSectionHeader(
-                title: 'Explore Providers',
-                subtitle: 'Featured public providers (up to 50 results)',
-                onSeeAll: widget.onSeeAll,
-              ),
-              SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: AppSpacing.screen,
-                ),
-                child: Row(
-                  children: [
-                    ChoiceChip(
-                      label: const Text('All services'),
-                      selected: selected == null,
-                      onSelected: (_) =>
-                          setState(() => _selectedCategory = null),
-                    ),
-                    for (final category in categories)
-                      Padding(
-                        padding: const EdgeInsets.only(left: 8),
-                        child: ChoiceChip(
-                          label: Text(category.name),
-                          selected: selected == category.code,
-                          onSelected: (_) =>
-                              setState(() => _selectedCategory = category.code),
-                        ),
-                      ),
-                  ],
-                ),
-              ),
               if (categorySnapshot.hasError || snapshot.hasError)
                 Center(
                   child: TextButton(
@@ -984,8 +915,6 @@ class _PopularSectionState extends State<_PopularSection> {
                   child: Text('No providers available yet.'),
                 )
               else ...[
-                if (selected == null)
-                  _row(context, 'All Providers', all, names, widget.onSeeAll),
                 for (final category in categories.where(
                   (c) => selected == null
                       ? (groups[c.code]?.isNotEmpty ?? false)
@@ -997,6 +926,7 @@ class _PopularSectionState extends State<_PopularSection> {
                     groups[category.code] ?? const [],
                     names,
                     () => widget.onCategorySeeAll(category.code),
+                    horizontal: selected == null,
                   ),
               ],
             ],
@@ -1010,165 +940,75 @@ class _PopularSectionState extends State<_PopularSection> {
     String title,
     List<ProviderModel> providers,
     Map<String, String> names,
-    VoidCallback onSeeAll,
-  ) => Column(
+    VoidCallback onSeeAll, {
+    required bool horizontal,
+  }) => Column(
     children: [
       HomeSectionHeader(
         title: title,
-        subtitle: 'Featured providers',
-        onSeeAll: onSeeAll,
+        subtitle: horizontal
+            ? 'Swipe to explore providers'
+            : '${providers.length} providers',
+        onSeeAll: horizontal && providers.length > 2 ? onSeeAll : null,
       ),
       if (providers.isEmpty)
         const Padding(
           padding: EdgeInsets.all(24),
           child: Text('No providers available yet.'),
         )
-      else
-        SizedBox(
-          height:
-              280 * MediaQuery.textScalerOf(context).scale(1).clamp(1.0, 2.0),
-          child: ListView.separated(
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.screen),
-            itemCount: providers.length.clamp(0, 8),
-            separatorBuilder: (_, _) => const SizedBox(width: AppSpacing.sm),
-            itemBuilder: (context, index) => _HomeProviderCard(
+      else if (!horizontal)
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: AppSpacing.screen),
+          child: ProviderCardGrid(
+            itemCount: providers.length,
+            itemBuilder: (context, index) => ProviderGridCard(
+              key: ValueKey(providers[index].id),
               provider: providers[index],
               categoryNames: names,
             ),
           ),
+        )
+      else
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final scale = MediaQuery.textScalerOf(context).scale(1);
+            final width = scale > 1.6
+                ? (constraints.maxWidth - AppSpacing.screen * 2).clamp(
+                    220.0,
+                    360.0,
+                  )
+                : ((constraints.maxWidth - AppSpacing.screen * 2 - 12) / 2)
+                      .clamp(148.0, 220.0);
+            return SingleChildScrollView(
+              key: PageStorageKey('home-provider-row-$title'),
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(
+                horizontal: AppSpacing.screen,
+              ),
+              child: IntrinsicHeight(
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    for (var index = 0; index < providers.length; index++) ...[
+                      if (index > 0) const SizedBox(width: 12),
+                      SizedBox(
+                        width: width,
+                        child: ProviderGridCard(
+                          key: ValueKey(providers[index].id),
+                          provider: providers[index],
+                          categoryNames: names,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            );
+          },
         ),
       const SizedBox(height: AppSpacing.md),
     ],
   );
-}
-
-class _HomeProviderCard extends StatelessWidget {
-  const _HomeProviderCard({
-    required this.provider,
-    required this.categoryNames,
-  });
-
-  final ProviderModel provider;
-  final Map<String, String> categoryNames;
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      width: (MediaQuery.sizeOf(context).width * 0.56).clamp(176.0, 240.0),
-      child: Material(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(AppRadius.card),
-        child: InkWell(
-          onTap: () {
-            Navigator.of(context).push(
-              MaterialPageRoute(
-                builder: (_) => ProviderProfileScreen(provider: provider),
-              ),
-            );
-          },
-          borderRadius: BorderRadius.circular(AppRadius.card),
-          child: Container(
-            clipBehavior: Clip.antiAlias,
-            decoration: BoxDecoration(
-              color: AppColors.surface,
-              borderRadius: BorderRadius.circular(AppRadius.card),
-              border: Border.all(color: AppColors.border),
-              boxShadow: const [
-                BoxShadow(
-                  color: Color(0x0A000000),
-                  blurRadius: 12,
-                  offset: Offset(0, 4),
-                ),
-              ],
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                ProviderBrandVisual(
-                  provider: provider,
-                  height: 124,
-                  logoSize: 44,
-                  showVerification: true,
-                ),
-                Padding(
-                  padding: const EdgeInsets.all(AppSpacing.sm),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        provider.businessName,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: AppTypography.label.copyWith(
-                          color: HomeTextColors.primary,
-                          fontWeight: FontWeight.w900,
-                        ),
-                      ),
-                      const SizedBox(height: 3),
-                      Text(
-                        providerCategoryLabel(
-                          provider.providerCategory,
-                          categoryNames: categoryNames,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: AppTypography.caption.copyWith(
-                          color: HomeTextColors.secondary,
-                        ),
-                      ),
-                      const SizedBox(height: AppSpacing.xs),
-                      if (provider.reviewCount > 0)
-                        Row(
-                          children: [
-                            const Icon(
-                              Icons.star_rounded,
-                              size: 16,
-                              color: AppColors.rating,
-                            ),
-                            const SizedBox(width: 3),
-                            Text(
-                              provider.ratingAverage.toStringAsFixed(1),
-                              style: AppTypography.caption.copyWith(
-                                color: HomeTextColors.primary,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                            Text(
-                              ' (${provider.reviewCount})',
-                              style: AppTypography.caption.copyWith(
-                                color: HomeTextColors.secondary,
-                              ),
-                            ),
-                          ],
-                        ),
-                      const SizedBox(height: 4),
-                      if (provider.minPrice > 0 && provider.minPrice.isFinite)
-                        Text(
-                          'From ${FeastaPriceFormatter.format(provider.minPrice, decimalDigits: 0)}',
-                          style: AppTypography.caption.copyWith(
-                            color: AppColors.primaryStrong,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      Text(
-                        provider.location,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: AppTypography.caption.copyWith(
-                          color: HomeTextColors.secondary,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
 }
 
 class HomeSectionHeader extends StatelessWidget {
@@ -1181,7 +1021,7 @@ class HomeSectionHeader extends StatelessWidget {
 
   final String title;
   final String subtitle;
-  final VoidCallback onSeeAll;
+  final VoidCallback? onSeeAll;
 
   @override
   Widget build(BuildContext context) {
@@ -1211,18 +1051,20 @@ class HomeSectionHeader extends StatelessWidget {
               ],
             ),
           ),
-          const SizedBox(width: AppSpacing.sm),
-          TextButton(
-            onPressed: onSeeAll,
-            style: TextButton.styleFrom(
-              foregroundColor: AppColors.primaryStrong,
-              minimumSize: const Size(44, 44),
+          if (onSeeAll != null) ...[
+            const SizedBox(width: AppSpacing.sm),
+            TextButton(
+              onPressed: onSeeAll,
+              style: TextButton.styleFrom(
+                foregroundColor: AppColors.primaryStrong,
+                minimumSize: const Size(44, 44),
+              ),
+              child: const Text(
+                'See all',
+                style: TextStyle(fontWeight: FontWeight.w900),
+              ),
             ),
-            child: const Text(
-              'See all',
-              style: TextStyle(fontWeight: FontWeight.w900),
-            ),
-          ),
+          ],
         ],
       ),
     );

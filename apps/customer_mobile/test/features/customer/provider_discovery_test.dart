@@ -1,3 +1,4 @@
+import 'package:feasta/features/customer/widgets/provider_grid.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'test_occasion_catalog_fixture.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -135,6 +136,26 @@ class DiscoveryRepository implements FeastaRepository {
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
+class LiveSuggestionRepository extends DiscoveryRepository {
+  final updates = StreamController<List<ProviderModel>>.broadcast();
+  @override
+  Future<Map<String, String>> getServiceCategoryNameMap({
+    bool forceRefresh = false,
+  }) async => {
+    'catering_service': 'Live Catering',
+    'photography': 'Live Photography',
+  };
+  @override
+  Stream<List<ProviderModel>> searchAllVerifiedProviders({
+    required String keyword,
+    String? categoryCode,
+    required String eventType,
+    required String location,
+    required double? minBudget,
+    required double? maxBudget,
+  }) => updates.stream;
+}
+
 class HomeAddressStorage extends CustomerAddressStorageService {
   @override
   Future<CustomerAddressModel> getSelectedOrDefault() async =>
@@ -147,6 +168,8 @@ class GroupedDiscoveryRepository extends DiscoveryRepository {
         providers: [
           provider(),
           provider(),
+          provider(id: 'catering-2'),
+          provider(id: 'catering-3'),
           provider(
             id: 'photo',
             name: 'Photo Studio',
@@ -205,10 +228,14 @@ class HomeStateRepository extends DiscoveryRepository {
 
 class SignedUser with MockPlatformInterfaceMixin implements UserPlatform {
   @override
+  String get uid => 'pia';
+  @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 class SignedHomeRepository extends DiscoveryRepository {
+  @override
+  Stream<List<BookingModel>> customerActiveBookings() => Stream.value([]);
   @override
   Stream<UserModel?> currentUserData() => Stream.value(
     UserModel(
@@ -241,6 +268,8 @@ class GuestAuth extends FirebaseAuthPlatform {
   }) => this;
   @override
   UserPlatform? get currentUser => signedIn ? SignedUser() : null;
+  @override
+  Stream<UserPlatform?> authStateChanges() => Stream.value(currentUser);
 }
 
 class ProfileRepository extends DiscoveryRepository {
@@ -292,10 +321,10 @@ void main() {
       expect(find.text('Ormoc City'), findsOneWidget);
       expect(find.text('Recommended for You'), findsNothing);
       expect(find.text('Popular Providers'), findsNothing);
-      expect(find.text('Explore Providers'), findsOneWidget);
+      expect(find.text('Explore Providers'), findsNothing);
       expect(
         find.text('Find the right services for your celebration.'),
-        findsOneWidget,
+        findsNothing,
       );
       await tester.ensureVisible(find.text('Ana Catering').first);
       await tester.pumpAndSettle();
@@ -307,14 +336,16 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text('Catering').first);
       await tester.pumpAndSettle();
-      expect(find.byType(CustomerSearchScreen), findsOneWidget);
-      expect(find.text('Ana Catering').hitTestable().first, findsOneWidget);
+      expect(find.byType(CustomerSearchScreen), findsNothing);
       expect(
-        tester
-            .widget<CustomerSearchScreen>(find.byType(CustomerSearchScreen))
-            .initialCategoryCode,
-        'catering_service',
+        find.byWidgetPredicate(
+          (w) => w is HomeSectionHeader && w.title == 'Catering',
+        ),
+        findsOneWidget,
       );
+      await tester.ensureVisible(find.text('Ana Catering').first);
+      await tester.pumpAndSettle();
+      expect(find.text('Ana Catering').hitTestable().first, findsOneWidget);
       expect(tester.takeException(), isNull);
     });
   }
@@ -339,13 +370,13 @@ void main() {
         find.widgetWithText(OutlinedButton, 'My Event List'),
         findsNothing,
       );
-      await tester.ensureVisible(find.text('Explore Providers'));
+      await tester.ensureVisible(find.text('SERVICE CATEGORIES'));
       await tester.pumpAndSettle();
       expect(repository.searchCalls, 1);
       Finder header(String title) => find.byWidgetPredicate(
         (w) => w is HomeSectionHeader && w.title == title,
       );
-      expect(header('All Providers'), findsOneWidget);
+      expect(header('All Providers'), findsNothing);
       expect(header('empty'), findsNothing);
       for (final code in [
         'catering_service',
@@ -355,11 +386,21 @@ void main() {
         'empty',
       ]) {
         final callsBeforeSelection = repository.searchCalls;
-        final chip = find.widgetWithText(ChoiceChip, code);
+        await tester.scrollUntilVisible(
+          find.text('SERVICE CATEGORIES'),
+          -300,
+          scrollable: find
+              .byWidgetPredicate(
+                (w) => w is Scrollable && w.axisDirection == AxisDirection.down,
+              )
+              .first,
+        );
+        final chip = find.text(code).first;
         await tester.ensureVisible(chip);
+        await tester.pumpAndSettle();
         await tester.tap(chip);
         await tester.pumpAndSettle();
-        expect(tester.widget<ChoiceChip>(chip).selected, true);
+        expect(find.byType(CustomerSearchScreen), findsNothing);
         expect(header('All Providers'), findsNothing);
         expect(header(code), findsOneWidget);
         expect(repository.searchCalls, callsBeforeSelection);
@@ -367,31 +408,65 @@ void main() {
           of: header(code),
           matching: find.text('See all'),
         );
-        await tester.ensureVisible(seeAll);
-        await tester.tap(seeAll);
-        await tester.pumpAndSettle();
+        expect(seeAll, findsNothing);
         expect(
-          tester
-              .widget<CustomerSearchScreen>(find.byType(CustomerSearchScreen))
-              .initialCategoryCode,
-          code,
+          find.byKey(PageStorageKey('home-provider-row-$code')),
+          findsNothing,
         );
-        tester.state<NavigatorState>(find.byType(Navigator).first).pop();
-        await tester.pumpAndSettle();
+        if (code == 'catering_service') {
+          expect(
+            find.byWidgetPredicate(
+              (w) => w is ProviderCardGrid && w.itemCount == 3,
+            ),
+            findsOneWidget,
+          );
+          await tester.ensureVisible(find.byKey(const ValueKey('catering-3')));
+          await tester.pumpAndSettle();
+          expect(
+            find.byKey(const ValueKey('catering-3')).hitTestable(),
+            findsOneWidget,
+          );
+        }
       }
-      final allChip = find.widgetWithText(ChoiceChip, 'All services');
+      await tester.scrollUntilVisible(
+        find.text('SERVICE CATEGORIES'),
+        -300,
+        scrollable: find
+            .byWidgetPredicate(
+              (w) => w is Scrollable && w.axisDirection == AxisDirection.down,
+            )
+            .first,
+      );
+      final allChip = find.text('All services').first;
       await tester.ensureVisible(allChip);
       await tester.tap(allChip);
       await tester.pumpAndSettle();
-      expect(header('All Providers'), findsOneWidget);
+      expect(header('All Providers'), findsNothing);
+      expect(header('photography'), findsOneWidget);
+      expect(header('videography'), findsOneWidget);
+      final preview = find.byKey(
+        const PageStorageKey('home-provider-row-catering_service'),
+      );
+      await tester.ensureVisible(preview);
+      await tester.pumpAndSettle();
+      final rowList = tester.widget<SingleChildScrollView>(preview);
+      expect(rowList.scrollDirection, Axis.horizontal);
+      await tester.drag(preview, const Offset(-600, 0));
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const ValueKey('catering-3')).hitTestable(),
+        findsOneWidget,
+      );
+
       final seeAll = find.descendant(
-        of: header('All Providers'),
+        of: header('catering_service'),
         matching: find.text('See all'),
       );
       await tester.ensureVisible(seeAll);
+      await tester.pumpAndSettle();
       await tester.tap(seeAll);
       await tester.pumpAndSettle();
-      expect(find.byType(CustomerProviderCollectionScreen), findsOneWidget);
+      expect(find.byType(CustomerSearchScreen), findsOneWidget);
       expect(tester.takeException(), isNull);
     },
   );
@@ -424,6 +499,23 @@ void main() {
     await tester.tap(find.byTooltip('Search filters'));
     await tester.pumpAndSettle();
     expect(find.text('Filters'), findsOneWidget);
+    expect(find.text('Choose date'), findsOneWidget);
+    expect(find.text('Start time'), findsOneWidget);
+    expect(find.text('End time'), findsOneWidget);
+    expect(find.text('Theme & Style'), findsNothing);
+    await tester.tap(find.text('Choose date'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('OK'));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('Apply filters'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Apply filters'));
+    await tester.pumpAndSettle();
+    expect(
+      find.text('Choose an event date, start time and end time.'),
+      findsOneWidget,
+    );
+    expect(find.byType(BottomSheet), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
@@ -759,7 +851,7 @@ void main() {
       expect(find.text('No results found'), findsOneWidget);
       await tester.tap(find.text('Clear search'));
       await tester.pumpAndSettle();
-      expect(find.text('Popular services'), findsOneWidget);
+      expect(find.text('Popular services'), findsNothing);
     },
   );
 
@@ -789,6 +881,18 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Ana Catering'), findsOneWidget);
     expect(tester.takeException(), isNull);
+    await tester.tap(find.byTooltip('Filter providers'));
+    await tester.pumpAndSettle();
+    expect(find.byType(BottomSheet), findsOneWidget);
+    await tester.enterText(find.widgetWithText(TextField, 'Location'), 'Ormoc');
+    await tester.ensureVisible(find.text('Show results'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Show results'));
+    await tester.pumpAndSettle();
+    expect(find.byType(BottomSheet), findsNothing);
+    expect(find.widgetWithText(InputChip, 'Ormoc'), findsOneWidget);
+    expect(find.byType(SearchProviderCard), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
   testWidgets('typing filters locally and clearing search restores discovery', (
     tester,
@@ -816,8 +920,100 @@ void main() {
     expect(repository.subscriptions, 1);
     await tester.tap(find.byTooltip('Clear search'));
     await tester.pumpAndSettle();
-    expect(find.text('Popular services'), findsOneWidget);
+    expect(find.text('Popular services'), findsNothing);
     expect(find.text('No results found'), findsNothing);
+  });
+
+  testWidgets(
+    'search suggestions follow live provider categories and filter stays inside search',
+    (tester) async {
+      final repository = LiveSuggestionRepository();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: CustomerSearchScreen(
+            repository: repository,
+            occasionLoader: testOccasionLoader,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Popular services'), findsNothing);
+      final search = find.byType(TextField).first;
+      expect(
+        tester.widget<TextField>(search).decoration!.suffixIcon,
+        isNotNull,
+      );
+      repository.updates.add([provider()]);
+      await tester.pumpAndSettle();
+      expect(find.widgetWithText(ActionChip, 'Live Catering'), findsOneWidget);
+      expect(find.widgetWithText(ActionChip, 'Live Photography'), findsNothing);
+      repository.updates.add([
+        provider(id: 'photo', category: 'photography', serviceType: 'addon'),
+      ]);
+      await tester.pumpAndSettle();
+      expect(find.widgetWithText(ActionChip, 'Live Catering'), findsNothing);
+      expect(
+        find.widgetWithText(ActionChip, 'Live Photography'),
+        findsOneWidget,
+      );
+      repository.updates.add([]);
+      await tester.pumpAndSettle();
+      expect(find.text('Popular searches'), findsNothing);
+      await tester.pumpWidget(const SizedBox());
+      await repository.updates.close();
+    },
+  );
+
+  testWidgets('provider cards show two per row and adapt for large text', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(320, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    Future<void> showGrid(double scale) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: MediaQuery(
+            data: MediaQueryData(textScaler: TextScaler.linear(scale)),
+            child: Scaffold(
+              body: SingleChildScrollView(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: ProviderCardGrid(
+                    itemCount: 3,
+                    itemBuilder: (_, index) => ProviderGridCard(
+                      key: ValueKey('grid-$index'),
+                      provider: provider(id: '$index', name: 'Provider $index'),
+                      categoryNames: const {},
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    await showGrid(1);
+    final first = tester.getRect(find.byKey(const ValueKey('grid-0')));
+    final second = tester.getRect(find.byKey(const ValueKey('grid-1')));
+    final third = tester.getRect(find.byKey(const ValueKey('grid-2')));
+    expect(first.top, second.top);
+    expect(first.width, second.width);
+    expect(second.left, greaterThan(first.right));
+    expect(third.top, greaterThan(first.bottom));
+    expect(tester.takeException(), isNull);
+    await showGrid(2);
+    expect(
+      tester.getTopLeft(find.byKey(const ValueKey('grid-1'))).dy,
+      greaterThan(
+        tester.getBottomLeft(find.byKey(const ValueKey('grid-0'))).dy,
+      ),
+    );
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('missing public photos have a truthful empty state', (

@@ -1,14 +1,11 @@
+import 'widgets/provider_grid.dart';
+import 'customer_search_screen.dart' show SearchProviderCard;
 import 'package:flutter/material.dart';
-import '../../core/helpers/provider_category_helper.dart';
+import '../../core/theme/app_spacing.dart';
 import '../../core/helpers/provider_discovery.dart';
 import '../../core/theme/app_colors.dart';
-import '../../core/theme/app_radius.dart';
-import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
-import '../../core/widgets/badges/feasta_price_text.dart';
 import '../../shared/models/feasta_models.dart';
-import 'provider_profile_screen.dart';
-import 'widgets/provider_brand_visual.dart';
 
 class CustomerProviderCollectionScreen extends StatefulWidget {
   const CustomerProviderCollectionScreen({
@@ -39,6 +36,7 @@ class _CollectionState extends State<CustomerProviderCollectionScreen> {
   String? _category;
   String _event = 'All';
   bool _filtersOpen = false;
+  StateSetter? _sheetState;
 
   bool get _hasFilters =>
       _category != null ||
@@ -64,9 +62,132 @@ class _CollectionState extends State<CustomerProviderCollectionScreen> {
   }) => TextField(
     controller: controller,
     keyboardType: number ? TextInputType.number : TextInputType.text,
-    onChanged: (_) => setState(() {}),
+    onChanged: (_) {
+      setState(() {});
+      _sheetState?.call(() {});
+    },
     decoration: InputDecoration(labelText: label, isDense: true),
   );
+
+  Future<void> _openFilters(Map<String, String> categoryNames) async {
+    FocusScope.of(context).unfocus();
+    setState(() => _filtersOpen = true);
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (context) => StatefulBuilder(
+        builder: (context, sheetSetState) {
+          _sheetState = sheetSetState;
+          void update(VoidCallback action) {
+            setState(action);
+            sheetSetState(() {});
+          }
+
+          return SafeArea(
+            child: SingleChildScrollView(
+              padding: EdgeInsets.fromLTRB(
+                20,
+                0,
+                20,
+                MediaQuery.viewInsetsOf(context).bottom + 24,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const Text(
+                    'Filter providers',
+                    style: TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF0F4C3A),
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+
+                  DropdownButtonFormField<String>(
+                    key: ValueKey(_category),
+                    initialValue: _category ?? '',
+                    isExpanded: true,
+                    decoration: const InputDecoration(
+                      labelText: 'Service category',
+                    ),
+                    items: [
+                      const DropdownMenuItem(
+                        value: '',
+                        child: Text('All categories'),
+                      ),
+                      ...categoryNames.entries.map(
+                        (e) => DropdownMenuItem(
+                          value: e.key,
+                          child: Text(e.value, overflow: TextOverflow.ellipsis),
+                        ),
+                      ),
+                    ],
+                    onChanged: (value) =>
+                        update(() => _category = value == '' ? null : value),
+                  ),
+                  DropdownButtonFormField<String>(
+                    key: ValueKey(_event),
+                    initialValue: _event,
+                    decoration: const InputDecoration(labelText: 'Event type'),
+                    items:
+                        const [
+                              'All',
+                              'Birthday',
+                              'Wedding',
+                              'Anniversary',
+                              'Reunion',
+                              'Corporate',
+                              'Baptism',
+                              'Graduation',
+                              'Other',
+                            ]
+                            .map(
+                              (e) => DropdownMenuItem(value: e, child: Text(e)),
+                            )
+                            .toList(),
+                    onChanged: (value) => update(() => _event = value ?? 'All'),
+                  ),
+                  _field('Location', _location),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _field('Min budget', _minimum, number: true),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: _field('Max budget', _maximum, number: true),
+                      ),
+                    ],
+                  ),
+                  TextButton(
+                    onPressed: () => update(() {
+                      _category = null;
+                      _event = 'All';
+                      _location.clear();
+                      _minimum.clear();
+                      _maximum.clear();
+                    }),
+                    child: const Text('Clear filters'),
+                  ),
+
+                  const SizedBox(height: 16),
+                  FilledButton(
+                    onPressed: () => Navigator.pop(context),
+                    child: const Text('Show results'),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+    _sheetState = null;
+    if (mounted) setState(() => _filtersOpen = false);
+  }
 
   @override
   Widget build(BuildContext context) => Scaffold(
@@ -147,7 +268,7 @@ class _CollectionState extends State<CustomerProviderCollectionScreen> {
                                                 setState(_search.clear),
                                           ),
                                     border: OutlineInputBorder(
-                                      borderRadius: BorderRadius.circular(12),
+                                      borderRadius: BorderRadius.circular(24),
                                     ),
                                   ),
                                 ),
@@ -156,98 +277,60 @@ class _CollectionState extends State<CustomerProviderCollectionScreen> {
                                 tooltip: 'Filter providers',
                                 isSelected: _filtersOpen || _hasFilters,
                                 icon: const Icon(Icons.tune_rounded),
-                                onPressed: () => setState(
-                                  () => _filtersOpen = !_filtersOpen,
-                                ),
+                                onPressed: () => _openFilters(categoryNames),
                               ),
                             ],
                           ),
-                          if (_filtersOpen) ...[
-                            DropdownButtonFormField<String>(
-                              key: ValueKey(_category),
-                              initialValue: _category ?? '',
-                              isExpanded: true,
-                              decoration: const InputDecoration(
-                                labelText: 'Service category',
-                              ),
-                              items: [
-                                const DropdownMenuItem(
-                                  value: '',
-                                  child: Text('All categories'),
-                                ),
-                                ...categoryNames.entries.map(
-                                  (e) => DropdownMenuItem(
-                                    value: e.key,
-                                    child: Text(
-                                      e.value,
-                                      overflow: TextOverflow.ellipsis,
+                          if (_hasFilters)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 12),
+                              child: Wrap(
+                                spacing: 8,
+                                runSpacing: 6,
+                                children: [
+                                  if (_category != null)
+                                    InputChip(
+                                      label: Text(
+                                        categoryNames[_category] ?? _category!,
+                                      ),
+                                      onDeleted: () =>
+                                          setState(() => _category = null),
                                     ),
-                                  ),
-                                ),
-                              ],
-                              onChanged: (value) => setState(
-                                () => _category = value == '' ? null : value,
+                                  if (_event != 'All')
+                                    InputChip(
+                                      label: Text(_event),
+                                      onDeleted: () =>
+                                          setState(() => _event = 'All'),
+                                    ),
+                                  if (_location.text.isNotEmpty)
+                                    InputChip(
+                                      label: Text(_location.text),
+                                      onDeleted: () =>
+                                          setState(_location.clear),
+                                    ),
+                                  if (_minimum.text.isNotEmpty ||
+                                      _maximum.text.isNotEmpty)
+                                    InputChip(
+                                      label: Text(
+                                        '₱${_minimum.text.isEmpty ? '0' : _minimum.text} – ${_maximum.text.isEmpty ? 'Any' : '₱${_maximum.text}'}',
+                                      ),
+                                      onDeleted: () => setState(() {
+                                        _minimum.clear();
+                                        _maximum.clear();
+                                      }),
+                                    ),
+                                ],
                               ),
                             ),
-                            DropdownButtonFormField<String>(
-                              key: ValueKey(_event),
-                              initialValue: _event,
-                              decoration: const InputDecoration(
-                                labelText: 'Event type',
-                              ),
-                              items:
-                                  const [
-                                        'All',
-                                        'Birthday',
-                                        'Wedding',
-                                        'Anniversary',
-                                        'Reunion',
-                                        'Corporate',
-                                        'Baptism',
-                                        'Graduation',
-                                        'Other',
-                                      ]
-                                      .map(
-                                        (e) => DropdownMenuItem(
-                                          value: e,
-                                          child: Text(e),
-                                        ),
-                                      )
-                                      .toList(),
-                              onChanged: (value) =>
-                                  setState(() => _event = value ?? 'All'),
+                          const SizedBox(height: 18),
+                          Text(
+                            '${providers.length} providers found',
+                            style: const TextStyle(
+                              color: Color(0xFF0F4C3A),
+                              fontWeight: FontWeight.w600,
                             ),
-                            _field('Location', _location),
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: _field(
-                                    'Min budget',
-                                    _minimum,
-                                    number: true,
-                                  ),
-                                ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: _field(
-                                    'Max budget',
-                                    _maximum,
-                                    number: true,
-                                  ),
-                                ),
-                              ],
-                            ),
-                            TextButton(
-                              onPressed: () => setState(() {
-                                _category = null;
-                                _event = 'All';
-                                _location.clear();
-                                _minimum.clear();
-                                _maximum.clear();
-                              }),
-                              child: const Text('Clear filters'),
-                            ),
-                          ],
+                          ),
+                          const SizedBox(height: 16),
                         ],
                       ),
                     ),
@@ -285,34 +368,15 @@ class _CollectionState extends State<CustomerProviderCollectionScreen> {
                   else
                     SliverPadding(
                       padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-                      sliver: SliverLayoutBuilder(
-                        builder: (context, constraints) {
-                          // Fixed rows scale with both available width and accessibility text.
-                          final width = (constraints.crossAxisExtent - 12) / 2;
-                          final textScale = MediaQuery.textScalerOf(
-                            context,
-                          ).scale(1);
-                          return SliverGrid(
-                            gridDelegate:
-                                SliverGridDelegateWithFixedCrossAxisCount(
-                                  crossAxisCount: 2,
-                                  crossAxisSpacing: 12,
-                                  mainAxisSpacing: 12,
-                                  mainAxisExtent:
-                                      width * .88 + 24 + 142 * textScale,
-                                ),
-                            delegate: SliverChildBuilderDelegate(
-                              (context, index) => _CollectionProviderCard(
-                                key: ValueKey(
-                                  'provider-${providers[index].id}',
-                                ),
-                                provider: providers[index],
-                                categoryNames: categoryNames,
-                              ),
-                              childCount: providers.length,
-                            ),
-                          );
-                        },
+                      sliver: SliverToBoxAdapter(
+                        child: ProviderCardGrid(
+                          itemCount: providers.length,
+                          itemBuilder: (context, index) => SearchProviderCard(
+                            key: ValueKey('provider-${providers[index].id}'),
+                            provider: providers[index],
+                            categoryNames: categoryNames,
+                          ),
+                        ),
                       ),
                     ),
                 ],
@@ -323,155 +387,6 @@ class _CollectionState extends State<CustomerProviderCollectionScreen> {
       ),
     ),
   );
-}
-
-class _CollectionProviderCard extends StatelessWidget {
-  const _CollectionProviderCard({
-    required this.provider,
-    required this.categoryNames,
-    super.key,
-  });
-
-  final ProviderModel provider;
-  final Map<String, String> categoryNames;
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: AppColors.surface,
-      borderRadius: BorderRadius.circular(AppRadius.card),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(AppRadius.card),
-        onTap: () {
-          Navigator.of(context).push(
-            MaterialPageRoute(
-              builder: (_) => ProviderProfileScreen(provider: provider),
-            ),
-          );
-        },
-        child: Container(
-          clipBehavior: Clip.antiAlias,
-          decoration: BoxDecoration(
-            color: AppColors.surface,
-            borderRadius: BorderRadius.circular(AppRadius.card),
-            border: Border.all(color: AppColors.border),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              LayoutBuilder(
-                builder: (context, constraints) => ProviderBrandVisual(
-                  provider: provider,
-                  height: constraints.maxWidth * 0.88,
-                  logoSize: 38,
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.all(AppSpacing.sm),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: SizedBox(
-                            height: MediaQuery.textScalerOf(
-                              context,
-                            ).scale(39.2),
-                            child: Text(
-                              provider.businessName,
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                              style: AppTypography.cardTitle.copyWith(
-                                color: AppColors.mainText,
-                                fontSize: 14,
-                                fontWeight: FontWeight.w800,
-                              ),
-                            ),
-                          ),
-                        ),
-                        if (provider.isApproved)
-                          const Icon(
-                            Icons.verified_rounded,
-                            size: 18,
-                            color: AppColors.success,
-                          ),
-                      ],
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      provider.providerCategory.trim().isEmpty
-                          ? (provider.providerServiceType == 'catering'
-                                ? 'Catering Service'
-                                : 'Event Service')
-                          : providerCategoryLabel(
-                              provider.providerCategory,
-                              categoryNames: categoryNames,
-                            ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: AppTypography.caption.copyWith(
-                        color: AppColors.secondaryTextAccessible,
-                      ),
-                    ),
-                    const SizedBox(height: AppSpacing.xs),
-                    SizedBox(
-                      height: MediaQuery.textScalerOf(context).scale(17),
-                      child:
-                          provider.reviewCount > 0 &&
-                              provider.ratingAverage.isFinite
-                          ? Row(
-                              children: [
-                                const Icon(
-                                  Icons.star_rounded,
-                                  color: AppColors.rating,
-                                  size: 17,
-                                ),
-                                const SizedBox(width: 3),
-                                Expanded(
-                                  child: Text(
-                                    '${provider.ratingAverage.toStringAsFixed(1)} '
-                                    '(${provider.reviewCount})',
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: AppTypography.caption.copyWith(
-                                      color: AppColors.mainText,
-                                      fontWeight: FontWeight.w700,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            )
-                          : null,
-                    ),
-                    const SizedBox(height: 4),
-                    if (provider.minPrice > 0 && provider.minPrice.isFinite)
-                      Text(
-                        'From ${FeastaPriceFormatter.format(provider.minPrice, decimalDigits: 0)}',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: AppTypography.caption.copyWith(
-                          color: AppColors.primaryStrong,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    Text(
-                      provider.location,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: AppTypography.caption.copyWith(
-                        color: AppColors.secondaryTextAccessible,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
 }
 
 class _CollectionMessage extends StatelessWidget {

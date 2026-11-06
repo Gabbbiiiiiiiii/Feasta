@@ -129,7 +129,10 @@ void main() {
             ),
           );
           expect(find.text('Status unavailable'), findsNWidgets(2));
-          expect(find.widgetWithText(ElevatedButton, 'Chat'), findsNothing);
+          expect(
+            find.widgetWithText(ElevatedButton, 'Message provider'),
+            findsNothing,
+          );
           expect(
             find.widgetWithText(ElevatedButton, 'Pay down payment'),
             findsNothing,
@@ -324,7 +327,10 @@ void main() {
           if (scenario.pending != 1) {
             expect(find.text('Awaiting provider'), findsNothing);
           }
-          expect(find.widgetWithText(ElevatedButton, 'Chat'), findsNothing);
+          expect(
+            find.widgetWithText(ElevatedButton, 'Message provider'),
+            findsNothing,
+          );
           expect(
             find.widgetWithText(ElevatedButton, 'Pay down payment'),
             findsNothing,
@@ -486,7 +492,7 @@ void main() {
       expect(tester.takeException(), isNull);
       // Existing card actions retain their original event-status gates.
       expect(
-        find.widgetWithText(ElevatedButton, 'Chat'),
+        find.widgetWithText(ElevatedButton, 'Message provider'),
         ['confirmed', 'completed'].contains(status)
             ? findsOneWidget
             : findsNothing,

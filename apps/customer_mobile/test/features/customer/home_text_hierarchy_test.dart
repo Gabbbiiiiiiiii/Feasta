@@ -24,7 +24,6 @@ void main() {
                   subtitle: 'Verified providers',
                   onSeeAll: () {},
                 ),
-                const HomePromotionEmptyCard(),
               ],
             ),
           ),
@@ -43,7 +42,6 @@ void main() {
       for (final label in [
         'Explore services',
         'Verified providers',
-        'Find the right services for your celebration.',
       ]) {
         expect(
           tester.widget<Text>(find.text(label)).style?.color,

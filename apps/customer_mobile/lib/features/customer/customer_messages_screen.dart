@@ -43,7 +43,17 @@ class _GuestMessagesState extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const FeastaPageHeader(title: 'Messages'),
+          const Padding(
+            padding: EdgeInsets.fromLTRB(20, 20, 20, 24),
+            child: Text(
+              'Messages',
+              style: TextStyle(
+                fontSize: 28,
+                fontWeight: FontWeight.w800,
+                color: Color(0xFF0F4C3A),
+              ),
+            ),
+          ),
           Expanded(
             child: Center(
               child: SingleChildScrollView(
@@ -79,7 +89,7 @@ class _GuestMessagesState extends StatelessWidget {
                         'Log in to see messages',
                         textAlign: TextAlign.center,
                         style: AppTypography.title.copyWith(
-                          color: AppColors.mainText,
+                          color: const Color(0xFF0F4C3A),
                           fontWeight: FontWeight.w900,
                         ),
                       ),
@@ -284,7 +294,17 @@ class _AuthenticatedMessagesState extends State<_AuthenticatedMessages> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const FeastaPageHeader(title: 'Messages'),
+          const Padding(
+            padding: EdgeInsets.fromLTRB(20, 20, 20, 24),
+            child: Text(
+              'Messages',
+              style: TextStyle(
+                fontSize: 28,
+                fontWeight: FontWeight.w800,
+                color: Color(0xFF0F4C3A),
+              ),
+            ),
+          ),
           Expanded(
             child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
               stream: _repository.myChatRooms(),
@@ -426,7 +446,7 @@ class _MessagesOverview extends StatelessWidget {
         Text(
           'Your conversations',
           style: AppTypography.sectionTitle.copyWith(
-            color: AppColors.mainText,
+            color: const Color(0xFF0F4C3A),
             fontWeight: FontWeight.w900,
           ),
         ),
@@ -434,7 +454,7 @@ class _MessagesOverview extends StatelessWidget {
         Text(
           _description,
           style: AppTypography.bodySmall.copyWith(
-            color: AppColors.secondaryTextAccessible,
+            color: const Color(0xFF0F4C3A),
             height: 1.4,
           ),
         ),
@@ -442,15 +462,10 @@ class _MessagesOverview extends StatelessWidget {
     );
   }
 
-  String get _description {
-    if (unreadConversationCount > 0) {
-      return '$unreadConversationCount unread '
-          '${unreadConversationCount == 1 ? 'conversation' : 'conversations'}';
-    }
-
-    return '$conversationCount '
-        '${conversationCount == 1 ? 'conversation' : 'conversations'}';
-  }
+  String get _description =>
+      '$conversationCount '
+      '${conversationCount == 1 ? 'conversation' : 'conversations'}'
+      '${unreadConversationCount > 0 ? ' • $unreadConversationCount unread' : ''}';
 }
 
 class _MessagesSearchField extends StatelessWidget {
@@ -519,7 +534,7 @@ class _MessagesSearchField extends StatelessWidget {
   }
 }
 
-class _ConversationCard extends StatelessWidget {
+class _ConversationCard extends StatefulWidget {
   const _ConversationCard({required this.room, required this.repository});
 
   final QueryDocumentSnapshot<Map<String, dynamic>> room;
@@ -527,12 +542,55 @@ class _ConversationCard extends StatelessWidget {
   final FeastaRepository repository;
 
   @override
-  Widget build(BuildContext context) {
+  State<_ConversationCard> createState() => _ConversationCardState();
+}
+
+class _ConversationCardState extends State<_ConversationCard> {
+  late Future<String?> _portrait;
+  QueryDocumentSnapshot<Map<String, dynamic>> get room => widget.room;
+  FeastaRepository get repository => widget.repository;
+
+  @override
+  void initState() {
+    super.initState();
+    _portrait = _loadPortrait();
+  }
+
+  @override
+  void didUpdateWidget(covariant _ConversationCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.room.data()['providerId'] != room.data()['providerId'] ||
+        oldWidget.repository != repository) {
+      _portrait = _loadPortrait();
+    }
+  }
+
+  Future<String?> _loadPortrait() async {
+    final providerId = room.data()['providerId']?.toString().trim() ?? '';
+    if (providerId.isEmpty) return null;
+    try {
+      final provider = await repository.getProviderById(providerId);
+      final url = provider?.logoUrl?.trim();
+      return url == null || url.isEmpty ? null : url;
+    } catch (_) {
+      // A historical chat may reference a provider no longer publicly readable.
+      return null;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => FutureBuilder<String?>(
+    future: _portrait,
+    builder: (context, snapshot) => _buildCard(context, snapshot.data),
+  );
+
+  Widget _buildCard(BuildContext context, String? profileImageUrl) {
     final data = room.data();
 
     final providerName = data['providerBusinessName']?.toString().trim();
 
-    final providerLogoUrl = data['providerLogoUrl']?.toString().trim();
+    final providerLogoUrl =
+        profileImageUrl ?? data['providerLogoUrl']?.toString().trim();
 
     final lastMessage = data['lastMessage']?.toString().trim() ?? '';
 
@@ -562,6 +620,8 @@ class _ConversationCard extends StatelessWidget {
           '${hasUnread ? '$unreadCount unread messages. ' : ''}'
           '${lastMessage.isEmpty ? 'No messages yet.' : lastMessage}',
       child: FeastaCard(
+        showBorder: true,
+        showShadow: false,
         onTap: bookingId.isEmpty
             ? null
             : () {
@@ -571,7 +631,7 @@ class _ConversationCard extends StatelessWidget {
                   chatRoomId: room.id,
                 );
               },
-        padding: const EdgeInsets.all(AppSpacing.md),
+        padding: const EdgeInsets.all(18),
         child: largeText
             ? _LargeTextConversationLayout(
                 displayName: displayName,
@@ -700,7 +760,7 @@ class _StandardConversationLayout extends StatelessWidget {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: AppTypography.cardTitle.copyWith(
-                        color: AppColors.mainText,
+                        color: const Color(0xFF0F4C3A),
                         fontWeight: hasUnread
                             ? FontWeight.w900
                             : FontWeight.w700,
@@ -796,7 +856,7 @@ class _LargeTextConversationLayout extends StatelessWidget {
         Text(
           displayName,
           style: AppTypography.cardTitle.copyWith(
-            color: AppColors.mainText,
+            color: const Color(0xFF0F4C3A),
             fontWeight: hasUnread ? FontWeight.w900 : FontWeight.w700,
           ),
         ),
@@ -851,14 +911,14 @@ class _ProviderAvatar extends StatelessWidget {
       clipBehavior: Clip.none,
       children: [
         Container(
-          width: 58,
-          height: 58,
+          width: 62,
+          height: 62,
           clipBehavior: Clip.antiAlias,
           decoration: BoxDecoration(
             color: AppColors.primarySubtle,
             shape: BoxShape.circle,
             border: Border.all(
-              color: hasUnread ? AppColors.primary : AppColors.border,
+              color: hasUnread ? const Color(0xFFC4A34D) : AppColors.border,
               width: hasUnread ? 2 : 1,
             ),
           ),
@@ -880,7 +940,7 @@ class _ProviderAvatar extends StatelessWidget {
               width: 15,
               height: 15,
               decoration: BoxDecoration(
-                color: AppColors.primary,
+                color: const Color(0xFFC4A34D),
                 shape: BoxShape.circle,
                 border: Border.all(color: AppColors.surface, width: 2),
               ),
@@ -893,42 +953,18 @@ class _ProviderAvatar extends StatelessWidget {
 
 class _AvatarInitials extends StatelessWidget {
   const _AvatarInitials({required this.providerName});
-
   final String providerName;
-
   @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Text(
-        _initials(providerName),
-        style: AppTypography.label.copyWith(
-          color: AppColors.primaryStrong,
-          fontWeight: FontWeight.w900,
-        ),
+  Widget build(BuildContext context) => Semantics(
+    label: '$providerName profile photo unavailable',
+    child: const Center(
+      child: Icon(
+        Icons.person_outline_rounded,
+        color: Color(0xFF537B68),
+        size: 32,
       ),
-    );
-  }
-
-  String _initials(String value) {
-    final text = value.trim();
-
-    if (text.isEmpty) {
-      return 'F';
-    }
-
-    final words = text
-        .split(RegExp(r'\s+'))
-        .where((word) => word.isNotEmpty)
-        .toList();
-
-    if (words.length == 1) {
-      return words.first.substring(0, 1).toUpperCase();
-    }
-
-    return '${words.first[0]}'
-            '${words.last[0]}'
-        .toUpperCase();
-  }
+    ),
+  );
 }
 
 class _UnreadBadge extends StatelessWidget {
@@ -1024,7 +1060,7 @@ class _NoSearchResults extends StatelessWidget {
                 'No conversations found',
                 textAlign: TextAlign.center,
                 style: AppTypography.title.copyWith(
-                  color: AppColors.mainText,
+                  color: const Color(0xFF0F4C3A),
                   fontWeight: FontWeight.w900,
                 ),
               ),

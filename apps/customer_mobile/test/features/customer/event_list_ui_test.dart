@@ -128,7 +128,7 @@ void main() {
     tester,
   ) async {
     await show(tester);
-    expect(find.textContaining('Your Event List is empty'), findsOneWidget);
+    expect(find.textContaining('Your Event List is Empty'), findsOneWidget);
     expect(find.text('0 saved packages'), findsOneWidget);
     expect(
       find.widgetWithText(FilledButton, 'Continue Browsing'),
@@ -142,7 +142,7 @@ void main() {
     memory.failRead = true;
     await show(tester);
     expect(find.textContaining('could not be verified'), findsOneWidget);
-    expect(find.textContaining('Your Event List is empty'), findsNothing);
+    expect(find.textContaining('Your Event List is Empty'), findsNothing);
     memory.failRead = false;
     await tester.tap(find.text('Retry'));
     await tester.pumpAndSettle();
@@ -338,6 +338,8 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('My Event List'), findsOneWidget);
     await tester.scrollUntilVisible(find.text('Continue Browsing'), 200);
+    await tester.ensureVisible(find.text('Continue Browsing'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Continue Browsing'));
     await tester.pumpAndSettle();
     expect(find.text('Added to Event List'), findsWidgets);
@@ -493,6 +495,7 @@ void main() {
       );
       expect(tester.takeException(), isNull);
       await tester.ensureVisible(find.text('Continue Browsing'));
+    await tester.pumpAndSettle();
     } finally {
       semantics.dispose();
     }
