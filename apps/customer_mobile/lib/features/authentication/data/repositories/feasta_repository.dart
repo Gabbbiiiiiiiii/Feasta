@@ -1594,6 +1594,35 @@ class FeastaRepository {
   FirestoreCustomerBookingsSource customerBookingsSource() =>
       FirestoreCustomerBookingsSource(_db, _auth);
 
+  /// Home progress must include older active bookings beyond the latest page.
+  Stream<List<BookingModel>> customerActiveBookings() {
+    return _db
+        .collection(FirestoreCollections.mainEvents)
+        .where('customerId', isEqualTo: currentUid)
+        .where(
+          'status',
+          whereIn: [
+            'pending',
+            'pending_provider_approval',
+            'needs_provider_replacement',
+            'accepted',
+            'waiting_payment',
+            'waiting_for_down_payment',
+            'payment_processing',
+            'confirmed',
+            'in_progress',
+          ],
+        )
+        .orderBy(FieldPath.documentId, descending: true)
+        .snapshots()
+        .map(
+          (snapshot) => snapshot.docs
+              .where((doc) => doc.data()['isDeleted'] != true)
+              .map(BookingModel.fromDoc)
+              .toList(),
+        );
+  }
+
   Stream<List<BookingModel>> customerBookings() {
     return _db
         .collection(FirestoreCollections.mainEvents)

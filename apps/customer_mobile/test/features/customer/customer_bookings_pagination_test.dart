@@ -251,7 +251,13 @@ void main() {
           expect(find.bySemanticsLabel('Load More'), findsNothing);
           source.emit(0, 0, 1, true);
           await tester.pumpAndSettle();
-          await tester.scrollUntilVisible(find.text('Load More'), 200);
+          await tester.scrollUntilVisible(
+            find.text('Load More'),
+            200,
+            scrollable: find.byWidgetPredicate(
+              (w) => w is Scrollable && w.axisDirection == AxisDirection.down,
+            ),
+          );
           final load = tester.getSemantics(find.bySemanticsLabel('Load More'));
           expect(load.getSemanticsData().hasAction(SemanticsAction.tap), true);
           await tester.tap(find.text('Load More'));
@@ -296,6 +302,9 @@ void main() {
           source.emit(2, 1, 1, false);
           await tester.pumpAndSettle();
           await tester.scrollUntilVisible(
+            scrollable: find.byWidgetPredicate(
+              (w) => w is Scrollable && w.axisDirection == AxisDirection.down,
+            ),
             find.text('You have reached the end of available bookings.'),
             200,
           );
@@ -308,7 +317,13 @@ void main() {
           expect(find.bySemanticsLabel('Load More'), findsNothing);
           source.emit(0, 100, 1, true);
           await tester.pumpAndSettle();
-          await tester.scrollUntilVisible(find.text('Load More'), -200);
+          await tester.scrollUntilVisible(
+            find.text('Load More'),
+            -200,
+            scrollable: find.byWidgetPredicate(
+              (w) => w is Scrollable && w.axisDirection == AxisDirection.down,
+            ),
+          );
           final updated = find.bySemanticsLabel(
             'Bookings updated. Load older bookings again.',
           );
@@ -561,7 +576,13 @@ void main() {
     );
     source.emit(0, 0, 1, true);
     await tester.pumpAndSettle();
-    await tester.scrollUntilVisible(find.text('Load More'), 300);
+    await tester.scrollUntilVisible(
+      find.text('Load More'),
+      300,
+      scrollable: find.byWidgetPredicate(
+        (w) => w is Scrollable && w.axisDirection == AxisDirection.down,
+      ),
+    );
     await tester.tap(find.text('Load More'));
     await tester.pump();
     expect(source.requests.length, 2);
