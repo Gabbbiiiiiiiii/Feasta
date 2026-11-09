@@ -5,17 +5,18 @@ const fs=require('node:fs');const path=require('node:path');const vm=require('no
 const https=require('firebase-functions/v2/https');const {Timestamp,FieldValue}=require('firebase-admin/firestore');
 const choices=[{id:'main',title:'Main dishes',selectionCount:1,options:[{id:'chicken',name:'Chicken'},{id:'fish',name:'Fish'}]}];
 const input=(extra={})=>({sharedContractVersion:2,idempotencyKey:'simulated_request_key_001',name:'Catering draft',description:'A complete catering description.',serviceCategoryCode:'catering_service',occasionSchemaVersion:2,occasionScope:'specific',occasionIds:['birthday'],offerSchemaVersion:2,offerStructure:'customizable',packageStyle:'Buffet Catering',pricingModel:'per_pax',price:100.25,serviceOptions:{drop_off:{price:100.25,includedServices:['Delivery'],equipmentInclusions:['Warmers']}},themeOptions:[],paymentPolicy:'full_payment',depositPercentage:100,minimumGuests:10,maximumGuests:50,imageUrl:'',imageUrls:[],foodInclusions:['Rice | Steamed rice'],foodChoiceGroups:choices,serviceInclusions:[],decorInclusions:[],furnitureInclusions:[],...extra});
-function fixture({draftGate=true}={}) {
+function fixture({draftGate=true,publication=false}={}) {
  const records=new Map();let serial=0;let commits=0;let external=0;
  function ref(p){return {path:p,id:p.split('/').at(-1),collection:name=>collection(p+'/'+name)};}
  function collection(p){const query={path:p,filters:[],maximum:Infinity,where(k,op,v){return {...this,filters:[...this.filters,[k,v]]};},limit(n){return {...this,maximum:n};},doc(id){return ref(p+'/'+(id??'generated_'+(++serial)));}};return query;}
  const snapshot=(r)=>({id:r.id,ref:r,exists:records.has(r.path),data:()=>records.get(r.path)});
  const db={doc:ref,collection,async runTransaction(fn){
-  const writes=[];let writing=false;
-  const tx={async get(r){assert.equal(writing,false,'Firestore reads must precede writes');assert.equal(r.path.startsWith('maintenance'),false,'private drafts must not read maintenance');if(r.id)return snapshot(r);
+  const writes=[];let writing=false;const reads=new Map();
+  const fingerprint=r=>JSON.stringify(r.id?records.get(r.path):[...records].filter(([p,data])=>p.startsWith(r.path+'/')&&!p.slice(r.path.length+1).includes('/')&&r.filters.every(([k,v])=>data[k]===v)).slice(0,r.maximum));
+  const tx={async get(r){reads.set(r,fingerprint(r));assert.equal(writing,false,'Firestore reads must precede writes');if(!publication)assert.equal(r.path.startsWith('maintenance'),false,'private drafts must not read maintenance');if(r.id)return snapshot(r);
    const docs=[...records].filter(([p,data])=>p.startsWith(r.path+'/')&&!p.slice(r.path.length+1).includes('/')&&r.filters.every(([k,v])=>data[k]===v)).slice(0,r.maximum).map(([p])=>snapshot(ref(p)));return {docs,size:docs.length,empty:!docs.length};},
    create(r,data){writing=true;writes.push(['create',r,data]);},update(r,data){writing=true;writes.push(['update',r,data]);},set(r,data){writing=true;writes.push(['set',r,data]);},delete(r){writing=true;writes.push(['delete',r]);}};
-  const result=await fn(tx);for(const [mode,r]of writes){assert.equal(r.path.startsWith('maintenance'),false,'private drafts must not write maintenance');if(mode==='create')assert.equal(records.has(r.path),false);if(mode==='update')assert.equal(records.has(r.path),true);}
+  const result=await fn(tx);if([...reads].some(([r,version])=>fingerprint(r)!==version))return db.runTransaction(fn);for(const [mode,r]of writes){if(!publication)assert.equal(r.path.startsWith('maintenance'),false,'private drafts must not write maintenance');if(mode==='create')assert.equal(records.has(r.path),false);if(mode==='update')assert.equal(records.has(r.path),true);}
   for(const [mode,r,data]of writes){if(mode==='delete')records.delete(r.path);else records.set(r.path,mode==='update'?{...records.get(r.path),...data}:data);}if(writes.length)commits++;return result;
  }};
  records.set('users/owner',{role:'provider',providerId:'provider',accountStatus:'active',isActive:true,isBlocked:false});
@@ -24,6 +25,12 @@ function fixture({draftGate=true}={}) {
  records.set('occasionCatalog/current',{revision:7,activationState:'stable'});
  records.set('providerEligibilityAuthorities/provider',{revision:3,approvedOccasionIds:['birthday'],approvedCategoryCodes:['catering_service']});
  records.set('occasions/birthday',{id:'birthday',label:'Birthday',active:true,moderationState:'approved',sortOrder:0,revision:1,applicableServiceCategoryCodes:['catering_service']});
+ if(publication){
+ Object.assign(records.get('providers/provider'),{operatingDays:['monday'],bookingLeadTimeDays:1,businessName:'Catering',description:'Catering business',address:'Address',city:'City',province:'Province',publiclyVisible:true});
+ Object.assign(records.get('contractPolicies/providerPackageV2').featureGates,{packagePublication:true,customerDiscovery:true,customerBooking:true});
+ records.set('maintenanceControls/intake',{schemaVersion:1,revision:1,intake:false,publication:false});
+ records.set('appSettings/platform',{minimumDepositRateBps:2000,maximumDepositRateBps:8000});
+ }
  const env={GCLOUD_PROJECT:'production'};
  function load(file,overrides={}){const filename=path.resolve(__dirname,'../lib/packages/'+file+'.js');const real=createRequire(filename);const exports={};
   const execute=vm.runInThisContext('(function(exports,require,process){'+fs.readFileSync(filename,'utf8')+'\n})',{filename});
@@ -36,14 +43,14 @@ function fixture({draftGate=true}={}) {
   '../shared/authorization.js':{requireRole:async uid=>{if(records.get('users/'+uid)?.role!=='provider')throw new https.HttpsError('permission-denied','provider required');}},
   '../shared/rate-limit.js':{enforceCallableRateLimit:async()=>{}},
   '../shared/service-category-policy.js':{requireActiveServiceCategoryInTransaction:async(_tx,code)=>{assert.equal(code,'catering_service');}},
-  '../shared/maintenance.js':{requireMaintenanceOpen:async()=>{throw Error('MAINTENANCE_ADMISSION_FORBIDDEN');},recordMaintenanceAdmission:()=>{throw Error('MAINTENANCE_WRITE_FORBIDDEN');}},
+  '../shared/maintenance.js':{requireMaintenanceOpen:async(tx)=>{if(!publication)throw Error('MAINTENANCE_ADMISSION_FORBIDDEN');const m=(await tx.get(db.doc('maintenanceControls/intake'))).data();if(!m||m.publication!==false)throw Error('MAINTENANCE_PAUSED');},recordMaintenanceAdmission:(tx)=>{if(!publication)throw Error('MAINTENANCE_WRITE_FORBIDDEN');tx.update(db.doc('maintenanceControls/intake'),{lastAdmissionAt:1});}},
   './package-domain.js':domain,
   './editor-draft-media-cleanup-v1.js':{beginEditorDraftMediaDiscardV1:()=>{throw Error('UNEXPECTED_CLEANUP');},reconcileEditorDraftMediaDiscardV1:()=>{throw Error('UNEXPECTED_CLEANUP');}},
  };
  const api=load('provider-package-drafts-v2',mocks);
  const req=(data,uid='owner')=>({auth:{uid,token:{}},app:{appId:'simulated-app'},data});
  const readOwned=id=>domain.authorizeOwnedPackage({providerId:'provider',packageSnapshot:snapshot(ref('packages/'+id))}).packageData;
- return {api,progressApi:load('provider-package-editor-progress',mocks),records,req,readOwned,counters:()=>({commits,external})};
+ return {env,domain,load,mocks,db,api,progressApi:load('provider-package-editor-progress',mocks),records,req,readOwned,counters:()=>({commits,external})};
 }
 for(const pricingModel of ['per_pax','per_bundle'])test('compiled V2 '+pricingModel+' create commits and owner-domain read retains menu data',async()=>{
  const f=fixture();const request=input({pricingModel});const result=await f.api.createProviderPackageV2(f.req(request));
@@ -194,4 +201,81 @@ for(const patch of [{verificationStatus:'pending'},{isActive:false},{isBlocked:t
 });
 for(const patch of [null,{active:false},{moderationState:'pending'},{applicableServiceCategoryCodes:['food_delivery']}])test('private draft rejects occasion '+JSON.stringify(patch),async()=>{
  const f=fixture();f.records.delete('providerEligibilityAuthorities/provider');if(patch===null)f.records.delete('occasions/birthday');else Object.assign(f.records.get('occasions/birthday'),patch);await assert.rejects(f.api.createProviderPackageV2(f.req(input())));assert.equal(f.counters().commits,0);
+});
+
+// Production admission simulations execute compiled callables without Firebase/network.
+const publicationRequest=id=>({packageId:id,expectedRevision:1,idempotencyKey:'production_publication_key_001',sharedContractVersion:2});
+async function productionDraft(patch={}) {
+ const f=fixture({publication:true});const result=await f.api.createProviderPackageV2(f.req(input(patch)));
+ return {...f,id:result.packageId,publish:()=>f.api.publishProviderPackageV2Internal(f.req(publicationRequest(result.packageId)))};
+}
+for(const offerStructure of ['fixed','customizable'])for(const pricingModel of ['per_pax','per_bundle'])
+ test('production publishes and discovers '+offerStructure+' '+pricingModel,async()=>{
+ const f=await productionDraft({offerStructure,pricingModel,...(offerStructure==='fixed'?{foodChoiceGroups:[]}: {})});
+ const customer=f.load('customer-package-v2',{...f.mocks,'./provider-package-drafts-v2.js':f.api});
+ await assert.rejects(customer.getCustomerPackageV2({data:{packageId:f.id}}));
+ const result=await f.publish();assert.equal(result.status,'published');assert.equal(result.packageRevision,2);
+ const saved=f.records.get('packages/'+f.id);assert.equal(saved.providerEligibilityRevision,3);
+ const read=await customer.getCustomerPackageV2({data:{packageId:f.id}});
+ for(const key of ['offerStructure','pricingModel','foodChoiceGroups','serviceOptions','foodInclusions','paymentPolicy','depositPercentage','imageUrls'])assert.deepEqual(read.package[key],saved[key]);
+ assert.deepEqual(await f.publish(),result);assert.equal(f.counters().commits,2);
+ await assert.rejects(f.api.publishProviderPackageV2Internal(f.req({...publicationRequest(f.id),idempotencyKey:'different_publication_key_001',expectedRevision:2})));
+ f.records.get('providerEligibilityAuthorities/provider').approvedOccasionIds=[];
+ await assert.rejects(customer.getCustomerPackageV2({data:{packageId:f.id}}));
+ });
+for(const patch of [{revision:2},{status:'published'},{foodInclusions:[]},{serviceOptions:{}},{minimumGuests:51},
+ {themeOptions:[{id:'bad',name:'Bad',description:'',imageUrls:['http://bad.test']}]},
+ {foodChoiceGroups:[{...choices[0],selectionCount:3}]},{isActive:true},{individualFoodDraft:{}},
+ {paymentTermsSchemaVersion:1}])test('production publication rejects invalid saved package '+JSON.stringify(patch),async()=>{
+ const f=await productionDraft();Object.assign(f.records.get('packages/'+f.id),patch);
+ await assert.rejects(f.publish());assert.equal(f.counters().commits,1);
+});
+for(const [path,patch] of [['providers/provider',{ownerId:'other'}],['providers/provider',{verificationStatus:'pending'}],
+ ['providers/provider',{isBlocked:true}],['providerEligibilityAuthorities/provider',{approvedOccasionIds:[]}],
+ ['maintenanceControls/intake',{publication:true}],['occasionCatalog/current',{activationState:'transitioning'}]])
+ test('production publication revalidates '+path+JSON.stringify(patch),async()=>{
+ const f=await productionDraft();Object.assign(f.records.get(path),patch);await assert.rejects(f.publish());assert.equal(f.counters().commits,1);
+});
+for(const path of ['contractPolicies/providerPackageV2','maintenanceControls/intake','appSettings/platform','providerEligibilityAuthorities/provider'])
+ test('production missing configuration fails closed '+path,async()=>{
+ const f=await productionDraft();f.records.delete(path);await assert.rejects(f.publish());assert.equal(f.counters().commits,1);
+});
+test('production rejects missing authentication, App Check and stale request revision',async()=>{
+ const f=await productionDraft();const req=f.req(publicationRequest(f.id));
+ await assert.rejects(f.api.publishProviderPackageV2Internal({...req,auth:null}));
+ await assert.rejects(f.api.publishProviderPackageV2Internal({...req,app:null}));
+ await assert.rejects(f.api.publishProviderPackageV2Internal(f.req({...req.data,expectedRevision:2})));
+ assert.equal(f.counters().commits,1);
+});
+
+test('concurrent publication replays one operation and customer reads never see partial publication',async()=>{
+ const f=await productionDraft();const customer=f.load('customer-package-v2',{...f.mocks,'./provider-package-drafts-v2.js':f.api});
+ const [a,read,b]=await Promise.allSettled([f.publish(),customer.getCustomerPackageV2({data:{packageId:f.id}}),f.publish()]);
+ assert.equal(a.status,'fulfilled');assert.equal(b.status,'fulfilled');assert.deepEqual(a.value,b.value);
+ assert.equal(f.counters().commits,2);assert.equal(f.records.get('packages/'+f.id).revision,2);
+ if(read.status==='fulfilled'){assert.equal(read.value.package.status,'published');assert.equal(read.value.package.revision,2);}
+});
+test('competing publication keys cannot publish the same revision twice',async()=>{
+ const f=await productionDraft();const results=await Promise.allSettled([f.publish(),f.api.publishProviderPackageV2Internal(f.req({...publicationRequest(f.id),idempotencyKey:'competing_publication_key_001'}))]);
+ assert.equal(results.filter(r=>r.status==='fulfilled').length,1);assert.equal(f.counters().commits,2);
+});
+for(const change of ['revision','eligibility'])test('publication rereads '+change+' after external media admission',async()=>{
+ const f=await productionDraft();f.domain.verifyPackageImages=async()=>{
+  if(change==='revision')f.records.get('packages/'+f.id).revision++;
+  else f.records.get('providerEligibilityAuthorities/provider').approvedOccasionIds=[];
+ };
+ await assert.rejects(f.publish());assert.equal(f.records.get('packages/'+f.id).isPublished,false);assert.equal(f.counters().commits,1);
+});
+test('booking admission uses fresh published authority and rejects revoked booking gates',async()=>{
+ const f=await productionDraft();await f.publish();const customer=f.load('customer-package-v2',{...f.mocks,'./provider-package-drafts-v2.js':f.api});
+ const read=()=>f.db.runTransaction(async tx=>customer.requireCustomerPackageV2(tx,(await tx.get(f.db.doc('packages/'+f.id))).data(),'booking'));
+ assert.equal((await read()).revision,2);
+ f.records.get('contractPolicies/providerPackageV2').featureGates.customerBooking=false;
+ await assert.rejects(read());assert.equal(f.counters().commits,2);
+});
+
+test('missing runtime environment cannot admit publication replay or customer reads',async()=>{
+ const f=await productionDraft();await f.publish();const customer=f.load('customer-package-v2',{...f.mocks,'./provider-package-drafts-v2.js':f.api});
+ delete f.env.GCLOUD_PROJECT;delete f.env.GCP_PROJECT;delete f.records.get('contractPolicies/providerPackageV2').effectiveEnvironment;
+ await assert.rejects(f.publish());await assert.rejects(customer.getCustomerPackageV2({data:{packageId:f.id}}));assert.equal(f.counters().commits,2);
 });

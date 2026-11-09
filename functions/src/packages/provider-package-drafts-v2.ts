@@ -1,4 +1,5 @@
-import {isDeepStrictEqual} from "node:util";
+import {isPublishablePackageV2, isV2PaymentPolicyValid,
+  isCustomerProviderV2, isPackageWithinProviderV2} from "@feasta/shared-types/customer-package-v2";
 import {occasionDependencyEntryPath, validOccasionDependencyEntry} from "../admin/occasion-dependency-registry.js";
 import {planSpecificPackageMembership} from "../admin/occasion-package-membership-plan.js";
 import {occasionCategoryDependencyEntryPath, validOccasionCategoryDependencyEntry} from "../admin/occasion-category-dependency-registry.js";
@@ -196,7 +197,6 @@ function callable(mode: Mode) {
     async (request) => {
     const actor = requireAuth(request);
     if (!request.app && !isolatedDemo()) fail("APP_CHECK_REQUIRED", "unauthenticated");
-    if (mode === "publish" && !isolatedDemo()) fail("FEATURE_DISABLED");
     await requireRole(actor.uid, ["provider"]);
     await enforceCallableRateLimit(request,
       {scope: `packages.v2Draft.${mode === "complete" ? "create" : mode}`,
@@ -243,8 +243,8 @@ function callable(mode: Mode) {
       const provider = authorizeProviderForPackageManagement({actorUid: actor.uid,
         providerSnapshot});
       const policy = (await tx.get(db.doc("contractPolicies/providerPackageV2"))).data();
-      if (!policy || policy.effectiveEnvironment !== (process.env.GCLOUD_PROJECT ||
-        process.env.GCP_PROJECT)) fail("CONFIG_UNAVAILABLE");
+      const environment = process.env.GCLOUD_PROJECT || process.env.GCP_PROJECT;
+      if (!environment || !policy || policy.effectiveEnvironment !== environment) fail("CONFIG_UNAVAILABLE");
       revision(policy.revision);
       if (policy.featureGates?.packageDraftWrites !== true) fail("FEATURE_DISABLED");
 
@@ -270,13 +270,12 @@ function callable(mode: Mode) {
           editor?.providerId === providerId && editor?.packageId === null &&
           editor?.basePackageRevision === null &&
           editor?.progress?.offerStructure === "customizable");
-      if (!privateCustomizableDraft) await requireMaintenanceOpen(tx, db, "publication");
-      if (publication && (process.env.FEASTA_V2_PUBLICATION_DEMO_ENABLED !== "true" ||
-          policy.featureGates?.packagePublication !== true ||
+      if (publication && (policy.featureGates?.packagePublication !== true ||
           policy.featureGates?.customerDiscovery !== true ||
           policy.featureGates?.customerBooking !== true)) fail("FEATURE_DISABLED");
-      if (publication && !isProviderPubliclyEligible(
-        {...provider.providerData, id: providerId}, user!)) fail("PROVIDER_INELIGIBLE");
+      if (!privateCustomizableDraft) await requireMaintenanceOpen(tx, db, "publication");
+      if (publication && (!isCustomerProviderV2(providerId, provider.providerData, user!) || !isProviderPubliclyEligible(
+        {...provider.providerData, id: providerId}, user!))) fail("PROVIDER_INELIGIBLE");
       const key = (publication ?? envelope ?? parsed!.input).idempotencyKey;
       const opRef = db.collection("providerPackageV2Operations").doc(hash([actor.uid, mode, key]));
       const requestHash = hash(request.data);
@@ -339,14 +338,11 @@ function callable(mode: Mode) {
         offer} = parsed ?? (publishInput ? parseV2DraftWrite({...publishInput,
           idempotencyKey: publication!.idempotencyKey}, false) : parseV2DraftWrite(
           packageWriteFromProgress(progress as PackageEditorProgressV2), false));
-      // Production admission is deliberately limited to validated V2 customizable
-      // private drafts. Fixed/V3 demo behavior is unchanged.
-      if (!isolatedDemo() && (input.sharedContractVersion !== 2 ||
-          input.offerStructure !== "customizable")) fail("FEATURE_DISABLED");
-      if (publication && (input.offerStructure === "customizable" ||
-          offer.foodChoiceGroups?.length || offer.pricingModel !== undefined)) {
-        fail("FEATURE_DISABLED");
-      }
+      // V3 remains isolated; V2 fixed and customizable share full authority.
+      if (!isolatedDemo() && input.sharedContractVersion !== 2) fail("FEATURE_DISABLED");
+      if (publication && !isPublishablePackageV2(publishing!.packageData,
+        policy.maxThemeImages)) fail("INCOMPLETE_PACKAGE");
+      if (publishing && !isPackageWithinProviderV2(publishing.packageData, provider.providerData)) fail("PROVIDER_INELIGIBLE");
       if (base.themeOptions.some((theme) => theme.imageUrls.length > Math.min(4,
         policy.maxThemeImages))) fail("INVALID_MEDIA_REFERENCE", "invalid-argument");
       const packageRef = publishing ? db.collection("packages")
@@ -474,6 +470,7 @@ function callable(mode: Mode) {
         eventType: occasion.eventType,
       });
       const payment = (await tx.get(db.doc("appSettings/platform"))).data();
+      if (publication && !isV2PaymentPolicyValid(base, payment)) fail("CONFIG_UNAVAILABLE");
       assertPackagePaymentTermsWithinPolicy(base, packagePaymentPolicyBoundsFromData(payment));
       if (publishing) {
         // The existing publisher accepts legacy V2 authority only.
@@ -481,12 +478,9 @@ function callable(mode: Mode) {
         if (isGlobal || !("providerEligibilityRevision" in occasion)) {
           fail("FEATURE_DISABLED");
         }
-        for (const field of ["eventType", "occasionMatchIds", "occasionCatalogRevision",
-          "providerEligibilityRevision", "occasionEligibilityState"] as const) {
-          if (!isDeepStrictEqual(publishing.packageData[field], occasion[field])) {
-            fail("STALE_DISCOVERY_MEMBERSHIP", "aborted");
-          }
-        }
+        // Private completion uses a placeholder grant revision. Resolve current
+        // authority above and persist its projection atomically with publication.
+
       }
       const next = publishing ? revision(publishing.packageData.revision) + 1 :
         old ? revision(old.packageData.revision) + 1 : 1;
@@ -648,7 +642,7 @@ function callable(mode: Mode) {
       if (publication) {
         const result = {success: true, packageId: packageRef.id, packageRevision: next,
           sharedContractVersion: 2, status: "published"};
-        tx.update(packageRef, {status: "published", isActive: true, isPublished: true,
+        tx.update(packageRef, {...discoveryProjection, status: "published", isActive: true, isPublished: true,
           providerPubliclyVisible: true, publishedAt: now, updatedAt: now,
           updatedBy: actor.uid, revision: next});
         tx.create(opRef, {actorUid: actor.uid, providerId, requestHash, result, createdAt: now});

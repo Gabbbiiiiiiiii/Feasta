@@ -9,6 +9,9 @@ import type {PublicProvider} from "@/lib/customer/providers/provider-types";
 
 
 export type PublicPackage = {
+  offerStructure?: "fixed" | "customizable";
+  paymentTermsSchemaVersion?: 2;
+  balanceDueHoursBeforeEvent?: number | null;
   revision?: number;
   sharedContractVersion?: 2;
   pricingModel?: "per_pax" | "per_bundle";
@@ -16,6 +19,7 @@ export type PublicPackage = {
   occasionMatchIds?: readonly string[];
   equipmentInclusions?: readonly string[];
   foodChoiceGroups?: FoodChoiceGroupV2[];
+  foodInclusions?: readonly string[];
   id: string;
   providerId: string;
   providerName: string;

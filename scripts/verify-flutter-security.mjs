@@ -7,6 +7,7 @@ const runtime = read(
   "apps/customer_mobile/lib/core/security/runtime_security.dart",
 );
 const main = read("apps/customer_mobile/lib/main.dart");
+const startupShell = read("apps/customer_mobile/lib/app/startup_shell.dart");
 const addresses = read(
   "apps/customer_mobile/lib/features/authentication/data/services/" +
   "customer_address_storage_service.dart",
@@ -40,7 +41,11 @@ assert.match(bootstrap, /validateFirebaseProject/u);
 assert.match(bootstrap, /AndroidPlayIntegrityProvider/u);
 assert.match(runtime, /useEmulators && !isDebugMode/u);
 assert.match(runtime, /uri\.scheme != 'https'/u);
-assert.match(main, /_StartupFailureApp/u);
+assert.match(main, /StartupShell\(\s*initialize: bootstrap,/u);
+assert.match(startupShell, /await widget\.initialize\(\)\.timeout\(const Duration\(seconds: 45\)\)/u);
+assert.match(startupShell, /await widget\.initialize\(\)[\s\S]+setState\(\(\) => _initialized = true\)/u);
+assert.match(startupShell, /catch \(error, stack\)[\s\S]+setState\(\(\) => _failed = true\)/u);
+assert.match(startupShell, /home: _failed\s*\? const Scaffold\([\s\S]+could not start securely[\s\S]+: _initialized\s*\? widget\.appBuilder\(_presentation\)\s*: const ColoredBox/u);
 assert.match(addresses, /FlutterSecureStorage/u);
 assert.doesNotMatch(addresses, /setStringList\(\s*_savedAddressesKey/u);
 assert.match(booking, /_requireVerifiedActiveCustomer/u);

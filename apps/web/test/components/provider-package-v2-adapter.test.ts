@@ -45,8 +45,18 @@ it("routes completion with editor revision and never supplies ownership or disco
   await api.completeV2PackageProgress(input);
   expect(mocks.call).toHaveBeenCalledWith("completeProviderPackageEditorDraft",input);
 });
-it("disables V2 adapters for production project configuration", async () => {
+it("supports production with the explicit UI opt-in and leaves publication disabled by default", async () => {
+  vi.stubEnv("NODE_ENV","production");vi.stubEnv("NEXT_PUBLIC_USE_FIREBASE_EMULATORS","false");
   vi.stubEnv("NEXT_PUBLIC_FIREBASE_PROJECT_ID","feasta-catering-system");
+  vi.stubEnv("NEXT_PUBLIC_PROVIDER_PACKAGE_V2_PUBLICATION_ENABLED", "false");
+  const api = await import("@/lib/provider/provider-package-v2-client");
+  mocks.call.mockResolvedValue({data:result});
+  await api.createV2PackageDraft(data);
+  expect(mocks.call).toHaveBeenCalledWith("createProviderPackageV2",data);
+  expect(api.packageV2PublicationEnabled).toBe(false);
+});
+it("keeps fixed adapters disabled without the explicit draft opt-in", async () => {
+  vi.stubEnv("NEXT_PUBLIC_PROVIDER_PACKAGE_V2_DRAFTS_ENABLED","false");
   const api = await import("@/lib/provider/provider-package-v2-client");
   await expect(api.createV2PackageDraft(data)).rejects.toThrow("FEATURE_DISABLED");
   expect(mocks.call).not.toHaveBeenCalled();

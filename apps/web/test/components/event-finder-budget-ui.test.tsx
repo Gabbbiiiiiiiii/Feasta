@@ -46,12 +46,12 @@ it.each([[-1, undefined], [Infinity, undefined], [100000001, undefined], [0, 0],
 
 it("displays, edits, and clears budget with event details while preserving category selections", () => {
   const filters = parseProviderDiscoveryFilters({categories: "photographer,catering_service", budgetMin: "1000", budgetMax: "15000", eventType: "birthday"}, "");
-  render(<ProviderEventContextPanel filters={filters} />);
-  expect(screen.getByText(/Planning budget:/)).toHaveTextContent(/1,000.*15,000/);
+  render(<><ProviderEventContextPanel filters={filters} /><EventFinder query={providerDiscoveryHref(filters).split("?")[1]} onFind={() => {}} serviceCategoryOptions={TEST_SERVICE_CATEGORY_OPTIONS} /></>);
+  expect(screen.getByText("Planning budget").parentElement).toHaveTextContent(/1,000.*15,000/);
   expect(screen.getByLabelText(/Starting budget/)).toHaveValue(1000);
-  const form = screen.getByRole("button", {name: "Update details"}).closest("form")!;
   fireEvent.change(screen.getByLabelText(/Maximum budget/), {target: {value: "20000"}});
-  const updated = parseProviderDiscoveryFilters(Object.fromEntries(new FormData(form)) as Record<string, string>, "");
+  fireEvent.submit(screen.getByRole("search", {name: "Event Finder"}));
+  const updated = parseProviderDiscoveryFilters(Object.fromEntries(new URL(mocks.push.mock.calls[0][0], "https://feasta.test").searchParams), "");
   expect(updated.planningContext?.budgetMax).toBe(20000);
   expect(updated.categories).toEqual(filters.categories);
   expect(screen.getByRole("link", {name: "Clear event details"})).toHaveAttribute("href", providerDiscoveryHref({...filters, planningContext: null, eventContext: null}));

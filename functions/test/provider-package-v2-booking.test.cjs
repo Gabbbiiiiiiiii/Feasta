@@ -34,3 +34,19 @@ test('V2 cannot bypass server verification and still validates occasion and capa
 test('client prices and financial snapshots remain forbidden',()=>{
  for(const field of ['clientPrice','packagePrice','tierPrice','total','financialSnapshot']) assert.throws(()=>reject({[field]:1}));
 });
+
+for(const offerStructure of ['fixed','customizable'])for(const pricingModel of ['per_pax','per_bundle'])
+ test('production '+offerStructure+' '+pricingModel+' keeps server totals and immutable food snapshots',()=>{
+ const {resolveFoodChoiceSelections}=require('../lib/bookings/food-choice-selection.js');
+ const groups=[{id:'main',title:'Main dishes',selectionCount:1,options:[{id:'chicken',name:'Chicken'},{id:'fish',name:'Fish'}]}];
+ const d={...data(),offerStructure,pricingModel,foodChoiceGroups:offerStructure==='customizable'?groups:[]};
+ const offer=resolve({packageData:d,guestCount:20,serviceTier:'buffet_setup',packageThemeId:'garden'});
+ assert.equal(Math.round(offer.basePrice*100),15025*(pricingModel==='per_pax'?20:1));
+ const selection=offerStructure==='customizable'?[{groupId:'main',optionIds:['chicken']}]:[];
+ const snapshot=resolveFoodChoiceSelections(d,selection);
+ if(offerStructure==='customizable'){
+  for(const bad of [[],[{groupId:'main',optionIds:['missing']}],[{groupId:'main',optionIds:['chicken','fish']}]])assert.throws(()=>resolveFoodChoiceSelections(d,bad));
+  d.foodChoiceGroups[0].options[0].name='Changed after booking';assert.equal(snapshot[0].options[0].name,'Chicken');
+ } else assert.deepEqual(snapshot,[]);
+ assert.equal(offer.selection.packageOfferSnapshotV2.revision,8);
+ });

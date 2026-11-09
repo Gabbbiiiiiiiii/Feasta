@@ -391,6 +391,13 @@ class PackageModel {
 
   final int? sharedContractVersion;
   final int? revision;
+  final String? offerStructure;
+  final String? paymentPolicy;
+  final int? paymentTermsSchemaVersion;
+  final double? depositPercentage;
+  final int? balanceDueDaysBeforeEvent;
+  final int? balanceDueHoursBeforeEvent;
+  final List<String> imageUrls;
   final String? pricingModel;
   final String? occasionScope;
   final List<String> occasionMatchIds;
@@ -426,6 +433,13 @@ class PackageModel {
   PackageModel({
     this.sharedContractVersion,
     this.revision,
+    this.offerStructure,
+    this.paymentPolicy,
+    this.paymentTermsSchemaVersion,
+    this.depositPercentage,
+    this.balanceDueDaysBeforeEvent,
+    this.balanceDueHoursBeforeEvent,
+    this.imageUrls = const [],
     this.pricingModel,
     this.occasionScope,
     this.occasionMatchIds = const [],
@@ -469,7 +483,19 @@ class PackageModel {
     return PackageModel(
       sharedContractVersion: data['sharedContractVersion'] == 2 ? 2 : null,
       revision: data['revision'] is int ? data['revision'] as int : null,
-      pricingModel: data['pricingModel'] as String?, occasionScope: data['occasionScope'] as String?,
+      offerStructure: ['fixed', 'customizable'].contains(data['offerStructure'])
+          ? data['offerStructure'] as String : null,
+      paymentPolicy: ['full_payment', 'deposit_then_balance'].contains(data['paymentPolicy'])
+          ? data['paymentPolicy'] as String : null,
+      paymentTermsSchemaVersion: data['paymentTermsSchemaVersion'] == 2 ? 2 : null,
+      depositPercentage: data['depositPercentage'] is num
+          ? (data['depositPercentage'] as num).toDouble() : null,
+      balanceDueDaysBeforeEvent: data['paymentTermsSchemaVersion'] == 2 ? null
+          : data['balanceDueDaysBeforeEvent'] as int?,
+      balanceDueHoursBeforeEvent: data['balanceDueHoursBeforeEvent'] as int?,
+      imageUrls: List.unmodifiable(imageUrls.isNotEmpty ? imageUrls : [if (image.isNotEmpty) image]),
+      pricingModel: ['per_pax', 'per_bundle'].contains(data['pricingModel'])
+          ? data['pricingModel'] as String : null, occasionScope: data['occasionScope'] as String?,
       occasionMatchIds: stringListFromValue(data['occasionMatchIds']),
       equipmentInclusions: stringListFromValue(data['equipmentInclusions']),
       id: id,
@@ -493,7 +519,9 @@ class PackageModel {
       decorInclusions: stringListFromValue(data['decorInclusions']),
       furnitureInclusions: stringListFromValue(data['furnitureInclusions']),
       serviceInclusions: stringListFromValue(data['serviceInclusions']),
-      isCustomizable: data['isCustomizable'] ?? true,
+      isCustomizable: data['offerStructure'] == 'fixed' ? false
+          : data['offerStructure'] == 'customizable' ? true
+          : data['isCustomizable'] ?? true,
       isActive: data['isActive'] == true,
       isPublished: data['isPublished'] == true,
       providerPubliclyVisible: data['providerPubliclyVisible'] == true,

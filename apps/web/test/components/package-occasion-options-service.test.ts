@@ -27,9 +27,9 @@ beforeEach(() => {
   mocks.transaction.mockImplementation(async (callback) => callback({get: mocks.get}));
 });
 describe("package occasion authority read", () => {
-  it("returns canonical labels and explicit grants with both revision pins", async () => {
+  it("returns canonical global options with the catalog revision", async () => {
     const result = await getPackageOccasionOptions();
-    expect(result).toEqual({options: [{id: "wedding", label: "wedding", categoryCodes: ["food_catering"]}], catalogRevision: 7, providerEligibilityRevision: 3, maxSpecificOccasions: 5});
+    expect(result).toEqual({options: [{id: "birthday", label: "birthday", categoryCodes: ["food_catering"]}, {id: "wedding", label: "wedding", categoryCodes: ["food_catering"]}], catalogRevision: 7, eligibilityModel: "global_v1", maxSpecificOccasions: 5});
     expect(packageOccasionChoices(result, "photographer")).toEqual([]);
   });
   it.each([
@@ -38,7 +38,6 @@ describe("package occasion authority read", () => {
     ["contractPolicies/providerPackageV2", "maxSpecificOccasions", 0],
     ["occasionCatalog/current", "activationState", "transitioning"],
     ["occasionCatalog/current", "revision", 0],
-    ["providerEligibilityAuthorities/provider", "revision", 0],
     ["providers/provider", "ownerId", "another-owner"],
     ["providers/provider", "isSuspended", true],
     ["providers/provider", "verificationStatus", "pending"],
@@ -46,6 +45,10 @@ describe("package occasion authority read", () => {
   ])("fails closed for %s %s", async (path, field, value) => {
     records[path as string][field as string] = value;
     expect(await getPackageOccasionOptions()).toBeNull();
+  });
+  it("global catalog options do not depend on legacy capability authority", async () => {
+    delete records["providerEligibilityAuthorities/provider"];
+    expect(await getPackageOccasionOptions()).toMatchObject({eligibilityModel: "global_v1", catalogRevision: 7, options: [{id: "birthday"}, {id: "wedding"}]});
   });
   it("does not accept pending catalog rows", async () => { rows[0].moderationState = "pending"; expect(await getPackageOccasionOptions()).toBeNull(); });
   it("does not return a partial catalog or trust legacy supported occasions", async () => {

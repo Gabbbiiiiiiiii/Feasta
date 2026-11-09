@@ -561,6 +561,7 @@ test("all deployed exports remain in the reviewed inventory", () => {
   "addAdminOccasionApplicableServices",
   "getCustomerPackageV2",
   "inspectIntakeMaintenance",
+  "initializeProviderOccasionCapabilities",
   "setIntakeMaintenance",
   "saveProviderPackageEditorDraft",
   "getProviderPackageEditorDraft",
@@ -810,7 +811,8 @@ test("V2 public gateway is bounded, transactional, gated and never returns raw d
  const body = source("packages/customer-package-v2.ts");
  for (const marker of ["enforceCallableRateLimit", "appCheckCallableOptions", "db.runTransaction",
    "requireCustomerPackageV2", "limit(1001)", "isProviderPubliclyEligible", "parseV2DraftWrite",
-   "providerEligibilityAuthorities/", "PACKAGE_V2_UNAVAILABLE", "FUNCTIONS_EMULATOR"]) {
+   "providerEligibilityAuthorities/", "PACKAGE_V2_UNAVAILABLE", "isCurrentCustomerPackageV2",
+   "isV2PaymentPolicyValid", "isCustomerProviderV2", "isPackageWithinProviderV2"]) {
    assert.ok(body.includes(marker), marker);
  }
 });

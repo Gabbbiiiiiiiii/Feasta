@@ -27,6 +27,7 @@ function fixture(changes = {}, enabled = true) {
     user: {role: "provider", providerId: "provider_id", accountStatus: "active",
       isActive: true, isBlocked: false},
     gallery: {revision: 7, setups: []},
+    maintenance: {schemaVersion: 1, revision: 1, intake: false, publication: false},
     eligibility: {revision: 3, approvedCategoryCodes: ["catering"],
       approvedOccasionIds: ["occasion_one"]},
     catalog: {revision: 4, activationState: "stable"},
@@ -58,6 +59,7 @@ function fixture(changes = {}, enabled = true) {
     let value;
     switch (key) {
       case "users/owner": value = state.user; break;
+      case "maintenanceControls/intake": value = state.maintenance; break;
       case "providers/provider_id": value = state.provider; break;
       case "providers/provider_id/catalog/setups": value = state.gallery; break;
       case "providerEligibilityAuthorities/provider_id": value = state.eligibility; break;
@@ -89,6 +91,7 @@ function fixture(changes = {}, enabled = true) {
       return snapshot(target.key);
     },
     set: (target, value) => {pending.push({path: target.key, value});},
+    update: (target, value) => {pending.push({path: target.key, value, update: true});},
   };
   return {tx, pending, readValues, readValue};
   }
@@ -103,7 +106,12 @@ function fixture(changes = {}, enabled = true) {
         if (state.beforeCommit) await state.beforeCommit(state, attempt);
         if ([...readValues].some(([target, value]) => JSON.stringify(readValue(target)) !== value)) continue;
         state.writes.push(...pending);
-        if (pending.length) state.gallery = pending[0].value;
+        for (const write of pending) {
+          if (write.path === "providers/provider_id/catalog/setups") state.gallery = write.value;
+          else if (write.path === "maintenanceControls/intake" && write.update) {
+            state.maintenance = {...state.maintenance, ...write.value};
+          } else throw Error(`Unexpected write: ${write.path}`);
+        }
         return result;
       }
       throw Error("Retry budget exhausted");
@@ -157,6 +165,20 @@ function fixture(changes = {}, enabled = true) {
       }),
     },
   };
+  // Run the production maintenance contract, including transactional admission.
+  const maintenanceSource = fs.readFileSync(path.resolve(__dirname,
+    "../../src/lib/firebase/maintenance.ts"), "utf8");
+  const maintenanceJs = ts.transpileModule(maintenanceSource, {compilerOptions: {
+    module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022,
+  }}).outputText;
+  const maintenanceModule = {exports: {}};
+  vm.runInNewContext("(function(require,module,exports) {" + maintenanceJs + "\n})")(
+    (key) => {
+      if (key === "./admin") return {adminDb: db};
+      if (!Object.prototype.hasOwnProperty.call(mocks, key)) throw Error(`Unexpected maintenance import: ${key}`);
+      return mocks[key];
+    }, maintenanceModule, maintenanceModule.exports);
+  mocks["@/lib/firebase/maintenance"] = maintenanceModule.exports;
   // Execute the real pure parsers inside the offline adapter simulation.
   for (const name of ["provider-menu", "provider-setup-gallery", "provider-setup-gallery-v2"]) {
     const parserSource = fs.readFileSync(path.resolve(__dirname,
@@ -234,6 +256,41 @@ test("full-gallery transaction succeeds for valid legacy records only in isolate
 
 test("stale gallery revision rejects without writes", async () => {
   await rejectsWithoutWrites({}, request({revision: 6}));
+});
+
+const publishedLegacyRequest = () => request({setups: [{id: "setup_a", title: "Wedding",
+  description: "", eventType: "wedding", themeTags: [], imageUrls: [imageUrl()], isPublished: true}]});
+
+test("legacy publication records maintenance admission atomically with the gallery", async () => {
+  const {save, state} = imageFixture();
+  await save(publishedLegacyRequest());
+  assert.ok(state.reads.includes("maintenanceControls/intake"));
+  assert.equal(state.writes.length, 2);
+  assert.deepEqual(state.writes.map((write) => write.path),
+    ["maintenanceControls/intake", "providers/provider_id/catalog/setups"]);
+  assert.equal(state.maintenance.lastAdmissionAt, "SERVER_TIMESTAMP");
+  assert.equal(state.gallery.revision, 8);
+});
+
+test("publication fails closed for paused, missing, and malformed maintenance", async () => {
+  for (const maintenance of [null, {},
+    {schemaVersion: 1, revision: 1, intake: false, publication: true},
+    {schemaVersion: 1, revision: 0, intake: false, publication: false},
+    {schemaVersion: 1, revision: 1, intake: "false", publication: false}]) {
+    const {save, state} = imageFixture({maintenance});
+    await assert.rejects(save(publishedLegacyRequest()), /paused|unavailable/);
+    assert.equal(state.writes.length, 0);
+  }
+});
+
+test("concurrent maintenance pause discards publication and admission on retry", async () => {
+  const {save, state} = imageFixture({beforeCommit(s, attempt) {
+    if (attempt === 0) s.maintenance = {...s.maintenance, revision: 2, publication: true};
+  }});
+  await assert.rejects(save(publishedLegacyRequest()), /paused|unavailable/);
+  assert.equal(state.startedTransactions, 2);
+  assert.equal(state.writes.length, 0);
+  assert.equal(state.gallery.revision, 7);
 });
 
 test("stale eligibility revision rejects without writes", async () => {

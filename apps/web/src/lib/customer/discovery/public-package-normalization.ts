@@ -18,22 +18,22 @@ export function normalizePublicPackageCustomization(
     foods: safeTextList(
       [value.foodInclusions],
       50,
-      120,
+      160,
     ),
     decorations: safeTextList(
       [value.decorInclusions],
       50,
-      120,
+      160,
     ),
     furniture: safeTextList(
       [value.furnitureInclusions],
       50,
-      120,
+      160,
     ),
     services: safeTextList(
       [value.serviceInclusions],
       50,
-      120,
+      160,
     ),
   };
 }
@@ -87,7 +87,7 @@ export function normalizePublicPackage(
     value.decorInclusions,
     value.furnitureInclusions,
     value.serviceInclusions,
-  ], 8, 120);
+  ], 8, 160);
 
   const imageUrls = Array.isArray(value.imageUrls)
     ? value.imageUrls.slice(0, 8).flatMap((entry) => { const url = safeHttpsUrl(entry); return url ? [url] : []; })
@@ -108,6 +108,12 @@ export function normalizePublicPackage(
 
   return {
     id,
+    ...(value.offerStructure === "fixed" || value.offerStructure === "customizable"
+      ? {offerStructure: value.offerStructure} : {}),
+    ...(value.paymentTermsSchemaVersion === 2 ? {
+      paymentTermsSchemaVersion: 2 as const,
+      balanceDueHoursBeforeEvent: value.balanceDueHoursBeforeEvent === 24 ? 24 : null,
+    } : {}),
     ...(verifiedV2 ? {sharedContractVersion: 2 as const, revision: Number(value.revision),
       pricingModel: value.pricingModel as "per_pax" | "per_bundle" | undefined,
       occasionScope: value.occasionScope as "specific" | "all",
@@ -138,6 +144,7 @@ export function normalizePublicPackage(
     imageUrls,
     minimumGuests: validGuestRange ? minimumGuests : null,
     maximumGuests: validGuestRange ? maximumGuests : null,
+    foodInclusions: safeTextList([value.foodInclusions], 50, 160),
     inclusions,
   };
 }

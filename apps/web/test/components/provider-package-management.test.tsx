@@ -483,15 +483,28 @@ it("does not invent category options for untitled catalog images", async () => {
 });
 
 it.each([
-  ["catering", [], true], ["both", ["photographer"], true],
-  ["addon", ["food_trays_packed_meals"], true],
-  ["addon", ["photographer"], false], ["addon", ["event_coordinator"], false],
-] as const)("gates provider catalog management using %s capabilities %j", async (providerServiceType, serviceCategories, expected) => {
+  ["catering", []], ["both", ["photographer"]],
+  ["addon", ["food_trays_packed_meals"]],
+  ["addon", ["photographer"]], ["addon", ["event_coordinator"]],
+] as const)("omits standalone catalog and gallery UI for %s capabilities %j", async (providerServiceType, serviceCategories) => {
   mocks.account.mockResolvedValue({providerId: props.providerId, provider: {id: props.providerId, providerServiceType, serviceCategories, verificationStatus: "approved", ...props}});
   render(await ProviderPackagesPage());
-  if (expected) expect(screen.getByRole("heading", {name: "Menu & Catalog"})).toBeVisible();
-  else expect(screen.queryByRole("heading", {name: "Menu & Catalog"})).not.toBeInTheDocument();
-  await waitFor(() => { if (expected) expect(mocks.load).toHaveBeenCalled(); });
+  expect(screen.queryByRole("heading", {name: /Menu & Catalog|Setup gallery/i})).not.toBeInTheDocument();
+  for (const name of ["Add menu items", "Occasion gallery", "Classic gallery", "Add setup", "Reload gallery and occasions"]) {
+    expect(screen.queryByRole("button", {name})).not.toBeInTheDocument();
+  }
+  expect(screen.queryByText(/Setup Gallery V2 is unavailable/)).not.toBeInTheDocument();
+  expect(mocks.load).not.toHaveBeenCalled();
+  if (providerServiceType !== "addon") {
+    expect(await screen.findByRole("button", {name: `Edit ${base.name}`})).toBeVisible();
+  } else {
+    expect(screen.getByRole("link", {name: "Manage services"})).toHaveAttribute("href", "/provider/services");
+  }
+  if (providerServiceType === "both") {
+    const navigation = screen.getByRole("navigation", {name: "Packages and services"});
+    expect(within(navigation).getByRole("link", {name: "Packages"})).toHaveAttribute("href", "/provider/packages");
+    expect(within(navigation).getByRole("link", {name: "Event Services"})).toHaveAttribute("href", "/provider/services");
+  }
 });
 
 it("keeps six packages per page and resets pagination after filtering and sorting", async () => {

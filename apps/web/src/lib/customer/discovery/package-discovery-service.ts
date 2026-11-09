@@ -1,6 +1,6 @@
 import "server-only";
 import {loadActiveLegacyOccasionIds} from "@/lib/customer/discovery/active-legacy-occasion-guard";
-import {customerV2DemoEnabled, verifiedPublicPackageV2} from "@/lib/customer/discovery/verified-package-v2";
+import {verifiedPublicPackageV2} from "@/lib/customer/discovery/verified-package-v2";
 
 import {FIRESTORE_COLLECTIONS} from "@feasta/shared-types";
 import {
@@ -47,10 +47,9 @@ export async function getPublicPackagePage(
 
 
   if (filters.eventType !== "all") {
-    query = customerV2DemoEnabled() ?
+    query =
       query.where(Filter.or(Filter.where("eventType", "==", filters.eventType),
-        Filter.where("occasionMatchIds", "array-contains", filters.eventType))) :
-      query.where("eventType", "==", filters.eventType);
+        Filter.where("occasionMatchIds", "array-contains", filters.eventType)));
   }
   query = query
     .orderBy("createdAt", "desc")

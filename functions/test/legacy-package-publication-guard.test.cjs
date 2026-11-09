@@ -114,14 +114,17 @@ test('client structure cannot override persisted evidence',async()=>{
   await assert.rejects(f.handler(f.request({packageId:'draft',offerStructure:'fixed'})),e=>e.code==='invalid-argument');
   assert.equal(f.writes.length,0);
 });
-test('V2 route rejects customizable even with every publication gate and demo flag true',async()=>{
+test('V2 route rejects malformed customizable rules with all publication gates enabled',async()=>{
   const f=fixture({sharedContractVersion:2,offerSchemaVersion:2,occasionSchemaVersion:2,
     occasionScope:'specific',occasionIds:['birthday'],offerStructure:'customizable',pricingModel:'per_pax',
     foodChoiceGroups:[{id:'main',title:'Main',selectionCount:1,options:[{id:'chicken',name:'Chicken'}]}]});
+  f.records.get('users/owner').isBlocked=false;
+  Object.assign(f.records.get('providers/provider'),{businessName:'Catering',description:'Catering business',
+    address:'Address',city:'City',province:'Province',operatingDays:['monday'],bookingLeadTimeDays:1});
   const before=structuredClone([...f.records]);
   await assert.rejects(f.handler(f.request({packageId:'draft',sharedContractVersion:2,
     expectedRevision:1,idempotencyKey:'publication_guard_key_001'})),e=>hasV2Route ?
-      e.details?.reason==='FEATURE_DISABLED' : e.code==='invalid-argument');
+      e.details?.reason==='INVALID_FOOD_CHOICE_GROUP' : e.code==='invalid-argument');
   assert.deepEqual([...f.records],before);assert.equal(f.writes.length,0);
 });
 for(const mode of ['unauthenticated','role','provider-owner','package-owner']) test('authorization remains enforced '+mode,async()=>{

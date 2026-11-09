@@ -6,12 +6,10 @@ import type {CreateProviderPackageV2Request, UpdateProviderPackageV2Request,
   PackageMutationV2Response} from "@feasta/shared-types/provider-package-v2";
 import {auth, functions, initializeBrowserFirebase} from "@/lib/firebase/client";
 
-export const packageV2Enabled = process.env.NEXT_PUBLIC_PROVIDER_PACKAGE_V2_DRAFTS_ENABLED === "true" &&
-  process.env.NEXT_PUBLIC_USE_FIREBASE_EMULATORS === "true" &&
-  process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID?.startsWith("demo-") === true &&
-  process.env.NODE_ENV !== "production";
+// UI affordances only; server policy authorizes every operation.
+export const packageV2Enabled = process.env.NEXT_PUBLIC_PROVIDER_PACKAGE_V2_DRAFTS_ENABLED === "true";
 export const packageV2PublicationEnabled = packageV2Enabled &&
-  process.env.NEXT_PUBLIC_PROVIDER_PACKAGE_V2_PUBLICATION_DEMO_ENABLED === "true";
+  process.env.NEXT_PUBLIC_PROVIDER_PACKAGE_V2_PUBLICATION_ENABLED === "true";
 
 type Mutation = {name: "createProviderPackageV2"; input: CreateProviderPackageV2Request} |
   {name: "updateProviderPackageV2"; input: UpdateProviderPackageV2Request} |

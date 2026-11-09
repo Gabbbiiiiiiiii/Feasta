@@ -5,6 +5,7 @@ const {test} = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
+const ts = require("typescript");
 
 const root = path.resolve(__dirname, "../../../..");
 const rules = fs.readFileSync(
@@ -84,10 +85,18 @@ test("user updates cannot mutate role linkage or account status even for Admin c
   assert.doesNotMatch(update, /isAdmin\(\)/u);
 });
 
-test("category mutations are backend-only and callable stays unexported", () => {
+test("category mutations are backend-only and only capability initialization is exported", () => {
   const categories = between(rules, "match /serviceCategories/{categoryCode} {",
     "// Dynamic document catalog");
   assert.match(categories, /allow create, update, delete: if false;/u);
   const entry = fs.readFileSync(path.join(root, "functions/src/index.ts"), "utf8");
-  assert.doesNotMatch(entry, /provider-occasion-capabilities-v2/u);
+  const parsed = ts.createSourceFile("index.ts", entry, ts.ScriptTarget.Latest, true);
+  const exports = parsed.statements.filter((statement) => ts.isExportDeclaration(statement) &&
+    statement.moduleSpecifier?.text === "./packages/provider-occasion-capabilities-v2.js");
+  assert.equal(exports.length, 1);
+  const clause = exports[0].exportClause;
+  assert.ok(clause && ts.isNamedExports(clause), "Wildcard capability exports are forbidden");
+  assert.deepEqual(clause.elements.map((element) => ({
+    name: element.name.text, original: element.propertyName?.text ?? element.name.text,
+  })), [{name: "initializeProviderOccasionCapabilities", original: "initializeProviderOccasionCapabilities"}]);
 });

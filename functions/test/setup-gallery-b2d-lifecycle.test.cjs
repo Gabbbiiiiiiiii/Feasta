@@ -116,6 +116,10 @@ function fixture(overrides = {}) {
         onCall: (options, handler) => {assert.equal(options.enforceAppCheck, true); return handler;},
       };
       if (name === "firebase-admin/firestore") return {Timestamp: {now: () => "NOW"}, FieldValue: {serverTimestamp: () => "NOW"}};
+      if (name === "firebase-admin/auth") return {getAuth: () => ({getUser: async (uid) => {
+        if (!docs.has(`users/${uid}`)) throw Error("AUTH_USER_NOT_FOUND");
+        return {uid, disabled: docs.get(`auth/${uid}`)?.disabled === true};
+      }})};
       if (name.startsWith("node:")) return require(name);
       if (name.startsWith("@feasta/shared-types")) return require(name);
       if (name.startsWith(".")) return load(path.resolve(path.dirname(file), name.replace(/\.js$/, ".ts")));

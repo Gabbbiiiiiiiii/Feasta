@@ -177,29 +177,27 @@ describe("availability-aware marketplace", () => {
     expect(parseCustomerEventContext({...context, guestCount: "1.5"})).toBeNull();
   });
 
-  it("renders a compact event summary with editable labelled fields", () => {
+  it("renders a compact event summary and opens Event Finder for editing", () => {
     render(<ProviderEventContextPanel filters={filters(context)} />);
     expect(screen.getByText("Sep 10, 2026")).toBeVisible();
-    expect(screen.getByText(/6:00 PM–10:00 PM/iu)).toBeVisible();
+    expect(screen.getByText(/6:00 PM\s*\u2013\s*10:00 PM/iu)).toBeVisible();
     expect(screen.getByText("100 guests")).toBeVisible();
-    expect(screen.getByLabelText("Date")).toHaveValue("2026-09-10");
-    expect(screen.getByRole("button", {name: "Update details"})).toBeVisible();
+    const openFinder = vi.fn();
+    window.addEventListener("feasta:open-event-finder", openFinder, {once: true});
+    fireEvent.click(screen.getByRole("button", {name: "Edit event"}));
+    expect(openFinder).toHaveBeenCalledOnce();
   });
 
   it("updates event details while preserving canonical marketplace filters and restarting pagination", () => {
-    render(<ProviderEventContextPanel filters={{
-      ...filters(context),
-      cursor: "stale_cursor",
-    }} />);
-    fireEvent.change(screen.getByLabelText("Date"), {target: {value: "2026-09-11"}});
-    fireEvent.change(screen.getByLabelText("Start"), {target: {value: "19:00"}});
-    fireEvent.change(screen.getByLabelText("End"), {target: {value: "23:00"}});
-    fireEvent.change(screen.getByLabelText("Guests"), {target: {value: "120"}});
+    const query = providerDiscoveryHref({...filters(context), cursor: "stale_cursor"}).split("?")[1];
+    render(<EventFinder query={query} onFind={() => {}} serviceCategoryOptions={TEST_SERVICE_CATEGORY_OPTIONS} />);
+    fireEvent.change(screen.getByLabelText(/Event Date/iu), {target: {value: "2026-09-11"}});
+    fireEvent.change(screen.getByLabelText("Start time"), {target: {value: "19:00"}});
+    fireEvent.change(screen.getByLabelText("End time"), {target: {value: "23:00"}});
+    fireEvent.change(screen.getByLabelText(/Number of guests/iu), {target: {value: "120"}});
 
-    const form = screen.getByRole("button", {name: "Update details"}).closest("form");
-    if (!form) throw new Error("Expected the event-context update form.");
-    const values = Object.fromEntries(new FormData(form));
-    const parameters = new URLSearchParams(values as Record<string, string>);
+    fireEvent.submit(screen.getByRole("search", {name: "Event Finder"}));
+    const parameters = new URL(mocks.push.mock.calls[0][0], "https://feasta.test").searchParams;
     expect(parameters.get("q")).toBe("maria");
     expect(parameters.get("service")).toBe("catering");
     expect(parameters.has("serviceType")).toBe(false);

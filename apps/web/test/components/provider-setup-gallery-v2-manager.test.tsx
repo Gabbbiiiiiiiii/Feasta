@@ -369,7 +369,7 @@ describe("occasion chips", () => {
     await user.click(screen.getByRole("button", {name: "occasion_corporate"}));
     expect(screen.getByRole("button", {name: "occasion_wedding"})).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByRole("button", {name: "occasion_corporate"})).toHaveAttribute("aria-pressed", "true");
-    await user.click(screen.getByText("+ Add Occasion"));
+    await user.click(screen.getByRole("button", {name: "Request an Occasion"}));
     expect(screen.getByRole("dialog", {name: "Request an occasion"})).toBeVisible();
     await user.click(screen.getByRole("button", {name: "Cancel"}));
     expect(actions.save).not.toHaveBeenCalled();

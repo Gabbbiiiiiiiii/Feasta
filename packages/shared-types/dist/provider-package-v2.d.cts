@@ -249,6 +249,43 @@ export interface ProviderCapabilityChangeResult {
     affectedPackageCount: number | null;
     failureReason: string | null;
 }
+/**
+ * Private editor-progress model for an individual food product.
+ * Not part of a published package or customer booking contract.
+ */
+export interface IndividualServingOptionV2 {
+    id: string;
+    name: string;
+    minimumServings: number;
+    maximumServings: number;
+    priceCentavos: number;
+    minimumQuantity: number;
+    maximumQuantity: number;
+}
+export interface IndividualFoodItemV2 {
+    id: string;
+    name: string;
+    servingOptions: IndividualServingOptionV2[];
+}
+/**
+ * Private editing state for one individual food product.
+ * Numeric values remain text until the complete item can be validated.
+ * Never use these strings as customer prices or booking amounts.
+ */
+export interface IndividualServingDraftV2 {
+    id: string;
+    name: string;
+    minimumServingsText: string;
+    maximumServingsText: string;
+    priceText: string;
+    minimumQuantityText: string;
+    maximumQuantityText: string;
+}
+export interface IndividualFoodDraftV2 {
+    id: string;
+    name: string;
+    servingOptions: IndividualServingDraftV2[];
+}
 export interface PackageEditorProgressV2 {
     name?: string;
     description?: string;
@@ -274,6 +311,8 @@ export interface PackageEditorProgressV2 {
     }>>;
     foodInclusions?: string[];
     foodChoiceGroups?: FoodChoiceGroupV2[];
+    individualFoodItems?: IndividualFoodItemV2[];
+    individualFoodDraft?: IndividualFoodDraftV2;
     serviceInclusions?: string[];
     decorInclusions?: string[];
     furnitureInclusions?: string[];
@@ -353,6 +392,25 @@ export interface ExistingPackageWriteInput {
     decorInclusions: string[];
     furnitureInclusions: string[];
     serviceInclusions: string[];
+}
+/**
+ * Draft-only canonical individual-item pricing.
+ *
+ * This is separate from OfferV2 because individual serving sizes
+ * cannot be represented by one authoritative package-level price.
+ *
+ * This contract does not authorize publication, discovery,
+ * booking, checkout or payments.
+ */
+export interface IndividualCanonicalDraftPricingV1 {
+    offerStructure: 'individual';
+    individualPricing: {
+        pricingSchemaVersion: 1;
+        individualFoodItems: IndividualFoodItemV2[];
+    };
+    price?: never;
+    pricingModel?: never;
+    serviceOptions?: never;
 }
 export type PackageV2Write = Omit<ExistingPackageWriteInput, 'eventType' | 'serviceOptions' | 'serviceInclusions' | 'decorInclusions' | 'furnitureInclusions' | 'foodInclusions' | 'price' | 'pricingModel'> & WritableOccasionV2 & OfferV2 & {
     offerStructure?: 'fixed' | 'customizable' | 'individual';

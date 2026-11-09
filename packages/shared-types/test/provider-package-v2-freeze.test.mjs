@@ -17,16 +17,30 @@ test("Phase 1 definitions preserve the frozen contract's exact fields and unions
   const actual = parse(source);
   // F2 explicitly adds this optional field to the canonical interfaces. Keep
   // every frozen member/union exact; permit only this reviewed additive shape.
-  const additiveInterfaces = new Set(["OfferV2", "PackageEditorProgressV2"]);
+  const extensions = {
+    OfferV2: ["foodChoiceGroups?:FoodChoiceGroupV2[];"],
+    PackageEditorProgressV2: ["foodChoiceGroups?:FoodChoiceGroupV2[];",
+      "offerStructure?:'fixed'|'customizable'|'individual';", "packageStyle?:string;",
+      "individualFoodItems?:IndividualFoodItemV2[];", "individualFoodDraft?:IndividualFoodDraftV2;"],
+  };
   const definitions = new Map(actual.statements.filter((s) => s.name).map((statement) => {
     let node = statement;
-    if (ts.isInterfaceDeclaration(statement) && additiveInterfaces.has(statement.name.text)) {
-      const additions = statement.members.filter((member) => member.name?.getText(actual) === "foodChoiceGroups");
-      assert.equal(additions.length, 1, `${statement.name.text}: one reviewed F2 field`);
-      assert.equal(normalize(additions[0], actual), "foodChoiceGroups?:FoodChoiceGroupV2[];");
+    if (ts.isInterfaceDeclaration(statement) && Object.hasOwn(extensions, statement.name.text)) {
+      const expected = extensions[statement.name.text];
+      const additions = statement.members.filter(member => expected.includes(normalize(member, actual)));
+      assert.deepEqual(additions.map(member => normalize(member, actual)).sort(), [...expected].sort(),
+        statement.name.text + ": exact additive fields, types and optionality");
       node = ts.factory.updateInterfaceDeclaration(statement, statement.modifiers, statement.name,
         statement.typeParameters, statement.heritageClauses,
         statement.members.filter((member) => !additions.includes(member)));
+    }
+    if (ts.isTypeAliasDeclaration(statement) && statement.name.text === "PackageV2Write") {
+      assert.ok(ts.isIntersectionTypeNode(statement.type));
+      const extension = statement.type.types.at(-1);
+      assert.equal(normalize(extension, actual),
+        "{offerStructure?:'fixed'|'customizable'|'individual';packageStyle?:string;}");
+      node = ts.factory.updateTypeAliasDeclaration(statement, statement.modifiers, statement.name,
+        statement.typeParameters, ts.factory.createIntersectionTypeNode(statement.type.types.slice(0,-1)));
     }
     return [statement.name.text, normalize(node, actual)];
   }));
