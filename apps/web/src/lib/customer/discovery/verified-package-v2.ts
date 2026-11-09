@@ -11,9 +11,8 @@ export async function verifiedPublicPackageV2(id: string): Promise<Record<string
     if (!p || typeof p.providerId !== "string" || !/^[A-Za-z0-9_-]{1,128}$/.test(p.providerId) ||
         p.status !== "published" || p.isActive !== true || p.isPublished !== true ||
         p.isDeleted !== false || p.providerPubliclyVisible !== true || !p.publishedAt) return null;
-    const [policy, catalog, authority, provider, maintenance, payment] = await Promise.all([
+    const [policy, catalog, provider, maintenance, payment] = await Promise.all([
       tx.get(adminDb.doc("contractPolicies/providerPackageV2")), tx.get(adminDb.doc("occasionCatalog/current")),
-      tx.get(adminDb.doc("providerEligibilityAuthorities/" + p.providerId)),
       tx.get(adminDb.doc("providers/" + p.providerId)), tx.get(adminDb.doc("maintenanceControls/intake")),
       tx.get(adminDb.doc("appSettings/platform")),
     ]);
@@ -23,8 +22,8 @@ export async function verifiedPublicPackageV2(id: string): Promise<Record<string
     const owner = await tx.get(adminDb.doc("users/" + providerData.ownerId));
     if (!isCustomerProviderV2(p.providerId, providerData, owner.data() ?? {}) ||
         !isV2PaymentPolicyValid(p, payment.data()) || !isPackageWithinProviderV2(p, providerData)) return null;
-    const c = catalog.data(), a = authority.data(), policyData = policy.data(), m = maintenance.data();
-    if (!c || !a || !policyData || policyData.effectiveEnvironment !== project ||
+    const c = catalog.data(), policyData = policy.data(), m = maintenance.data();
+    if (!c || !policyData || policyData.effectiveEnvironment !== project ||
         c.activationState !== "stable" || m?.schemaVersion !== 1 || !Number.isSafeInteger(m.revision) ||
         m.revision < 1 || !Number.isSafeInteger(policyData.revision) || policyData.revision < 1 ||
         typeof m.intake !== "boolean" || m.publication !== false) return null;
@@ -33,9 +32,14 @@ export async function verifiedPublicPackageV2(id: string): Promise<Record<string
         !category.data()?.name.trim() || category.data()?.status !== "active" || category.data()?.serviceType !== "catering") return null;
     const rows = await tx.get(adminDb.collection("occasions").where("active", "==", true).limit(1001));
     if (rows.size > 1000 || rows.docs.some(d => d.data().id !== d.id)) return null;
+    const approved = rows.docs.filter(d => d.data().active === true &&
+      d.data().moderationState === "approved" &&
+      Array.isArray(d.data().applicableServiceCategoryCodes) &&
+      d.data().applicableServiceCategoryCodes.includes(p.serviceCategoryCode)).map(d => d.id);
     return isCurrentCustomerPackageV2(p, {enabled: policyData.featureGates?.customerDiscovery === true,
-      catalogRevision: c.revision, providerEligibilityRevision: a.revision,
-      maxSpecificOccasions: policyData.maxSpecificOccasions, maxThemeImages: policyData.maxThemeImages, approvedOccasionIds: a.approvedOccasionIds,
-      approvedCategoryCodes: a.approvedCategoryCodes, catalog: rows.docs.map(d => d.data())}) ? p : null;
+      catalogRevision: c.revision, providerEligibilityRevision: 1,
+      maxSpecificOccasions: policyData.maxSpecificOccasions, maxThemeImages: policyData.maxThemeImages,
+      approvedOccasionIds: approved, approvedCategoryCodes: providerData.serviceCategories,
+      catalog: rows.docs.map(d => d.data())}) ? p : null;
   });
 }

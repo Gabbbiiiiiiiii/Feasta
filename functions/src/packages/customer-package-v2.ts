@@ -10,7 +10,7 @@ import {appCheckCallableOptions} from "../shared/function-options.js";
 import {enforceCallableRateLimit} from "../shared/rate-limit.js";
 import {requireMaintenanceOpen} from "../shared/maintenance.js";
 import {requireActiveServiceCategoryInTransaction} from "../shared/service-category-policy.js";
-import {resolveOccasionV2, occasionIds} from "./occasion-v2-validation.js";
+import {resolveOccasionV2} from "./occasion-v2-validation.js";
 import {projectPublicOccasionV2} from "./provider-package-v2-public-occasion-contract.js";
 import {parseV2DraftWrite} from "./provider-package-drafts-v2.js";
 import {exact, documentId, positiveRevision} from "./v2-validation.js";
@@ -50,8 +50,7 @@ export async function requireCustomerPackageV2(tx: Transaction,
   const payment = (await tx.get(db.doc("appSettings/platform"))).data();
   if (!isV2PaymentPolicyValid(data, payment)) unavailable();
   const catalog = (await tx.get(db.doc("occasionCatalog/current"))).data();
-  const authority = (await tx.get(db.doc("providerEligibilityAuthorities/" + providerId))).data();
-  if (catalog?.activationState !== "stable" || !authority) unavailable();
+  if (catalog?.activationState !== "stable") unavailable();
   const category = String(data.serviceCategoryCode);
   await requireActiveServiceCategoryInTransaction(tx, category, "catering", "serviceCategoryCode");
   const rows = await tx.get(db.collection("occasions").where("active", "==", true).limit(1001));
@@ -59,23 +58,27 @@ export async function requireCustomerPackageV2(tx: Transaction,
   const occasions = rows.docs.map(doc => {
     projectPublicOccasionV2(doc.id, doc.data()); return doc.data() as GlobalOccasion;
   });
+  const approved = occasions.filter(o => o.active === true &&
+    o.moderationState === "approved" &&
+    o.applicableServiceCategoryCodes.includes(category)).map(o => o.id);
   const resolved = resolveOccasionV2({occasionSchemaVersion: 2,
     occasionScope: data.occasionScope, occasionIds: data.occasionIds}, {
     catalog: occasions, serviceCategoryCode: category,
-    approvedOccasionIds: occasionIds(authority.approvedOccasionIds),
-    approvedActiveCategoryCodes: authority.approvedCategoryCodes,
+    approvedOccasionIds: approved,
+    approvedActiveCategoryCodes: provider.serviceCategories,
+    eligibilityMode: "global",
     catalogRevision: positiveRevision(catalog.revision, "CONFIG_UNAVAILABLE"),
-    providerEligibilityRevision: positiveRevision(authority.revision, "CONFIG_UNAVAILABLE"),
+    providerEligibilityRevision: 1,
     maxSpecificOccasions: policy.maxSpecificOccasions}, String(data.eventType));
   for (const field of ["eventType", "occasionMatchIds", "occasionCatalogRevision",
     "providerEligibilityRevision", "occasionEligibilityState"] as const) {
     if (!isDeepStrictEqual(data[field], resolved[field])) unavailable();
   }
   if (!isCurrentCustomerPackageV2(data, {enabled: true,
-    catalogRevision: catalog.revision, providerEligibilityRevision: authority.revision,
+    catalogRevision: catalog.revision, providerEligibilityRevision: 1,
     maxSpecificOccasions: policy.maxSpecificOccasions, maxThemeImages: policy.maxThemeImages,
-    approvedOccasionIds: authority.approvedOccasionIds,
-    approvedCategoryCodes: authority.approvedCategoryCodes, catalog: occasions.map(o => ({...o}))})) unavailable();
+    approvedOccasionIds: approved,
+    approvedCategoryCodes: provider.serviceCategories, catalog: occasions.map(o => ({...o}))})) unavailable();
   const input = Object.fromEntries(fields.filter(k => Object.hasOwn(data, k))
     .map(k => [k, data[k]]));
   const parsed = parseV2DraftWrite({...input, idempotencyKey: "server_customer_read_v2"}, false);

@@ -25,7 +25,7 @@ import {authorizeProviderForPackageManagement, authorizeOwnedPackage, assertDraf
   assertPackagePaymentTermsWithinPolicy, verifyPackageImages} from "./package-domain.js";
 import {packagePaymentPolicyBoundsFromData} from "./package-payment-policy.js";
 import {parseOfferV2} from "./offer-v2-validation.js";
-import {occasionIds, resolveOccasionV2} from "./occasion-v2-validation.js";
+import {resolveOccasionV2} from "./occasion-v2-validation.js";
 import {resolveGlobalOccasionSelection} from "./global-occasion-selection-v3.js";
 import {isGlobalPackageWriteVersion} from "./global-package-write-v3.js";
 import {projectPublicOccasionV2} from "./provider-package-v2-public-occasion-contract.js";
@@ -391,24 +391,8 @@ function callable(mode: Mode) {
       await requireActiveServiceCategoryInTransaction(
         tx, category, "catering", "serviceCategoryCode");
 
-      // Protected grants remain mandatory for publication only.
-      // Neither missing nor existing sidecars control private draft permission.
-      const privateDraft = !publication && !isGlobal;
-      const authority = isGlobal || privateDraft ? null : (await tx.get(
-        db.collection("providerEligibilityAuthorities").doc(providerId)
-      )).data();
-
-      if (!isGlobal && !privateDraft && (!authority || authority.approvedOccasionIds === undefined ||
-          authority.approvedCategoryCodes === undefined)) {
-        fail("PROVIDER_OCCASION_APPROVAL_REQUIRED");
-      }
-      const approved = isGlobal || privateDraft ? [] : occasionIds(authority?.approvedOccasionIds);
-
-      if (!isGlobal && !privateDraft &&
-          (!Array.isArray(authority?.approvedCategoryCodes) ||
-           !authority.approvedCategoryCodes.includes(category))) {
-        fail("INVALID_SERVICE_CATEGORY");
-      }
+      // Admin-approved providers use their active service categories and
+      // the current occasion catalog. No second provider approval is required.
 
       // Read the complete active catalog within the same transaction.
       const catalogLimit = isGlobal ? 201 : 1001;
@@ -426,6 +410,9 @@ function callable(mode: Mode) {
         if (data.id !== doc.id) fail("CONFIG_UNAVAILABLE");
         return data as GlobalOccasion;
       });
+      const approved = occasions.filter(o => o.active === true &&
+        o.moderationState === "approved" &&
+        o.applicableServiceCategoryCodes.includes(category)).map(o => o.id);
 
       const occasion = isGlobal ?
         resolveGlobalOccasionForCallable({
@@ -448,14 +435,11 @@ function callable(mode: Mode) {
           catalog: occasions,
           approvedOccasionIds: approved,
           serviceCategoryCode: category,
-          approvedActiveCategoryCodes: privateDraft ?
-            (Array.isArray(provider.providerData.serviceCategories) ?
-              provider.providerData.serviceCategories : []) : authority!.approvedCategoryCodes,
-          ...(privateDraft ? {eligibilityMode: "global" as const} : {}),
+          approvedActiveCategoryCodes: provider.providerData.serviceCategories,
+          eligibilityMode: "global" as const,
           catalogRevision: revision(catalog!.revision),
-          // V2 wire compatibility only; private flags and publication revalidation
-          // prevent this placeholder from conferring protected authority.
-          providerEligibilityRevision: privateDraft ? 1 : revision(authority!.revision),
+          // V2 compatibility field; provider eligibility is checked live.
+          providerEligibilityRevision: 1,
           maxSpecificOccasions: policy.maxSpecificOccasions,
         }, (publishing ?? old)?.packageData.eventType as string | undefined);
 
@@ -464,7 +448,7 @@ function callable(mode: Mode) {
       // of a per-provider occasion grant.
       assertPackageMatchesProviderCapabilities({
         ...provider.providerData,
-        eventTypesSupported: isGlobal || privateDraft ? occasion.occasionMatchIds : approved,
+        eventTypesSupported: occasion.occasionMatchIds,
       }, {
         ...base,
         eventType: occasion.eventType,
@@ -473,13 +457,11 @@ function callable(mode: Mode) {
       if (publication && !isV2PaymentPolicyValid(base, payment)) fail("CONFIG_UNAVAILABLE");
       assertPackagePaymentTermsWithinPolicy(base, packagePaymentPolicyBoundsFromData(payment));
       if (publishing) {
-        // The existing publisher accepts legacy V2 authority only.
+        // V2 uses current provider and catalog eligibility.
         // Global V3 publication remains disabled.
         if (isGlobal || !("providerEligibilityRevision" in occasion)) {
           fail("FEATURE_DISABLED");
         }
-        // Private completion uses a placeholder grant revision. Resolve current
-        // authority above and persist its projection atomically with publication.
 
       }
       const next = publishing ? revision(publishing.packageData.revision) + 1 :

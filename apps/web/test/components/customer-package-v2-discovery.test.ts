@@ -19,7 +19,7 @@ beforeEach(()=>{
  mock.records.set('packages/'+id,{sharedContractVersion:2,occasionSchemaVersion:2,offerSchemaVersion:2,
   revision:2,providerId,name:'Verified Catering',description:'Verified package',eventType:'birthday',
   occasionScope:'all',occasionIds:[],occasionMatchIds:['birthday','wedding'],occasionCatalogRevision:7,
-  providerEligibilityRevision:3,occasionEligibilityState:'valid',pricingModel:'per_pax',price:100.25,
+  providerEligibilityRevision:1,occasionEligibilityState:'valid',pricingModel:'per_pax',price:100.25,
   serviceCategoryCode:'catering_service',minimumGuests:10,maximumGuests:50,
   serviceOptions:{drop_off:{price:100.25,includedServices:['Delivery'],equipmentInclusions:['Warmer']}},
   imageUrl:'',imageUrls:[],themeOptions:[],paymentPolicy:'full_payment',depositPercentage:100,
@@ -31,13 +31,29 @@ beforeEach(()=>{
   maxSpecificOccasions:10,maxThemeImages:4,featureGates:{customerDiscovery:true}});
  mock.records.set('appSettings/platform',{minimumDepositRateBps:2000,maximumDepositRateBps:8000});
  mock.records.set('occasionCatalog/current',{revision:7,activationState:'stable'});
- mock.records.set('providerEligibilityAuthorities/'+providerId,{revision:3,
-  approvedOccasionIds:['birthday','wedding'],approvedCategoryCodes:['catering_service']});
  mock.records.set('providers/'+providerId,{ownerId:'owner_v2_public',businessName:'Demo Catering',
   serviceCategories:['catering_service'],minGuestsPerEvent:1,maxGuestsPerEvent:100,operatingDays:['monday'],bookingLeadTimeDays:1,description:'Catering business',address:'Address',city:'City',province:'Province',publiclyVisible:true,verificationStatus:'approved',isActive:true,providerServiceType:'catering'});
  mock.records.set('users/owner_v2_public',{role:'provider',providerId,accountStatus:'active',isActive:true});
  mock.records.set('serviceCategories/catering_service',{code:'catering_service',name:'Catering',status:'active',serviceType:'catering'});
  mock.records.set('maintenanceControls/intake',{schemaVersion:1,revision:1,publication:false,intake:false});
+});
+it('admits an approved provider without a separate occasion authority',async()=>{
+  expect(mock.records.has('providerEligibilityAuthorities/'+providerId)).toBe(false);
+  expect(await verifiedPublicPackageV2(id)).not.toBeNull();
+});
+
+it('rejects pending providers and withdrawn service categories',async()=>{
+  const path='providers/'+providerId;
+  const original=mock.records.get(path)!;
+  try {
+    mock.records.set(path,{...original,verificationStatus:'pending'});
+    expect(await verifiedPublicPackageV2(id)).toBeNull();
+
+    mock.records.set(path,{...original,serviceCategories:[]});
+    expect(await verifiedPublicPackageV2(id)).toBeNull();
+  } finally {
+    mock.records.set(path,original);
+  }
 });
 it('verifies Fits All, food groups and tier equipment while legacy readers stay fenced',async()=>{
  const raw=await verifiedPublicPackageV2(id);expect(raw).not.toBeNull();
@@ -57,7 +73,7 @@ it('hides private drafts and stale or manipulated generations',async()=>{
 it('hides packages after gate revocation, transitions, provider suspension or category withdrawal',async()=>{
  for(const [path,patch] of [['contractPolicies/providerPackageV2',{featureGates:{customerDiscovery:false}}],
   ['occasionCatalog/current',{activationState:'transitioning'}],['providers/'+providerId,{isSuspended:true}],
-  ['serviceCategories/catering_service',{status:'inactive'}],['providerEligibilityAuthorities/'+providerId,{approvedOccasionIds:['birthday']}]] as const) {
+  ['serviceCategories/catering_service',{status:'inactive'}]] as const) {
   const prior=mock.records.get(path)!;mock.records.set(path,{...prior,...patch});
   expect(await verifiedPublicPackageV2(id)).toBeNull();mock.records.set(path,prior);
  }
