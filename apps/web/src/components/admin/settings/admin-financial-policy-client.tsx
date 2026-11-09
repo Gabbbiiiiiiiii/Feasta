@@ -175,7 +175,7 @@ function AdminFinancialPolicyClient({
   );
 
   const canSubmit =
-    hasChanges &&
+    (hasChanges || savedSettings.financialPolicyEffectiveAt === null) &&
     commissionRateBps !== null &&
     vatRateBps !== null &&
     depositBoundsValid &&

@@ -85,6 +85,88 @@ describe(
     });
 
     it(
+      "allows initialization of unchanged financial defaults with a reason",
+      () => {
+        render(
+          <AdminFinancialPolicyClient
+            initialSettings={initialSettings}
+          />,
+        );
+
+        const save = screen.getByRole("button", {
+          name: "Save financial policy",
+        });
+
+        const discard = screen.getByRole("button", {
+          name: "Discard financial changes",
+        });
+
+        expect(save).toBeDisabled();
+        expect(discard).toBeDisabled();
+
+        fireEvent.change(
+          screen.getByLabelText("Reason for changes"),
+          {
+            target: {
+              value: "Initialize the existing financial policy defaults.",
+            },
+          },
+        );
+
+        expect(save).toBeEnabled();
+        expect(discard).toBeDisabled();
+
+        expect(
+          screen.getByLabelText("Platform commission rate (%)"),
+        ).toHaveValue(10);
+
+        expect(
+          screen.getByLabelText("Minimum deposit (%)"),
+        ).toHaveValue(20);
+
+        expect(
+          screen.getByLabelText("Maximum deposit (%)"),
+        ).toHaveValue(80);
+      },
+    );
+
+    it(
+      "does not allow a no-change save after financial initialization",
+      () => {
+        render(
+          <AdminFinancialPolicyClient
+            initialSettings={{
+              ...initialSettings,
+              financialPolicyEffectiveAt: "2026-11-09T00:00:00.000Z",
+            }}
+          />,
+        );
+
+        const save = screen.getByRole("button", {
+          name: "Save financial policy",
+        });
+
+        expect(save).toBeDisabled();
+
+        fireEvent.change(
+          screen.getByLabelText("Reason for changes"),
+          {
+            target: {
+              value: "Attempt to save unchanged initialized policy.",
+            },
+          },
+        );
+
+        expect(save).toBeDisabled();
+
+        expect(
+          screen.getByRole("button", {
+            name: "Discard financial changes",
+          }),
+        ).toBeDisabled();
+      },
+    );
+    it(
       "renders commission, tax and payment-term policy values",
       () => {
         render(
