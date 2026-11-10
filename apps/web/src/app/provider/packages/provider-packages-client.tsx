@@ -602,6 +602,7 @@ export function ProviderPackagesClient({
         <section aria-label="Provider package results">
           {filteredPackages.length ? <div className="grid grid-cols-1 items-start gap-3 xl:grid-cols-2">
             {visiblePackages.map((item) => <ProviderPackageCard key={item.id} item={item}
+              onRecovered={loadPackages}
               serviceCategoryLabel={packageCategoryOptions.find((category) => category.code === item.serviceCategoryCode)?.name}
               onEdit={(event) => { packageOpener.current = event.currentTarget; setResumeProgress(null); setEditingPackage(item); setCreateOpen(true); }}
               onPublish={() => { setActionError(null); setPublishPackage(item); }}

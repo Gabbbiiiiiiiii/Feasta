@@ -33,6 +33,9 @@ import {exact, documentId, mutationKey, positiveRevision, plainText} from "./v2-
 import {EditorProgressError, validatePackageEditorProgress,
   assertNoUnverifiedEditorAssets} from "./package-editor-progress-v2.js";
 
+import {inspectFixedRecovery, assertRecoveryPreserved, recoveryHash, recoveryValue,
+  recoveryConflict} from "./fixed-package-recovery.js";
+
 const baseFields = ["name", "description", "serviceCategoryCode", "price", "serviceOptions",
   "themeOptions", "paymentPolicy", "depositPercentage", "minimumGuests", "maximumGuests",
   "imageUrl", "foodInclusions", "decorInclusions", "furnitureInclusions", "serviceInclusions",
@@ -127,7 +130,12 @@ export function parseV2DraftWrite(value: unknown, update: boolean) {
   assertCanonicalPackageServiceCategory(base);
   assertCanonicalPackagePaymentTerms(base);
   plainText(input.name, 2, 80, "INVALID_NAME");
-  plainText(input.description, 10, 5000, "INVALID_NAME");
+  if (typeof input.description !== "string") {
+    fail("INVALID_NAME", "invalid-argument");
+  }
+  // Allow LF and CRLF paragraph breaks for validation only.
+  // Keep the original description unchanged for lossless recovery.
+  plainText(input.description.replace(/\r\n|\n/gu, ""), 10, 5000, "INVALID_NAME");
   if (input.balanceDueDaysBeforeEvent !== undefined && input.balanceDueDaysBeforeEvent !== null) {
     fail("SERVER_OWNED_FIELD", "invalid-argument");
   }
@@ -191,7 +199,7 @@ function isolatedDemo(): boolean {
     /^127\.0\.0\.1:\d+$/.test(process.env.FIREBASE_AUTH_EMULATOR_HOST || "");
 }
 
-type Mode = "create" | "update" | "complete" | "publish";
+type Mode = "create" | "update" | "complete" | "publish" | "previewRecovery" | "recover";
 function callable(mode: Mode) {
   return onCall({...appCheckCallableOptions, timeoutSeconds: 60, secrets: cloudinarySecrets},
     async (request) => {
@@ -219,9 +227,24 @@ function callable(mode: Mode) {
       mutationKey(publication.idempotencyKey, "UNKNOWN_FIELD");
       if (publication.sharedContractVersion !== 2) fail("CLIENT_UPGRADE_REQUIRED");
     }
-    const parsed = mode === "complete" || publication ? null :
+    const recovery = mode === "recover" || mode === "previewRecovery" ? exact(request.data,
+      mode === "recover" ? ["packageId", "sourceFingerprint", "proposalFingerprint",
+        "confirmed", "idempotencyKey"] : ["packageId"], [], "UNKNOWN_FIELD") : null;
+    if (recovery) {
+      documentId(recovery.packageId, "UNKNOWN_FIELD");
+      if (mode === "recover") {
+        mutationKey(recovery.idempotencyKey, "UNKNOWN_FIELD");
+        if (recovery.confirmed !== true || [recovery.sourceFingerprint,
+          recovery.proposalFingerprint].some(value => typeof value !== "string" ||
+          !/^[a-f0-9]{64}$/.test(value))) fail("RECOVERY_CONFIRMATION_REQUIRED");
+      }
+    }
+    const previewState: {value: {original: unknown; sourceFingerprint: string} | null} =
+      {value: null};
+    const directParsed = mode === "complete" || publication || recovery ? null :
       parseV2DraftWrite(request.data, mode === "update");
-    const newRef = db.collection("packages").doc();
+    const newRef = recovery ? db.collection("packages").doc(recovery.packageId as string) :
+      db.collection("packages").doc();
     let admittedBaseHash: string | null = null;
     // Both phases use the same complete authorization/validation path. Admission
     // performs no writes; the commit phase rereads all mutable authority and CAS
@@ -248,6 +271,41 @@ function callable(mode: Mode) {
       revision(policy.revision);
       if (policy.featureGates?.packageDraftWrites !== true) fail("FEATURE_DISABLED");
 
+      const recoverySnapshot = recovery ? await tx.get(newRef) : null;
+      const recoverySource = recoverySnapshot ? authorizeOwnedPackage({providerId,
+        packageSnapshot: recoverySnapshot}) : null;
+      if (recovery) await requireMaintenanceOpen(tx, db, "publication");
+      const key = mode === "previewRecovery" ? "preview" :
+        (recovery ?? publication ?? envelope ?? directParsed!.input).idempotencyKey;
+      const opRef = db.collection("providerPackageV2Operations").doc(hash([actor.uid, mode, key]));
+      const requestHash = hash(request.data);
+      const prior = recovery && mode !== "previewRecovery" ? (await tx.get(opRef)).data() : null;
+      if (prior) {
+        if (prior.actorUid !== actor.uid || prior.providerId !== providerId ||
+          prior.requestHash !== requestHash) {
+          fail("IDEMPOTENCY_CONFLICT", "already-exists");
+        }
+        return {kind: "replay" as const, result: prior.result};
+      }
+      let recoveryInput: Record<string, unknown> | null = null;
+      if (recoverySource) {
+        const source = recoverySource.packageData;
+        const sourceFingerprint = recoveryHash({packageId: newRef.id, providerId,
+          updateTime: recoverySnapshot!.updateTime ?? null, source});
+        previewState.value = {original: recoveryValue(source), sourceFingerprint};
+        if (mode === "recover" && recovery!.sourceFingerprint !== sourceFingerprint) {
+          fail("RECOVERY_SOURCE_CHANGED", "aborted");
+        }
+        const inspection = inspectFixedRecovery(source);
+        if (inspection.issues.length) {
+          if (mode === "previewRecovery") return {kind: "preview" as const,
+            result: {packageId: newRef.id, ...previewState.value, eligible: false,
+              proposed: null, proposalFingerprint: null, blockers: inspection.issues}};
+          recoveryConflict("RECOVERY_SOURCE_UNSUPPORTED");
+        }
+        recoveryInput = inspection.input;
+      }
+      const parsed = recoveryInput ? parseV2DraftWrite(recoveryInput, false) : directParsed;
       // V3 private drafts require an additional explicit local demo opt-in.
       // V3 remains demo-only even when production V2 draft writes are enabled.
       // The existing V2 feature gate cannot activate V3 on its own.
@@ -263,7 +321,7 @@ function callable(mode: Mode) {
       const editor = editorRef ? (await tx.get(editorRef)).data() : null;
       // This scopes maintenance only; full authorization and validation below
       // still precede every new write. Publication keeps its maintenance gate.
-      const privateCustomizableDraft = !publication && (parsed ?
+      const privateCustomizableDraft = !publication && !recovery && (parsed ?
         parsed.input.sharedContractVersion === 2 &&
           parsed.input.offerStructure === "customizable" :
         editor?.editorSchemaVersion === 2 && editor?.ownerUid === actor.uid &&
@@ -273,19 +331,18 @@ function callable(mode: Mode) {
       if (publication && (policy.featureGates?.packagePublication !== true ||
           policy.featureGates?.customerDiscovery !== true ||
           policy.featureGates?.customerBooking !== true)) fail("FEATURE_DISABLED");
-      if (!privateCustomizableDraft) await requireMaintenanceOpen(tx, db, "publication");
+      if (!privateCustomizableDraft && !recovery) {
+        await requireMaintenanceOpen(tx, db, "publication");
+      }
       if (publication && (!isCustomerProviderV2(providerId, provider.providerData, user!) || !isProviderPubliclyEligible(
         {...provider.providerData, id: providerId}, user!))) fail("PROVIDER_INELIGIBLE");
-      const key = (publication ?? envelope ?? parsed!.input).idempotencyKey;
-      const opRef = db.collection("providerPackageV2Operations").doc(hash([actor.uid, mode, key]));
-      const requestHash = hash(request.data);
-      const prior = (await tx.get(opRef)).data();
-      if (prior) {
-        if (prior.actorUid !== actor.uid || prior.providerId !== providerId ||
-          prior.requestHash !== requestHash) {
-          fail("IDEMPOTENCY_CONFLICT", "already-exists");
+      if (!recovery) {
+        const prior = (await tx.get(opRef)).data();
+        if (prior) {
+          if (prior.actorUid !== actor.uid || prior.providerId !== providerId ||
+              prior.requestHash !== requestHash) fail("IDEMPOTENCY_CONFLICT", "already-exists");
+          return {kind: "replay" as const, result: prior.result};
         }
-        return {kind: "replay" as const, result: prior.result};
       }
       const quotaRef = db.collection("providerPackageEditorQuotas").doc(providerId);
       const quota = envelope ? (await tx.get(quotaRef)).data() : null;
@@ -345,12 +402,12 @@ function callable(mode: Mode) {
       if (publishing && !isPackageWithinProviderV2(publishing.packageData, provider.providerData)) fail("PROVIDER_INELIGIBLE");
       if (base.themeOptions.some((theme) => theme.imageUrls.length > Math.min(4,
         policy.maxThemeImages))) fail("INVALID_MEDIA_REFERENCE", "invalid-argument");
-      const packageRef = publishing ? db.collection("packages")
+      const packageRef = recovery ? newRef : publishing ? db.collection("packages")
         .doc(publication!.packageId as string) : mode === "update" ?
         db.collection("packages").doc(input.packageId as string) : newRef;
-      const old = mode === "update" ? authorizeOwnedPackage({providerId,
-        packageSnapshot: await tx.get(packageRef)}) : null;
-      if (old) {
+      const old = recoverySource ?? (mode === "update" ? authorizeOwnedPackage({providerId,
+        packageSnapshot: await tx.get(packageRef)}) : null);
+      if (old && !recovery) {
         assertDraftPackage(old);
         const data = old.packageData;
         // Updates must retain the persisted occasion-contract version.
@@ -454,7 +511,9 @@ function callable(mode: Mode) {
         eventType: occasion.eventType,
       });
       const payment = (await tx.get(db.doc("appSettings/platform"))).data();
-      if (publication && !isV2PaymentPolicyValid(base, payment)) fail("CONFIG_UNAVAILABLE");
+      if ((publication || recovery) && !isV2PaymentPolicyValid(base, payment)) {
+        fail("CONFIG_UNAVAILABLE");
+      }
       assertPackagePaymentTermsWithinPolicy(base, packagePaymentPolicyBoundsFromData(payment));
       if (publishing) {
         // V2 uses current provider and catalog eligibility.
@@ -464,17 +523,51 @@ function callable(mode: Mode) {
         }
 
       }
-      const next = publishing ? revision(publishing.packageData.revision) + 1 :
+      const next = recovery ? 1 : publishing ? revision(publishing.packageData.revision) + 1 :
         old ? revision(old.packageData.revision) + 1 : 1;
       if (!Number.isSafeInteger(next) || (editor &&
         !Number.isSafeInteger(editor.revision + 1))) fail("REVISION_CONFLICT", "aborted");
+      const now = Timestamp.now();
+      // Optional metadata; never controls pricing, occasion authority or booking.
+      // Preserve classifications from older drafts on updates that omit them.
+      const classification = {
+        ...(input.offerStructure !== undefined ?
+          {offerStructure: input.offerStructure} :
+          old?.packageData.offerStructure !== undefined ?
+            {offerStructure: old.packageData.offerStructure} : {}),
+        ...(input.packageStyle !== undefined ?
+          {packageStyle: input.packageStyle} :
+          old?.packageData.packageStyle !== undefined ?
+            {packageStyle: old.packageData.packageStyle} : {}),
+      };
+      const stored = {...base, ...offer, ...occasion, ...classification,
+        sharedContractVersion: isGlobal ? 3 : 2,
+        providerId, revision: next, paymentTermsSchemaVersion: 2,
+        balanceDueHoursBeforeEvent: base.paymentPolicy === "deposit_then_balance" ?
+          BALANCE_DUE_HOURS_BEFORE_EVENT : null,
+        status: "draft", isActive: false, isPublished: false, providerPubliclyVisible: false,
+        publishedAt: null, isDeleted: false, deletedAt: null, deletedBy: null, deletionReason: null,
+        updatedAt: now, updatedBy: actor.uid};
+      if (recoverySource) {
+        const proposed = {...recoverySource.packageData, ...stored,
+          updatedAt: "SERVER_TIMESTAMP_AT_RECOVERY"};
+        assertRecoveryPreserved(recoverySource.packageData, proposed);
+        const proposalFingerprint = recoveryHash({version: 1, packageId: newRef.id,
+          sourceFingerprint: previewState.value!.sourceFingerprint, proposed});
+        if (mode === "previewRecovery") return {kind: "preview" as const,
+          result: {packageId: newRef.id, ...previewState.value!, eligible: true,
+            proposed: recoveryValue(proposed), proposalFingerprint, blockers: []}};
+        if (proposalFingerprint !== recovery!.proposalFingerprint) {
+          fail("RECOVERY_PREVIEW_STALE", "aborted");
+        }
+      }
       if (admissionOnly) return {kind: "admitted" as const, base};
       if (publication && hash(base) !== admittedBaseHash) fail("REVISION_CONFLICT", "aborted");
       // Provisional registry: never use it alone to authorize deactivation.
       // Reads occur only during commit, before any transaction writes.
       // Temporarily block scope/category transitions until registry
       // reconciliation can update all affected dependency witnesses.
-      if (!publication && old &&
+      if (!publication && !recovery && old &&
           (old.packageData.occasionScope !== occasion.occasionScope ||
            old.packageData.serviceCategoryCode !== category)) {
         throw new Error("OCCASION_REGISTRY_TRANSITION_UNSUPPORTED");
@@ -493,9 +586,9 @@ function callable(mode: Mode) {
 
       if (!publication &&
           input.occasionScope === "specific" &&
-          (!old || old.packageData.occasionScope === "specific")) {
+          (!old || recovery || old.packageData.occasionScope === "specific")) {
         const membership = planSpecificPackageMembership({
-          previous: old ? old.packageData : null,
+          previous: old && !recovery ? old.packageData : null,
           next: {
             occasionSchemaVersion: occasion.occasionSchemaVersion,
             occasionScope: occasion.occasionScope,
@@ -564,7 +657,7 @@ function callable(mode: Mode) {
 
       if (!publication &&
           occasion.occasionScope === "all" &&
-          (!old || old.packageData.occasionScope === "all")) {
+          (!old || recovery || old.packageData.occasionScope === "all")) {
         const entry = {
           schemaVersion: 1 as const,
           kind: "universal_package" as const,
@@ -588,27 +681,6 @@ function callable(mode: Mode) {
         }
       }
 
-      const now = Timestamp.now();
-      // Optional metadata; never controls pricing, occasion authority or booking.
-      // Preserve classifications from older drafts on updates that omit them.
-      const classification = {
-        ...(input.offerStructure !== undefined ?
-          {offerStructure: input.offerStructure} :
-          old?.packageData.offerStructure !== undefined ?
-            {offerStructure: old.packageData.offerStructure} : {}),
-        ...(input.packageStyle !== undefined ?
-          {packageStyle: input.packageStyle} :
-          old?.packageData.packageStyle !== undefined ?
-            {packageStyle: old.packageData.packageStyle} : {}),
-      };
-      const stored = {...base, ...offer, ...occasion, ...classification,
-        sharedContractVersion: isGlobal ? 3 : 2,
-        providerId, revision: next, paymentTermsSchemaVersion: 2,
-        balanceDueHoursBeforeEvent: base.paymentPolicy === "deposit_then_balance" ?
-          BALANCE_DUE_HOURS_BEFORE_EVENT : null,
-        status: "draft", isActive: false, isPublished: false, providerPubliclyVisible: false,
-        publishedAt: null, isDeleted: false, deletedAt: null, deletedBy: null, deletionReason: null,
-        updatedAt: now, updatedBy: actor.uid};
       const discoveryProjection = {
         eventType: occasion.eventType,
         occasionMatchIds: occasion.occasionMatchIds,
@@ -667,11 +739,31 @@ function callable(mode: Mode) {
           completedPackageRevision: next, revision: editor!.revision + 1, updatedAt: now});
         tx.update(quotaRef, {count: quota!.count - 1, updatedAt: now});
       }
+      if (recovery) tx.create(db.collection("providerPackageRecoveryAudits").doc(opRef.id), {
+        schemaVersion: 1, actorUid: actor.uid, providerId, packageId: packageRef.id,
+        sourceFingerprint: recovery.sourceFingerprint,
+        proposalFingerprint: recovery.proposalFingerprint, packageRevision: 1,
+        action: "fixed_v2_in_place_recovery", createdAt: now,
+      });
       tx.create(opRef, {actorUid: actor.uid, providerId, requestHash, result, createdAt: now});
       if (!privateCustomizableDraft) recordMaintenanceAdmission(tx, db);
       return {kind: "committed" as const, result};
     });
-    if (parsed || publication) {
+    if (mode === "previewRecovery") {
+      try {
+        const preview = await runPhase(true);
+        if (preview.kind !== "preview") fail("CONFIG_UNAVAILABLE");
+        return preview.result;
+      } catch (error) {
+        if (!previewState.value || !(error instanceof HttpsError) ||
+            ["permission-denied", "unauthenticated"].includes(error.code)) throw error;
+        const details = error.details as {reason?: string; fields?: string[]} | undefined;
+        return {packageId: recovery!.packageId, ...previewState.value, eligible: false,
+          proposed: null, proposalFingerprint: null,
+          blockers: [details?.reason ?? "INVALID_RECOVERY_SOURCE", ...(details?.fields ?? [])]};
+      }
+    }
+    if (directParsed || publication || recovery) {
       const admission = await runPhase(true);
       if (admission.kind !== "admitted") return admission.result;
       // No retained-image exemption: every submitted URL is still verified.
@@ -686,10 +778,12 @@ function callable(mode: Mode) {
   });
 }
 
-// Production supports only customizable V2 private drafts; policy admission is mandatory.
+// Fixed and customizable share V2 validation; Fixed retains maintenance admission.
 export const createProviderPackageV2 = callable("create");
 export const updateProviderPackageV2 = callable("update");
 export const completeProviderPackageEditorDraft = callable("complete");
+export const previewFixedPackageV2Recovery = callable("previewRecovery");
+export const recoverFixedPackageV2Draft = callable("recover");
 
 // Internal route of the existing publisher; deliberately absent from index.ts.
 export const publishProviderPackageV2Internal = callable("publish");

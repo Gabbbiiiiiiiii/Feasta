@@ -39,6 +39,36 @@ beforeEach(() => {
   mocks.parents.set("event-one", {customerId: "customer-one", status: "pending_provider_approval", bookingCode: "BK-MARIA-123"});
 });
 describe("provider request search and pagination", () => {
+  it("projects saved parent dish choices and package subtotal only for the matching catering provider and package", async () => {
+    mocks.documents = [document(0, {packageId: "package-one", packageOfferSnapshotV2: {tier: "full_service", pricingModel: "per_bundle"}, serviceTier: "full_service"})];
+    const parent = {customerId: "customer-one", providerId: "provider-one", packageId: "package-one", packagePrice: 35000,
+      foodChoiceSelections: [{title: "Main Dish", options: [{name: "Pork Menudo"}]}]};
+    mocks.parents.set("event-one", parent);
+    const result = await getProviderRequestDetail("request-0000");
+    expect(result.packageSnapshot?.price).toBe(35000);
+    expect(result.packageSnapshot?.foodChoices).toEqual([{title: "Main Dish", dishes: ["Pork Menudo"]}]);
+    expect(result.amount).toBe(10000);
+    expect(result.downPaymentAmount).toBe(2000);
+    for (const change of [{providerId: "other-provider"}, {packageId: "other-package"}, {customerId: "other-customer"}, {providerRequestIds: ["other-request"]}]) {
+      mocks.parents.set("event-one", {...parent, ...change});
+      const detail = await getProviderRequestDetail("request-0000");
+      expect(detail.packageSnapshot?.price).toBeNull();
+      expect(detail.packageSnapshot?.foodChoices).toEqual([]);
+    }
+  });
+  it("uses the saved package service price without a parent and excludes add-ons and gross financial totals", async () => {
+    mocks.documents = [document(0, {packageId: "package-one", amount: 39000,
+      financialSnapshot: {schemaVersion: 1, grossAmountInCentavos: 3900000},
+      packageOfferSnapshotV2: {tier: "full_service", pricingModel: "per_bundle"},
+      services: [{serviceId: "package-one", category: "catering_package", price: 35000},
+        {serviceId: "addon-one", category: "addon", price: 4000}]})];
+    mocks.parents.clear();
+    const detail = await getProviderRequestDetail("request-0000");
+    expect(detail.packageSnapshot?.price).toBe(35000);
+    expect(detail.amount).toBe(39000);
+    expect(detail.packageSnapshot?.foodChoices).toEqual([]);
+    expect(detail.responseUnavailableReason).toContain("cannot be responded to");
+  });
   it("finds partial case-insensitive matches beyond the newest 100 records", async () => {
     mocks.documents = Array.from({length: 140}, (_, index) => document(index, {customerFirstName: index === 125 ? "Marisol" : "Ana"}));
     const result = await getProviderRequestPage({search: "aRiSo"});

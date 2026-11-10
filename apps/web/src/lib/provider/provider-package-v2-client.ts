@@ -21,10 +21,12 @@ export function hasPendingV2Draft(): boolean {
 async function send<Output extends PackageMutationV2Response | CompletePackageEditorDraftResponse>(mutation: Mutation): Promise<Output> {
   initializeBrowserFirebase();
   await auth.authStateReady();
-  // Production create/update are limited by the server to customizable drafts.
+  // Supported V2 structures always use the validated server writer. Client
+  // flags are affordances; server feature and maintenance policies authorize writes.
   // Completion reads and validates the saved progress on the server.
   if (!packageV2Enabled && mutation.name !== "completeProviderPackageEditorDraft" &&
-      (mutation.input.sharedContractVersion !== 2 || mutation.input.offerStructure !== "customizable")) {
+      (mutation.input.sharedContractVersion !== 2 ||
+        !["fixed", "customizable"].includes(mutation.input.offerStructure ?? ""))) {
     throw new Error("FEATURE_DISABLED");
   }
   if (!auth.currentUser) throw new Error("AUTHENTICATION_REQUIRED");

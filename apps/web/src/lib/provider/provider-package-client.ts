@@ -34,9 +34,11 @@ import {
 } from "@/lib/firebase/client";
 
 import type {OfferV2} from "@feasta/shared-types/provider-package-v2";
-import {packageV2Enabled, packageV2PublicationEnabled} from "./provider-package-v2-client";
+import {packageV2PublicationEnabled} from "./provider-package-v2-client";
 import {parseFoodChoiceGroupsV2} from "./food-choice-groups-v2";
+import {isPublishablePackageV2} from "@feasta/shared-types/customer-package-v2";
 export type ProviderPackageV2 = {revision:number; occasionScope:"specific"|"all";
+  publicationReady?: boolean;
   occasionIds:string[]; serviceOptions:OfferV2["serviceOptions"]; equipmentInclusions:string[];
   foodChoiceGroups?:NonNullable<OfferV2["foodChoiceGroups"]>;
   offerStructure?: "fixed" | "customizable" | "individual";
@@ -331,7 +333,7 @@ function parseProviderPackage(
     "occasionMatchIds", "occasionCatalogRevision", "providerEligibilityRevision", "occasionEligibilityState"];
   let v2: ProviderPackageV2 | undefined;
   if (v2Fields.some((field) => Object.hasOwn(data, field) && !(field === "offerSchemaVersion" && data[field] === 1))) {
-    if ((!packageV2Enabled && !(data.offerStructure === "customizable" && data.status === "draft")) || data.sharedContractVersion !== 2 || data.occasionSchemaVersion !== 2 ||
+    if (data.sharedContractVersion !== 2 || data.occasionSchemaVersion !== 2 ||
       data.offerSchemaVersion !== 2 || !Number.isSafeInteger(data.revision) || Number(data.revision) < 1 ||
       !["specific", "all"].includes(String(data.occasionScope)) || !Array.isArray(data.occasionIds) ||
       !data.occasionIds.every((id: unknown) => typeof id === "string") ||
@@ -363,6 +365,9 @@ function parseProviderPackage(
       serviceOptions[tier as keyof typeof serviceOptions] = {...parsed,...extra};
     }
     v2 = {revision:Number(data.revision), occasionScope:data.occasionScope as "specific"|"all",
+      // Static saved-contract readiness only. Live policy, ownership, catalog,
+      // provider eligibility and media ownership remain publisher checks.
+      publicationReady: isPublishablePackageV2(data, 4),
       occasionIds:[...data.occasionIds] as string[], serviceOptions,
       equipmentInclusions:stringArray(data.equipmentInclusions),
       foodChoiceGroups:Object.hasOwn(data,"foodChoiceGroups") ?

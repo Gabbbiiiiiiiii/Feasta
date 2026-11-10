@@ -36,6 +36,7 @@ export type ProviderRequestService = {
 };
 
 export type ProviderRequestListItem = {
+  packageSnapshot?: import("./provider-request-package-snapshot").RequestPackageSnapshot;
   initialPaymentPresentation?: ProviderInitialPaymentPresentation;
   bookingReference?: string | null;
   responseUnavailableReason?: string | null;

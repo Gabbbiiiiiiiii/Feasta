@@ -272,13 +272,99 @@ describe("booking offer selection UI", () => {
   function premiumOffer(
     serviceOptions: ComponentProps<typeof BookingOfferSelection>["serviceOptions"],
     serviceTier: ComponentProps<typeof BookingOfferSelection>["serviceTier"] = null,
+    pricingModel?: "per_pax" | "per_bundle",
   ) {
     return <BookingOfferSelection availableTiers={["drop_off", "buffet_setup", "full_service"]}
-      serviceOptions={serviceOptions} serviceTier={serviceTier} themesApplicable={false}
+      serviceOptions={serviceOptions} serviceTier={serviceTier} pricingModel={pricingModel} themesApplicable={false}
       hasThemeOptions={false} packageThemeId={null} availableThemes={[]}
       themeInspiration={{notes: "", referenceSetupId: null}} error={null}
       onServiceTierChange={vi.fn()} onPackageThemeChange={vi.fn()} onThemeInspirationChange={vi.fn()} />;
   }
+
+  it.each(["per_pax", "per_bundle"] as const)("keeps published prices and %s units readable in every tier", (model) => {
+    render(premiumOffer(packageSource.serviceOptions, "buffet_setup", model));
+    for (const [name, price] of [["Drop-Off Catering", "80,000"], ["Buffet Setup", "120,000"], ["Full-Service Catering", "180,000"]]) {
+      const card = screen.getByRole("radio", {name}).closest("label")!;
+      expect(within(card).getByText(price, {exact: false})).toBeVisible();
+      expect(within(card).getByText(model === "per_pax" ? "per guest" : "fixed bundle")).toBeVisible();
+    }
+    expect(screen.getByRole("radio", {name: "Buffet Setup"})).toBeChecked();
+    expect(screen.getByRole("radio", {name: "Full-Service Catering"})).not.toBeChecked();
+  });
+
+  it.each([360, 768, 1280])("preserves responsive card structure and accessible keyboard controls at %i px", async (width) => {
+    const previousWidth = window.innerWidth;
+    Object.defineProperty(window, "innerWidth", {configurable: true, value: width});
+    try {
+      const user = userEvent.setup();
+      const onChange = vi.fn();
+      const longBenefit = "Provider-published catering service with a deliberately long description for assisted serving and post-event buffet area cleanup";
+      const offer = premiumOffer({...packageSource.serviceOptions,
+        full_service: {price: 180000, includedServices: [longBenefit]}}, null, "per_bundle");
+      render({...offer, props: {...offer.props, onServiceTierChange: onChange}});
+      const group = screen.getByRole("radiogroup", {name: "Service level"});
+      expect(group).toHaveAttribute("aria-required", "true");
+      expect(group).toHaveClass("grid", "grid-cols-[repeat(auto-fit,minmax(min(100%,14rem),1fr))]");
+      const premium = within(group).getByRole("radio", {name: "Full-Service Catering"});
+      const card = premium.closest("label")!;
+      expect(card).toHaveClass("min-w-0", "focus-within:ring-2");
+      expect(screen.getByText(longBenefit)).toBeVisible();
+      expect(premium).toHaveAccessibleDescription(expect.stringContaining(longBenefit));
+      premium.focus();
+      await user.keyboard(" ");
+      expect(onChange).toHaveBeenCalledWith("full_service");
+      expect(within(card).getByText("Select")).toBeVisible();
+    } finally {
+      Object.defineProperty(window, "innerWidth", {configurable: true, value: previousWidth});
+    }
+  });
+
+  it("keeps the original top selection row and description-before-price layout", () => {
+    render(premiumOffer(packageSource.serviceOptions, "buffet_setup", "per_bundle"));
+    for (const name of ["Buffet Setup", "Full-Service Catering"]) {
+      const radio = screen.getByRole("radio", {name});
+      const card = radio.closest("label")!;
+      const indicator = within(card).getByText(name === "Buffet Setup" ? "Selected" : "Select");
+      const title = within(card).getByText(name);
+      const description = document.getElementById(radio.getAttribute("aria-describedby")!.split(" ").find(id => id.endsWith("-description"))!)!;
+      const price = document.getElementById(radio.getAttribute("aria-describedby")!.split(" ").find(id => id.endsWith("-price"))!)!;
+      expect(indicator.compareDocumentPosition(title) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(title.compareDocumentPosition(description) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(description.compareDocumentPosition(price) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(price).toHaveClass("border-t", "border-feasta-divider");
+      expect(card).toHaveClass("p-4");
+      expect(title).not.toHaveClass("min-h-12");
+      if (name === "Full-Service Catering") {
+        const badge = within(card).getByText("Premium Tier");
+        expect(badge.parentElement).toBe(indicator.parentElement);
+        expect(badge.parentElement).toHaveClass("justify-between");
+      }
+    }
+  });
+
+  it("shows all published benefit fields only in their own tier card", () => {
+    render(premiumOffer({
+      drop_off: {price: 100, includedServices: ["Provider delivery"], equipmentInclusions: ["Delivery box"]},
+      buffet_setup: {price: 25000, includedServices: ["Provider buffet arrangement"], decorInclusions: ["Buffet flowers"], furnitureInclusions: ["Buffet table"], equipmentInclusions: ["Buffet warmer"]},
+      full_service: {price: 35000, includedServices: ["Provider assisted serving"], decorInclusions: ["Full styling"]},
+    }));
+    const expected = {
+      "Drop-Off Catering": ["Provider delivery", "Delivery box"],
+      "Buffet Setup": ["Provider buffet arrangement", "Buffet flowers", "Buffet table", "Buffet warmer"],
+      "Full-Service Catering": ["Provider assisted serving", "Full styling"],
+    };
+    for (const [name, benefits] of Object.entries(expected)) {
+      const radio = screen.getByRole("radio", {name});
+      const card = radio.closest("label")!;
+      for (const benefit of benefits) {
+        expect(within(card).getByText(benefit)).toBeVisible();
+        expect(radio).toHaveAccessibleDescription(expect.stringContaining(benefit));
+      }
+      for (const [otherName, otherBenefits] of Object.entries(expected)) {
+        if (otherName !== name) for (const benefit of otherBenefits) expect(within(card).queryByText(benefit)).not.toBeInTheDocument();
+      }
+    }
+  });
 
   it.each([
     [{drop_off: 300, buffet_setup: 200, full_service: 100}, "Drop-Off Catering"],
@@ -293,7 +379,7 @@ describe("booking offer selection UI", () => {
     const premium = screen.getByRole("radio", {name}).closest("label")!;
     expect(within(premium).getByText("Premium Tier")).toBeVisible();
     expect(screen.getAllByText("Premium Tier")).toHaveLength(1);
-    expect(premium).toHaveClass("border-primary/50", "via-primary-tint/75", "backdrop-blur-sm", "isolate", "before:pointer-events-none", "after:pointer-events-none");
+    expect(premium).toHaveClass("border-primary/50", "via-primary-tint/75", "backdrop-blur-sm");
     expect(screen.getAllByRole("radio").every((radio) => !(radio as HTMLInputElement).checked)).toBe(true);
     const radio = within(premium).getByRole("radio");
     expect(radio).toHaveAccessibleDescription(expect.stringContaining("Premium Tier"));
@@ -331,9 +417,9 @@ describe("booking offer selection UI", () => {
     expect(fullService).toBeChecked();
     expect(within(fullCard).getByText("Selected")).toBeVisible();
     expect(within(fullCard).getByText("Premium Tier")).toBeVisible();
-    expect(fullCard).toHaveClass("border-primary", "via-primary-tint-strong/70", "backdrop-blur-sm");
-    expect(within(fullCard).getByText("Premium Tier")).toHaveClass("bg-white/85", "border-primary/15", "text-primary-strong");
-    expect(fullCard).not.toHaveClass("ring-1");
+    expect(fullCard).toHaveClass("border-primary", "via-primary-tint-strong/70");
+    expect(within(fullCard).getByText("Premium Tier")).toHaveClass("bg-white/85", "text-primary-strong");
+    expect(fullCard).not.toHaveClass("ring-2");
     expect(fullCard).toHaveClass("focus-within:ring-2");
     view.rerender(premiumOffer(packageSource.serviceOptions, "drop_off"));
     expect(within(fullCard).getByText("Premium Tier")).toBeVisible();
@@ -644,6 +730,8 @@ describe("customer booking customization flow", () => {
     expect(screen.getByRole("alert")).toHaveTextContent(/required number/);
     expect(mocks.submitBooking).not.toHaveBeenCalled();
     await user.click(screen.getByRole("checkbox",{name:"Chicken Afritada"}));
+    expect(screen.getByRole("checkbox",{name:"Chicken Afritada"})).toBeVisible();
+    expect(screen.getByRole("checkbox",{name:"Chicken Afritada"})).toBeChecked();
     expect(screen.getByRole("checkbox",{name:"Pork Menudo"})).toBeDisabled();
     await user.click(screen.getByRole("button",{name:"Continue"}));
     await user.click(screen.getByRole("button",{name:"Review booking"}));
@@ -654,6 +742,88 @@ describe("customer booking customization flow", () => {
     await waitFor(()=>expect(mocks.submitBooking).toHaveBeenCalledTimes(1));
     expect(mocks.submitBooking.mock.calls[0][0].foodChoiceSelections).toEqual([{groupId:"main",optionIds:["chicken"]}]);
     expect(JSON.stringify(mocks.submitBooking.mock.calls[0][0])).not.toContain("Chicken Afritada");
+  });
+
+  it("restores V2 dish IDs and clears stale legacy inclusion selections", async () => {
+    const user = userEvent.setup();
+    const detail = detailFixture(packageSource);
+    Object.assign(detail.packageRecord, {sharedContractVersion: 2, revision: 7, pricingModel: "per_bundle",
+      foodChoiceGroups: [{id: "main", title: "Main", selectionCount: 1, options: [{id: "chicken", name: "Chicken"}]}]});
+    saveCustomizationDraft(localStorage, customizationDraftKey("guest", PROVIDER_ID, PACKAGE_ID, "null"), {
+      ...baseDraft, event: {...baseDraft.event, eventLocation: "Ormoc City"}, serviceTier: "buffet_setup", packageThemeId: "theme_garden",
+      customization: {selectedFoods: ["Lechon"], selectedDecorations: ["Old flowers"], selectedFurniture: ["Old chairs"],
+        foodChoiceSelections: [{groupId: "main", optionIds: ["chicken"]}]},
+    });
+    render(<EventCustomizationExperience detail={detail} eventServices={[]}/>);
+    expect(await screen.findByText(/Draft restored/)).toBeVisible();
+    await fillEventDetails();
+    expect(await screen.findByText("Maria's Catering is available")).toBeVisible();
+    await user.click(screen.getByRole("button", {name: "Continue"}));
+    expect(screen.getByRole("radio", {name: "Buffet Setup"})).toBeChecked();
+    expect(screen.getByRole("radio", {name: /Garden/})).toBeChecked();
+    expect(screen.getByRole("checkbox", {name: "Chicken"})).toBeVisible();
+    expect(screen.getByRole("checkbox", {name: "Chicken"})).toBeChecked();
+    expect(screen.queryByRole("checkbox", {name: "Lechon"})).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", {name: "Continue"}));
+    await user.click(screen.getByRole("button", {name: "Review booking"}));
+    for (const checkbox of await screen.findAllByRole("checkbox", {name: /I have reviewed/})) await user.click(checkbox);
+    await user.click(screen.getByRole("button", {name: "Submit booking request"}));
+    await waitFor(() => expect(mocks.submitBooking).toHaveBeenCalledTimes(1));
+    const payload = mocks.submitBooking.mock.calls[0][0];
+    expect(payload).toMatchObject({selectedFoods: [], selectedDecorations: [], selectedFurniture: [],
+      foodChoiceSelections: [{groupId: "main", optionIds: ["chicken"]}], serviceTier: "buffet_setup", packageThemeId: "theme_garden"});
+    expect(payload).not.toHaveProperty("price");
+    expect(payload).not.toHaveProperty("foodInclusions");
+    expect(payload).not.toHaveProperty("equipmentInclusions");
+  });
+
+  it("shows V2 fixed inclusions read-only and updates only the selected tier", async () => {
+    const user = userEvent.setup();
+    const detail = detailFixture({serviceOptions: {
+      buffet_setup: {price: 100, includedServices: ["Buffet staff"], decorInclusions: ["Tier flowers", " shared flowers "]},
+      full_service: {price: 200, includedServices: ["Full staff"], furnitureInclusions: ["Tier chairs"]},
+    }, themeOptions: packageSource.themeOptions});
+    Object.assign(detail.packageRecord, {sharedContractVersion: 2, pricingModel: "per_bundle", foodInclusions: ["Fixed rice"], equipmentInclusions: ["Shared warmer"]});
+    detail.customization = {foods: ["Fixed rice"], decorations: ["Shared flowers"], furniture: ["Shared chairs"], services: ["Shared delivery"]};
+    render(<EventCustomizationExperience planningOnly detail={detail} eventServices={[]}/>);
+    await fillEventDetails();
+    await user.click(screen.getByRole("button", {name: "Continue"}));
+    expect(screen.getByRole("heading", {name: "Customize your package"})).toBeVisible();
+    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+    const tiers = screen.getByRole("radiogroup", {name: "Service level"});
+    const buffetCard = within(tiers).getByRole("radio", {name: "Buffet Setup"}).closest("label")!;
+    const fullCard = within(tiers).getByRole("radio", {name: "Full-Service Catering"}).closest("label")!;
+    expect(within(buffetCard).getByText("Buffet staff")).toBeVisible();
+    expect(within(buffetCard).getByText("Tier flowers")).toBeVisible();
+    expect(within(buffetCard).queryByText("Full staff")).not.toBeInTheDocument();
+    expect(within(fullCard).getByText("Full staff")).toBeVisible();
+    expect(within(fullCard).getByText("Tier chairs")).toBeVisible();
+    expect(within(fullCard).queryByText("Buffet staff")).not.toBeInTheDocument();
+    expect(within(fullCard).getByText("Premium Tier")).toBeVisible();
+    expect(screen.queryByRole("radio", {name: "Drop-Off Catering"})).not.toBeInTheDocument();
+    const included = screen.getByRole("region", {name: "Included with your package"});
+    for (const text of ["Fixed rice", "Shared flowers", "Shared chairs", "Shared delivery", "Shared warmer"]) expect(within(included).getByText(text)).toBeVisible();
+    expect(within(included).queryByText("Tier flowers")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("radio", {name: "Buffet Setup"}));
+    expect(within(included).getByText("Tier flowers")).toBeVisible();
+    expect(within(included).getAllByText(/shared flowers/i)).toHaveLength(1);
+    expect(within(included).queryByText("Tier chairs")).not.toBeInTheDocument();
+    expect(screen.getByRole("radio", {name: /No visual style/})).toBeChecked();
+    expect(screen.getByLabelText("Selected service summary")).toHaveTextContent("100");
+    const themeImage = screen.getByRole("img", {name: "Garden reference 1 of 1"});
+    expect(themeImage).toHaveAttribute("src", packageSource.themeOptions[0].imageUrls[0]);
+    expect(screen.getByText("Greenery and lanterns")).toBeVisible();
+    await user.click(screen.getByRole("radio", {name: /Garden/}));
+    expect(screen.getByRole("radio", {name: /Garden/})).toBeChecked();
+    await user.click(screen.getByRole("radio", {name: /No visual style/}));
+    expect(screen.getByRole("radio", {name: /No visual style/})).toBeChecked();
+    await user.click(screen.getByRole("radio", {name: "Full-Service Catering"}));
+    expect(within(included).queryByText("Tier flowers")).not.toBeInTheDocument();
+    expect(within(included).getByText("Tier chairs")).toBeVisible();
+    expect(within(included).getByText("Full staff")).toBeVisible();
+    expect(screen.getByLabelText("Selected service summary")).toHaveTextContent("Fixed Bundle");
+    expect(screen.getByLabelText("Selected service summary")).toHaveTextContent("200");
+    expect(screen.getByLabelText("Selected service summary")).not.toHaveTextContent("20,000");
   });
 
   it("V2 selects a second occasion and tier, estimates per guest, and submits IDs with its revision", async () => {
@@ -673,6 +843,8 @@ describe("customer booking customization flow", () => {
     expect(screen.getByRole("alert")).toHaveTextContent(/required number/);
     expect(mocks.submitBooking).not.toHaveBeenCalled();
     await user.click(screen.getByRole("checkbox",{name:"Chicken Afritada"}));
+    expect(screen.getByRole("checkbox",{name:"Chicken Afritada"})).toBeVisible();
+    expect(screen.getByRole("checkbox",{name:"Chicken Afritada"})).toBeChecked();
     expect(screen.getByRole("checkbox",{name:"Pork Menudo"})).toBeDisabled();
     await user.click(screen.getByRole("button",{name:"Continue"}));
     await user.click(screen.getByRole("button",{name:"Review booking"}));
@@ -685,6 +857,7 @@ describe("customer booking customization flow", () => {
     expect(JSON.stringify(mocks.submitBooking.mock.calls[0][0])).not.toContain("Chicken Afritada");
     expect(mocks.submitBooking.mock.calls[0][0]).toMatchObject({sharedContractVersion:2,expectedPackageRevision:7,eventType:'wedding',serviceTier:'drop_off'});
     expect(mocks.submitBooking.mock.calls[0][0]).not.toHaveProperty('price');
+    expect(mocks.submitBooking.mock.calls[0][0]).toMatchObject({selectedFoods: [], selectedDecorations: [], selectedFurniture: []});
   });
 
   it("requires a published tier, clears an incompatible theme, and does not submit client prices", async () => {

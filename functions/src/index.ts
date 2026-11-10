@@ -1191,7 +1191,8 @@ export {
 } from "./packages/provider-package-editor-progress.js";
 
 export {createProviderPackageV2, updateProviderPackageV2,
-  completeProviderPackageEditorDraft} from "./packages/provider-package-drafts-v2.js";
+  completeProviderPackageEditorDraft, previewFixedPackageV2Recovery,
+  recoverFixedPackageV2Draft} from "./packages/provider-package-drafts-v2.js";
 
 export {getCustomerPackageV2} from "./packages/customer-package-v2.js";
 export {initializeProviderOccasionCapabilities} from "./packages/provider-occasion-capabilities-v2.js";

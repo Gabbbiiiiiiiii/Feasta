@@ -138,13 +138,32 @@ export function customerPackageEstimate(unit: number | null, guests: number,
 
 /** Shared production completeness check for publication, Web and the Mobile gateway.
  * Media ownership is verified externally by the publisher, never by a client flag. */
+/**
+ * Allow LF and CRLF paragraphs in package descriptions.
+ * The original value is never normalized or rewritten.
+ * Other control, format, surrogate and invisible characters remain invalid.
+ */
+function publicationDescriptionText(
+  value: unknown,
+  min: number,
+  max: number,
+): boolean {
+  if (typeof value !== "string" ||
+      value.trim().length < min ||
+      value.length > max) {
+    return false;
+  }
+
+  return !/[\p{Cc}\p{Cf}\p{Cs}\p{Zl}\p{Zp}\p{Default_Ignorable_Code_Point}]/u
+    .test(value.replace(/\r\n|\n/gu, ""));
+}
 export function isPublishablePackageV2(p: Row, maxThemeImages: unknown): boolean {
   if (!revision(maxThemeImages) || maxThemeImages > 1000 ||
       p.sharedContractVersion !== 2 || p.offerSchemaVersion !== 2 ||
       p.occasionSchemaVersion !== 2 ||
       (p.offerStructure !== undefined && p.offerStructure !== "fixed" && p.offerStructure !== "customizable") ||
       ["individualFoodDraft", "individualFoodItems", "individualPricing"].some(k => Object.hasOwn(p,k)) ||
-      !text(p.name,2,80) || !text(p.description,10,5000) ||
+      !text(p.name,2,80) || !publicationDescriptionText(p.description, 10, 5000) ||
       !list(p.foodInclusions) || !(p.foodInclusions as string[]).length) return false;
   try {
     const groups = p.foodChoiceGroups === undefined ? [] : parseFoodChoiceGroupsV2(p.foodChoiceGroups);

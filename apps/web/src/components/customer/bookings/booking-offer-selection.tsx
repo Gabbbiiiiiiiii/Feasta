@@ -1,6 +1,6 @@
 "use client";
 
-import {useEffect, useId} from "react";
+import {type ReactNode, useEffect, useId} from "react";
 import {Check, Crown, Palette, UtensilsCrossed} from "lucide-react";
 
 import {VisualStyleImageCarousel} from "@/components/customer/packages/visual-style-image-carousel";
@@ -19,6 +19,7 @@ import {
 } from "@/lib/provider/provider-setup-gallery";
 
 export function BookingOfferSelection({
+  children,
   availableTiers,
   serviceOptions,
   pricingModel,
@@ -34,6 +35,7 @@ export function BookingOfferSelection({
   onPackageThemeChange,
   onThemeInspirationChange,
 }: {
+  children?: ReactNode;
   availableTiers: readonly CateringPackageServiceTier[];
   serviceOptions: PackageServiceOptions | undefined;
   pricingModel?: "per_pax" | "per_bundle";
@@ -110,7 +112,7 @@ export function BookingOfferSelection({
                   ].join(" ")}>
                     <input type="radio" name="catering-service-tier" value={tier}
                       aria-label={cateringPackageServiceTierLabel(tier)} checked={selected}
-                      aria-describedby={`${premium ? `${tierId}-premium ` : ""}${tierId}-description${option ? ` ${tierId}-price` : ""}${option?.includedServices.length ? ` ${tierId}-inclusions` : ""}`}
+                      aria-describedby={`${premium ? `${tierId}-premium ` : ""}${tierId}-description${option ? ` ${tierId}-price` : ""}${tierInclusions.length ? ` ${tierId}-inclusions` : ""}`}
                       onChange={() => onServiceTierChange(tier)} className="sr-only" />
                     <span className="flex min-h-6 flex-wrap items-center justify-between gap-2">
                       <SelectionIndicator selected={selected} />
@@ -141,6 +143,8 @@ export function BookingOfferSelection({
         )}
         {error ? <p id={errorId} role="alert" className="mt-3 text-sm font-semibold text-destructive">{error}</p> : null}
       </section>
+
+      {children}
 
       {hasThemeOptions ? (
         <section
@@ -201,7 +205,7 @@ export function BookingOfferSelection({
                     <article
                       key={theme.id}
                       className={[
-                        "min-w-0 overflow-hidden rounded-[18px] border transition-colors focus-within:ring-2 focus-within:ring-primary focus-within:ring-offset-2",
+                        "min-w-0 overflow-hidden rounded-[18px] border [&_img]:h-56 sm:[&_img]:h-64 transition-colors focus-within:ring-2 focus-within:ring-primary focus-within:ring-offset-2",
                         selected
                           ? "border-primary bg-secondary/50 ring-2 ring-primary/15"
                           : "border-feasta-border-soft bg-feasta-canvas",

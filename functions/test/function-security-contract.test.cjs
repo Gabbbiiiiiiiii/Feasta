@@ -15,6 +15,11 @@ test("v3 scheduler is bounded, server-owned and validates payment and provider a
 });
 
 const policies = [
+  ...["previewFixedPackageV2Recovery", "recoverFixedPackageV2Draft"].map(name => [name,
+    "packages/provider-package-drafts-v2.ts", ["requireAuth(request)", "requireRole",
+      "enforceCallableRateLimit", "appCheckCallableOptions", "authorizeOwnedPackage",
+      "requireMaintenanceOpen", "assertRecoveryPreserved", "verifyPackageImages",
+      "RECOVERY_SOURCE_CHANGED", "RECOVERY_PREVIEW_STALE", "providerPackageRecoveryAudits"]]),
   ...["activateAdminOccasion", "deactivateAdminOccasion", "inspectAdminOccasionAtomicReadiness"]
     .map((name) => [name, "admin/occasion-lifecycle-actions.ts", [
       "onCall(appCheckCallableOptions", "requireOccasionLifecycleActor", "db.runTransaction"]]),
@@ -570,6 +575,8 @@ test("all deployed exports remain in the reviewed inventory", () => {
   "createProviderPackageV2",
   "updateProviderPackageV2",
   "completeProviderPackageEditorDraft",
+  "previewFixedPackageV2Recovery",
+  "recoverFixedPackageV2Draft",
   "checkAdminOccasionActivationReadiness",
   "checkAdminOccasionDeactivationReadiness",
   "activateAdminOccasion",
@@ -811,8 +818,10 @@ test("V2 public gateway is bounded, transactional, gated and never returns raw d
  const body = source("packages/customer-package-v2.ts");
  for (const marker of ["enforceCallableRateLimit", "appCheckCallableOptions", "db.runTransaction",
    "requireCustomerPackageV2", "limit(1001)", "isProviderPubliclyEligible", "parseV2DraftWrite",
-   "providerEligibilityAuthorities/", "PACKAGE_V2_UNAVAILABLE", "isCurrentCustomerPackageV2",
+   "requireActiveServiceCategoryInTransaction", "PACKAGE_V2_UNAVAILABLE", "isCurrentCustomerPackageV2",
    "isV2PaymentPolicyValid", "isCustomerProviderV2", "isPackageWithinProviderV2"]) {
    assert.ok(body.includes(marker), marker);
  }
+ assert.match(body, /eligibilityMode:\s*"global"/u);
+ assert.doesNotMatch(body, /providerEligibilityAuthorities\//u);
 });

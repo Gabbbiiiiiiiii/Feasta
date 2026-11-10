@@ -8,7 +8,8 @@ import type {ProviderPackage} from "@/lib/provider/provider-package-client";
 import {createProviderPackage, updateProviderPackage} from "@/lib/provider/provider-package-client";
 import {uploadProviderServiceImage} from "@/lib/provider/provider-media-client";
 
-const mocks = vi.hoisted(() => ({list: vi.fn(), publish: vi.fn(), archive: vi.fn(), load: vi.fn(), account: vi.fn()}));
+const mocks = vi.hoisted(() => ({createV2: vi.fn(), list: vi.fn(), publish: vi.fn(), archive: vi.fn(), load: vi.fn(), account: vi.fn()}));
+vi.mock("@/lib/provider/provider-package-v2-client", () => ({packageV2Enabled:false,packageV2PublicationEnabled:false,createV2PackageDraft:mocks.createV2,hasPendingV2Draft:()=>false}));
 vi.mock("@/lib/provider/provider-package-client", () => ({listProviderPackages: mocks.list, publishProviderPackage: mocks.publish, archiveProviderPackage: mocks.archive, createProviderPackage: vi.fn(), updateProviderPackage: vi.fn()}));
 vi.mock("@/app/provider/packages/menu-actions", () => ({loadProviderMenuAction: mocks.load, saveProviderMenuAction: vi.fn()}));
 vi.mock("@/app/provider/packages/setup-gallery-actions", () => ({
@@ -104,6 +105,7 @@ const menu = {revision: 3, images: [
   {id: "untitled", title: "", url: "https://example.com/menu.png", isPublished: false},
 ]};
 beforeEach(() => {
+  mocks.createV2.mockReset().mockResolvedValue({packageId:"saved",packageRevision:1,status:"draft"});
   vi.mocked(createProviderPackage).mockReset();
   vi.mocked(updateProviderPackage).mockReset();
   vi.mocked(uploadProviderServiceImage).mockReset();
@@ -131,9 +133,11 @@ it("starts empty when creating another package after saving a new draft", async 
   fireEvent.change(screen.getByLabelText(/Minimum guests/), {target: {value: "20"}});
   fireEvent.change(screen.getByLabelText(/Maximum guests/), {target: {value: "80"}});
   for (let step = 0; step < 3; step++) fireEvent.click(screen.getByRole("button", {name: "Next"}));
-  fireEvent.click(screen.getByRole("button", {name: "Create draft package"}));
+  fireEvent.click(screen.getByRole("button", {name: "Save Package Draft"}));
+  fireEvent.click(within(screen.getByRole("dialog", {name:"FEASTA Confirmation"})).getByRole("button", {name:"Create Draft"}));
   await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
-  expect(createProviderPackage).toHaveBeenCalledWith(expect.objectContaining({eventType: "wedding"}));
+  expect(mocks.createV2).toHaveBeenCalledWith(expect.objectContaining({occasionIds: ["wedding"], sharedContractVersion:2}));
+  expect(createProviderPackage).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole("button", {name: "New package"}));
   expect(screen.getByLabelText(/Suitable occasions/)).toHaveValue("");
   expect(screen.queryByRole("list", {name: "Selected occasions"})).not.toBeInTheDocument();
@@ -324,11 +328,11 @@ it("explains and disables publication of canonical pricing drafts", async () => 
   mocks.list.mockResolvedValue([{...base, pricingModel: "per_bundle"}]);
   render(<ProviderPackagesClient {...props} />);
   expect(await screen.findByRole("button", {name: `Publish ${base.name}`})).toBeDisabled();
-  expect(screen.getByText(/Draft-only until customer compatibility is verified/)).toBeVisible();
+  expect(screen.getByText(/This draft has no saved V2 contract/)).toBeVisible();
 });
 
 it("retains a new draft and its pricing model when an old callable rejects pricingModel", async () => {
-  vi.mocked(createProviderPackage).mockRejectedValueOnce({code: "functions/invalid-argument", message: "Unsupported package fields: pricingModel."});
+  mocks.createV2.mockRejectedValueOnce({code: "functions/invalid-argument", message: "Unsupported package fields: pricingModel."});
   render(<ProviderPackagesClient {...props} />);
   fireEvent.click(await screen.findByRole("button", {name: "New package"}));
   const form = within(screen.getByRole("dialog", {name: "Create package"}));
@@ -355,11 +359,13 @@ it("retains a new draft and its pricing model when an old callable rejects prici
   for (const name of ["Package details", "Pricing model & capacity", "Service tiers & pricing", "Food inclusions", "Themes", "Images", "Payment terms"]) {
     expect(review.getByRole("heading", {name})).toBeVisible();
   }
-  expect(review.getByText(/Draft only:/)).toBeVisible();
+  expect(review.getByText(/Saving keeps this package as a private draft\./)).toBeVisible();
   expect(review.getByText("PHP 500.25")).toBeVisible();
-  fireEvent.click(form.getByRole("button", {name: "Create draft package"}));
+  fireEvent.click(form.getByRole("button", {name: "Save Package Draft"}));
+  fireEvent.click(within(screen.getByRole("dialog", {name:"FEASTA Confirmation"})).getByRole("button", {name:"Create Draft"}));
   await waitFor(() => expect(form.getByText(/connected package service does not support this pricing model/)).toBeVisible());
-  expect(createProviderPackage).toHaveBeenCalledWith(expect.objectContaining({pricingModel: "per_pax", price: 500.25}));
+  expect(mocks.createV2).toHaveBeenCalledWith(expect.objectContaining({pricingModel: "per_pax", price: 500.25}));
+  expect(createProviderPackage).not.toHaveBeenCalled();
   fireEvent.click(form.getByRole("button", {name: "Back"}));
   for (let index = 0; index < 3; index++) fireEvent.click(form.getByRole("button", {name: "Back"}));
   expect(form.getByLabelText(/Package name/)).toHaveValue("New catering draft");

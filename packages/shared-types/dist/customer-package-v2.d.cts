@@ -22,8 +22,6 @@ export interface CustomerPackageV2Authority {
 }
 export declare function isCurrentCustomerPackageV2(p: Row, a: CustomerPackageV2Authority): boolean;
 export declare function customerPackageEstimate(unit: number | null, guests: number, model?: "per_pax" | "per_bundle"): number | null;
-/** Shared production completeness check for publication, Web and the Mobile gateway.
- * Media ownership is verified externally by the publisher, never by a client flag. */
 export declare function isPublishablePackageV2(p: Row, maxThemeImages: unknown): boolean;
 /** V2 production requires explicit valid payment configuration; legacy defaults stay unchanged. */
 export declare function isV2PaymentPolicyValid(p: Row, settings: unknown): boolean;

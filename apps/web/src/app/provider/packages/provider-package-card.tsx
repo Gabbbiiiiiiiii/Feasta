@@ -12,15 +12,20 @@ import {ImagePlaceholder} from "@/components/shared/image-placeholder";
 import {PriceDisplay} from "@/components/shared/price-display";
 import {StatusBadge, humanize} from "@/components/shared/status-badge";
 import type {ProviderPackage} from "@/lib/provider/provider-package-client";
+import {ProviderPackageRecovery} from "./provider-package-recovery";
 
-export function ProviderPackageCard({item, serviceCategoryLabel, onEdit, onPublish, onArchive}: {
+export function ProviderPackageCard({item, serviceCategoryLabel, onEdit, onPublish, onArchive, onRecovered}: {
   item: ProviderPackage;
   serviceCategoryLabel?: string;
   onEdit: React.MouseEventHandler<HTMLButtonElement>;
   onPublish: () => void;
   onArchive: () => void;
+  onRecovered?: () => void | Promise<void>;
 }) {
   const cover = item.imageUrls?.[0] || item.imageUrl;
+  const individual = (item.offerStructure ?? item.v2?.offerStructure) === "individual";
+  const publicationBlocked = individual || (item.v2 ?
+    item.v2.publicationReady !== true || !packageV2PublicationEnabled : Boolean(item.pricingModel));
   return <article aria-label={item.name} className="flex min-w-0 flex-col self-start overflow-hidden rounded-card border border-border bg-card shadow-card sm:flex-row">
     <div className="relative h-28 shrink-0 overflow-hidden bg-muted sm:h-auto sm:w-28">
       {cover ? <>
@@ -40,13 +45,16 @@ export function ProviderPackageCard({item, serviceCategoryLabel, onEdit, onPubli
         <p className="flex items-center gap-1 text-xs text-muted-foreground"><Users aria-hidden="true" className="size-3.5 shrink-0" />{item.minimumGuests}–{item.maximumGuests} guests</p>
       </div>
       <PriceDisplay amount={item.price} />
-      {item.pricingModel ? <p className="text-xs text-muted-foreground">{item.pricingModel === "per_pax" ? "PHP per person" : "Fixed package price"}{!item.v2 ? " / Draft-only until customer compatibility is verified" : ""}</p> : null}
+      {item.pricingModel ? <p className="text-xs text-muted-foreground">{item.pricingModel === "per_pax" ? "PHP per person" : "Fixed package price"}</p> : null}
+      {individual ? <p className="text-xs text-muted-foreground">Individual Food publication requires a supported serving-price contract.</p> : !item.v2 && item.pricingModel ? <p className="text-xs text-muted-foreground">This draft has no saved V2 contract. Edit to review and retain its details. Conversion requires a reviewed recovery; saving this draft does not upgrade it. Keep the original until recovery is approved.</p> : null}
+      {item.status === "draft" && item.v2 && !individual && item.v2.publicationReady !== true ? <p className="text-xs text-muted-foreground">Edit and save a complete V2 contract before publishing.</p> : null}
       <PackagePaymentTerms source={item} />
     </div>
     {item.status !== "archived" ? <div className="mt-auto flex flex-wrap items-center gap-1 border-t border-border p-1.5">
       {item.status === "draft" ? <>
         <Button id={`provider-package-edit-${item.id}`} variant="secondary" size="compact" className="mr-auto" aria-label={`Edit ${item.name}`} onClick={onEdit}><Edit3 aria-hidden="true" className="size-4" />Edit</Button>
-        <Button variant="ghost" size="icon" aria-label={`Publish ${item.name}`} title={item.v2 ? "Publish package" : item.pricingModel ? "Customer pricing compatibility verification required" : "Publish package"} disabled={item.v2 ? !packageV2PublicationEnabled : Boolean(item.pricingModel)} onClick={onPublish}><Send aria-hidden="true" className="size-4" /></Button>
+        {!item.v2 && item.offerStructure === "fixed" && item.pricingModel ? <ProviderPackageRecovery packageId={item.id} onRecovered={onRecovered}/> : null}
+        <Button variant="ghost" size="icon" aria-label={`Publish ${item.name}`} title={individual ? "Individual Food publication is unsupported" : !item.v2 && item.pricingModel ? "Review V2 recovery before publishing" : "Publish package"} disabled={publicationBlocked} onClick={onPublish}><Send aria-hidden="true" className="size-4" /></Button>
       </> : null}
       {item.status === "published" ? (
         <Dialog>

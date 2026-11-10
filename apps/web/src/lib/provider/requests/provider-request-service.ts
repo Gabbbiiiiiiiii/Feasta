@@ -1,4 +1,5 @@
 import "server-only";
+import {requestPackageSnapshot} from "./provider-request-package-snapshot";
 import {cateringPaymentPresentation, providerInitialPaymentPresentation} from "./provider-request-payment-presentation";
 import {dashboardMatches, dashboardEventStart, storedDate} from "../dashboard/provider-dashboard-projection";
 import {matchesRequestSearch} from "./provider-request-presentation";
@@ -117,6 +118,11 @@ export async function getProviderRequestDetail(requestId: string): Promise<Provi
   const data = document.data(), linkedParent = parents.get(data.mainEventId ?? data.bookingId) ?? null;
   const parent = linkedParent?.customerId === data.customerId ? linkedParent : null;
   const request = mapProviderRequest(document, providerId);
+  // Parent-only selections belong to the catering request, never to another provider's add-on.
+  const packageParent = data.type === "catering" && parent?.providerId === providerId &&
+    parent?.packageId === data.packageId &&
+    (!Array.isArray(parent.providerRequestIds) || parent.providerRequestIds.includes(document.id)) ? parent : null;
+  if (data.type === "catering") request.packageSnapshot = requestPackageSnapshot(data, packageParent);
   request.initialPaymentPresentation = cateringPaymentPresentation(data, document.id, data.mainEventId ?? data.bookingId, parent);
   request.bookingReference = optionalText(data.bookingCode ?? data.bookingReference ?? parent?.bookingCode, 160);
   request.responseUnavailableReason = responseUnavailableReason({...data, providerRequestId: data.providerRequestId ?? document.id}, parent, new Date());

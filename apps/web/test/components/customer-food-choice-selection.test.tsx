@@ -5,12 +5,15 @@ import {foodChoiceSelectionError,parseStoredFoodChoices} from "@/lib/customer/bo
 const groups=[{id:"main",title:"Main dish",selectionCount:1,options:[{id:"a",name:"Chicken"},{id:"b",name:"Pork"}]}];
 it("shows required count and selects IDs",()=>{
  const change=vi.fn();render(<FoodChoiceSelector groups={groups} value={[]} onChange={change}/>);
- expect(screen.getByText(/choose exactly 1/)).toBeInTheDocument();
+ expect(screen.getByText(/choose exactly 1/i)).toBeInTheDocument();
  fireEvent.click(screen.getByRole("checkbox",{name:"Chicken"}));
  expect(change).toHaveBeenCalledWith([{groupId:"main",optionIds:["a"]}]);
 });
 it("limits count and allows deselection",()=>{
  const change=vi.fn();render(<FoodChoiceSelector groups={groups} value={[{groupId:"main",optionIds:["a"]}]} onChange={change}/>);
+ expect(screen.getByRole("checkbox",{name:"Chicken"})).toBeVisible();
+ expect(screen.getByRole("checkbox",{name:"Chicken"})).toBeChecked();
+ expect(screen.getByText("1 of 1 selected")).toBeVisible();
  expect(screen.getByRole("checkbox",{name:"Pork"})).toBeDisabled();
  fireEvent.click(screen.getByRole("checkbox",{name:"Chicken"}));
  expect(change).toHaveBeenCalledWith([{groupId:"main",optionIds:[]}]);

@@ -22,6 +22,14 @@ it('reads customizable V2 private drafts without demo flags and blocks publicati
  const [saved]=await listProviderPackages('provider');
  expect(saved).toMatchObject({price:3500,pricingModel:'per_bundle',minimumGuests:10,maximumGuests:15,foodInclusions:['Rice: Steamed Rice'],v2:{revision:1,foodChoiceGroups:groups}});
  expect(parsePackageDishes(saved.foodInclusions)).toMatchObject([{category:'Rice',name:'Steamed Rice',raw:'Rice: Steamed Rice'}]);
+ expect(saved.v2?.publicationReady).toBe(false);
+ const snapshot = await mocks.getDocs.mock.results.at(-1)!.value;
+ const raw = snapshot.docs[0].data();
+ const complete = {...raw, paymentTermsSchemaVersion:2, balanceDueHoursBeforeEvent:null};
+ mocks.getDocs.mockResolvedValue({docs:[{id:'custom',data:()=>complete}]});
+ expect((await listProviderPackages('provider'))[0].v2?.publicationReady).toBe(true);
+ mocks.getDocs.mockResolvedValue({docs:[{id:'custom',data:()=>({...complete,foodInclusions:[]})}]});
+ expect((await listProviderPackages('provider'))[0].v2?.publicationReady).toBe(false);
  const {publishProviderPackage}=await import('@/lib/provider/provider-package-client');
  await expect(publishProviderPackage(saved.id,saved.v2)).rejects.toThrow('FEATURE_DISABLED');
  expect(mocks.call).not.toHaveBeenCalled();

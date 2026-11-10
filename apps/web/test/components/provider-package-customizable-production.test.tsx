@@ -15,7 +15,7 @@ const chooseClassification=()=>{
 const next=()=>fireEvent.click(screen.getByRole("button",{name:"Next"}));
 afterEach(()=>vi.unstubAllGlobals());
 beforeEach(()=>{vi.clearAllMocks();vi.stubGlobal("confirm",vi.fn(()=>true));api.pending.mockReturnValue(false);api.create.mockResolvedValue({packageId:"new",packageRevision:1,status:"draft"});api.update.mockResolvedValue({packageId:"pkg",packageRevision:8,status:"draft"});});
-it("creates a private V2 draft with customer-selectable food groups, without modifying included dishes", async()=>{
+it.each(["per_pax", "per_bundle"] as const)("creates customizable %s through V2 with client flags off", async(pricingModel)=>{
  render(<ProviderPackageForm {...props}/>);
  chooseClassification();
  fireEvent.change(screen.getByRole("combobox",{name:/Package structure/}),{target:{value:"customizable"}});
@@ -23,6 +23,7 @@ it("creates a private V2 draft with customer-selectable food groups, without mod
  fireEvent.change(screen.getByLabelText(/Description/),{target:{value:"Complete food-choice catering description."}});
  fireEvent.change(screen.getByRole("combobox",{name:/Suitable occasions/}),{target:{value:"birthday"}});
  fireEvent.click(screen.getByRole("button",{name:"Add selected occasion"}));next();
+ fireEvent.change(screen.getByLabelText(/Pricing model/),{target:{value:pricingModel}});
  fireEvent.change(screen.getByLabelText(/Minimum guests/),{target:{value:"10"}});
  fireEvent.change(screen.getByLabelText(/Maximum guests/),{target:{value:"50"}});
  fireEvent.click(screen.getByRole("checkbox",{name:/Drop-Off/}));
@@ -47,9 +48,25 @@ it("creates a private V2 draft with customer-selectable food groups, without mod
  expect(received.foodChoiceGroups).toMatchObject([{title:"Main dish",selectionCount:1,
    options:[{name:"Chicken Afritada"},{name:"Pork Menudo"},{name:"Sweet and Sour Fish"}]}]);
  expect(received.sharedContractVersion).toBe(2);
+ expect(received.pricingModel).toBe(pricingModel);
+ expect(api.legacy).not.toHaveBeenCalled();
 });
 
-it("retains the legacy path for new fixed packages when demo V2 is disabled",()=>{
+it.each(["per_pax", "per_bundle"] as const)("creates Fixed %s through V2 with client flags off",async(pricingModel)=>{
  render(<ProviderPackageForm {...props}/>);chooseClassification();
- expect(screen.queryByRole('button',{name:'Add choice group'})).not.toBeInTheDocument();
+ fireEvent.change(screen.getByLabelText(/Package name/),{target:{value:"Fixed catering"}});
+ fireEvent.change(screen.getByLabelText(/Description/),{target:{value:"Complete fixed catering description."}});
+ fireEvent.change(screen.getByRole("combobox",{name:/Suitable occasions/}),{target:{value:"birthday"}});
+ fireEvent.click(screen.getByRole("button",{name:"Add selected occasion"}));next();
+ fireEvent.change(screen.getByLabelText(/Pricing model/),{target:{value:pricingModel}});
+ fireEvent.change(screen.getByLabelText(/Minimum guests/),{target:{value:"10"}});
+ fireEvent.change(screen.getByLabelText(/Maximum guests/),{target:{value:"50"}});
+ fireEvent.click(screen.getByRole("checkbox",{name:/Drop-Off/}));
+ fireEvent.change(screen.getByLabelText(/Drop-Off.*price/),{target:{value:"100"}});
+ next();next();next();
+ fireEvent.click(screen.getByRole("button",{name:"Save Package Draft"}));
+ fireEvent.click(within(screen.getByRole("dialog",{name:"FEASTA Confirmation"})).getByRole("button",{name:"Create Draft"}));
+ await waitFor(()=>expect(api.create).toHaveBeenCalledTimes(1));
+ expect(api.create.mock.calls[0][0]).toMatchObject({offerStructure:"fixed",pricingModel,sharedContractVersion:2,offerSchemaVersion:2,occasionSchemaVersion:2,minimumGuests:10,maximumGuests:50,paymentPolicy:"full_payment",depositPercentage:100});
+ expect(api.legacy).not.toHaveBeenCalled();
 });

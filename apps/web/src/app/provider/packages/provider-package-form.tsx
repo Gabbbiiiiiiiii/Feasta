@@ -128,7 +128,7 @@ export function ProviderPackageForm({
       initialPackage?.offerStructure ?? initialPackage?.v2?.offerStructure ?? "",
   );
   const usesV2 = initialPackage ? Boolean(initialPackage.v2) :
-    packageV2Enabled || offerStructure === "customizable";
+    packageV2Enabled || offerStructure === "fixed" || offerStructure === "customizable";
   const [packageStyle, setPackageStyle] = useState(
     initialEditorProgress?.progress.packageStyle ??
       initialPackage?.packageStyle ?? initialPackage?.v2?.packageStyle ?? "",
@@ -356,7 +356,7 @@ export function ProviderPackageForm({
     offerStructure === "individual"
       ? "Individual Food Item requires serving-size, quantity, and pricing contracts before saving."
       : offerStructure === "customizable" && !usesV2
-        ? "This older draft cannot be converted to the customizable V2 contract in place. Create a new customizable private draft to preserve food selections."
+        ? "This draft has no saved V2 contract. Keep its details for reviewed recovery; the current editor cannot convert it in place or safely save customer food selections."
         : offerStructure === "customizable" && foodChoiceGroups.length === 0
           ? "Add at least one customer-selectable food group for this customizable package."
           : null;
@@ -973,7 +973,9 @@ export function ProviderPackageForm({
       <option value="per_bundle">Per Bundle - fixed price for a guest range</option>
       </Select>
       <p className="text-sm text-muted-foreground">Prices are charged per person for Per Pax. One fixed price covers the package&apos;s guest range for Per Bundle.</p>
-      <p className="text-xs text-muted-foreground">Per Pax and Per Bundle drafts cannot be published until customer pricing compatibility is verified.</p>
+      <p className="text-xs text-muted-foreground">{usesV2
+        ? "Save a valid V2 draft before publishing. Publication also requires current provider eligibility and server approval."
+        : "This draft has no saved V2 contract. Review and retain its details; conversion requires a reviewed recovery before publishing."}</p>
       </FormField>
       <ProviderPackageOfferBuilder
         section="pricing"

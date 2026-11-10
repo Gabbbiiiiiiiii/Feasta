@@ -1,6 +1,7 @@
 "use client";
 import type {FoodChoiceSelectionV2} from "@feasta/shared-types/provider-package-v2";
 import {customerPackageEstimate} from "@feasta/shared-types/customer-package-v2";
+import {FixedPackageInclusions} from "./fixed-package-inclusions";
 import {FoodChoiceSelector} from "./food-choice-selector";
 import {foodChoiceSelectionError, reconcileFoodChoiceSelections} from "@/lib/customer/bookings/food-choice-selection";
 
@@ -229,6 +230,7 @@ const submissionIdentityRef =
     emptyBookingThemeInspiration(),
   );
   const [offerSelectionError, setOfferSelectionError] = useState<string | null>(null);
+  const isV2 = packageRecord.sharedContractVersion === 2;
   const tierOption = serviceTier ? packageRecord.serviceOptions?.[serviceTier] : undefined;
   const customization = {...sharedCustomization,
     decorations: [...new Set([...sharedCustomization.decorations, ...(tierOption?.decorInclusions ?? [])])],
@@ -261,9 +263,9 @@ const submissionIdentityRef =
         ? saved.event.eventType : packageRecord.eventType ?? ""});
       setCustomizationDraft({
         foodChoiceSelections: reconcileFoodChoiceSelections(packageRecord.foodChoiceGroups ?? [], saved.customization.foodChoiceSelections ?? []),
-        selectedFoods: saved.customization.selectedFoods.filter((item) => customization.foods.includes(item)),
-        selectedDecorations: saved.customization.selectedDecorations.filter((item) => [...sharedCustomization.decorations, ...(restoredOffer.serviceTier ? packageRecord.serviceOptions?.[restoredOffer.serviceTier]?.decorInclusions ?? [] : [])].includes(item)),
-        selectedFurniture: saved.customization.selectedFurniture.filter((item) => [...sharedCustomization.furniture, ...(restoredOffer.serviceTier ? packageRecord.serviceOptions?.[restoredOffer.serviceTier]?.furnitureInclusions ?? [] : [])].includes(item)),
+        selectedFoods: isV2 ? [] : saved.customization.selectedFoods.filter((item) => customization.foods.includes(item)),
+        selectedDecorations: isV2 ? [] : saved.customization.selectedDecorations.filter((item) => [...sharedCustomization.decorations, ...(restoredOffer.serviceTier ? packageRecord.serviceOptions?.[restoredOffer.serviceTier]?.decorInclusions ?? [] : [])].includes(item)),
+        selectedFurniture: isV2 ? [] : saved.customization.selectedFurniture.filter((item) => [...sharedCustomization.furniture, ...(restoredOffer.serviceTier ? packageRecord.serviceOptions?.[restoredOffer.serviceTier]?.furnitureInclusions ?? [] : [])].includes(item)),
       });
       setSelectedEventServiceIds(saved.addonIds.filter((id) => eventServices.some((service) => service.id === id)));
       setServiceTier(restoredOffer.serviceTier);
@@ -718,13 +720,13 @@ function buildSubmissionInput(
 
     ...(customizationDraft.foodChoiceSelections?.length ? {foodChoiceSelections: customizationDraft.foodChoiceSelections} : {}),
     selectedFoods:
-      customizationDraft.selectedFoods,
+      isV2 ? [] : customizationDraft.selectedFoods,
 
     selectedDecorations:
-      customizationDraft.selectedDecorations,
+      isV2 ? [] : customizationDraft.selectedDecorations,
 
     selectedFurniture:
-      customizationDraft.selectedFurniture,
+      isV2 ? [] : customizationDraft.selectedFurniture,
 
     addonIds:
       selectedEventServiceIds,
@@ -773,15 +775,13 @@ function currentSubmissionDraftKey(): string {
 
     ...(customizationDraft.foodChoiceSelections?.length ? {foodChoiceSelections: customizationDraft.foodChoiceSelections} : {}),
     selectedFoods:
-      customizationDraft.selectedFoods,
+      isV2 ? [] : customizationDraft.selectedFoods,
 
     selectedDecorations:
-      customizationDraft
-        .selectedDecorations,
+      isV2 ? [] : customizationDraft.selectedDecorations,
 
     selectedFurniture:
-      customizationDraft
-        .selectedFurniture,
+      isV2 ? [] : customizationDraft.selectedFurniture,
 
     addonIds:
       selectedEventServiceIds,
@@ -1612,7 +1612,7 @@ function discardAndLeave() {
                   </h2>
 
                   <p className="mt-1 text-sm leading-6 text-feasta-text-secondary">
-                    {offerSelection.availableTiers.length > 0
+                    {isV2 ? "Compare service levels, choose your dishes, and explore optional visual styles. Published inclusions are automatically included." : offerSelection.availableTiers.length > 0
                       ? "Choose your service level and any published package options."
                       : "Choose any published package options you would like."}
                   </p>
@@ -1652,14 +1652,39 @@ function discardAndLeave() {
                     setThemeInspiration(next.themeInspiration);
                     setPackageThemeId(next.packageThemeId);
                   }}
-                />
+                >
+                  {isV2 ? <>
+                <div aria-label="Selected service summary" className="grid gap-3 rounded-2xl border border-primary/15 bg-feasta-canvas p-4 sm:grid-cols-2 sm:p-5">
+                  <h3 className="flex items-center gap-2 font-extrabold text-primary-strong sm:col-span-2"><ReceiptText aria-hidden="true" className="size-5"/>Selected service</h3>
+                  <p>{offerSelection.serviceTier ? bookingCustomizationReviewLabel(offerSelection.serviceTier) : offerSelection.availableTiers.length ? "Choose a service level" : "Published package"}</p>
+                  <p>{packageRecord.pricingModel === "per_pax" ? "Per Pax" : "Fixed Bundle"} &middot; {draft.guestCount || "0"} guests</p>
+                  <EstimateRow label="Estimated package price" value={estimatedServicePrice}/>
+                </div>
 
+                    <FoodChoiceSelector groups={packageRecord.foodChoiceGroups ?? []}
+                      value={customizationDraft.foodChoiceSelections ?? []}
+                      onChange={(foodChoiceSelections) => setCustomizationDraft((current) => ({...current, foodChoiceSelections}))}/>
+                    <FixedPackageInclusions detail={detail} serviceTier={offerSelection.serviceTier}/>
+                  </> : null}
+                </BookingOfferSelection>
+                {!isV2 ? <>
                 <FoodChoiceSelector groups={packageRecord.foodChoiceGroups ?? []}
                   value={customizationDraft.foodChoiceSelections ?? []}
                   onChange={(foodChoiceSelections) => setCustomizationDraft((current) => ({...current, foodChoiceSelections}))}/>
+
+                <div className="rounded-2xl border border-feasta-border-soft bg-feasta-canvas p-4">
+                  <h3 className="text-base font-extrabold text-foreground">
+                    Optional package inclusions
+                  </h3>
+                  <p className="mt-1 text-sm leading-6 text-feasta-text-secondary">
+                    Choose which additional included food, decoration, or furniture
+                    options you want with your event. You can leave these unchecked.
+                    These selections do not add a separate charge.
+                  </p>
+                </div>
                 <CustomizationGroup
-                  title="Food selections"
-                  description="Choose from the food options published with this package."
+                  title="Other included foods (optional)"
+                  description="Select any additional included foods you want, such as rice or dessert. These are separate from your required dish choices."
                   icon={
                     <Soup
                       aria-hidden="true"
@@ -1681,8 +1706,8 @@ function discardAndLeave() {
                 />
 
                 <CustomizationGroup
-                  title="Decorations"
-                  description="Choose any published decoration options you want included."
+                  title="Decoration preferences (optional)"
+                  description="Select the included decorations you would like for your event. Leave unchecked if you have no preference."
                   icon={
                     <Palette
                       aria-hidden="true"
@@ -1704,8 +1729,8 @@ function discardAndLeave() {
                 />
 
                 <CustomizationGroup
-                  title="Furniture"
-                  description="Choose from the furniture options included in the provider's package configuration."
+                  title="Furniture preferences (optional)"
+                  description="Select the included furniture items you would like. These options do not add a separate charge."
                   icon={
                     <Armchair
                       aria-hidden="true"
@@ -1734,6 +1759,9 @@ function discardAndLeave() {
                 {customization.foods.length + customization.decorations.length + customization.furniture.length + additionalIncludedServices.length === 0 ? (
                   <p className="text-sm text-feasta-text-secondary">No additional package options are published.</p>
                 ) : null}
+                </> : null}
+
+
               </div>
 
               <div className="mt-5 flex flex-col-reverse gap-3 border-t border-feasta-divider pt-4 sm:flex-row sm:items-center sm:justify-between">

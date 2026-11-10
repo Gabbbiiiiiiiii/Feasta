@@ -45,3 +45,28 @@ test('production payment policy accepts canonical decimal percentages and reject
  for(const depositPercentage of [20,20.17,28.23,79.99,80])assert.equal(isV2PaymentPolicyValid({paymentPolicy:'deposit_then_balance',depositPercentage},policy),true);
  for(const settings of [null,{}, {...policy,minimumDepositRateBps:9000}])assert.equal(isV2PaymentPolicyValid({paymentPolicy:'full_payment'},settings),false);
 });
+
+// Exercise the customer gate with the same Fixed Per Bundle shape as publication.
+for (const [label, newline] of [['LF', '\n'], ['CRLF', '\r\n']]) {
+ test(label + ' published Fixed Per Bundle remains customer eligible without weakening validation',()=>{
+  const description=['Enjoy our Filipino bilao package for family gatherings.',
+   'Includes selected dishes for 8-10 guests.', 'A convenient food-sharing experience.'].join(newline+newline);
+  const saved={...data(),offerStructure:'fixed',pricingModel:'per_bundle',
+   name:'Busog Na Set ? Bilao Package',description,minimumGuests:8,maximumGuests:10,price:1850,
+   serviceOptions:{drop_off:{price:1850,includedServices:[]}},
+   paymentPolicy:'deposit_then_balance',depositPercentage:50,balanceDueHoursBeforeEvent:24};
+  const before=structuredClone(saved);
+  assert.equal(eligible(saved,context()),true);
+  assert.deepEqual(saved,before);
+  for(const invalid of ['\r','\t','\u200B','\uD800'])
+   assert.equal(eligible({...saved,description:description+invalid+'Invalid'},context()),false);
+  for(const patch of [{status:'draft'},{isPublished:false},{isActive:false},
+   {providerPubliclyVisible:false},{isDeleted:true},{publishedAt:null},
+   {occasionCatalogRevision:6},{providerEligibilityRevision:2},{occasionMatchIds:['birthday']},
+   {paymentPolicy:'invalid'},{depositPercentage:0},{maximumGuests:7},
+   {name:'Invalid\nPackage'},{foodInclusions:[]}])
+   assert.equal(eligible({...saved,...patch},context()),false);
+  assert.equal(eligible(saved,{...context(),enabled:false}),false);
+  assert.equal(eligible(saved,{...context(),approvedCategoryCodes:[]}),false);
+ });
+}

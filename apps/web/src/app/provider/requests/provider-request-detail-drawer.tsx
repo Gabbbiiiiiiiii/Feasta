@@ -1,4 +1,5 @@
 "use client";
+import {ProviderRequestPackageDetails, SavedPackageLink} from "./provider-request-package-details";
 
 import {unavailableProviderInitialPayment} from "@/lib/provider/requests/provider-request-payment-presentation";
 import {formatEventTime} from "@/lib/presentation/event-time";
@@ -211,7 +212,7 @@ export function ProviderRequestDetailDrawer({
           />
         </Section>
 
-        <Section
+        {request.type === "catering" && request.packageSnapshot?.v2 ? <ProviderRequestPackageDetails request={request} /> : <Section
           title={
             request.type === "catering"
               ? "Package"
@@ -225,8 +226,7 @@ export function ProviderRequestDetailDrawer({
               }
               label="Package"
               value={
-                request.package.name ??
-                "Selected package"
+                <SavedPackageLink request={request} />
               }
             />
           ) : null}
@@ -273,7 +273,7 @@ export function ProviderRequestDetailDrawer({
               selections were recorded.
             </p>
           )}
-        </Section>
+        </Section>}
 
         <Section
           title="Payment"
@@ -383,7 +383,7 @@ function DetailRow({
 }: {
   icon?: React.ReactNode;
   label: string;
-  value: string;
+  value: React.ReactNode;
 }) {
   return (
     <div className="flex items-start gap-3 rounded-lg border border-border p-3">
@@ -398,9 +398,9 @@ function DetailRow({
           {label}
         </p>
 
-        <p className="mt-1 break-words text-sm font-medium">
+        <div className="mt-1 break-words text-sm font-medium">
           {value}
-        </p>
+        </div>
       </div>
     </div>
   );
@@ -414,12 +414,12 @@ function AmountRow({
   amount: number;
 }) {
   return (
-    <div className="flex items-center justify-between gap-4">
+    <div className="flex flex-wrap items-center justify-between gap-2">
       <span className="text-sm text-muted-foreground">
         {label}
       </span>
 
-      <span className="font-semibold">
+      <span className="shrink-0 whitespace-nowrap font-semibold [&_span]:break-normal [&_span]:whitespace-nowrap">
         <PriceDisplay
           amount={amount}
         />

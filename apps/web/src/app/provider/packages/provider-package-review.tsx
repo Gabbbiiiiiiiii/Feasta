@@ -30,7 +30,14 @@ export function ProviderPackageReview({name, description, eventType, serviceCate
   const groups = Array.from(new Set(dishes.map((dish) => dish.category)));
   return (
     <section aria-label="Package review" className="grid gap-4">
-      {pricingModel !== "legacy" ? <p role="note" className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-3 text-sm">Draft only: this pricing model cannot be published or booked until customer compatibility is verified.</p> : null}
+      <p
+  role="note"
+  className="rounded-xl border border-border bg-muted/40 p-3 text-sm text-foreground"
+  >
+    Saving keeps this package as a private draft. Once it has a
+    complete V2 contract and passes publication requirements, you can
+    publish it for customers to discover and book.
+  </p>
       <div className="grid items-start gap-4 sm:grid-cols-2">
         <ReviewSection title="Package details"><h4 className="break-words font-bold">{name}</h4><p className="text-sm capitalize">{eventType.replaceAll("_", " ")} · {serviceCategory}</p><p className="whitespace-pre-wrap break-words text-sm text-muted-foreground">{description || "No description added"}</p></ReviewSection>
         <ReviewSection title="Pricing model & capacity"><p className="font-semibold">{pricingModel === "per_pax" ? "Per Pax" : pricingModel === "per_bundle" ? "Per Bundle" : "Legacy fixed price"}</p><p className="text-sm">{minimumGuests}–{maximumGuests} guests</p><p className="text-sm text-muted-foreground">{pricingModel === "per_pax" ? "Each service-tier price is per person." : "One fixed package price within the guest range."}</p></ReviewSection>
@@ -45,8 +52,12 @@ export function ProviderPackageReview({name, description, eventType, serviceCate
             <Inclusions text={offerDraft.serviceOptions[tier as CateringPackageServiceTier][field]} /></div> : null)}
         </article>)}</div></ReviewSection>
       <ReviewSection title="Food inclusions">{groups.length ? <div className="grid gap-3 sm:grid-cols-2">{groups.map((category) => <div key={category}><h6 className="text-sm font-semibold">{category || "Uncategorized"}</h6><Inclusions text={dishes.filter((dish) => dish.category === category).map((dish) => dish.name).join("\n")} /></div>)}</div> : <p className="text-sm text-muted-foreground">No dishes added</p>}</ReviewSection>
-      {foodChoiceGroups.length ? <ReviewSection title="Customer-selectable food groups (private draft)">
-        <p className="text-xs text-muted-foreground">These choices are not yet available in customer booking.</p>
+      {foodChoiceGroups.length ? <ReviewSection title="Customer-selectable food groups">
+        <p className="text-xs text-muted-foreground">
+          Customers can select dishes from these groups when booking an
+          eligible published V2 package. Each group follows its configured
+          selection count.
+        </p>
         {foodChoiceGroups.map((group) => <div key={group.id} className="space-y-1 rounded-lg border p-3">
           <h6 className="font-semibold">{group.title || "Untitled choice group"} — choose {group.selectionCount}</h6>
           <ul className="list-inside list-disc text-sm">{group.options.map((option) => <li key={option.id}>{option.name || "Incomplete dish"}</li>)}</ul>

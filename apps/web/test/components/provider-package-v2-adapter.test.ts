@@ -61,3 +61,12 @@ it("keeps fixed adapters disabled without the explicit draft opt-in", async () =
   await expect(api.createV2PackageDraft(data)).rejects.toThrow("FEATURE_DISABLED");
   expect(mocks.call).not.toHaveBeenCalled();
 });
+
+it.each(['fixed','customizable'] as const)('sends supported %s V2 writes with the client draft flag off',async(offerStructure)=>{
+ vi.stubEnv('NEXT_PUBLIC_PROVIDER_PACKAGE_V2_DRAFTS_ENABLED','false');
+ const api=await import('@/lib/provider/provider-package-v2-client');
+ mocks.call.mockResolvedValue({data:result});
+ const input={...data as object,offerStructure} as never;
+ await api.createV2PackageDraft(input);
+ expect(mocks.call).toHaveBeenCalledWith('createProviderPackageV2',input);
+});
