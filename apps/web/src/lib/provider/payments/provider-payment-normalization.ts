@@ -1,4 +1,5 @@
 import {
+  parseCustomerPaymentChoice,
   MAIN_EVENT_STATUSES,
   PAYMENT_STATUSES,
   PAYMENT_TYPES,
@@ -100,6 +101,7 @@ export function normalizeProviderPaymentRecord(input: {
     formattedAmount: formatPhpCentavos(amountInCentavos),
     currency: "PHP",
     paymentType,
+    paymentChoice: parseCustomerPaymentChoice(payment.paymentChoice),
     status,
     refundStatus,
     createdAt,

@@ -1,3 +1,5 @@
+import {formatPaymentPurpose} from "@/lib/payments/payment-purpose";
+
 import type {
   AdminPaymentGateway,
   AdminPaymentType,
@@ -82,9 +84,7 @@ export function formatAdminPaymentPurpose(
     paymentChoice?: "minimum" | "full" | "remaining_balance" | null;
   },
 ): string {
-  return payment.paymentType === "provider_down_payment" && payment.paymentChoice === "full"
-    ? "Full payment"
-    : formatPaymentType(payment.paymentType);
+  return formatPaymentPurpose(payment);
 }
 export function formatPaymentType(
   type: AdminPaymentType,

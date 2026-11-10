@@ -344,7 +344,7 @@ describe("provider booking payments workspace", () => {
     expect(within(drawer).getByText("payment-paid")).toBeVisible();
     expect(within(drawer).getByText("request-paid")).toBeVisible();
     expect(within(drawer).getByText("event-paid")).toBeVisible();
-    expect(within(drawer).getByText("Provider request down payment")).toBeVisible();
+    expect(within(drawer).getByText("Down payment")).toBeVisible();
     expect(within(drawer).getByLabelText("Status: Refund pending")).toBeVisible();
     expect(within(drawer).getAllByLabelText("Status: Confirmed")).toHaveLength(2);
 
@@ -436,4 +436,24 @@ describe("provider booking payments workspace", () => {
     expect(mocks.loadPage).toHaveBeenCalledTimes(2);
   });
 
+});
+
+import {ProviderPaymentDetailDrawer} from "@/app/provider/payments/provider-payment-detail-drawer";
+
+describe("provider payment purpose", () => {
+  it.each([
+    ["provider_down_payment", "full", "Full payment"],
+    ["provider_down_payment", "minimum", "Down payment"],
+    ["provider_down_payment", null, "Down payment"],
+    ["provider_down_payment", undefined, "Down payment"],
+    ["provider_down_payment", "remaining_balance", "Down payment"],
+    ["provider_balance", "remaining_balance", "Remaining balance"],
+    ["provider_balance", "full", "Remaining balance"],
+    ["refund", "full", "Refund"],
+    ["adjustment", "full", "Payment adjustment"],
+  ] as const)("renders %s / %s as %s", (paymentType, paymentChoice, label) => {
+    render(<ProviderPaymentDetailDrawer detail={detail({...payment(), paymentType, paymentChoice})}
+      open loading={false} error={null} onOpenChange={() => {}} onRetry={() => {}} />);
+    expect(screen.getByText("Payment type").parentElement).toHaveTextContent(label);
+  });
 });

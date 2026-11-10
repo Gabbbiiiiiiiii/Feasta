@@ -189,3 +189,15 @@ describe("provider payment normalization", () => {
     }))).toBeNull();
   });
 });
+
+ describe("provider payment-choice evidence", () => {
+  it.each(["full", "minimum", "remaining_balance", null, undefined, "legacy", "FULL", {}, 1])("validates stored choice %j without amount inference or request fallback", choice => {
+    const result = normalizeProviderPaymentRecord(records({
+      payment: {paymentChoice: choice, amountInCentavos: 185000},
+      providerRequest: {initialPaymentChoice: "full", amount: 1850},
+    }));
+    expect(result?.payment.paymentChoice).toBe(
+      ["full", "minimum", "remaining_balance"].includes(choice as string) ? choice : null,
+    );
+  });
+});

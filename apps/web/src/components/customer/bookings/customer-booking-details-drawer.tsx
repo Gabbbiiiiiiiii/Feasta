@@ -18,6 +18,7 @@ import {useBookingChanges} from "@/lib/customer/bookings/use-booking-changes";
 import {
   bookingStatusLabel,
   boundedText,
+  formatBookingLabel,
   formatBookingDate,
   formatBookingTimeRange,
   formatCount,
@@ -150,7 +151,7 @@ function CustomerBookingDetailsDrawer({
       open={open}
       onOpenChange={changeOpenState}
       title={`Booking ${boundedText(booking.bookingCode, "details", 80)}`}
-      description={boundedText(booking.eventType, "Event details", 120)}
+      description={formatBookingLabel(boundedText(booking.eventType, "Event details", 120))}
       footer={
         <div className="grid w-full gap-2 sm:grid-cols-2">
           <Button
@@ -227,7 +228,7 @@ function BookingDetailsContent({
           <DetailItem
             icon={<CalendarDays />}
             label="Event"
-            value={boundedText(booking.eventType, "Unspecified event", 120)}
+            value={formatBookingLabel(boundedText(booking.eventType, "Unspecified event", 120))}
             secondary={`${formatBookingDate(booking.eventDate)} · ${formatBookingTimeRange(booking.eventTime, booking.eventEndTime)}`}
           />
           <DetailItem

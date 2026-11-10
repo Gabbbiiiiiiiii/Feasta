@@ -8,6 +8,7 @@ import type {ReactNode} from "react";
 import {
   bookingStatusLabel,
   boundedText,
+  formatBookingLabel,
   formatBookingDateTime,
   formatInitialPaymentDeadline,
   formatCurrency,
@@ -442,7 +443,7 @@ function ServiceItem({service}: {service: CustomerBookingService}) {
         </p>
         {service.category ? (
           <p className="mt-0.5 break-words text-xs leading-5 text-muted-foreground">
-            {boundedText(service.category, "", 80)}
+            {formatBookingLabel(boundedText(service.category, "", 80))}
           </p>
         ) : null}
       </div>

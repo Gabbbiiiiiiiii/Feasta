@@ -13,6 +13,12 @@ import type {
 } from "@/lib/customer/bookings/customer-booking-types";
 import {hasPartialUpfrontPayment} from "@/lib/payments/customer-payment-presentation";
 
+/** Humanize stored identifiers only at the presentation boundary. */
+export function formatBookingLabel(value: string): string {
+  if (value.includes(" ") && !value.includes("_")) return value;
+  return value.replaceAll("_", " ").replace(/\b\w/gu, character => character.toUpperCase());
+}
+
 const dateFormatter = new Intl.DateTimeFormat("en-PH", {
   dateStyle: "medium",
   timeZone: "Asia/Manila",

@@ -1,4 +1,5 @@
 import type {
+  CustomerPaymentChoice,
   MainEventStatus,
   PaymentStatus,
   PaymentType,
@@ -39,6 +40,7 @@ export type ProviderPayment = {
   formattedAmount: string;
   currency: "PHP";
   paymentType: PaymentType;
+  paymentChoice?: CustomerPaymentChoice | null;
   status: ProviderPaymentStatus;
   refundStatus: ProviderPaymentRefundStatus;
 

@@ -1747,3 +1747,22 @@ function deferredReview() {
 
   return {promise, resolve};
 }
+
+import {formatBookingLabel} from "@/components/customer/bookings/booking-formatters";
+
+it.each([["birthday", "Birthday"], ["catering_package", "Catering Package"]])("formats booking identifier %s for display", (identifier, label) => {
+  expect(formatBookingLabel(identifier)).toBe(label);
+});
+
+it("humanizes booking event and included-service labels without mutating identifiers", () => {
+  const result = detailResult();
+  result.details.booking.eventType = "birthday";
+  result.details.providerRequests[0].services[0].category = "catering_package";
+  render(<CustomerBookingDetailPage result={result} />);
+  expect(screen.getByText("Birthday")).toBeVisible();
+  expect(screen.getByText("Catering Package")).toBeVisible();
+  expect(screen.queryByText("birthday")).not.toBeInTheDocument();
+  expect(screen.queryByText("catering_package")).not.toBeInTheDocument();
+  expect(result.details.booking.eventType).toBe("birthday");
+  expect(result.details.providerRequests[0].services[0].category).toBe("catering_package");
+});

@@ -20,6 +20,7 @@ import {useBookingChanges} from "@/lib/customer/bookings/use-booking-changes";
 
 import {
   boundedText,
+  formatBookingLabel,
   formatBookingDate,
   formatBookingTimeRange,
   formatCount,
@@ -162,7 +163,7 @@ function CustomerBookingDetailContent({
       </div>
       <DetailSection title="Event details" icon={<CalendarDays />}>
         <dl className="grid gap-px overflow-hidden rounded-xl border border-border bg-border sm:grid-cols-2">
-          <DetailField label="Event type" value={boundedText(booking.eventType, "Unspecified event", 120)} />
+          <DetailField label="Event type" value={formatBookingLabel(boundedText(booking.eventType, "Unspecified event", 120))} />
           <DetailField
             label="Schedule"
             value={formatBookingDate(booking.eventDate)}

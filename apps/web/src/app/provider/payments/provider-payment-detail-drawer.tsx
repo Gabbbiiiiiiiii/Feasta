@@ -1,5 +1,7 @@
 "use client";
 
+import {formatPaymentPurpose} from "@/lib/payments/payment-purpose";
+
 import {formatEventTime} from "@/lib/presentation/event-time";
 
 import {CalendarDays, Clock3, CreditCard, PackageOpen, UserRound} from "lucide-react";
@@ -113,7 +115,7 @@ export function ProviderPaymentDetailDrawer({
               value={formatCentavos(payment.amountInCentavos)}
             />
             <DetailRow label="Currency" value={payment.currency} />
-            <DetailRow label="Payment type" value={formatPaymentType(payment.paymentType)} />
+            <DetailRow label="Payment type" value={formatPaymentPurpose(payment)} />
           </DrawerSection>
 
           <DrawerSection title="Activity">
@@ -190,17 +192,6 @@ function refundStatusLabel(status: NonNullable<ProviderPaymentDetail["payment"][
   if (status === "requested") return "Refund pending";
   if (status === "processing") return "Refund processing";
   return "Refund completed";
-}
-
-function formatPaymentType(type: ProviderPaymentDetail["payment"]["paymentType"]): string {
-  const labels = {
-    provider_down_payment: "Provider request down payment",
-    provider_balance: "Provider request balance payment",
-    refund: "Refund",
-    adjustment: "Payment adjustment",
-  } as const;
-
-  return labels[type];
 }
 
 function formatLabel(value: string): string {

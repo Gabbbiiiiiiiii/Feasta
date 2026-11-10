@@ -819,3 +819,12 @@ function checkoutFixture(): CreateCustomerPaymentSessionResult {
     created: true,
   };
 }
+
+it("humanizes the booking modal event identifier", async () => {
+  const details = detailsFixture();
+  details.details.booking.eventType = "birthday";
+  mocks.loadDetails.mockResolvedValue(details);
+  render(<CustomerBookingDetailsDrawer booking={bookingFixture({eventType: "birthday"})} open onOpenChange={() => {}} />);
+  expect((await screen.findAllByText("Birthday")).length).toBeGreaterThan(0);
+  expect(screen.queryByText("birthday")).not.toBeInTheDocument();
+});
