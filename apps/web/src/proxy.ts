@@ -36,6 +36,18 @@ export function proxy(request: NextRequest) {
     return NextResponse.next({request: {headers: requestHeaders}});
   }
 
+  // Public, read-only reviews use server-side publication and relationship
+  // validation. Do not require a customer login for this exact GET route.
+  // All other protected customer routes retain their existing guards.
+  const publicReviewsGet =
+    request.method === "GET" &&
+    /^\/customer\/providers\/[A-Za-z0-9_-]{1,128}\/reviews\/?$/.test(
+      request.nextUrl.pathname,
+    );
+
+  if (publicReviewsGet) {
+    return NextResponse.next({request: {headers: requestHeaders}});
+  }
   const protectedPath = PROTECTED_PREFIXES.some((prefix) =>
     request.nextUrl.pathname === prefix ||
     request.nextUrl.pathname.startsWith(`${prefix}/`),
