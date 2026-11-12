@@ -1,3 +1,5 @@
+import type {ServicePortfolio} from "@/lib/provider/service-portfolio";
+import type {FreelanceServiceDetails} from "@feasta/shared-types/freelance-service-details";
 import type {FoodChoiceGroupV2} from "@feasta/shared-types/provider-package-v2";
 import type {ProviderEventType} from "@feasta/shared-types";
 
@@ -57,6 +59,8 @@ export type PackageDiscoveryFilters = {
 };
 
 export type PublicEventService = {
+  portfolio?: ServicePortfolio;
+  freelanceDetails?: FreelanceServiceDetails;
   id: string;
   providerId: string;
   providerName: string;

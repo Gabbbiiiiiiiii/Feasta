@@ -16,6 +16,7 @@ import {
 import {
   cloudinarySecrets,
   verifyProviderServiceImage,
+  verifyServicePortfolioImage,
 } from "../shared/cloudinary.js";
 import {
   isApprovedProviderForOperations,
@@ -40,6 +41,8 @@ import {
 } from "../shared/timestamps.js";
 import {stableOccasionPublicationGeneration} from "../packages/occasion-publication-generation.js";
 
+import {parseFreelanceServiceDetails, supportsServicePackageDetails, type FreelanceServiceDetails} from "@feasta/shared-types/freelance-service-details";
+
 const COLLECTIONS = {
   providers: "providers",
   addons: "addons",
@@ -59,6 +62,7 @@ type AddonPricingType =
 type ServiceInput = {
   name: string;
   description: string;
+  freelanceDetails?: FreelanceServiceDetails | null;
   category: string;
   pricingType: AddonPricingType;
   price: number | null;
@@ -78,6 +82,8 @@ const CREATE_FIELDS = [
   "serviceId",
   "name",
   "description",
+  "freelanceDetails",
+  "portfolio",
   "category",
   "pricingType",
   "price",
@@ -87,6 +93,7 @@ const CREATE_FIELDS = [
 
 const UPDATE_FIELDS = [
   ...CREATE_FIELDS,
+  "expectedRevision",
 ] as const;
 
 const SERVICE_ID_FIELDS = [
@@ -142,28 +149,24 @@ export const createProviderService = onCall(
       );
 
     const input =
-      parseServiceInput(rawInput);
+      parseServiceInput(rawInput, provider);
 
     assertServiceCategoryEnabledForProvider(
       provider,
       input.category,
     );
 
-    await verifyProviderServiceImage({
-    ownerId:
-      actor.uid,
-
-    serviceId,
-
-    url:
-      input.imageUrl,
-
-    publicId:
-      input.imagePublicId,
-
-    maximumBytes:
-      5 * 1024 * 1024,
-  });
+    const portfolio = await resolveServicePortfolio(rawInput.portfolio, provider, serviceId);
+    if (portfolio) {
+      const cover = portfolio.photos.find((photo) => photo.id === portfolio.coverAssetId);
+      input.imageUrl = cover?.thumbnailUrl ?? null;
+      input.imagePublicId = cover?.publicId ?? null;
+    } else {
+      await verifyProviderServiceImage({
+        ownerId: actor.uid, serviceId, url: input.imageUrl,
+        publicId: input.imagePublicId, maximumBytes: 5 * 1024 * 1024,
+      });
+    }
 
     const reference =
       db
@@ -180,6 +183,9 @@ export const createProviderService = onCall(
         );
 
         const serviceData = {
+          revision: 1,
+          ...(portfolio ? {portfolio} : {}),
+          ...(input.freelanceDetails ? {freelanceDetails: input.freelanceDetails} : {}),
           providerId:
             provider.id,
 
@@ -338,23 +344,19 @@ export const updateProviderService = onCall(
       );
 
     const input =
-      parseServiceInput(rawInput);
+      parseServiceInput(rawInput, provider);
 
-    await verifyProviderServiceImage({
-  ownerId:
-    actor.uid,
-
-  serviceId,
-
-  url:
-    input.imageUrl,
-
-  publicId:
-    input.imagePublicId,
-
-  maximumBytes:
-    5 * 1024 * 1024,
-});
+    const portfolio = await resolveServicePortfolio(rawInput.portfolio, provider, serviceId);
+    if (portfolio) {
+      const cover = portfolio.photos.find((photo) => photo.id === portfolio.coverAssetId);
+      input.imageUrl = cover?.thumbnailUrl ?? null;
+      input.imagePublicId = cover?.publicId ?? null;
+    } else {
+      await verifyProviderServiceImage({
+        ownerId: actor.uid, serviceId, url: input.imageUrl,
+        publicId: input.imagePublicId, maximumBytes: 5 * 1024 * 1024,
+      });
+    }
 
     const reference =
       db
@@ -402,6 +404,11 @@ export const updateProviderService = onCall(
           );
         }
 
+        const revision = typeof current.revision === "number" ? current.revision : 0;
+        if (rawInput.expectedRevision !== undefined && rawInput.expectedRevision !== revision) {
+          throw new HttpsError("aborted", "This service changed. Reopen the editor before saving.");
+        }
+        const preserveCover = !portfolio && current.portfolio !== undefined;
         const currentCategory =
           parseServiceCategory(
             current.category,
@@ -430,6 +437,12 @@ export const updateProviderService = onCall(
             description:
               input.description,
 
+            revision: revision + 1,
+            ...(portfolio ? {portfolio} : {}),
+            ...(input.freelanceDetails !== undefined ? {freelanceDetails: input.freelanceDetails} :
+              !supportsServicePackageDetails(provider.data.businessRegistrationType, input.category) && current.freelanceDetails
+                ? {freelanceDetails: null} : {}),
+
             category:
               input.category,
 
@@ -439,11 +452,7 @@ export const updateProviderService = onCall(
             price:
               input.price,
 
-            imageUrl:
-              input.imageUrl,
-
-            imagePublicId:
-              input.imagePublicId,
+            ...(preserveCover ? {} : {imageUrl: input.imageUrl, imagePublicId: input.imagePublicId}),
 
             updatedAt:
               serverTimestamp(),
@@ -1121,8 +1130,36 @@ function parseProviderServiceType(
 /* INPUT VALIDATION                                                           */
 /* ========================================================================== */
 
+async function resolveServicePortfolio(value: unknown, provider: OwnedProvider, serviceId: string) {
+  if (value === undefined) return undefined;
+  if (provider.data.businessRegistrationType !== "individual") {
+    throw new HttpsError("permission-denied", "Portfolio galleries require an individual provider profile.");
+  }
+  const input = requireObject(value);
+  const {coverAssetId, photos} = input;
+  if (!Array.isArray(photos) || photos.length > 20) {
+    throw new HttpsError("invalid-argument", "A portfolio can contain up to 20 photos.");
+  }
+  const entries = photos.map((entry) => {
+    const {id, altText} = requireObject(entry);
+    if (typeof id !== "string" || !/^[a-f0-9-]{36}$/u.test(id) ||
+        typeof altText !== "string" || !altText.trim() || altText.length > 200) {
+      throw new HttpsError("invalid-argument", "Each portfolio photo needs a short image description.");
+    }
+    return {id, altText: altText.trim()};
+  });
+  if (new Set(entries.map(({id}) => id)).size !== entries.length ||
+      (entries.length ? !entries.some(({id}) => id === coverAssetId) : coverAssetId !== null)) {
+    throw new HttpsError("invalid-argument", "Select a cover photo from the portfolio.");
+  }
+  return {coverAssetId, photos: await Promise.all(entries.map(async (entry) => ({
+    ...entry, ...await verifyServicePortfolioImage(provider.ownerId, serviceId, entry.id),
+  })))};
+}
+
 function parseServiceInput(
   data: Record<string, unknown>,
+  provider: OwnedProvider,
 ): ServiceInput {
   const category =
     parseServiceCategory(
@@ -1134,7 +1171,20 @@ function parseServiceInput(
       data.pricingType,
     );
 
+  let freelanceDetails: FreelanceServiceDetails | null | undefined;
+  if (Object.hasOwn(data, "freelanceDetails")) {
+    if (!supportsServicePackageDetails(provider.data.businessRegistrationType, category)) {
+      throw new HttpsError("permission-denied", "Package details are unavailable for this service category.");
+    }
+    try {
+      freelanceDetails = parseFreelanceServiceDetails(data.freelanceDetails);
+    } catch (error) {
+      throw new HttpsError("invalid-argument", (error as Error).message);
+    }
+  }
+
   return {
+    freelanceDetails,
     name:
       requireText(
         data.name,
@@ -1352,10 +1402,20 @@ function validatePublishableService(
     pricingType,
   );
 
-  parseServiceImage(
-    service.imageUrl,
-    service.imagePublicId,
-  );
+  if (service.portfolio !== undefined) {
+    const portfolio = requireObject(service.portfolio);
+    if (!Array.isArray(portfolio.photos) || portfolio.photos.length > 20) {
+      throw new HttpsError("failed-precondition", "The portfolio is invalid.");
+    }
+    if (portfolio.photos.length) {
+      const cover = portfolio.photos.find((photo) => photo?.id === portfolio.coverAssetId);
+      if (!cover || cover.thumbnailUrl !== service.imageUrl || cover.publicId !== service.imagePublicId) {
+        throw new HttpsError("failed-precondition", "The portfolio cover is invalid.");
+      }
+      return;
+    }
+  }
+  parseServiceImage(service.imageUrl, service.imagePublicId);
 }
 
 function requireObject(

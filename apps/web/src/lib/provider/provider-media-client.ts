@@ -560,3 +560,54 @@ async function call<T>(
 
   return response.data;
 }
+
+export async function uploadServicePortfolioPhoto(serviceId: string, assetId: string, file: File): Promise<string | undefined> {
+  if (!auth.currentUser) return "Sign in again before uploading portfolio photos.";
+  validateServiceId(serviceId);
+  let signature: ProviderServiceImageUploadSignature;
+  try {
+    signature = await call<ProviderServiceImageUploadSignature>(
+      "createProviderServiceImageUploadSignature", {serviceId, portfolioAssetId: assetId},
+    );
+  } catch (error) {
+    const code = typeof error === "object" && error !== null && "code" in error ? error.code : undefined;
+    switch (code) {
+      case "functions/unauthenticated":
+        return "Sign in again before uploading portfolio photos.";
+      case "functions/permission-denied":
+        return "FEASTA denied upload access for this service.";
+      case "functions/resource-exhausted":
+        return "The upload limit was reached. Wait a few minutes before saving again.";
+      case "functions/invalid-argument":
+        return "The upload server rejected this photo request.";
+      default:
+        return "FEASTA could not prepare the photo upload.";
+    }
+  }
+
+  const form = new FormData();
+  form.set("file", file);
+  form.set("api_key", signature.apiKey);
+  form.set("timestamp", String(signature.timestamp));
+  form.set("signature", signature.signature);
+  form.set("public_id", signature.publicId);
+  form.set("overwrite", "false");
+  form.set("type", "authenticated");
+
+  let response: Response;
+  try {
+    response = await fetch(
+      `https://api.cloudinary.com/v1_1/${encodeURIComponent(signature.cloudName)}/image/upload`,
+      {method: "POST", body: form},
+    );
+  } catch {
+    return "Could not connect to the photo upload service. Check your connection and save again.";
+  }
+
+  if (!response.ok) {
+    if (response.status === 413) return "The upload service rejected the photo size. Try a smaller image.";
+    return `The photo upload service rejected the request (HTTP ${response.status}).`;
+  }
+  const body = await readCloudinaryResponse(response);
+  if (body.public_id !== signature.publicId) return "The upload service returned an unexpected photo ID.";
+}

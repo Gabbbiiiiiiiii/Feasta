@@ -97,6 +97,32 @@ describe("onboarding service group selection", () => {
     },
   );
 
+  it.each([
+    {photo: true, video: false, codes: ["photographer"]},
+    {photo: false, video: true, codes: ["videographer"]},
+    {photo: true, video: true, codes: ["photographer", "videographer"]},
+  ])("saves and restores the grouped choices $codes", async ({photo, video, codes}) => {
+    const catalog = [...categories,
+      {code: "videographer", name: "Videography category", serviceType: "addon", status: "active"},
+    ] as const;
+    const props = {step: PROVIDER_ONBOARDING_STEPS[2], serviceCategories: catalog};
+    const view = render(<ProviderOnboardingStepForm {...props} draft={await loadProviderOnboardingDraft(account)} />);
+    fireEvent.click(additional());
+    expect(screen.getByRole("group", {name: "Photo & Video Services"})).toBeInTheDocument();
+    expect(screen.getByText("Select Photography, Videography, or both.")).toBeInTheDocument();
+    const photography = () => screen.getByRole("checkbox", {name: "Photography category"});
+    const videography = () => screen.getByRole("checkbox", {name: "Videography category"});
+    if (photo) fireEvent.click(photography());
+    if (video) fireEvent.click(videography());
+    fireEvent.click(screen.getByRole("checkbox", {name: "Wedding"}));
+    submit();
+    await waitFor(() => expect(mocks.save).toHaveBeenCalledWith(3, expect.objectContaining({serviceCategories: codes})));
+    view.unmount();
+    render(<ProviderOnboardingStepForm {...props} draft={await loadProviderOnboardingDraft(account)} />);
+    expect(photography()).toHaveProperty("checked", photo);
+    expect(videography()).toHaveProperty("checked", video);
+  });
+
   it.each(["catering", "addon", "both"] as const)(
     "saves an explicit %s selection and restores it on revisit",
     async (providerServiceType) => {

@@ -337,6 +337,42 @@ export function createProviderServiceImageUploadSignature(
   };
 }
 
+function portfolioPublicId(ownerId: string, serviceId: string, assetId: string): string {
+  if (!/^[a-f0-9-]{36}$/u.test(assetId)) {
+    throw new HttpsError("invalid-argument", "The portfolio asset ID is invalid.");
+  }
+  return providerServiceImagePublicId(ownerId, serviceId) + "/portfolio/" + assetId;
+}
+
+export function signServicePortfolioUpload(ownerId: string, serviceId: string, assetId: string) {
+  const configuration = configureCloudinary();
+  const timestamp = Math.floor(Date.now() / 1000);
+  const publicId = portfolioPublicId(ownerId, serviceId, assetId);
+  const parameters = {public_id: publicId, timestamp, overwrite: false, type: "authenticated"};
+  return {apiKey: configuration.apiKey, cloudName: configuration.cloudName, publicId, timestamp,
+    signature: cloudinary.utils.api_sign_request(parameters, configuration.apiSecret)};
+}
+
+export async function verifyServicePortfolioImage(ownerId: string, serviceId: string, assetId: string) {
+  const publicId = portfolioPublicId(ownerId, serviceId, assetId);
+  configureCloudinary();
+  const resource = await cloudinary.api.resource(publicId, {resource_type: "image", type: "authenticated"})
+    .catch(() => { throw new HttpsError("failed-precondition", "A portfolio photo could not be verified."); });
+  const {bytes, format, width, height, version} = resource;
+  if (resource.public_id !== publicId || resource.resource_type !== "image" ||
+      !["jpg", "jpeg", "png", "webp"].includes(format) || !Number.isSafeInteger(bytes) ||
+      bytes < 1 || bytes > 20 * 1024 * 1024 ||
+      !Number.isSafeInteger(width) || !Number.isSafeInteger(height) ||
+      width < 1 || height < 1 || width * height > 100_000_000 || !Number.isSafeInteger(version)) {
+    throw new HttpsError("invalid-argument", "Portfolio photos must be JPEG, PNG or WebP and within the upload limits.");
+  }
+  const url = (targetWidth: number) => cloudinary.url(publicId, {
+    secure: true, sign_url: true, type: "authenticated", resource_type: "image",
+    version, transformation: [{width: targetWidth, crop: "limit", quality: "auto"}],
+  });
+  return {publicId, url: url(1600), thumbnailUrl: url(480), width: Number(width), height: Number(height)};
+}
+
 export async function verifyProviderServiceImage(
   input: {
     ownerId: string;

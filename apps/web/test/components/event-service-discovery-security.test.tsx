@@ -90,6 +90,32 @@ describe("public event-service discovery security", () => {
       {id: "provider-owner", path: "users/provider-owner"});
   });
 
+  it("publishes a registered videographer’s package terms and distance surcharge", async () => {
+    state.records.set("providers/provider-one", {...provider, businessRegistrationType: "registered_business"});
+    const distanceSurcharge = {from: "Ormoc City Hall", afterKm: 20, feeCentavos: 100000};
+    addCandidate({category: "videographer", freelanceDetails: {
+      deliverables: [], collaboration: "", collaborationNotes: "", addOns: [], travelZones: [], distanceSurcharge,
+    }});
+    const result = await getPublicEventServices("catering-provider");
+    expect(result.services[0].freelanceDetails?.distanceSurcharge).toEqual(distanceSurcharge);
+  });
+
+  it("exposes an ordered, sanitized portfolio only for a published freelance service", async () => {
+    state.records.set("providers/provider-one", {...provider, businessRegistrationType: "individual"});
+    const photo = {
+      id: "portrait", altText: "Debut portrait", width: 2400, height: 1600,
+      url: "https://res.cloudinary.com/feasta/image/authenticated/portrait",
+      thumbnailUrl: "https://res.cloudinary.com/feasta/image/authenticated/portrait-thumb",
+    };
+    const second = {...photo, id: "dance", altText: "First dance"};
+    addCandidate({portfolio: {coverAssetId: "dance", photos: [{...photo, publicId: "private-identifier"}, second]}});
+    expect((await getPublicEventServices("catering-provider")).services[0].portfolio).toEqual({
+      coverAssetId: "dance", photos: [photo, second],
+    });
+    state.records.set("providers/provider-one", {...provider, businessRegistrationType: "registered_business"});
+    expect((await getPublicEventServices("catering-provider")).services[0].portfolio).toBeUndefined();
+  });
+
   it.each([
     {isDeleted: true},
     {status: "draft"}, {status: undefined},

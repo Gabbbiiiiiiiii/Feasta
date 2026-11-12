@@ -174,3 +174,18 @@ it("keeps a terminal subscription error visible if another listener publishes af
   expect(screen.getByRole("button", {name: "Retry"})).toBeVisible();
   expect(unsubscribe).toHaveBeenCalledOnce();
 });
+
+it("keeps the create service dialog open until the provider explicitly closes it", async () => {
+  mocks.services.mockResolvedValue([]);
+  render(<ProviderServicesClient providerId="owner" serviceCategories={["photographer"]}
+    serviceCategoryOptions={[{code: "photographer", name: "Photography", serviceType: "addon", status: "active"}]} />);
+  await screen.findByText("No event services yet");
+  fireEvent.click(screen.getByRole("button", {name: /new service/i}));
+  expect(screen.getByRole("dialog", {name: "Create event service"})).toBeInTheDocument();
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+  fireEvent.pointerDown(document.body, {pointerType: "mouse"});
+  fireEvent.keyDown(document, {key: "Escape"});
+  expect(screen.getByRole("dialog", {name: "Create event service"})).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", {name: "Close dialog"}));
+  expect(screen.queryByRole("dialog", {name: "Create event service"})).not.toBeInTheDocument();
+});

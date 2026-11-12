@@ -20,6 +20,7 @@ export interface ServerProviderContext {
   isSuspended: boolean;
   isDeleted: boolean;
 
+  businessRegistrationType?: "individual" | "registered_business";
   providerServiceType: ProviderServiceType;
   serviceCategories: readonly ServiceCategoryCode[];
 
@@ -148,6 +149,9 @@ export function resolveTrustedAccountContext(
     isSuspended: providerProfile.isSuspended === true,
     isDeleted: providerProfile.isDeleted === true,
 
+    ...(providerProfile.businessRegistrationType === "individual" ||
+      providerProfile.businessRegistrationType === "registered_business"
+      ? {businessRegistrationType: providerProfile.businessRegistrationType} : {}),
     providerServiceType,
     serviceCategories,
 

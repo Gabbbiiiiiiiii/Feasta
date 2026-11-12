@@ -1,7 +1,7 @@
 {
   "canonicalSource": "packages/shared-types",
   "archive": "feasta-shared-types-0.1.0.tgz",
-  "sha256": "2914b57624e8a357e4b5bea80032d32e04ff946909661def27601b9d879f9665",
+  "sha256": "46029de7b23b002dee8eb048f2b10f991728ce2ba20dcd0f5aa4107166e95cb1",
   "files": [
     "dist/authentication.d.ts",
     "dist/authentication.js",
@@ -29,6 +29,8 @@
     "dist/documents/verification-document-requirement.d.cts",
     "dist/enums.d.ts",
     "dist/enums.js",
+    "dist/freelance-service-details.cjs",
+    "dist/freelance-service-details.d.cts",
     "dist/index.d.ts",
     "dist/index.js",
     "dist/payment.d.ts",

@@ -40,6 +40,7 @@ export default async function ProviderServicesPage() {
     {provider.providerServiceType === "both" ? <nav aria-label="Packages and services" className="flex flex-wrap gap-4"><Link href="/provider/packages" className="font-semibold underline">Packages</Link><Link href="/provider/services" aria-current="page" className="font-semibold underline">Event Services</Link></nav> : null}
     <ProviderServicesClient
       providerId={account.provider.id}
+      isFreelancer={provider.businessRegistrationType === "individual"}
       serviceCategories={
         account.provider.serviceCategories
       }

@@ -49,6 +49,11 @@
       "types": "./dist/customer-package-v2.d.cts",
       "import": "./dist/customer-package-v2.cjs",
       "require": "./dist/customer-package-v2.cjs"
+    },
+    "./freelance-service-details": {
+      "types": "./dist/freelance-service-details.d.cts",
+      "import": "./dist/freelance-service-details.cjs",
+      "require": "./dist/freelance-service-details.cjs"
     }
   },
   "scripts": {
@@ -72,6 +77,9 @@
       ],
       "customer-package-v2": [
         "dist/customer-package-v2.d.cts"
+      ],
+      "freelance-service-details": [
+        "dist/freelance-service-details.d.cts"
       ]
     }
   }

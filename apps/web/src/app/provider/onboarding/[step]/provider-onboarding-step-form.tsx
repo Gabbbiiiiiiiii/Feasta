@@ -888,6 +888,14 @@ function StepFields({
       );
     };
 
+    const addonCategoryCodes = addonCategories.map((category) => category.code);
+    const photoVideoCategories = addonCategoryCodes.filter(
+      (code) => code === "photographer" || code === "videographer",
+    );
+    const otherAddonCategories = addonCategoryCodes.filter(
+      (code) => code !== "photographer" && code !== "videographer",
+    );
+
     const toggleServiceCategory = (
       category: (typeof serviceCategories)[number]["code"],
     ) => {
@@ -1055,23 +1063,35 @@ function StepFields({
           </button>
         ) : null}
 
-        {addonSelected ? (
+        {addonSelected && photoVideoCategories.length > 0 ? (
           <CheckboxGroup
-            legend="Additional event services"
-            description="Select every additional event service your business provides."
-            values={addonCategories.map(
-              (category) => category.code,
-            )}
+            legend="Photo & Video Services"
+            description={photoVideoCategories.length === 2
+              ? "Select Photography, Videography, or both."
+              : "Select this service if your business offers it."}
+            values={photoVideoCategories}
             selected={values.serviceCategories}
             disabled={loading}
-            error={
-              !cateringSelected
-                ? fieldErrors.serviceCategories
-                : undefined
-            }
+            error={!cateringSelected && otherAddonCategories.length === 0
+              ? fieldErrors.serviceCategories
+              : undefined}
             label={(category) =>
-              categoryNames.get(category) ??
-              titleFromValue(category)
+              categoryNames.get(category) ?? titleFromValue(category)
+            }
+            onToggle={toggleServiceCategory}
+          />
+        ) : null}
+
+        {addonSelected && (otherAddonCategories.length > 0 || photoVideoCategories.length === 0) ? (
+          <CheckboxGroup
+            legend={photoVideoCategories.length > 0 ? "Other event services" : "Additional event services"}
+            description="Select every additional event service your business provides."
+            values={otherAddonCategories}
+            selected={values.serviceCategories}
+            disabled={loading}
+            error={!cateringSelected ? fieldErrors.serviceCategories : undefined}
+            label={(category) =>
+              categoryNames.get(category) ?? titleFromValue(category)
             }
             onToggle={toggleServiceCategory}
           />

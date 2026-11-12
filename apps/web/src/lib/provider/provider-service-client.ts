@@ -27,14 +27,21 @@ import {
   functions,
 } from "@/lib/firebase/client";
 
+import {readFreelanceServiceDetails, type FreelanceServiceDetails} from "@feasta/shared-types/freelance-service-details";
+
+import {readServicePortfolio, type ServicePortfolio, type ServicePortfolioInput} from "./service-portfolio";
+
 export type ProviderServiceStatus =
   | "draft"
   | "published"
   | "archived";
 
 export type ProviderServiceInput = {
+  portfolio?: ServicePortfolioInput;
+  expectedRevision?: number;
   name: string;
   description: string;
+  freelanceDetails?: FreelanceServiceDetails | null;
   category: ServiceCategoryCode;
   pricingType: AddonPricingType;
   price: number | null;
@@ -43,11 +50,14 @@ export type ProviderServiceInput = {
 };
 
 export type ProviderService = {
+  portfolio?: ServicePortfolio | null;
+  revision?: number;
   id: string;
   providerId: string;
 
   name: string;
   description: string;
+  freelanceDetails?: FreelanceServiceDetails | null;
 
   category: ServiceCategoryCode;
   pricingType: AddonPricingType;
@@ -211,6 +221,9 @@ function normalizeServiceInput(
     );
 
   return {
+    ...(input.expectedRevision !== undefined ? {expectedRevision: input.expectedRevision} : {}),
+    ...(input.portfolio ? {portfolio: input.portfolio} : {}),
+    ...(input.freelanceDetails !== undefined ? {freelanceDetails: input.freelanceDetails} : {}),
     name:
       requireText(
         input.name,
@@ -257,6 +270,9 @@ function parseProviderService(
 
   return {
     id,
+    revision: typeof data.revision === "number" ? data.revision : 0,
+    portfolio: readServicePortfolio(data.portfolio),
+    freelanceDetails: readFreelanceServiceDetails(data.freelanceDetails),
 
     providerId:
       requiredString(

@@ -1,8 +1,10 @@
+import {readServicePortfolio} from "@/lib/provider/service-portfolio";
+import {readFreelanceServiceDetails, supportsServicePackageDetails} from "@feasta/shared-types/freelance-service-details";
 import "server-only";
 import {loadActiveLegacyOccasionIds} from "@/lib/customer/discovery/active-legacy-occasion-guard";
 import {verifiedPublicPackageV2} from "@/lib/customer/discovery/verified-package-v2";
 
-import {FIRESTORE_COLLECTIONS} from "@feasta/shared-types";
+import {ADDON_PRICING_TYPES, FIRESTORE_COLLECTIONS} from "@feasta/shared-types";
 
 import {normalizePublicPackage} from "@/lib/customer/discovery/public-package-normalization";
 import {adminDb} from "@/lib/firebase/admin";
@@ -77,7 +79,7 @@ export async function getPublicProviderDetail(
     ? await providerSnapshot.ref.collection("catalog").doc("setups").get()
     : null;
   const setups = publicProviderSetups(setupSnapshot?.data()?.setups, ownerId);
-  const services = [] as {id: string; name: string; description: string | null}[];
+  const services = [] as NonNullable<PublicProviderDetail["services"]>[number][];
   if (provider.serviceType === "addon" || provider.serviceType === "both") {
     const offerings = await adminDb.collection(FIRESTORE_COLLECTIONS.addons)
       .where("providerId", "==", provider.id).limit(20).get();
@@ -86,7 +88,18 @@ export async function getPublicProviderDetail(
       if (data.providerId !== provider.id || data.ownerId !== ownerId || data.status !== "published" ||
         data.isPublished !== true || data.isActive !== true || data.isAvailable !== true || data.isDeleted === true ||
         typeof data.name !== "string" || !data.name.trim()) continue;
-      services.push({id: document.id, name: data.name.trim().slice(0, 160),
+      const freelanceDetails = supportsServicePackageDetails(providerData.businessRegistrationType, data.category)
+        ? readFreelanceServiceDetails(data.freelanceDetails) : null;
+      const portfolio = providerData.businessRegistrationType === "individual"
+        ? readServicePortfolio(data.portfolio) : null;
+      const pricingType = ADDON_PRICING_TYPES.find((type) => type === data.pricingType);
+      const price = typeof data.price === "number" && Number.isFinite(data.price) && data.price >= 0
+        ? data.price : undefined;
+      services.push({id: document.id,
+        ...(pricingType ? {pricingType} : {}),
+        ...(price !== undefined && pricingType !== "custom_quote" ? {price} : {}),
+        ...(portfolio?.photos.length ? {portfolio} : {}), name: data.name.trim().slice(0, 160),
+        ...(freelanceDetails ? {freelanceDetails} : {}),
         description: typeof data.description === "string" ? data.description.trim().slice(0, 600) : null});
     }
   }

@@ -1,3 +1,6 @@
+import {phpFormatter} from "@/components/shared/price-display";
+import {ServicePortfolioGallery} from "@/components/shared/service-portfolio-gallery";
+import {FreelanceServiceSummary} from "@/components/shared/freelance-service-summary";
 import {ProviderRating} from "./provider-rating";
 import {ProviderPublicReviews} from "./provider-public-reviews";
 import type {PublicReviewPage} from "@/lib/customer/providers/public-review-types";
@@ -554,7 +557,20 @@ export function ProviderProfile({
         <div className="mt-4 grid grid-cols-[repeat(auto-fill,minmax(min(100%,16rem),1fr))] gap-4">
           {detail.services.map((service) => <article key={service.id} className="min-w-0 rounded-xl border border-feasta-border-soft p-4">
             <h3 className="break-words text-base font-bold">{service.name}</h3>
+            {service.pricingType === "custom_quote" ? (
+              <p className="mt-1 text-sm font-semibold">Request a quote</p>
+            ) : service.price !== undefined ? (
+              <p className="mt-1 text-sm font-semibold">
+                {phpFormatter.format(service.price)}
+                {service.pricingType === "per_hour" ? " per hour" :
+                  service.pricingType === "per_guest" ? " per guest" :
+                  service.pricingType === "per_unit" ? " per unit" :
+                  service.pricingType === "fixed" ? " per booking" : ""}
+              </p>
+            ) : null}
             {service.description ? <p className="mt-2 break-words text-sm text-feasta-text-secondary">{service.description}</p> : null}
+            {service.portfolio ? <ServicePortfolioGallery portfolio={service.portfolio} /> : null}
+            {service.freelanceDetails ? <FreelanceServiceSummary details={service.freelanceDetails} /> : null}
           </article>)}
         </div>
       </section> : null}

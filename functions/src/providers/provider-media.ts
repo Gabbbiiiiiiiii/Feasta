@@ -14,6 +14,7 @@ import {
   createProviderServiceImageUploadSignature as
     createServiceImageUploadSignature,
   createProviderUploadSignature,
+  signServicePortfolioUpload,
   deleteProviderMedia,
   deleteProviderServiceImage as
     deleteServiceImage,
@@ -116,6 +117,7 @@ export const createProviderServiceImageUploadSignature =
         input,
         [
           "serviceId",
+          "portfolioAssetId",
         ],
       );
 
@@ -123,6 +125,22 @@ export const createProviderServiceImageUploadSignature =
         requireServiceId(
           input.serviceId,
         );
+
+      if (input.portfolioAssetId !== undefined) {
+        if (typeof input.portfolioAssetId !== "string") {
+          throw new HttpsError("invalid-argument", "The portfolio asset ID is invalid.");
+        }
+        const profiles = await db.collection("providers").where("ownerId", "==", actor.uid).limit(2).get();
+        const profile = profiles.docs[0]?.data();
+        const service = await db.collection("addons").doc(serviceId).get();
+        if (profiles.size !== 1 || profile?.businessRegistrationType !== "individual" ||
+            !["addon", "both"].includes(profile.providerServiceType) ||
+            (service.exists && (service.get("ownerId") !== actor.uid ||
+              service.get("providerId") !== profiles.docs[0].id || service.get("isDeleted") === true))) {
+          throw new HttpsError("permission-denied", "You cannot upload a portfolio for this service.");
+        }
+        return signServicePortfolioUpload(actor.uid, serviceId, input.portfolioAssetId);
+      }
 
       return createServiceImageUploadSignature(
         actor.uid,

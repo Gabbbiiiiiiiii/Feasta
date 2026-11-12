@@ -11,6 +11,7 @@ import {
   AlertCircle,
   Archive,
   Edit3,
+  Eye,
   Plus,
   RefreshCw,
   Send,
@@ -25,14 +26,16 @@ import {
 } from "react";
 
 import {
-  DataTable,
   FilterToolbar,
   SummaryCard,
-  type DataTableColumn,
 } from "@/components/data";
 import {
   PageHeading,
 } from "@/components/layout/page-heading";
+import {EmptyState} from "@/components/feedback/states";
+import {FreelanceServiceSummary} from "@/components/shared/freelance-service-summary";
+import {ImagePlaceholder} from "@/components/shared/image-placeholder";
+import {PackagePaymentTerms} from "@/components/shared/package-payment-terms";
 import {
   ConfirmationDialog,
 } from "@/components/shared/confirmation-dialog";
@@ -65,6 +68,7 @@ import {
 } from "./provider-service-form";
 
 type ProviderServicesClientProps = {
+  isFreelancer?: boolean;
   providerId: string;
   serviceCategories:
   readonly ServiceCategoryCode[];
@@ -73,6 +77,7 @@ type ProviderServicesClientProps = {
 };
 
 export function ProviderServicesClient({
+  isFreelancer,
   providerId,
   serviceCategories,
   serviceCategoryOptions,
@@ -240,74 +245,6 @@ export function ProviderServicesClient({
       [services],
     );
 
-  const columns =
-    useMemo<
-      readonly DataTableColumn<ProviderService>[]
-    >(
-      () => [
-        {
-          id: "name",
-          header: "Service",
-          sortable: true,
-          cell: (row) => (
-            <div className="grid gap-1">
-              <span className="font-medium text-foreground">
-                {row.name}
-              </span>
-
-              <span className="text-sm text-muted-foreground">
-                {serviceCategoryName(row.category)}
-              </span>
-            </div>
-          ),
-        },
-        {
-          id: "pricing",
-          header: "Pricing",
-          cell: (row) => (
-            <div className="grid gap-1">
-              <span className="text-sm text-foreground">
-                {formatPricingType(
-                  row.pricingType,
-                )}
-              </span>
-
-              {row.price !== null ? (
-                <PriceDisplay
-                  amount={row.price}
-                />
-              ) : (
-                <span className="text-sm text-muted-foreground">
-                  Contact for quote
-                </span>
-              )}
-            </div>
-          ),
-        },
-        {
-          id: "availability",
-          header: "Availability",
-          cell: (row) => (
-            <span className="text-sm">
-              {row.isAvailable
-                ? "Available"
-                : "Unavailable"}
-            </span>
-          ),
-        },
-        {
-          id: "status",
-          header: "Status",
-          cell: (row) => (
-            <StatusBadge
-              status={row.status}
-            />
-          ),
-        },
-      ],
-      [serviceCategoryName],
-    );
-
   return (
     <Dialog
       open={createOpen}
@@ -315,7 +252,7 @@ export function ProviderServicesClient({
         if (!creating) setCreateOpen(open);
       }}
     >
-    <div className="grid gap-6">
+    <div className="@container grid gap-6">
       <PageHeading
         eyebrow="Provider management"
         title="Event Services"
@@ -363,19 +300,22 @@ export function ProviderServicesClient({
         </div>
       ) : null}
 
-      <DialogContent className="flex max-h-[90dvh] max-w-4xl flex-col gap-0 overflow-hidden p-0">
+      <DialogContent
+        onInteractOutside={(event) => event.preventDefault()}
+        onEscapeKeyDown={(event) => event.preventDefault()}
+        className="flex max-h-[90dvh] max-w-4xl flex-col gap-0 overflow-hidden p-0">
           <DialogHeader className="shrink-0 border-b border-border px-6 py-5 pr-16">
             <DialogTitle>
               Create event service
             </DialogTitle>
 
             <DialogDescription>
-              Add the details customers need to understand and book this
-              service. Save as a draft to review and publish afterward.
+              Add the details customers need to understand your service.
             </DialogDescription>
           </DialogHeader>
 
           <ProviderServiceForm
+            isFreelancer={isFreelancer}
             inDialog
             onSubmittingChange={setCreating}
             serviceCategories={
@@ -408,6 +348,7 @@ export function ProviderServicesClient({
           </div>
 
           <ProviderServiceForm
+            isFreelancer={isFreelancer}
             key={editingService.id}
             serviceCategories={
               serviceCategories
@@ -542,81 +483,91 @@ export function ProviderServicesClient({
             Loading event services...
           </div>
         </div>
-      ) : error ? null : (
-        <DataTable
-          columns={columns}
-          rows={filteredServices}
-          getRowId={(row) => row.id}
-          caption="Provider event service results"
-          rowActionsLabel="Actions"
-          rowActions={(row) => (
-            <div className="flex justify-end gap-2">
-              {row.status === "draft" ? (
-                <>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="compact"
-                    aria-label={`Edit ${row.name}`}
-                    onClick={() => {
-                      setCreateOpen(false);
-                      setEditingService(row);
-                    }}
-                  >
-                    <Edit3
-                      aria-hidden="true"
-                      className="size-4"
-                    />
-                    Edit
-                  </Button>
-
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="compact"
-                    aria-label={`Publish ${row.name}`}
-                    onClick={() => {
-                      setActionError(null);
-                      setPublishService(row);
-                    }}
-                  >
-                    <Send
-                      aria-hidden="true"
-                      className="size-4"
-                    />
-                    Publish
-                  </Button>
-                </>
-              ) : null}
-
-              {row.status === "published" ? (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="compact"
-                  aria-label={`Archive ${row.name}`}
-                  onClick={() => {
-                    setActionError(null);
-                    setArchiveService(row);
-                  }}
-                >
-                  <Archive
-                    aria-hidden="true"
-                    className="size-4"
-                  />
-                  Archive
-                </Button>
-              ) : null}
-            </div>
-          )}
-          emptyKind={
-        submittedSearch
-            ? "search"
-            : undefined
-        }
-        emptyTitle="No event services yet"
-        emptyDescription="Create your first event service to start building your provider catalog."
-        />
+      ) : error ? null : filteredServices.length ? (
+        <div className="grid grid-cols-1 items-start gap-3 @min-[42rem]:grid-cols-2" aria-label="Provider event service results">
+          {filteredServices.map((service) => {
+            const cover = service.portfolio?.photos.find((photo) => photo.id === service.portfolio?.coverAssetId);
+            const imageUrl = cover?.thumbnailUrl || service.imageUrl;
+            const category = serviceCategoryName(service.category);
+            return (
+              <article key={service.id} aria-label={service.name}
+                className="flex min-w-0 flex-col self-start overflow-hidden rounded-card border border-border bg-card shadow-card sm:flex-row">
+                <div className="relative h-28 shrink-0 overflow-hidden bg-muted sm:h-auto sm:w-28">
+                  {imageUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={imageUrl} alt={cover?.altText ?? service.name} loading="lazy" className="absolute inset-0 size-full object-contain" />
+                  ) : <ImagePlaceholder className="h-full min-h-0 rounded-none" label="No service image" />}
+                </div>
+                <div className="flex min-w-0 flex-1 flex-col">
+                  <div className="grid content-start gap-1 p-2.5">
+                    <div className="flex min-w-0 items-start justify-between gap-2">
+                      <h2 className="min-w-0 line-clamp-1 break-words text-sm font-bold sm:text-base" title={service.name}>{service.name}</h2>
+                      <StatusBadge status={service.status} />
+                    </div>
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                      <p className="text-[11px] font-semibold uppercase text-primary-strong">{category}</p>
+                      {service.status === "published" ? <p className="text-xs text-muted-foreground">{service.isAvailable ? "Available" : "Unavailable"}</p> : null}
+                    </div>
+                    {service.price !== null ? <PriceDisplay amount={service.price} /> :
+                      <p className="text-sm font-semibold">Contact for quote</p>}
+                    <p className="text-xs text-muted-foreground">{formatPricingType(service.pricingType)}</p>
+                    <PackagePaymentTerms source={{paymentPolicy: "full_payment"}} />
+                  </div>
+                  {service.status !== "archived" ? <div className="mt-auto flex flex-wrap items-center gap-1 border-t border-border p-1.5">
+                    {service.status === "draft" ? <>
+                      <Button type="button" variant="secondary" size="compact" className="mr-auto"
+                        aria-label={`Edit ${service.name}`} onClick={() => {
+                          setCreateOpen(false);
+                          setEditingService(service);
+                        }}>
+                        <Edit3 aria-hidden="true" className="size-4" />Edit
+                      </Button>
+                      <Button type="button" variant="ghost" size="icon" title="Publish service"
+                        aria-label={`Publish ${service.name}`} onClick={() => {
+                          setActionError(null);
+                          setPublishService(service);
+                        }}>
+                        <Send aria-hidden="true" className="size-4" />
+                      </Button>
+                    </> : null}
+                    {service.status === "published" ? <>
+                      <Dialog>
+                        <DialogTrigger asChild>
+                          <Button type="button" variant="secondary" size="compact" aria-label={`View ${service.name}`}>
+                            <Eye aria-hidden="true" className="size-4" />View
+                          </Button>
+                        </DialogTrigger>
+                        <DialogContent className="max-h-[88dvh] overflow-y-auto">
+                          <DialogHeader>
+                            <DialogTitle>{service.name}</DialogTitle>
+                            <DialogDescription>{category}</DialogDescription>
+                          </DialogHeader>
+                          <p className="whitespace-pre-wrap break-words text-sm">{service.description}</p>
+                          {service.freelanceDetails ? <FreelanceServiceSummary details={service.freelanceDetails} /> : null}
+                        </DialogContent>
+                      </Dialog>
+                      <Button type="button" variant="ghost" size="icon" title="Archive service"
+                        aria-label={`Archive ${service.name}`} onClick={() => {
+                          setActionError(null);
+                          setArchiveService(service);
+                        }}>
+                        <Archive aria-hidden="true" className="size-4" />
+                      </Button>
+                    </> : null}
+                  </div> : null}
+                </div>
+              </article>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="rounded-card border border-border bg-card">
+          <EmptyState
+            title={submittedSearch ? "No matching event services" : "No event services yet"}
+            description={submittedSearch ? "Try a different search or clear your filters." :
+              "Create your first event service to start building your provider catalog."}
+          />
+        </div>
       )}
 
       <ConfirmationDialog

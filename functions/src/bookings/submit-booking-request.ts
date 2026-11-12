@@ -1,3 +1,4 @@
+import {readFreelanceServiceDetails, supportsServicePackageDetails} from "@feasta/shared-types/freelance-service-details";
 import {occasionDependencyEntryPath} from "../admin/occasion-dependency-registry.js";
 import {requireCustomerPackageV2} from "../packages/customer-package-v2.js";
 import {resolveOfferV2} from "../packages/offer-v2-validation.js";
@@ -1556,7 +1557,21 @@ async function handleBookingSelection(request: CallableRequest, disclosureOnly: 
               ...(foodChoiceSnapshot.length ? {foodChoiceSelections: foodChoiceSnapshot} : {}),
               selectedDecorations,
               selectedFurniture,
-              selectedAddOns,
+              selectedAddOns: selectedAddOns.map((addon, index) => {
+                const serviceProvider = addon.source === "catering_provider"
+                  ? cateringProvider : marketplaceProviders.get(addon.providerId)?.data;
+                const terms = supportsServicePackageDetails(serviceProvider?.businessRegistrationType, addon.category)
+                  ? readFreelanceServiceDetails(addonSnapshots[index].get("freelanceDetails"))
+                  : null;
+                if (!terms) return addon;
+                const {deliverables, collaboration, collaborationNotes, coverageMinutes, inclusions, planning, crewSize, clientRequirements} = terms;
+                if (!deliverables.length && !collaboration && !collaborationNotes && !coverageMinutes &&
+                    !inclusions?.length && !planning && !crewSize && !clientRequirements) return addon;
+                return {...addon, freelanceFulfillment: {deliverables, collaboration, collaborationNotes,
+                  ...(coverageMinutes ? {coverageMinutes} : {}), ...(inclusions?.length ? {inclusions} : {}),
+                  ...(planning ? {planning} : {}), ...(crewSize ? {crewSize} : {}),
+                  ...(clientRequirements ? {clientRequirements} : {})}};
+              }),
 
               willArrangeOwnAddOns,
               customerArrangedAddOnsNote,

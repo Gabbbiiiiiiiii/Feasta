@@ -1,3 +1,5 @@
+import {ServicePortfolioGallery} from "@/components/shared/service-portfolio-gallery";
+import {FreelanceServiceSummary} from "@/components/shared/freelance-service-summary";
 "use client";
 import type {FoodChoiceSelectionV2} from "@feasta/shared-types/provider-package-v2";
 import {customerPackageEstimate} from "@feasta/shared-types/customer-package-v2";
@@ -2862,6 +2864,8 @@ function EventServiceCard({
             {service.description}
           </p>
         ) : null}
+        {service.portfolio ? <ServicePortfolioGallery portfolio={service.portfolio} showCover={!service.imageUrl} /> : null}
+        {service.freelanceDetails ? <FreelanceServiceSummary details={service.freelanceDetails} /> : null}
 
         <div className="flex flex-wrap items-end justify-between gap-3 border-t border-feasta-divider pt-3">
           <div>

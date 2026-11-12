@@ -1,5 +1,7 @@
 import "server-only";
 
+import {readServicePortfolio} from "@/lib/provider/service-portfolio";
+import {readFreelanceServiceDetails, supportsServicePackageDetails} from "@feasta/shared-types/freelance-service-details";
 import {
   FIRESTORE_COLLECTIONS,
 } from "@feasta/shared-types";
@@ -189,7 +191,13 @@ export async function getPublicEventServices(
           return [];
         }
 
+        const freelanceDetails = supportsServicePackageDetails(providerRecord.businessRegistrationType, candidate.data.category)
+          ? readFreelanceServiceDetails(candidate.data.freelanceDetails) : null;
+        const portfolio = providerRecord.businessRegistrationType === "individual"
+          ? readServicePortfolio(candidate.data.portfolio) : null;
         return [{
+          ...(portfolio?.photos.length ? {portfolio} : {}),
+          ...(freelanceDetails ? {freelanceDetails} : {}),
           id: candidate.documentId,
           providerId:
             candidate.providerId,
