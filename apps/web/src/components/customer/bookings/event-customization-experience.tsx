@@ -1,9 +1,16 @@
 "use client";
 import {ServicePortfolioGallery} from "@/components/shared/service-portfolio-gallery";
 import {FreelanceServiceSummary} from "@/components/shared/freelance-service-summary";
+import {sharedEventCandidates, compatibleSharedEvent} from "@/lib/customer/event-list/shared-event-details";
 
+import type {ComponentProps} from "react";
+import {useCustomerEventListSession} from "@/lib/customer/event-list/customer-event-list";
+
+import Link from "next/link";
 import type {FoodChoiceSelectionV2} from "@feasta/shared-types/provider-package-v2";
 import {customerPackageEstimate} from "@feasta/shared-types/customer-package-v2";
+import {normalizeConfiguration, useCustomerEventList} from "@/lib/customer/event-list/customer-event-list";
+import {eventListConfigurationDraft} from "@/lib/customer/event-list/configuration-edit";
 import {FixedPackageInclusions} from "./fixed-package-inclusions";
 import {FoodChoiceSelector} from "./food-choice-selector";
 import {foodChoiceSelectionError, reconcileFoodChoiceSelections} from "@/lib/customer/bookings/food-choice-selection";
@@ -11,6 +18,7 @@ import {foodChoiceSelectionError, reconcileFoodChoiceSelections} from "@/lib/cus
 
 import {formatEventTime} from "@/lib/presentation/event-time";
 
+import {CustomerEventAddressMap, type EventMapCoordinates} from "@/components/customer/bookings/customer-event-address-map";
 import {
   ArrowLeft,
   ArrowRight,
@@ -22,7 +30,6 @@ import {
   Palette,
   ReceiptText,
   Soup,
-  Sparkles,
   TriangleAlert,
   UsersRound,
   Armchair,
@@ -47,19 +54,20 @@ import {
   useCallback,
   useEffect,
   useMemo,
-  useId,
   useRef,
   useState,
   type ReactNode,
 } from "react";
 import {
   checkCustomerProviderAvailability,
+  getCustomerProviderCalendarAvailability,
   type CustomerProviderAvailability,
   type CustomerProviderAvailabilityInput,
 } from "@/lib/customer/bookings/customer-provider-availability-client";
 import {
   bookingSubmissionRequiresRefundPolicyRefresh,
   submitCustomerBookingRequest,
+  reconcileCustomerBookingSubmission,
   type SubmitPackageBookingRequestInput,
   type SubmitBookingRequestResult,
 } from "@/lib/customer/bookings/customer-booking-submission-client";
@@ -77,7 +85,6 @@ import {PackagePaymentTerms} from "@/components/shared/package-payment-terms";
 import {PriceDisplay} from "@/components/shared/price-display";
 import {Button} from "@/components/ui/button";
 import {Input} from "@/components/ui/input";
-import {Dialog, DialogClose, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger} from "@/components/ui/dialog";
 import {Textarea} from "@/components/ui/textarea";
 import {formatPhilippineDate} from "@/lib/dates/philippine-date";
 import type {
@@ -90,6 +97,7 @@ import {
 import type {CustomerEventContext} from "@/lib/customer/planning/event-planning-context";
 
 type EventCustomizationExperienceProps = {
+  eventListEditProviderId?: string;
   draftOwner?: string;
   planningOnly?: boolean;
   detail: PublicPackageDetail;
@@ -143,29 +151,32 @@ const STEPS = [
   },
   {
     number: 3,
-    label: "Event services",
-  },
-  {
-    number: 4,
-    label: "Review",
+    label: "Review Booking",
   },
 ] as const;
 
-export function EventCustomizationExperience({
+function EventCustomizationExperienceSession({
   detail,
   eventServices,
   initialEventContext = null,
   draftOwner = "guest",
   planningOnly = false,
   publishedSetups,
+  eventListEditProviderId,
 }: EventCustomizationExperienceProps) {
+  const {addItem, readItems} = useCustomerEventList();
   const {
     packageRecord,
     provider,
     customization: sharedCustomization,
   } = detail;
 
+  const [sharedDetailsDismissed, setSharedDetailsDismissed] = useState(false);
+  const sharedDetailsOperation = useRef(0);
+  const [sharedDetailsNotice, setSharedDetailsNotice] = useState<string | null>(null);
   const [step, setStep] = useState(1);
+  const [eventMapOpen, setEventMapOpen] = useState(false);
+  const [eventMapCoordinates, setEventMapCoordinates] = useState<EventMapCoordinates | null>(null);
 
   const router = useRouter();
 
@@ -199,6 +210,17 @@ export function EventCustomizationExperience({
 
   const [isSubmitting, setIsSubmitting] =
   useState(false);
+  const {items: eventListItems} = useCustomerEventList();
+  const storedEntry = eventListItems.find(item => item.type !== "custom_menu" && item.packageId === packageRecord.id && item.providerId === provider.id);
+  const hasSavedConfiguration = storedEntry?.type !== "custom_menu" && Boolean(storedEntry?.configuration);
+  const canSaveEventList = draftOwner.startsWith("customer:");
+  const eventListSaveBusy = useRef(false);
+  const eventListSaveGeneration = useRef(0);
+  const [savingEventList, setSavingEventList] = useState(false);
+  const [eventListFeedback, setEventListFeedback] = useState<{signature: string; message: string; success: boolean} | null>(null);
+  useEffect(() => () => {eventListSaveGeneration.current += 1;}, [draftOwner]);
+  const [freshAttempt, setFreshAttempt] = useState(false);
+  const [recoveryNotice, setRecoveryNotice] = useState<string | null>(null);
 
 const [
   submissionError,
@@ -225,8 +247,12 @@ const submissionIdentityRef =
   ] = useState<string[]>([]);
 
   // Legacy draft and submission fields stay inert after the UI removal.
-  const willArrangeOwnAddOns = false;
-  const customerArrangedAddOnsNote = "";
+  const [willArrangeOwnAddOns, setWillArrangeOwnAddOns] = useState(false);
+  const [customerArrangedAddOnsNote, setCustomerArrangedAddOnsNote] = useState("");
+  const [eventListRestoreBlocked, setEventListRestoreBlocked] = useState(Boolean(eventListEditProviderId));
+  const [restoredOptionsNeedReview, setRestoredOptionsNeedReview] = useState(false);
+  const [eventListRestoreNotice, setEventListRestoreNotice] = useState<string | null>(null);
+  const [restoredContractChanged, setRestoredContractChanged] = useState(false);
   const [serviceTier, setServiceTier] = useState<CateringPackageServiceTier | null>(null);
   const [packageThemeId, setPackageThemeId] = useState<string | null>(null);
   const [themeInspiration, setThemeInspiration] = useState<BookingThemeInspiration>(
@@ -249,13 +275,46 @@ const submissionIdentityRef =
 
   const savedDraft = useCustomizationDraft({
     owner: draftOwner, providerId: provider.id, packageId: packageRecord.id,
-    context: JSON.stringify(initialEventContext),
+    context: eventListEditProviderId ? `event-list:${eventListEditProviderId}` : JSON.stringify(initialEventContext),
+    explicitSource: eventListEditProviderId ? async () => {
+      const {auth} = await import("@/lib/firebase/client");
+      await auth.authStateReady();
+      if ((draftOwner.startsWith("customer:") && auth.currentUser?.uid !== draftOwner.slice(9)) ||
+          (draftOwner === "guest" && auth.currentUser !== null)) {
+        setEventListRestoreNotice("Your session changed. Reopen Event List with the correct account.");
+        throw new Error("Session changed");
+      }
+      const selected = readItems().find(item => item.type !== "custom_menu" &&
+        item.providerId === eventListEditProviderId && item.packageId === packageRecord.id);
+      if (!selected || selected.type === "custom_menu" || !selected.configuration ||
+          provider.id !== eventListEditProviderId || packageRecord.providerId !== eventListEditProviderId) {
+        setEventListRestoreNotice("This saved configuration could not be found. Return to Event List; no other draft has been loaded.");
+        throw new Error("Configuration unavailable");
+      }
+      setRestoredContractChanged(selected.configuration.sharedContractVersion !== (packageRecord.sharedContractVersion ?? null) ||
+        selected.configuration.expectedPackageRevision !== (packageRecord.revision ?? null));
+      return eventListConfigurationDraft(selected.configuration);
+    } : undefined,
     value: {event: draft, customization: customizationDraft, addonIds: selectedEventServiceIds,
       ownAddons: willArrangeOwnAddOns, ownAddonsNote: customerArrangedAddOnsNote,
       serviceTier: offerSelection.serviceTier,
       packageThemeId: offerSelection.packageThemeId,
       themeInspiration: offerSelection.themeInspiration},
     restore: (saved) => {
+      if (eventListEditProviderId) {
+        setDraft(saved.event);
+        setCustomizationDraft(saved.customization);
+        setSelectedEventServiceIds(saved.addonIds);
+        setServiceTier(saved.serviceTier ?? null);
+        setPackageThemeId(saved.packageThemeId ?? null);
+        setThemeInspiration(saved.themeInspiration ?? emptyBookingThemeInspiration());
+        setWillArrangeOwnAddOns(saved.ownAddons ?? false);
+        setCustomerArrangedAddOnsNote(saved.ownAddonsNote ?? "");
+        setEventListRestoreBlocked(false);
+        setRestoredOptionsNeedReview(true);
+        setEventListRestoreNotice("Saved configuration restored. Review the currently published options and confirm them before continuing. Saved prices and availability are not authoritative.");
+        return;
+      }
       const restoredOffer = reconcileBookingCustomization({
         packageSource: packageRecord,
         serviceTier: saved.serviceTier,
@@ -270,7 +329,7 @@ const submissionIdentityRef =
         selectedDecorations: isV2 ? [] : saved.customization.selectedDecorations.filter((item) => [...sharedCustomization.decorations, ...(restoredOffer.serviceTier ? packageRecord.serviceOptions?.[restoredOffer.serviceTier]?.decorInclusions ?? [] : [])].includes(item)),
         selectedFurniture: isV2 ? [] : saved.customization.selectedFurniture.filter((item) => [...sharedCustomization.furniture, ...(restoredOffer.serviceTier ? packageRecord.serviceOptions?.[restoredOffer.serviceTier]?.furnitureInclusions ?? [] : [])].includes(item)),
       });
-      setSelectedEventServiceIds(saved.addonIds.filter((id) => eventServices.some((service) => service.id === id)));
+      setSelectedEventServiceIds(saved.addonIds);
       setServiceTier(restoredOffer.serviceTier);
       setPackageThemeId(restoredOffer.packageThemeId);
       setThemeInspiration(publishedSetups
@@ -290,6 +349,9 @@ const submissionIdentityRef =
     packageThemeId: offerSelection.packageThemeId,
     themeInspiration: offerSelection.themeInspiration,
   });
+
+  const sharedDetailsSignature = useRef(currentCustomizationSignature);
+  useEffect(() => {sharedDetailsSignature.current = currentCustomizationSignature;}, [currentCustomizationSignature]);
 
   const [initialCustomizationSignature] =
     useState(currentCustomizationSignature);
@@ -315,7 +377,7 @@ const submissionIdentityRef =
   const [agreementReload, setAgreementReload] = useState(0);
   const [loadedAgreementInput, setLoadedAgreementInput] = useState<string | null>(null);
   let agreementInputJSON: string | null = null;
-  if (step === 4) {
+  if (step === 3) {
     try { agreementInputJSON = JSON.stringify(buildSubmissionInput("agreement-preview", [])); } catch { /* Event validation owns these errors. */ }
   }
   useEffect(() => {
@@ -364,7 +426,7 @@ const submissionIdentityRef =
   }, [packageRecord.id, provider.id, selectedEventServiceIds, setAcknowledgedPolicyKeys]);
 
   useEffect(() => {
-    if (planningOnly || step !== 4) return undefined;
+    if (planningOnly || step !== 3) return undefined;
     const timeoutId = window.setTimeout(() => {
       void loadRefundPolicyDisclosures();
     }, 0);
@@ -520,6 +582,7 @@ const submissionIdentityRef =
     availabilityIsCurrent
       ? availabilityResults.get(provider.id) ?? null
       : null;
+  const unresolvedServiceIds = selectedEventServiceIds.filter(id => !eventServices.some(service => service.id === id));
   const unavailableSelectedServices =
     availabilityIsCurrent
       ? selectedEventServices.filter((service) =>
@@ -534,26 +597,133 @@ const submissionIdentityRef =
       0,
     );
 
-  const previewServices = eventServices.slice(0, 4);
+  const eventListSaveSignature = JSON.stringify([draftOwner, provider.id, packageRecord.id,
+    packageRecord.revision, currentCustomizationSignature]);
 
-  const cateringProviderServices =
-    eventServices.filter(
-      (service) =>
-        service.source ===
-        "catering_provider",
-    );
+  const restoredOptionProblems = [
+    ...(!(packageRecord.occasionMatchIds ?? [packageRecord.eventType]).includes(draft.eventType ?? "")
+      ? ["The saved event type is no longer supported."] : []),
+    ...(restoredContractChanged ? ["The package contract or revision has changed."] : []),
+    ...(serviceTier && serviceTier !== offerSelection.serviceTier ? ["The saved service level is no longer offered."] : []),
+    ...(packageThemeId && packageThemeId !== offerSelection.packageThemeId ? ["The saved theme is no longer applicable."] : []),
+    ...(foodChoiceSelectionError(packageRecord.foodChoiceGroups ?? [], customizationDraft.foodChoiceSelections ?? [])
+      ? ["Food-choice groups or dishes require correction."] : []),
+    ...(customizationDraft.selectedFoods.some(food => !customization.foods.includes(food)) ||
+      customizationDraft.selectedDecorations.some(item => !customization.decorations.includes(item)) ||
+      customizationDraft.selectedFurniture.some(item => !customization.furniture.includes(item))
+      ? ["Some saved food, decoration, or furniture options are no longer offered."] : []),
+    ...(unresolvedServiceIds.length ? ["Some saved event services are no longer in the catalog."] : []),
+    ...(publishedSetups && themeInspiration.referenceSetupId &&
+      !publishedSetups.some(setup => setup.id === themeInspiration.referenceSetupId)
+      ? ["The setup inspiration is no longer published."] : []),
+  ];
 
-  const marketplaceServices =
-    eventServices.filter(
-      (service) =>
-        service.source ===
-        "feasta_addon_provider",
-    );
+  function confirmRestoredOptions() {
+    if (!(packageRecord.occasionMatchIds ?? [packageRecord.eventType]).includes(draft.eventType ?? "")) {
+      setDraft(current => ({...current, eventType: ""}));
+    }
+    setCustomizationDraft({
+      foodChoiceSelections: reconcileFoodChoiceSelections(packageRecord.foodChoiceGroups ?? [], customizationDraft.foodChoiceSelections ?? []),
+      selectedFoods: isV2 ? [] : customizationDraft.selectedFoods.filter(item => customization.foods.includes(item)),
+      selectedDecorations: customizationDraft.selectedDecorations.filter(item => customization.decorations.includes(item)),
+      selectedFurniture: customizationDraft.selectedFurniture.filter(item => customization.furniture.includes(item)),
+    });
+    setServiceTier(offerSelection.serviceTier);
+    setPackageThemeId(offerSelection.packageThemeId);
+    setThemeInspiration(publishedSetups ? clearStaleSetupReference(themeInspiration, publishedSetups.map(setup => setup.id)) : themeInspiration);
+    setSelectedEventServiceIds(selectedEventServiceIds.filter(id => eventServices.some(service => service.id === id)));
+    setRestoredOptionsNeedReview(false);
+    setEventListRestoreNotice("Current package options applied. Check event details and complete any required selections before Review Booking. Your saved entry is unchanged until you save again.");
+    setOfferSelectionError(null);
+  }
+
+  async function saveConfigurationToEventList() {
+    if (!canSaveEventList || eventListRestoreBlocked || restoredOptionsNeedReview) return;
+    if (eventListSaveBusy.current || isSubmitting || step !== 3 ||
+        (hasSavedConfiguration && eventListFeedback?.success && eventListFeedback.signature === eventListSaveSignature)) return;
+    eventListSaveBusy.current = true;
+    setSavingEventList(true);
+    const generation = eventListSaveGeneration.current;
+    const feedback = (message: string, success = false) => {
+      if (generation === eventListSaveGeneration.current) {
+        setEventListFeedback({signature: eventListSaveSignature, message, success});
+      }
+    };
+    try {
+      const {auth} = await import("@/lib/firebase/client");
+      await auth.authStateReady();
+      if (generation !== eventListSaveGeneration.current) return;
+      const authorized = draftOwner.startsWith("customer:")
+        ? auth.currentUser?.uid === draftOwner.slice("customer:".length)
+        : false;
+      if (!authorized) {
+        feedback("Your session changed. Reopen this plan with the correct customer account or as a signed-out guest.");
+        return;
+      }
+      const existing = readItems().find(item => item.type !== "custom_menu" && item.packageId === packageRecord.id);
+      if (eventListEditProviderId && (!existing || existing.type === "custom_menu" || !existing.configuration || existing.providerId !== eventListEditProviderId)) {
+        setEventListRestoreBlocked(true);
+        setEventListRestoreNotice("This saved configuration was deleted or cleared. Return to Event List or browse packages to start again.");
+        return;
+      }
+      if (!eventListEditProviderId && existing?.type !== "custom_menu" && existing?.configuration) {
+        feedback("Already in Event List. Open Event List to edit the saved configuration.", true);
+        return;
+      }
+      const errors = validateEventDetails(draft, packageRecord.minimumGuests, packageRecord.maximumGuests);
+      const choiceError = foodChoiceSelectionError(packageRecord.foodChoiceGroups ?? [], customizationDraft.foodChoiceSelections ?? []);
+      if (Object.keys(errors).length || choiceError || unresolvedServiceIds.length ||
+          (offerSelection.availableTiers.length > 0 && !offerSelection.serviceTier) ||
+          packageRecord.providerId !== provider.id) {
+        feedback(choiceError ?? "Review the event details and selected package options before saving. All selected services must still be in the catalog.");
+        return;
+      }
+      const configuration = normalizeConfiguration({
+        event: {...draft, eventType: draft.eventType ?? packageRecord.eventType,
+          guestCount: Number(draft.guestCount)},
+        sharedContractVersion: packageRecord.sharedContractVersion ?? null,
+        expectedPackageRevision: packageRecord.revision ?? null,
+        serviceTier: offerSelection.serviceTier, packageThemeId: offerSelection.packageThemeId,
+        themeInspiration: offerSelection.themeInspiration,
+        foodChoiceSelections: customizationDraft.foodChoiceSelections ?? [],
+        selectedFoods: customizationDraft.selectedFoods,
+        selectedDecorations: customizationDraft.selectedDecorations,
+        selectedFurniture: customizationDraft.selectedFurniture,
+        selectedEventServices: selectedEventServices.map(({id, providerId, providerName, name, category, price, source}) =>
+          ({id, providerId, providerName, name, category, price, source})),
+        willArrangeOwnAddOns, customerArrangedAddOnsNote,
+        estimatedTotal: estimatedServicePrice === null || selectedEventServices.some((service) => service.price === null)
+          ? null : estimatedServicePrice + selectedEventServicesSubtotal,
+        pricingContext: {currency: "PHP", pricingModel: packageRecord.pricingModel ?? null,
+          displayedServicePrice: offerSelection.serviceTier ? offerSelection.displayedServicePrice : packageRecord.price},
+      });
+      if (!configuration) {
+        feedback("This configuration could not be validated. Review your selections before retrying.");
+        return;
+      }
+      const saved = addItem({providerId: provider.id, packageId: packageRecord.id,
+        providerName: provider.businessName, packageName: packageRecord.name, price: packageRecord.price,
+        imageUrl: packageRecord.imageUrl, packageHref, configuration});
+      feedback(saved ? "Saved to Event List. Configured — revalidation required. Nothing is reserved."
+        : "Could not verify your Event List in browser storage. Check storage access and retry.", saved);
+    } catch {
+      feedback("Could not verify your Event List in browser storage. Check storage access and retry.");
+    } finally {
+      eventListSaveBusy.current = false;
+      if (generation === eventListSaveGeneration.current) setSavingEventList(false);
+    }
+  }
+
+
 
   function updateDraft(
     field: keyof EventDetailsDraft,
     value: string,
   ) {
+    if (field === "eventLocation" || field === "eventAddress") {
+      setEventMapCoordinates(null);
+      setEventMapOpen(false);
+    }
     if (
       field === "eventDate" ||
       field === "eventTime" ||
@@ -610,6 +780,11 @@ const submissionIdentityRef =
 function toggleEventService(
   serviceId: string,
 ) {
+  if (selectedEventServiceIds.includes(serviceId)) {
+    setSelectedEventServiceIds(current => current.filter(id => id !== serviceId));
+    setSelectionAvailabilityError(null);
+    return;
+  }
   const service = eventServices.find((candidate) => candidate.id === serviceId);
 
   if (!service) return;
@@ -649,26 +824,6 @@ function toggleEventService(
       ];
     },
   );
-}
-
-function continueFromEventServices() {
-  if (planningOnly) { setStep(4); return; }
-  if (!availabilityIsCurrent) {
-    setSelectionAvailabilityError(
-      "Provider availability must be checked again before you continue.",
-    );
-    return;
-  }
-
-  if (unavailableSelectedServices.length > 0) {
-    setSelectionAvailabilityError(
-      "One or more selected providers are no longer available. Remove those services or change your event details.",
-    );
-    return;
-  }
-
-  setSelectionAvailabilityError(null);
-  setStep(4);
 }
 
 function buildSubmissionInput(
@@ -852,7 +1007,38 @@ function navigateToSubmittedBooking(
   );
 }
 
+async function checkPreviousRequest() {
+  if (isSubmitting) return;
+  setIsSubmitting(true);
+  setFreshAttempt(false);
+  try {
+    const result = await reconcileCustomerBookingSubmission(
+      draftOwner.startsWith("customer:") ? draftOwner.slice(9) : undefined,
+      savedDraft.previousSubmissionId(),
+    );
+    if (result.outcome === "confirmed_created") {
+      setSubmissionResult(result.booking);
+      savedDraft.clear();
+      navigateToSubmittedBooking(result.booking);
+    } else if (result.outcome === "confirmed_rejected") {
+      setAcknowledgedPolicyKeys({});
+      setAgreementAcknowledged({});
+      setAgreementReload(value => value + 1);
+      await loadRefundPolicyDisclosures();
+      setFreshAttempt(true);
+      setRecoveryNotice("Previous request was confirmed rejected. Review and acknowledge the current policies and agreement. Submit Booking will start a fresh attempt.");
+    } else {
+      setRecoveryNotice("Previous request is unresolved. Another submission is blocked. Keep this request and check again.");
+    }
+  } catch (error) {
+    setRecoveryNotice(error instanceof Error ? error.message : "Unable to check the previous request. Check again.");
+  } finally {
+    setIsSubmitting(false);
+  }
+}
+
 async function handleSubmitBooking() {
+  if (eventListRestoreBlocked || restoredOptionsNeedReview) return;
   const choiceError = foodChoiceSelectionError(packageRecord.foodChoiceGroups ?? [], customizationDraft.foodChoiceSelections ?? []);
   if (choiceError) {setSubmissionError(choiceError); setStep(2); return;}
   if (!planningOnly) {
@@ -931,6 +1117,8 @@ async function handleSubmitBooking() {
     const draftKey =
       currentSubmissionDraftKey();
 
+    const restoredRequestId = savedDraft.previousSubmissionId();
+
     const clientRequestId =
       await savedDraft.submissionId(draftKey, () => getSubmissionClientRequestId(draftKey));
 
@@ -984,6 +1172,8 @@ async function handleSubmitBooking() {
     const result =
       await submitCustomerBookingRequest(
         input,
+        {customerId: draftOwner.startsWith("customer:") ? draftOwner.slice(9) : undefined,
+          freshAttempt, restoredRequestId},
       );
 
     setSubmissionResult(result);
@@ -1118,6 +1308,10 @@ async function handleSubmitBooking() {
   }
 
   function continueFromCustomization() {
+    if (eventListRestoreBlocked || restoredOptionsNeedReview) {
+      setOfferSelectionError("Review and confirm the restored package options first.");
+      return;
+    }
     const choiceError = foodChoiceSelectionError(packageRecord.foodChoiceGroups ?? [], customizationDraft.foodChoiceSelections ?? []);
     if (choiceError) {setOfferSelectionError(choiceError); return;}
     /*
@@ -1222,6 +1416,10 @@ function discardAndLeave() {
 
   return (
     <div className="mx-auto grid w-full max-w-[1240px] min-w-0 gap-4 [overflow-wrap:anywhere] sm:gap-5">
+      {!planningOnly ? <div>
+        <Button type="button" disabled={isSubmitting || !savedDraft.isReady} onClick={checkPreviousRequest}>Check Previous Request</Button>
+        {recoveryNotice ? <p role="status">{recoveryNotice}</p> : null}
+      </div> : null}
       <header className="grid min-w-0 gap-2">
       <button
         type="button"
@@ -1266,6 +1464,34 @@ function discardAndLeave() {
               : savedDraft.status}
           </p>
         </div>
+        {savedDraft.isReady && savedDraft.isFresh && canSaveEventList && !eventListEditProviderId && !initialEventContext && !hasSavedConfiguration && !hasMeaningfulChanges && !sharedDetailsDismissed && sharedEventCandidates(eventListItems, provider.id).length > 0 ? <section aria-label="Reuse event details" className="rounded-xl border p-4 space-y-2">
+          <p>{sharedEventCandidates(eventListItems, provider.id).length > 1 ? "Saved event details conflict. Choose the event plan to reuse, or enter new details." : "Reuse your saved event details for this provider?"}</p>
+          <p className="text-sm">All details stay editable. Check availability for this provider. Unsupported values need your input.</p>
+          {sharedEventCandidates(eventListItems, provider.id).map(candidate => <Button key={candidate.signature} variant="secondary" className="h-auto w-full whitespace-normal text-left" onClick={async () => {
+            const operation = ++sharedDetailsOperation.current;
+            const generation = eventListSaveGeneration.current;
+            const signature = currentCustomizationSignature;
+            const current = sharedEventCandidates(readItems(), provider.id).find(item => item.signature === candidate.signature);
+            if (!current) return;
+            const values = compatibleSharedEvent(current.event, {eventTypes: packageRecord.occasionMatchIds ?? [packageRecord.eventType], minimum: Math.max(packageRecord.minimumGuests ?? 1, provider.minimumGuests ?? 1), maximum: Math.min(packageRecord.maximumGuests ?? 10000, provider.maximumGuests ?? 10000), earliestDate: tomorrowDateValue()});
+            if (values.eventDate) {
+              try {
+                const calendar = await getCustomerProviderCalendarAvailability(provider.id, values.eventDate.slice(0, 7));
+                if (calendar.dates.some(row => row.date === values.eventDate)) {
+                  delete values.eventDate; delete values.eventTime; delete values.eventEndTime;
+                }
+              } catch {
+                delete values.eventDate; delete values.eventTime; delete values.eventEndTime;
+              }
+            }
+            if (operation !== sharedDetailsOperation.current || generation !== eventListSaveGeneration.current || signature !== sharedDetailsSignature.current || !sharedEventCandidates(readItems(), provider.id).some(item => item.signature === candidate.signature)) return;
+            setDraft(value => ({...value, ...values}));
+            setSharedDetailsNotice("Shared event details applied where supported. Review the date, guest count and venue; availability and current terms still require verification.");
+            setSharedDetailsDismissed(true);
+          }}>Use {candidate.providerName}: {candidate.event.eventType}, {candidate.event.eventDate} {candidate.event.eventTime} to {candidate.event.eventEndTime}, {candidate.event.guestCount} guests, {candidate.event.eventLocation}, {candidate.event.eventAddress}</Button>)}
+          <Button variant="secondary" onClick={() => {sharedDetailsOperation.current += 1; setSharedDetailsDismissed(true);}}>Enter new details</Button>
+        </section> : null}
+        {sharedDetailsNotice ? <p role="status">{sharedDetailsNotice}</p> : null}
         {savedDraft.choices.length ? <div className="flex flex-wrap gap-2" aria-label="Saved event plans">
           {savedDraft.choices.map((choice) => <Button key={choice.key} variant="secondary" onClick={() => savedDraft.resume(choice)}>
             Continue draft{choice.value.event.eventDate ? ` for ${formatPhilippineDate(choice.value.event.eventDate)}` : " without a date"}
@@ -1278,7 +1504,7 @@ function discardAndLeave() {
         aria-label="Booking progress"
         className="rounded-[22px] border border-feasta-border-soft bg-white p-2 shadow-[0_5px_20px_rgb(0_75_59/0.03)] sm:p-3"
       >
-        <ol className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
+        <ol className="grid grid-cols-2 gap-1.5 sm:grid-cols-3">
           {STEPS.map((item) => {
             const active =
               item.number === step;
@@ -1345,6 +1571,16 @@ function discardAndLeave() {
 
       <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1fr)_19rem] lg:gap-5 lg:items-start">
         <main className="min-w-0">
+          {eventListRestoreNotice ? <section aria-label="Restored configuration" className="mb-4 rounded-xl border p-4">
+            <p role={eventListRestoreBlocked ? "alert" : "status"}>{eventListRestoreNotice}</p>
+              {eventListRestoreBlocked ? <Link href="/customer/event-list/review">Return to Event List</Link> : null}
+            {restoredOptionsNeedReview ? <>
+              <ul>{restoredOptionProblems.map(problem => <li key={problem}>{problem}</li>)}</ul>
+              <Button type="button" onClick={confirmRestoredOptions}>{restoredOptionProblems.length
+                ? "Remove unavailable options and review current package" : "Confirm restored options"}</Button>
+            </> : null}
+          </section> : null}
+
           {/* ========================================================
               STEP 1 — EVENT DETAILS
              ======================================================== */}
@@ -1355,7 +1591,7 @@ function discardAndLeave() {
               className="rounded-[26px] border border-feasta-border-soft bg-white p-5 shadow-[0_8px_28px_rgb(0_75_59/0.04)] sm:p-6"
             >
               <p className="text-xs font-extrabold uppercase tracking-[0.13em] text-primary-strong">
-                Step 1 of 4
+                Step 1 of 3
               </p>
 
               <h2
@@ -1401,7 +1637,15 @@ function discardAndLeave() {
                   <Field
                     label="Number of guests"
                     hint={guestGuidance}
-                    error={errors.guestCount}
+                    error={
+                      draft.guestCount.trim()
+                        ? immediateGuestCountError(
+                            draft.guestCount,
+                            packageRecord.minimumGuests,
+                            packageRecord.maximumGuests,
+                          )
+                        : errors.guestCount
+                    }
                   >
                     <Input
                       type="number"
@@ -1425,8 +1669,14 @@ function discardAndLeave() {
                         )
                       }
                       aria-invalid={Boolean(
-                        errors.guestCount,
-                      )}
+                         draft.guestCount.trim()
+                           ? immediateGuestCountError(
+                               draft.guestCount,
+                               packageRecord.minimumGuests,
+                               packageRecord.maximumGuests,
+                             )
+                           : errors.guestCount
+                       )}
                     />
                   </Field>
                 </div>
@@ -1542,6 +1792,38 @@ function discardAndLeave() {
                   />
                 </Field>
 
+                <div className="grid gap-3">
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    aria-expanded={eventMapOpen}
+                    onClick={() => setEventMapOpen((open) => !open)}
+                  >
+                    {eventMapOpen ? "Close map" : "Choose on map"}
+                  </Button>
+                  {eventMapOpen ? (
+                    <CustomerEventAddressMap
+                      coordinates={eventMapCoordinates}
+                      onCancel={() => setEventMapOpen(false)}
+                      onConfirm={(location) => {
+                        setDraft((current) => ({
+                          ...current,
+                          eventAddress: location.address,
+                          eventLocation: [location.city, location.province].filter(Boolean).join(", "),
+                        }));
+                        setErrors((current) => {
+                          const next = {...current};
+                          delete next.eventAddress;
+                          delete next.eventLocation;
+                          return next;
+                        });
+                        setEventMapCoordinates({latitude: location.latitude, longitude: location.longitude});
+                        setEventMapOpen(false);
+                      }}
+                    />
+                  ) : null}
+                </div>
+
                 <Field
                   label="Special requests"
                   optional
@@ -1604,7 +1886,7 @@ function discardAndLeave() {
               <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                 <div className="max-w-2xl">
                   <p className="text-xs font-extrabold uppercase tracking-[0.13em] text-primary-strong">
-                    Step 2 of 4
+                    Step 2 of 3
                   </p>
 
                   <h2
@@ -1774,7 +2056,7 @@ function discardAndLeave() {
                   onClick={() =>
                     setStep(1)
                   }
-                  className="min-h-12 w-full rounded-full px-5 sm:w-auto"
+                  className="min-h-12 w-full rounded-full px-5 sm:w-auto shrink-0 whitespace-nowrap min-w-fit"
                 >
                   <ArrowLeft
                     aria-hidden="true"
@@ -1798,229 +2080,6 @@ function discardAndLeave() {
                     }
                     className="min-h-12 rounded-full px-5"
                   >
-                    Continue
-
-                    <ArrowRight
-                      aria-hidden="true"
-                      className="size-4"
-                    />
-                  </Button>
-                </div>
-              </div>
-            </section>
-          ) : null}
-
-          {/* ========================================================
-              STEP 3 — EVENT SERVICES
-            ======================================================== */}
-
-          {step === 3 ? (
-            <section
-              aria-labelledby="event-services-title"
-              className="rounded-[26px] border border-feasta-border-soft bg-white p-5 shadow-[0_8px_28px_rgb(0_75_59/0.04)] sm:p-6 lg:p-7"
-            >
-              <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-                <div className="max-w-2xl">
-                  <p className="text-xs font-extrabold uppercase tracking-[0.13em] text-primary-strong">
-                    Step 3 of 4
-                  </p>
-
-                  <h2
-                    id="event-services-title"
-                    className="mt-2 text-2xl font-extrabold tracking-[-0.035em] text-foreground"
-                  >
-                    Add event services
-                  </h2>
-
-                  <p className="mt-3 text-sm leading-6 text-feasta-text-secondary">
-                    Add optional services to your
-                    celebration. You can choose services
-                    from {provider.businessName} or from
-                    other eligible FEASTA providers.
-                  </p>
-                </div>
-
-                <div className="shrink-0 rounded-xl bg-feasta-canvas px-3.5 py-2.5">
-                  <p className="text-xs font-semibold text-feasta-text-secondary">
-                    <span className="font-extrabold text-foreground">
-                      {
-                        selectedEventServiceIds.length
-                      }
-                    </span>{" "}
-                    {selectedEventServiceIds.length ===
-                    1
-                      ? "service"
-                      : "services"}{" "}
-                    selected
-                  </p>
-                </div>
-              </div>
-
-              {selectionAvailabilityError || unavailableSelectedServices.length > 0 ? (
-                <div
-                  className="mt-5 rounded-[16px] border border-warning/25 bg-warning-subtle px-4 py-3"
-                  role="alert"
-                >
-                  <p className="text-sm font-extrabold text-warning">
-                    Review provider availability
-                  </p>
-                  <p className="mt-1 text-sm leading-6 text-feasta-text-secondary">
-                    {selectionAvailabilityError ??
-                      `${unavailableSelectedServices[0]?.providerName ?? "A selected provider"} is no longer available for your updated event details. Remove the affected service or change the event details.`}
-                  </p>
-                </div>
-              ) : null}
-
-              {eventServices.length > 0 ? (
-                <div className="mt-7 grid gap-6">
-                  <EventServiceGroup
-                    title={`From ${provider.businessName}`}
-                    description="Additional services offered by your selected catering provider."
-                    services={
-                      cateringProviderServices.filter((service) => previewServices.includes(service))
-                    }
-                    selectedIds={
-                      selectedEventServiceIds
-                    }
-                    availabilityByProvider={availabilityResults}
-                    availabilityCurrent={availabilityIsCurrent}
-                    requireAvailability={!planningOnly}
-                    onToggle={
-                      toggleEventService
-                    }
-                    emptyMessage={cateringProviderServices.length ? "More services from this provider are in Browse More Services." : "This caterer does not currently have additional selectable services."}
-                  />
-
-                  <EventServiceGroup
-                    title="Other FEASTA event services"
-                    description="Add optional services from other eligible FEASTA providers."
-                    services={
-                      marketplaceServices.filter((service) => previewServices.includes(service))
-                    }
-                    selectedIds={
-                      selectedEventServiceIds
-                    }
-                    availabilityByProvider={availabilityResults}
-                    availabilityCurrent={availabilityIsCurrent}
-                    requireAvailability={!planningOnly}
-                    onToggle={
-                      toggleEventService
-                    }
-                    emptyMessage={marketplaceServices.length ? "Browse the loaded collection for more FEASTA services." : "No additional marketplace event services are currently available."}
-                  />
-
-                  {eventServices.length > 4 ? <EventServiceBrowser
-                    services={eventServices} selectedIds={selectedEventServiceIds}
-                    availabilityByProvider={availabilityResults} availabilityCurrent={availabilityIsCurrent}
-                    requireAvailability={!planningOnly} onToggle={toggleEventService}
-                    subtotal={selectedEventServicesSubtotal} selectionError={selectionAvailabilityError}
-                  /> : null}
-
-                  <section aria-label="Selected optional services" className="rounded-[18px] border border-feasta-border-soft bg-feasta-canvas p-4 sm:p-5">
-                    <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-                      <div>
-                        <p className="text-[11px] font-extrabold uppercase tracking-[0.09em] text-feasta-text-tertiary">
-                          Selected services
-                        </p>
-
-                        <p className="mt-1 text-sm font-bold text-foreground">
-                          {
-                            selectedEventServiceIds.length
-                          }{" "}
-                          {selectedEventServiceIds.length ===
-                          1
-                            ? "optional service"
-                            : "optional services"}
-                        </p>
-
-                        <p className="mt-1 max-w-lg text-xs leading-5 text-feasta-text-secondary">
-                          Displayed prices are for
-                          planning only. FEASTA
-                          revalidates availability and
-                          pricing when your booking is
-                          submitted.
-                        </p>
-                      </div>
-
-                      <div className="sm:text-right">
-                        <p className="text-[11px] font-extrabold uppercase tracking-[0.09em] text-feasta-text-tertiary">
-                          Displayed add-ons subtotal
-                        </p>
-
-                        <PriceDisplay
-                          amount={
-                            selectedEventServicesSubtotal
-                          }
-                          className="mt-1"
-                        />
-                      </div>
-                    </div>
-                    {selectedEventServices.length > 0 ? <ul className="mt-4 grid gap-2 border-t border-feasta-divider pt-3">
-                      {selectedEventServices.map((service) => <li key={service.id} className="flex min-w-0 items-center justify-between gap-3">
-                        <div className="min-w-0">
-                          <p className="break-words text-sm font-bold text-foreground">{service.name}</p>
-                          <p className="break-words text-xs text-feasta-text-secondary">{service.providerName}</p>
-                        </div>
-                        <Button type="button" variant="ghost" size="compact" className="min-h-11 shrink-0"
-                          aria-label={`Remove ${service.name} from ${service.providerName}`}
-                          onClick={() => toggleEventService(service.id)}>Remove</Button>
-                      </li>)}
-                    </ul> : null}
-                  </section>
-                </div>
-              ) : (
-                <div className="mt-7 rounded-[18px] border border-dashed border-feasta-border-strong bg-feasta-canvas p-5">
-                  <Sparkles
-                    aria-hidden="true"
-                    className="size-5 text-primary-strong"
-                  />
-
-                  <h3 className="mt-3 text-base font-extrabold text-foreground">
-                    No additional services available
-                  </h3>
-
-                  <p className="mt-1 max-w-2xl text-sm leading-6 text-feasta-text-secondary">
-                    You can continue with your selected
-                    package without adding another event
-                    service.
-                  </p>
-                </div>
-              )}
-
-              <div className="mt-7 flex flex-col-reverse gap-3 border-t border-feasta-divider pt-5 sm:flex-row sm:items-center sm:justify-between">
-                <Button
-                  type="button"
-                  variant="secondary"
-                  onClick={() =>
-                    setStep(2)
-                  }
-                  className="min-h-12 rounded-full px-5"
-                >
-                  <ArrowLeft
-                    aria-hidden="true"
-                    className="size-4"
-                  />
-
-                  Back
-                </Button>
-
-                <div className="flex flex-col gap-3 sm:items-end">
-                  <p className="max-w-md text-xs leading-5 text-feasta-text-secondary sm:text-right">
-                    Event services are optional. You
-                    can continue without selecting any.
-                  </p>
-
-                  <Button
-                    type="button"
-                    disabled={
-                      (!planningOnly && !availabilityIsCurrent) ||
-                      unavailableSelectedServices.length > 0
-                    }
-                    onClick={
-                      continueFromEventServices
-                    }
-                    className="min-h-12 rounded-full px-5"
-                  >
                     Review booking
 
                     <ArrowRight
@@ -2033,68 +2092,38 @@ function discardAndLeave() {
             </section>
           ) : null}
 
-          {submissionError ? (
-            <div
-              role="alert"
-              className="mt-6 rounded-[16px] border border-destructive/20 bg-destructive/[0.05] px-4 py-3"
-            >
-              <p className="text-sm font-bold text-destructive">
-                Booking request not submitted
-              </p>
-
-              <p className="mt-1 text-sm leading-6 text-feasta-text-secondary">
-                {submissionError}
-              </p>
-            </div>
-          ) : null}
-
-          {submissionResult ? (
-            <div
-              role="status"
-              className="mt-6 rounded-[16px] border border-success/20 bg-success/[0.06] px-4 py-4"
-            >
-              <div className="flex items-start gap-3">
-                <span className="grid size-8 shrink-0 place-items-center rounded-full bg-success text-success-foreground">
-                  <Check
-                    aria-hidden="true"
-                    className="size-4"
-                  />
-                </span>
-
-                <div>
-                  <p className="text-sm font-extrabold text-foreground">
-                    Booking request submitted
-                  </p>
-
-                  <p className="mt-1 text-sm leading-6 text-feasta-text-secondary">
-                    FEASTA created booking{" "}
-                    <span className="font-bold text-foreground">
-                      {
-                        submissionResult.bookingId
-                      }
-                    </span>
-                    . The provider request is
-                    now ready for the next
-                    booking stage.
-                  </p>
-                </div>
-              </div>
-            </div>
-          ) : null}
-
           {/* ========================================================
               STEP 4 — REVIEW PLACEHOLDER
             ======================================================== */}
 
-          {step === 4 && planningOnly ? (
+          {step === 3 && (selectionAvailabilityError || unavailableSelectedServices.length > 0) ? <p role="alert">{selectionAvailabilityError ?? "A selected service is unavailable. Remove it or change your event details."}</p> : null}
+          {step === 3 && unresolvedServiceIds.length > 0 ? <section aria-label="Unavailable saved services" className="mb-4 rounded-xl border p-4">
+            <p role="alert">These saved services cannot be verified in the current catalog. Their price is excluded from this estimate. Remove them before submitting.</p>
+            {unresolvedServiceIds.map(id => <div key={id}>Unavailable saved service<Button type="button" onClick={() => toggleEventService(id)}>Remove unavailable service</Button></div>)}
+          </section> : null}
+          {step === 3 && planningOnly ? <section aria-label="Save configuration" className="mb-4 rounded-xl border bg-card p-5">
+            <Button type="button" variant="secondary" onClick={() => void saveConfigurationToEventList()}
+              disabled={!canSaveEventList || eventListRestoreBlocked || restoredOptionsNeedReview || isSubmitting || savingEventList ||
+                (hasSavedConfiguration && eventListFeedback?.success === true && eventListFeedback.signature === eventListSaveSignature)}>
+              {savingEventList ? "Saving to Event List…" : "Save to Event List"}
+            </Button>
+            <p className="mt-2 text-sm text-muted-foreground">Save this configuration for planning. Availability and prices require revalidation; nothing is reserved or paid.</p>
+            {eventListFeedback?.signature === eventListSaveSignature
+              ? <p role={eventListFeedback.success ? "status" : "alert"}>{eventListFeedback.message}</p> : null}
+          </section> : null}
+          {step === 3 && planningOnly ? (
             <div className="rounded-xl border bg-card p-5">
-              <h2 className="text-xl font-bold">Continue your saved plan</h2>
+              <p>Step 3 of 3</p>
+                <h2 className="text-xl font-bold">Continue your saved plan</h2>
+                {selectedEventServices.map(service => <div key={service.id}>{service.name} - {service.providerName}<PriceDisplay amount={service.price ?? 0} />{service.portfolio ? <ServicePortfolioGallery portfolio={service.portfolio} showCover={!service.imageUrl} /> : null}
+                      {service.freelanceDetails ? <FreelanceServiceSummary details={service.freelanceDetails} /> : null}<Button onClick={() => toggleEventService(service.id)}>Remove {service.name}</Button></div>)}
+                <Button type="button" variant="secondary" onClick={() => setStep(2)}>Back</Button>
               <p className="my-3 text-muted-foreground">Sign in and complete account verification to review current availability and each provider&apos;s refund policy. Your selections will be restored.</p>
               <CustomerAuthLink href={`${packageHref}/book${initialEventContext ? `?${new URLSearchParams(Object.entries(initialEventContext).map(([key, value]) => [key, String(value)]))}` : ""}`}
                 returnTo={`${packageHref}/plan${initialEventContext ? `?${new URLSearchParams(Object.entries(initialEventContext).map(([key, value]) => [key, String(value)]))}` : ""}`} className="font-semibold text-primary underline">Sign in to continue</CustomerAuthLink>
             </div>
           ) : null}
-          {step === 4 && !planningOnly ? (
+          {step === 3 && !planningOnly ? (
             <BookingReview
               packageRecord={packageRecord}
               providerName={provider.businessName}
@@ -2113,9 +2142,27 @@ function discardAndLeave() {
                 )?.name ?? null
               }
               themeNotes={offerSelection.themeInspiration.notes}
-              isSubmitting={
-                isSubmitting
+              isSubmitting={isSubmitting}
+              onAddToEventList={() => void saveConfigurationToEventList()}
+              savingEventList={savingEventList}
+              eventListAlreadySaved={
+                (!eventListEditProviderId && hasSavedConfiguration) ||
+                (hasSavedConfiguration && eventListFeedback?.success === true &&
+                  eventListFeedback.signature === eventListSaveSignature)
               }
+              eventListSaveDisabled={ !canSaveEventList || eventListRestoreBlocked || restoredOptionsNeedReview ||
+                (!eventListEditProviderId && hasSavedConfiguration) ||
+                isSubmitting ||
+                savingEventList ||
+                (hasSavedConfiguration && eventListFeedback?.success === true &&
+                  eventListFeedback.signature === eventListSaveSignature)
+              }
+              eventListFeedbackMessage={
+                eventListFeedback?.signature === eventListSaveSignature
+                  ? eventListFeedback.message
+                  : null
+              }
+              eventListFeedbackSuccess={eventListFeedback?.success === true}
               submissionError={
                 submissionError
               }
@@ -2151,11 +2198,11 @@ function discardAndLeave() {
                 void loadRefundPolicyDisclosures();
               }}
               onBack={() =>
-                setStep(3)
+                setStep(2)
               }
               onEditEvent={() => setStep(1)}
               onEditPackage={() => setStep(2)}
-              onEditServices={() => setStep(3)}
+              onEditServices={toggleEventService}
               onSubmit={
                 handleSubmitBooking
               }
@@ -2206,7 +2253,7 @@ function discardAndLeave() {
                   className="mt-1"
                 />
 
-                {step === 4 && !planningOnly ? (
+                {step === 3 && !planningOnly ? (
                   <div className="mt-3 rounded-xl border border-primary/15 bg-secondary p-3" aria-label="Current booking payment requirement">
                     <p className="text-[11px] font-extrabold uppercase tracking-wide text-primary-strong">Payment requirement for this request</p>
                     {loadedAgreementInput === agreementInputJSON && agreements.length > 0 ? (
@@ -2618,289 +2665,35 @@ function IncludedServices({services}: {services: readonly string[]}) {
   );
 }
 
-function EventServiceGroup({
-  title,
-  description,
-  services,
-  selectedIds,
-  availabilityByProvider,
-  availabilityCurrent,
-  requireAvailability,
-  onToggle,
-  emptyMessage,
-}: {
-  title: string;
-  description: string;
-  services: readonly PublicEventService[];
-  selectedIds: readonly string[];
-  availabilityByProvider: ReadonlyMap<string, CustomerProviderAvailability>;
-  availabilityCurrent: boolean;
-  requireAvailability: boolean;
-  onToggle: (serviceId: string) => void;
-  emptyMessage: string;
-}) {
-  if (services.length === 0) return null;
-  return (
-    <section className="overflow-hidden rounded-[20px] border border-feasta-border-soft">
-      <div className="border-b border-feasta-divider bg-feasta-canvas p-4 sm:p-5">
-        <h3 className="text-base font-extrabold tracking-[-0.02em] text-foreground">
-          {title}
-        </h3>
+function immediateGuestCountError(
+  value: string,
+  minimumGuests: number | null | undefined,
+  maximumGuests: number | null | undefined,
+): string | undefined {
+  const trimmed = value.trim();
 
-        <p className="mt-1 text-xs leading-5 text-feasta-text-secondary">
-          {description}
-        </p>
-      </div>
+  if (!trimmed) return undefined;
 
-      {services.length > 0 ? (
-        <div className="grid gap-3 p-3 sm:grid-cols-2 sm:p-4">
-          {services.map((service) => (
-            <EventServiceCard
-              key={service.id}
-              service={service}
-              selected={selectedIds.includes(
-                service.id,
-              )}
-              selectionLimitReached={
-                selectedIds.length >= 20 &&
-                !selectedIds.includes(
-                  service.id,
-                )
-              }
-              availability={
-                availabilityCurrent
-                  ? availabilityByProvider.get(service.providerId) ?? null
-                  : null
-              }
-              requireAvailability={requireAvailability}
-              onToggle={() =>
-                onToggle(service.id)
-              }
-            />
-          ))}
-        </div>
-      ) : (
-        <div className="p-4 sm:p-5">
-          <p className="rounded-[14px] border border-dashed border-feasta-border-strong bg-feasta-canvas px-4 py-3 text-sm leading-6 text-feasta-text-secondary">
-            {emptyMessage}
-          </p>
-        </div>
-      )}
-    </section>
-  );
+  if (!/^\d+$/.test(trimmed)) {
+    return "Enter a valid whole number of guests.";
+  }
+
+  const count = Number(trimmed);
+
+  if (!Number.isSafeInteger(count) || count < 1 || count > 10000) {
+    return "Enter a valid guest count.";
+  }
+
+  if (minimumGuests != null && count < minimumGuests) {
+    return `This package starts at ${minimumGuests.toLocaleString("en-PH")} guests.`;
+  }
+
+  if (maximumGuests != null && count > maximumGuests) {
+    return `This package supports up to ${maximumGuests.toLocaleString("en-PH")} guests.`;
+  }
+
+  return undefined;
 }
-
-function EventServiceBrowser({services, selectedIds, availabilityByProvider, availabilityCurrent, requireAvailability, onToggle, subtotal, selectionError}: {
-  services: readonly PublicEventService[];
-  selectedIds: readonly string[];
-  availabilityByProvider: ReadonlyMap<string, CustomerProviderAvailability>;
-  availabilityCurrent: boolean;
-  requireAvailability: boolean;
-  onToggle: (serviceId: string) => void;
-  subtotal: number;
-  selectionError: string | null;
-}) {
-  const [query, setQuery] = useState("");
-  const searchId = useId();
-  const searchRef = useRef<HTMLInputElement>(null);
-  const filteredServices = useMemo(() => {
-    const search = query.trim().toLocaleLowerCase();
-    return services.filter((service) => [service.name, service.providerName, service.category,
-      service.category ? humanizeProviderValue(service.category) : null]
-      .some((value) => value?.toLocaleLowerCase().includes(search)));
-  }, [services, query]);
-  return <Dialog onOpenChange={(open) => {if (!open) setQuery("");}}>
-    <DialogTrigger asChild><Button type="button" variant="secondary" className="min-h-12 w-full sm:w-fit">Browse More Services</Button></DialogTrigger>
-    <DialogContent showCloseButton={false}
-      className="flex max-h-[calc(100dvh-1rem)] w-[calc(100%-1rem)] max-w-6xl flex-col gap-0 overflow-hidden p-0 sm:max-h-[90dvh]"
-      onOpenAutoFocus={(event) => {event.preventDefault(); searchRef.current?.focus();}}>
-      <DialogHeader className="shrink-0 border-b border-feasta-divider p-4 pr-4 sm:p-5">
-        <div className="flex items-start justify-between gap-3">
-          <DialogTitle>Browse FEASTA Event Services</DialogTitle>
-          <DialogClose asChild><Button type="button" variant="ghost" size="compact" className="min-h-11 shrink-0">Close</Button></DialogClose>
-        </div>
-        <DialogDescription className="text-sm leading-6">Explore services loaded for this booking. Selections update your event immediately.</DialogDescription>
-        <label htmlFor={searchId} className="mt-2 text-sm font-bold">Search services</label>
-        <Input ref={searchRef} id={searchId} type="search" value={query} placeholder="Name, provider, or category"
-          onChange={(event) => setQuery(event.currentTarget.value)} />
-      </DialogHeader>
-      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4 sm:p-5">
-        <p role="status" className="mb-3 text-xs text-feasta-text-secondary">{filteredServices.length} of {services.length} loaded services</p>
-        {filteredServices.length > 0 ? <div className="grid min-w-0 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {filteredServices.map((service) => <EventServiceCard key={service.id} service={service}
-            selected={selectedIds.includes(service.id)} selectionLimitReached={selectedIds.length >= 20 && !selectedIds.includes(service.id)}
-            availability={availabilityCurrent ? availabilityByProvider.get(service.providerId) ?? null : null}
-            requireAvailability={requireAvailability} onToggle={() => onToggle(service.id)} />)}
-        </div> : <p className="py-8 text-center text-sm text-feasta-text-secondary">No loaded services match your search.</p>}
-      </div>
-      <footer className="shrink-0 border-t border-feasta-divider bg-feasta-canvas p-4 sm:p-5">
-        {selectionError ? <p role="alert" className="mb-2 text-sm font-semibold text-destructive">{selectionError}</p> : null}
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div role="status" aria-live="polite" aria-atomic="true" className="min-w-0">
-            <p className="text-sm font-bold">{selectedIds.length} optional {selectedIds.length === 1 ? "service" : "services"} selected</p>
-            <p className="text-xs text-feasta-text-secondary">Displayed add-ons subtotal</p>
-            <PriceDisplay amount={subtotal} />
-            {selectedIds.length >= 20 ? <p className="text-xs text-feasta-text-secondary">20-service limit reached. Remove a service to choose another.</p> : null}
-          </div>
-          <DialogClose asChild><Button type="button" className="min-h-12 w-full sm:w-auto">Done</Button></DialogClose>
-        </div>
-      </footer>
-    </DialogContent>
-  </Dialog>;
-}
-
-function EventServiceCard({
-  service,
-  selected,
-  selectionLimitReached,
-  availability,
-  requireAvailability,
-  onToggle,
-}: {
-  service: PublicEventService;
-  selected: boolean;
-  selectionLimitReached: boolean;
-  availability: CustomerProviderAvailability | null;
-  requireAvailability: boolean;
-  onToggle: () => void;
-}) {
-  const unavailable = availability?.available === false;
-  const disabled = !selected && (selectionLimitReached || unavailable || (requireAvailability && availability?.available !== true));
-
-  return (
-    <label
-      className={[
-        "group relative grid min-w-0 overflow-hidden rounded-[16px] border focus-within:ring-2 focus-within:ring-primary focus-within:ring-offset-2",
-        "transition-[border-color,background-color,box-shadow,transform]",
-        selected
-          ? "border-primary/35 bg-secondary shadow-brand-subtle"
-          : "border-feasta-border-soft bg-white hover:-translate-y-0.5 hover:border-primary/20 hover:shadow-[0_7px_20px_rgb(0_75_59/0.05)]",
-        disabled
-          ? "cursor-not-allowed opacity-60"
-          : "cursor-pointer",
-        "motion-reduce:transform-none",
-      ].join(" ")}
-    >
-      <input
-        type="checkbox"
-        checked={selected}
-        disabled={
-          disabled
-        }
-        onChange={onToggle}
-        className="peer sr-only"
-      />
-
-      {service.imageUrl ? (
-        // Public service image URLs are normalized server-side.
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={service.imageUrl}
-          alt=""
-          aria-hidden="true"
-          loading="lazy"
-          decoding="async"
-          className="aspect-[16/8] w-full object-cover"
-        />
-      ) : (
-        <div className="grid aspect-[16/8] place-items-center bg-feasta-canvas">
-          <Sparkles
-            aria-hidden="true"
-            className="size-7 text-primary-strong"
-          />
-        </div>
-      )}
-
-      <div className="grid gap-3 p-4">
-        <div className="flex min-w-0 items-start gap-3">
-          <span
-            aria-hidden="true"
-            className={[
-              "mt-0.5 grid size-5 shrink-0 place-items-center rounded-[6px] border",
-              "transition-[border-color,background-color,color]",
-              selected
-                ? "border-primary bg-primary text-primary-foreground"
-                : "border-feasta-border-strong bg-white text-transparent",
-              "peer-focus-visible:ring-2 peer-focus-visible:ring-primary",
-              "peer-focus-visible:ring-offset-2",
-            ].join(" ")}
-          >
-            <Check className="size-3.5" />
-          </span>
-
-          <div className="min-w-0">
-            <h4 className="break-words text-sm font-extrabold leading-5 text-foreground">
-              {service.name}
-            </h4>
-
-            <p className="mt-1 break-words text-xs font-semibold text-feasta-text-secondary">
-              {service.providerName}
-            </p>
-
-            {availability ? (
-              <p
-                className={[
-                  "mt-2 flex items-start gap-1.5 text-xs font-bold leading-5",
-                  availability.available ? "text-success" : "text-warning",
-                ].join(" ")}
-                role="status"
-              >
-                {availability.available ? (
-                  <CircleCheckBig aria-hidden="true" className="mt-0.5 size-3.5 shrink-0" />
-                ) : (
-                  <TriangleAlert aria-hidden="true" className="mt-0.5 size-3.5 shrink-0" />
-                )}
-                <span>
-                  {selected && unavailable
-                    ? `Selected, but no longer available. ${availability.message}`
-                    : availability.message}
-                </span>
-              </p>
-            ) : <p className="mt-2 text-xs leading-5 text-feasta-text-secondary">{requireAvailability ? "Availability not checked for current event details." : "Sign in to check provider availability."}</p>}
-          </div>
-        </div>
-
-        {service.description ? (
-          <p className="line-clamp-3 text-xs leading-5 text-feasta-text-secondary">
-            {service.description}
-          </p>
-        ) : null}
-        {service.portfolio ? <ServicePortfolioGallery portfolio={service.portfolio} showCover={!service.imageUrl} /> : null}
-        {service.freelanceDetails ? <FreelanceServiceSummary details={service.freelanceDetails} /> : null}
-
-        <div className="flex flex-wrap items-end justify-between gap-3 border-t border-feasta-divider pt-3">
-          <div>
-            {service.category ? (
-              <span className="inline-flex rounded-full bg-feasta-canvas px-2.5 py-1 text-[10px] font-bold text-feasta-text-secondary">
-                {humanizeProviderValue(
-                  service.category,
-                )}
-              </span>
-            ) : null}
-          </div>
-
-          <div className="text-right">
-            <p className="text-[10px] font-bold uppercase tracking-[0.07em] text-feasta-text-tertiary">
-              Price
-            </p>
-
-            {service.price !== null ? (
-              <PriceDisplay
-                amount={service.price}
-                className="mt-0.5"
-              />
-            ) : (
-              <p className="mt-0.5 text-xs font-semibold text-feasta-text-secondary">
-                Not listed
-              </p>
-            )}
-          </div>
-        </div>
-      </div>
-    </label>
-  );
-}
-
 function BookingReview({
   packageRecord,
   providerName,
@@ -2914,6 +2707,12 @@ function BookingReview({
   packageThemeName,
   themeNotes,
   isSubmitting,
+  onAddToEventList,
+  savingEventList,
+  eventListSaveDisabled,
+  eventListAlreadySaved,
+  eventListFeedbackMessage,
+  eventListFeedbackSuccess,
   submissionError,
   submissionResult,
   refundPolicyStatus,
@@ -2959,8 +2758,13 @@ function BookingReview({
 
   themeNotes: string;
 
-  isSubmitting:
-    boolean;
+  isSubmitting: boolean;
+  onAddToEventList: () => void;
+  savingEventList: boolean;
+  eventListSaveDisabled: boolean;
+  eventListAlreadySaved: boolean;
+  eventListFeedbackMessage: string | null;
+  eventListFeedbackSuccess: boolean;
 
   submissionError:
     string | null;
@@ -2991,7 +2795,7 @@ function BookingReview({
     () => void;
   onEditEvent: () => void;
   onEditPackage: () => void;
-  onEditServices: () => void;
+  onEditServices: (id: string) => void;
 
   onSubmit:
     () => Promise<void>;
@@ -3018,7 +2822,7 @@ function BookingReview({
     >
       <div className="max-w-3xl">
         <p className="text-xs font-extrabold uppercase tracking-[0.13em] text-primary-strong">
-          Step 4 of 4
+          Step 3 of 3
         </p>
 
         <h2
@@ -3163,7 +2967,6 @@ function BookingReview({
           title="Optional event services"
           description="Additional FEASTA services selected for this booking."
           actionLabel="Edit services"
-          onAction={onEditServices}
         >
           {selectedEventServices.length >
           0 ? (
@@ -3185,6 +2988,8 @@ function BookingReview({
                         }
                       </p>
 
+                      {service.portfolio ? <ServicePortfolioGallery portfolio={service.portfolio} showCover={!service.imageUrl} /> : null}
+                      {service.freelanceDetails ? <FreelanceServiceSummary details={service.freelanceDetails} /> : null}
                       {service.category ? (
                         <p className="mt-1 text-[11px] font-semibold text-feasta-text-tertiary">
                           {humanizeProviderValue(
@@ -3195,6 +3000,7 @@ function BookingReview({
                     </div>
 
                     <div className="sm:text-right">
+                      <Button type="button" variant="ghost" onClick={() => onEditServices(service.id)} aria-label={`Remove ${service.name} from ${service.providerName}`}>Remove</Button>
                       <p className="text-[10px] font-bold uppercase tracking-[0.07em] text-feasta-text-tertiary">
                         Displayed price
                       </p>
@@ -3361,12 +3167,12 @@ function BookingReview({
           ACTIONS
          ============================================================ */}
 
-      <div className="mt-7 flex flex-col-reverse gap-3 border-t border-feasta-divider pt-5 sm:flex-row sm:items-center sm:justify-between">
+      <div className="mt-7 flex flex-col-reverse gap-4 border-t border-feasta-divider pt-5 lg:flex-row lg:items-end lg:justify-between">
         <Button
           type="button"
           variant="secondary"
           onClick={onBack}
-          className="min-h-12 rounded-full px-5"
+          className="min-h-12 shrink-0 whitespace-nowrap rounded-full px-5"
         >
           <ArrowLeft
             aria-hidden="true"
@@ -3376,7 +3182,7 @@ function BookingReview({
           Back
         </Button>
 
-        <div className="flex max-w-md flex-col gap-2 sm:items-end">
+        <div className="flex w-full min-w-0 flex-col gap-2 lg:w-auto lg:max-w-2xl lg:items-end">
           <p
             id="booking-refund-policy-submit-requirement"
             className="text-xs leading-5 text-feasta-text-secondary sm:text-right"
@@ -3389,6 +3195,30 @@ function BookingReview({
                   ? "Acknowledge every displayed Provider refund policy to continue."
                   : "Submitting sends your request to the selected Providers. Your booking is not yet confirmed."}
           </p>
+
+          <p className="text-xs leading-5 text-feasta-text-secondary sm:text-right">
+            Want to add more services? Add this package to your Event List
+            and{" "}
+            <Link
+              href="/customer"
+              className="font-semibold text-primary underline underline-offset-4 hover:text-primary-strong focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+            >
+              browse more providers
+            </Link>
+            .
+          </p>
+
+          <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center lg:justify-end">
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={onAddToEventList}
+              disabled={eventListSaveDisabled}
+              aria-busy={savingEventList}
+              className="min-h-12 rounded-full px-5"
+            >
+              {savingEventList ? "Adding..." : eventListAlreadySaved ? "Already in Event List" : "Add to Event List"}
+            </Button>
 
           <Button
             type="button"
@@ -3421,6 +3251,16 @@ function BookingReview({
               />
             ) : null}
           </Button>
+          </div>
+
+          {eventListFeedbackMessage ? (
+            <p
+              role={eventListFeedbackSuccess ? "status" : "alert"}
+              className="text-xs text-feasta-text-secondary sm:text-right"
+            >
+              {eventListFeedbackMessage}
+            </p>
+          ) : null}
         </div>
       </div>
     </section>
@@ -4003,6 +3843,8 @@ function validateEventDetails(
 ): EventDetailsErrors {
   const errors: EventDetailsErrors = {};
 
+  if (!draft.eventType) errors.eventType = "Choose an event type supported by this package.";
+
   if (!draft.eventDate) {
     errors.eventDate =
       "Choose your event date.";
@@ -4190,3 +4032,9 @@ function manilaDateParts(date: Date): {
 }
 import {getCustomerBookingPaymentAgreements, type BookingAgreementDisclosure} from "@/lib/customer/bookings/customer-booking-agreement";
 import {BookingPaymentAgreementReview} from "./booking-payment-agreement-review";
+
+// Reset editable and pending UI state when the authenticated session changes.
+export function EventCustomizationExperience(props: ComponentProps<typeof EventCustomizationExperienceSession>) {
+  const session = useCustomerEventListSession();
+  return <EventCustomizationExperienceSession key={session.generation} {...props} />;
+}

@@ -1,6 +1,12 @@
 "use client";
 
-import {useCallback, useEffect, useState} from "react";
+import {useEffect, useMemo, useState, useSyncExternalStore} from "react";
+import {onAuthStateChanged} from "firebase/auth";
+import {auth} from "@/lib/firebase/client";
+import type {FoodChoiceSelectionV2} from "@feasta/shared-types/provider-package-v2";
+import type {CateringPackageServiceTier} from "@/lib/catering/catering-service-tier";
+import {parseStoredBookingCustomization, type BookingThemeInspiration} from "@/lib/customer/bookings/booking-customization-selection";
+import {parseStoredFoodChoices} from "@/lib/customer/bookings/food-choice-selection";
 
 export const CUSTOMER_EVENT_LIST_STORAGE_KEY = "feasta.customer.event-list.v1";
 export const CUSTOMER_EVENT_LIST_SCHEDULE_STORAGE_KEY =
@@ -8,6 +14,8 @@ export const CUSTOMER_EVENT_LIST_SCHEDULE_STORAGE_KEY =
 export const CUSTOMER_EVENT_LIST_VERSION = 1;
 export const CUSTOMER_EVENT_LIST_MAX_ITEMS = 24;
 export const CUSTOMER_EVENT_LIST_OPEN_EVENT = "feasta:open-customer-event-list";
+
+const EMPTY_ITEMS: readonly CustomerEventListItem[] = [];
 
 const CHANGE_EVENT = "feasta:customer-event-list-change";
 
@@ -18,9 +26,24 @@ export type CustomerEventListService = {
   name: string;
   category: string | null;
   price: number | null;
+  source?: "catering_provider" | "feasta_addon_provider";
+};
+
+/** Display-only context; the server re-reads prices, options, and availability. */
+export type CustomerEventListPricingContext = {
+  currency: "PHP";
+  pricingModel: "per_pax" | "per_bundle" | null;
+  displayedServicePrice: number | null;
 };
 
 export type CustomerEventListConfiguration = {
+  sharedContractVersion?: 2 | null;
+  expectedPackageRevision?: number | null;
+  serviceTier?: CateringPackageServiceTier | null;
+  packageThemeId?: string | null;
+  themeInspiration?: BookingThemeInspiration;
+  foodChoiceSelections?: readonly FoodChoiceSelectionV2[];
+  pricingContext?: CustomerEventListPricingContext | null;
   event: {
     eventType: string;
     eventDate: string;
@@ -69,6 +92,13 @@ export type CustomerCustomMenuEventListItem = {
   providerHref: string;
 };
 
+/** Planning only: neither readiness state authorizes booking or payment. */
+export function customerEventListReadiness(item: CustomerPackageEventListItem):
+  "needs_customization" | "configured_revalidation_required" {
+  return item.configuration && normalizeConfiguration(item.configuration)
+    ? "configured_revalidation_required" : "needs_customization";
+}
+
 export type CustomerEventListItem =
   | CustomerPackageEventListItem
   | CustomerCustomMenuEventListItem;
@@ -101,101 +131,100 @@ export function customerEventListItemKey(item: CustomerEventListItem): string {
     : item.packageId;
 }
 
-export function useCustomerEventList() {
-  const [items, setItems] = useState<readonly CustomerEventListItem[]>([]);
-
-  useEffect(() => {
-    function synchronize() {
-      setItems(readCustomerEventList());
-    }
-
-    function storageChanged(event: StorageEvent) {
-      if (
-        event.key !== null &&
-        event.key !== CUSTOMER_EVENT_LIST_STORAGE_KEY &&
-        event.key !== CUSTOMER_EVENT_LIST_SCHEDULE_STORAGE_KEY
-      ) {
-        return;
-      }
-      synchronize();
-    }
-
-    synchronize();
-    window.addEventListener(CHANGE_EVENT, synchronize);
-    window.addEventListener("storage", storageChanged);
-    return () => {
-      window.removeEventListener(CHANGE_EVENT, synchronize);
-      window.removeEventListener("storage", storageChanged);
-    };
-  }, []);
-
-  const addItem = useCallback((item: CustomerEventListItem) => {
-    addCustomerEventListItem(item);
-  }, []);
-
-  const removeItem = useCallback((itemKey: string) => {
-    removeCustomerEventListItem(itemKey);
-  }, []);
-
-  const removeService = useCallback((packageId: string, serviceId: string) => {
-    removeCustomerEventListService(packageId, serviceId);
-  }, []);
-
-  const clearItems = useCallback(() => {
-    clearCustomerEventList();
-  }, []);
-
-  return {
-    items,
-    count: items.length,
-    addItem,
-    removeItem,
-    removeService,
-    clearItems,
+// Session capabilities expire on account changes, including signing back into the same UID.
+let generation = 0;
+let observedUser = auth.currentUser;
+const listeners = new Set<() => void>();
+let stopAuth: (() => void) | undefined;
+function synchronizeSession() {
+  if (observedUser !== auth.currentUser) {
+    observedUser = auth.currentUser;
+    generation += 1;
+  }
+}
+function subscribeSession(listener: () => void) {
+  listeners.add(listener);
+  if (!stopAuth) stopAuth = onAuthStateChanged(auth, () => {
+    synchronizeSession();
+    listeners.forEach(listener => listener());
+  });
+  return () => {
+    listeners.delete(listener);
+    if (!listeners.size) { stopAuth?.(); stopAuth = undefined; }
   };
 }
-
-export function useCustomerEventListSchedule(): CustomerEventListSchedule | null {
-  const [schedule, setSchedule] = useState<CustomerEventListSchedule | null>(null);
-
+function currentSession() {
+  synchronizeSession();
+  return {user: auth.currentUser, generation};
+}
+type EventListSession = ReturnType<typeof currentSession>;
+function authorized(session: EventListSession): boolean {
+  synchronizeSession();
+  return !!session.user && session.user === auth.currentUser && session.generation === generation;
+}
+// Ownerless v1 keys remain untouched: ownership cannot be inferred safely.
+// Keep the existing payload codec inside a UID-specific namespace.
+function storageKey(base: string, session: EventListSession): string {
+  return base + ":uid:" + encodeURIComponent(session.user!.uid);
+}
+export function useCustomerEventListSession() {
+  useSyncExternalStore(subscribeSession, () => auth.currentUser, () => null);
+  return currentSession();
+}
+export function useCustomerEventList() {
+  const session = useCustomerEventListSession();
+  const user = session.user;
+  const epoch = session.generation;
+  const [snapshot, setSnapshot] = useState<{user: typeof user; epoch: number; items: readonly CustomerEventListItem[]} | null>(null);
+  if (snapshot && (snapshot.user !== user || snapshot.epoch !== epoch)) {
+    setSnapshot(null);
+  }
   useEffect(() => {
-    function synchronize() {
-      setSchedule(readCustomerEventListSchedule());
-    }
-
-    function storageChanged(event: StorageEvent) {
-      if (
-        event.key !== null &&
-        event.key !== CUSTOMER_EVENT_LIST_STORAGE_KEY &&
-        event.key !== CUSTOMER_EVENT_LIST_SCHEDULE_STORAGE_KEY
-      ) {
-        return;
-      }
-      synchronize();
-    }
-
+    const owner = {user, generation: epoch};
+    let active = true;
+    const synchronize = () => {
+      if (active && authorized(owner)) setSnapshot({user, epoch, items: readCustomerEventList(owner)});
+    };
     synchronize();
     window.addEventListener(CHANGE_EVENT, synchronize);
-    window.addEventListener("storage", storageChanged);
+    window.addEventListener("storage", synchronize);
     return () => {
+      active = false;
       window.removeEventListener(CHANGE_EVENT, synchronize);
-      window.removeEventListener("storage", storageChanged);
+      window.removeEventListener("storage", synchronize);
     };
-  }, []);
-
-  return schedule;
+  }, [user, epoch]);
+  const items = snapshot && snapshot.user === user && snapshot.epoch === epoch && authorized(session) ? snapshot.items : EMPTY_ITEMS;
+  return useMemo(() => {
+    const session = {user, generation: epoch};
+    return {
+    items, count: items.length,
+    addItem: (item: CustomerEventListItem) => addCustomerEventListItem(item, session),
+    removeItem: (key: string) => removeCustomerEventListItem(key, session),
+    removeService: (packageId: string, serviceId: string) => removeCustomerEventListService(packageId, serviceId, session),
+    clearItems: () => clearCustomerEventList(session),
+    readItems: () => readCustomerEventList(session),
+    readSchedule: () => readCustomerEventListSchedule(session),
+    writeSchedule: (value: CustomerEventListSchedule) => writeCustomerEventListSchedule(value, session),
+    openList: () => openCustomerEventList(session),
+    };
+  }, [items, user, epoch]);
+}
+export function useCustomerEventListSchedule(): CustomerEventListSchedule | null {
+  const {items, readSchedule} = useCustomerEventList();
+  return items.length ? readSchedule() : null;
 }
 
-export function openCustomerEventList(): void {
-  if (typeof window === "undefined") return;
+export function openCustomerEventList(session = currentSession()): void {
+  if (typeof window === "undefined" || !authorized(session)) return;
   window.dispatchEvent(new Event(CUSTOMER_EVENT_LIST_OPEN_EVENT));
 }
 
-export function readCustomerEventList(): readonly CustomerEventListItem[] {
-  if (typeof window === "undefined") return [];
+export function readCustomerEventList(session = currentSession()): readonly CustomerEventListItem[] {
+  if (typeof window === "undefined" || !authorized(session)) return [];
 
   try {
-    const raw = window.localStorage.getItem(CUSTOMER_EVENT_LIST_STORAGE_KEY);
+    const raw = window.localStorage.getItem(storageKey(CUSTOMER_EVENT_LIST_STORAGE_KEY, session));
     if (!raw) return [];
     return normalizeStoredEventList(JSON.parse(raw));
   } catch {
@@ -203,12 +232,12 @@ export function readCustomerEventList(): readonly CustomerEventListItem[] {
   }
 }
 
-export function readCustomerEventListSchedule(): CustomerEventListSchedule | null {
-  if (typeof window === "undefined") return null;
-  if (readCustomerEventList().length === 0) return null;
+export function readCustomerEventListSchedule(session = currentSession()): CustomerEventListSchedule | null {
+  if (typeof window === "undefined" || !authorized(session)) return null;
+  if (readCustomerEventList(session).length === 0) return null;
 
   try {
-    const raw = window.localStorage.getItem(CUSTOMER_EVENT_LIST_SCHEDULE_STORAGE_KEY);
+    const raw = window.localStorage.getItem(storageKey(CUSTOMER_EVENT_LIST_SCHEDULE_STORAGE_KEY, session));
     if (raw) {
       const normalized = normalizeCustomerEventListSchedule(JSON.parse(raw));
       if (normalized) return normalized;
@@ -217,7 +246,7 @@ export function readCustomerEventListSchedule(): CustomerEventListSchedule | nul
     // Fall through to a package configuration snapshot, if one is readable.
   }
 
-  for (const item of readCustomerEventList()) {
+  for (const item of readCustomerEventList(session)) {
     if (item.type === "custom_menu" || !item.configuration) continue;
     const normalized = normalizeCustomerEventListSchedule({
       eventDate: item.configuration.event.eventDate,
@@ -231,14 +260,14 @@ export function readCustomerEventListSchedule(): CustomerEventListSchedule | nul
   return null;
 }
 
-export function writeCustomerEventListSchedule(value: CustomerEventListSchedule): void {
-  if (typeof window === "undefined") return;
+export function writeCustomerEventListSchedule(value: CustomerEventListSchedule, session = currentSession()): void {
+  if (typeof window === "undefined" || !authorized(session)) return;
   const normalized = normalizeCustomerEventListSchedule(value);
   if (!normalized) return;
 
   try {
     window.localStorage.setItem(
-      CUSTOMER_EVENT_LIST_SCHEDULE_STORAGE_KEY,
+      storageKey(CUSTOMER_EVENT_LIST_SCHEDULE_STORAGE_KEY, session),
       JSON.stringify(normalized),
     );
     notifyCustomerEventListChanged();
@@ -247,49 +276,75 @@ export function writeCustomerEventListSchedule(value: CustomerEventListSchedule)
   }
 }
 
-export function addCustomerEventListItem(item: CustomerEventListItem): void {
-  if (typeof window === "undefined") return;
+export function addCustomerEventListItem(item: CustomerEventListItem, session = currentSession()): boolean {
+  if (typeof window === "undefined" || !authorized(session)) return false;
   const normalized = normalizeEventListItem(item);
-  if (!normalized) return;
+  if (!normalized) return false;
+
+  let existingItems: readonly CustomerEventListItem[];
+  try {
+    const raw = window.localStorage.getItem(storageKey(CUSTOMER_EVENT_LIST_STORAGE_KEY, session));
+    existingItems = raw ? normalizeStoredEventList(JSON.parse(raw)) : [];
+  } catch {
+    return false;
+  }
+
+  const existing = existingItems.find(
+    (candidate) =>
+      customerEventListItemKey(candidate) ===
+      customerEventListItemKey(normalized),
+  );
+
+  // A package-only planning action must not erase a completed configuration.
+  // A deliberate configured save can still replace the previous entry.
+  const protectedItem =
+    normalized.type !== "custom_menu" &&
+    !normalized.configuration &&
+    existing &&
+    existing.type !== "custom_menu" &&
+    existing.configuration
+      ? existing
+      : normalized;
 
   const next = [
-    normalized,
-    ...readCustomerEventList().filter(
+    protectedItem,
+    ...existingItems.filter(
       (candidate) =>
-        customerEventListItemKey(candidate) !== customerEventListItemKey(normalized),
+        customerEventListItemKey(candidate) !==
+        customerEventListItemKey(normalized),
     ),
   ].slice(0, CUSTOMER_EVENT_LIST_MAX_ITEMS);
 
-  writeCustomerEventList(next);
+  return writeCustomerEventList(next, session);
 }
 
-export function removeCustomerEventListItem(itemKey: string): void {
-  if (typeof window === "undefined") return;
+export function removeCustomerEventListItem(itemKey: string, session = currentSession()): void {
+  if (typeof window === "undefined" || !authorized(session)) return;
   const normalizedKey = safeText(itemKey, 320);
   if (!normalizedKey) return;
 
-  const next = readCustomerEventList().filter(
+  const next = readCustomerEventList(session).filter(
     (item) => customerEventListItemKey(item) !== normalizedKey,
   );
 
   if (next.length === 0) {
     try {
-      window.localStorage.removeItem(CUSTOMER_EVENT_LIST_SCHEDULE_STORAGE_KEY);
+      window.localStorage.removeItem(storageKey(CUSTOMER_EVENT_LIST_SCHEDULE_STORAGE_KEY, session));
     } catch {
       // Ignore unavailable storage.
     }
   }
 
-  writeCustomerEventList(next);
+  writeCustomerEventList(next, session);
 }
 
-export function removeCustomerEventListService(packageId: string, serviceId: string): void {
-  if (typeof window === "undefined") return;
+export function removeCustomerEventListService(packageId: string, serviceId: string, session = currentSession()): void {
+  if (typeof window === "undefined" || !authorized(session)) return;
   const normalizedPackageId = safeText(packageId, 128);
   const normalizedServiceId = safeText(serviceId, 128);
   if (!normalizedPackageId || !normalizedServiceId) return;
 
-  const next = readCustomerEventList().map((item) => {
+  const next = readCustomerEventList(session).map((item) => {
     if (
       item.type === "custom_menu" ||
       item.packageId !== normalizedPackageId ||
@@ -316,35 +371,39 @@ export function removeCustomerEventListService(packageId: string, serviceId: str
     };
   });
 
-  writeCustomerEventList(next);
+  writeCustomerEventList(next, session);
 }
 
-export function clearCustomerEventList(): void {
-  if (typeof window === "undefined") return;
+export function clearCustomerEventList(session = currentSession()): void {
+  if (typeof window === "undefined" || !authorized(session)) return;
   try {
-    window.localStorage.removeItem(CUSTOMER_EVENT_LIST_STORAGE_KEY);
-    window.localStorage.removeItem(CUSTOMER_EVENT_LIST_SCHEDULE_STORAGE_KEY);
+    window.localStorage.removeItem(storageKey(CUSTOMER_EVENT_LIST_STORAGE_KEY, session));
+    window.localStorage.removeItem(storageKey(CUSTOMER_EVENT_LIST_SCHEDULE_STORAGE_KEY, session));
   } catch {
     // Ignore unavailable storage.
   }
   notifyCustomerEventListChanged();
 }
 
-function writeCustomerEventList(items: readonly CustomerEventListItem[]): void {
-  if (typeof window === "undefined") return;
+function writeCustomerEventList(items: readonly CustomerEventListItem[], session: EventListSession): boolean {
+  if (typeof window === "undefined" || !authorized(session)) return false;
   const payload: VersionedEventList = {
     version: CUSTOMER_EVENT_LIST_VERSION,
     items,
   };
 
   try {
+    const raw = JSON.stringify(payload);
     window.localStorage.setItem(
-      CUSTOMER_EVENT_LIST_STORAGE_KEY,
-      JSON.stringify(payload),
+      storageKey(CUSTOMER_EVENT_LIST_STORAGE_KEY, session),
+      raw,
     );
+    if (window.localStorage.getItem(storageKey(CUSTOMER_EVENT_LIST_STORAGE_KEY, session)) !== raw) return false;
     notifyCustomerEventListChanged();
+    return true;
   } catch {
     // Storage can be unavailable in restricted browser environments.
+    return false;
   }
 }
 
@@ -479,6 +538,8 @@ function normalizeEventListItem(value: unknown): CustomerEventListItem | null {
     return null;
   }
 
+  const configuration = normalizeConfiguration(record.configuration);
+  if (record.configuration != null && !configuration) return null;
   return {
     type: "package",
     packageId,
@@ -488,18 +549,59 @@ function normalizeEventListItem(value: unknown): CustomerEventListItem | null {
     price: safeMoney(record.price),
     imageUrl: safeHttpsImageUrl(record.imageUrl),
     packageHref,
-    configuration: normalizeConfiguration(record.configuration),
+    configuration,
   };
 }
 
-function normalizeConfiguration(value: unknown): CustomerEventListConfiguration | null {
+export function normalizeConfiguration(value: unknown): CustomerEventListConfiguration | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const record = value as Record<string, unknown>;
   if (!record.event || typeof record.event !== "object" || Array.isArray(record.event)) {
     return null;
   }
 
+  const offer = parseStoredBookingCustomization(record);
+  const foodChoiceSelections = parseStoredFoodChoices(record.foodChoiceSelections);
+  if (!offer || !foodChoiceSelections || foodChoiceSelections.some((row) => row.optionIds.length === 0) ||
+      (record.sharedContractVersion != null && record.sharedContractVersion !== 2) ||
+      (record.expectedPackageRevision != null &&
+        (typeof record.expectedPackageRevision !== "number" ||
+          !Number.isSafeInteger(record.expectedPackageRevision) || record.expectedPackageRevision < 1)) ||
+      (record.sharedContractVersion === 2 &&
+        (record.expectedPackageRevision == null || !Array.isArray(record.foodChoiceSelections))) ||
+      (record.sharedContractVersion !== 2 && foodChoiceSelections.length > 0)) return null;
+  let pricingContext: CustomerEventListPricingContext | null = null;
+  if (record.pricingContext != null) {
+    if (typeof record.pricingContext !== "object" || Array.isArray(record.pricingContext)) return null;
+    const context = record.pricingContext as Record<string, unknown>;
+    if (Object.keys(context).some((key) => !["currency", "pricingModel", "displayedServicePrice"].includes(key)) ||
+        context.currency !== "PHP" ||
+        (context.pricingModel !== null && context.pricingModel !== "per_pax" && context.pricingModel !== "per_bundle") ||
+        (context.displayedServicePrice !== null && safeMoney(context.displayedServicePrice) === null)) return null;
+    pricingContext = context as CustomerEventListPricingContext;
+  }
+  for (const key of ["selectedFoods", "selectedDecorations", "selectedFurniture"]) {
+    const list = record[key];
+    if (!Array.isArray(list) || list.length > 50 ||
+        list.some((text) => typeof text !== "string" || !text.trim() || text.length > 160) ||
+        new Set(list).size !== list.length) return null;
+  }
+  if (!Array.isArray(record.selectedEventServices) || record.selectedEventServices.length > 30 ||
+      normalizeServices(record.selectedEventServices).length !== record.selectedEventServices.length ||
+      typeof record.willArrangeOwnAddOns !== "boolean" ||
+      typeof record.customerArrangedAddOnsNote !== "string" || record.customerArrangedAddOnsNote.length > 1000 ||
+      (record.estimatedTotal !== null && safeMoney(record.estimatedTotal) === null)) return null;
+  for (const row of record.selectedEventServices) {
+    if (row.source !== undefined && !["catering_provider", "feasta_addon_provider"].includes(row.source)) return null;
+    if (row.price !== null && safeMoney(row.price) === null) return null;
+    if (!boundedName(row.name, 160) || !boundedName(row.providerName, 160) ||
+        (row.category !== null && (typeof row.category !== "string" || row.category.length > 120))) return null;
+  }
   const event = record.event as Record<string, unknown>;
+  for (const [key, limit] of Object.entries({eventType: 120, eventDate: 10,
+    eventTime: 5, eventEndTime: 5, eventLocation: 180, eventAddress: 500, specialRequest: 1000})) {
+    if (typeof event[key] !== "string" || (event[key] as string).length > limit) return null;
+  }
   const eventType = safeText(event.eventType, 120);
   const eventDate = safeText(event.eventDate, 10);
   const eventTime = safeText(event.eventTime, 5);
@@ -530,6 +632,11 @@ function normalizeConfiguration(value: unknown): CustomerEventListConfiguration 
   }
 
   return {
+    ...(record.sharedContractVersion !== undefined ? {sharedContractVersion: record.sharedContractVersion as 2 | null} : {}),
+    ...(record.expectedPackageRevision !== undefined ? {expectedPackageRevision: record.expectedPackageRevision as number | null} : {}),
+    ...offer,
+    ...(record.foodChoiceSelections !== undefined ? {foodChoiceSelections} : {}),
+    ...(record.pricingContext !== undefined ? {pricingContext} : {}),
     event: {
       eventType,
       eventDate,
@@ -571,6 +678,7 @@ function normalizeServices(value: unknown): readonly CustomerEventListService[] 
       name,
       category: safeText(record.category, 120),
       price: safeMoney(record.price),
+      ...(record.source ? {source: record.source as CustomerEventListService["source"]} : {}),
     });
     if (services.length >= 30) break;
   }

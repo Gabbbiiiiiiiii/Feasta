@@ -90,6 +90,9 @@ it("reuses the persisted submission identity after refresh", async () => {
   await waitFor(() => expect(screen.getByRole("status").textContent).toMatch(/^booking-/));
   const requestId = screen.getByRole("status").textContent;
   expect(requestId).toMatch(/^booking-/);
+  fireEvent.change(screen.getByLabelText("Notes"), {target: {value: "Changed selections must keep the original request"}});
+  await act(async () => { fireEvent.click(screen.getByText("Prepare submission")); });
+  await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent(requestId!));
   first.unmount();
   render(<Harness owner="customer" />);
   await screen.findByText(/Draft restored/);

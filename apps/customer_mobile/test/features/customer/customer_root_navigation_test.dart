@@ -88,12 +88,14 @@ void main() {
         builder: (_) => entry == 'Event List'
             ? CustomerEventListScreen(
                 repository: repo,
+                bookingEligibilityCheck: (_) async => true,
                 catalog: EventListCatalog(lookup: (_, _) async => null),
               )
             : PackageDetailsScreen(
                 provider: provider(),
                 eventPackage: preparationPackage(),
                 repository: repo,
+                bookingEligibilityCheck: (_) async => true,
                 sessions: sessions,
               ),
       ),
@@ -220,6 +222,8 @@ void main() {
         await tester.pump();
         await tester.tap(find.text('Retry saving and leave'));
         await tester.pumpAndSettle();
+        await tester.tap(find.text('Leave customization'));
+        await tester.pumpAndSettle();
         expect(reached, 1);
         expect(store.writes, 1);
         expect(find.text('Persistent root'), findsOneWidget);
@@ -308,6 +312,11 @@ void main() {
         );
         final popped = route.popped;
         key.currentState!.pop();
+        await tester.pumpAndSettle();
+        expect(find.text('Leave this customization?'), findsOneWidget);
+        await tester.tap(find.text('Leave customization'));
+        await tester.pump();
+        await tester.pump();
         await popped;
         expect(completed, isFalse);
         expect(session.authorized, isTrue);
@@ -406,7 +415,7 @@ void main() {
       final browse = tester.widget<FilledButton>(
         find.widgetWithText(
           FilledButton,
-          'Continue Browsing',
+          'Add another provider',
           skipOffstage: false,
         ),
       );

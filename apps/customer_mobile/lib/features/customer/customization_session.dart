@@ -1,4 +1,5 @@
 import 'dart:async';
+import '../../shared/models/customer_event_list.dart';
 import 'package:flutter/material.dart';
 
 /// One entry lifetime; closing is irreversible even for a later same-UID login.
@@ -8,10 +9,14 @@ class CustomizationSession extends ChangeNotifier {
     required this.generation,
     required this.changes,
     required this.isCurrent,
+    this.isGuest = false,
+    this.eventListIdentity,
   }) {
     changes.addListener(_changed);
   }
   final String uid;
+  final EventListIdentity? eventListIdentity;
+  final bool isGuest;
   final int generation;
   final Listenable changes;
   final bool Function() isCurrent;

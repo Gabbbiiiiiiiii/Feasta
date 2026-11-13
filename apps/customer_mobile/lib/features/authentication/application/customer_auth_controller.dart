@@ -167,7 +167,9 @@ class CustomerAuthenticationController extends ChangeNotifier {
 
   Future<void> refresh({bool forceTokenRefresh = true}) async {
     if (_signingOut || _disposed) return;
-    sessions?.requireValidation();
+    // Observe live identity immediately, but retain a continuously authorized
+    // lifetime while checking the same user. Failure paths still revoke it.
+    sessions?.readSnapshot();
     _recoveryExhausted = false;
     final identity = repository.currentIdentity;
 
@@ -207,7 +209,10 @@ class CustomerAuthenticationController extends ChangeNotifier {
       );
     }
 
-    await _requestLoad(forceTokenRefresh: forceTokenRefresh);
+    await _requestLoad(
+      forceTokenRefresh: forceTokenRefresh,
+      closeSession: identityChanged,
+    );
   }
 
   Future<void> signOut() async {

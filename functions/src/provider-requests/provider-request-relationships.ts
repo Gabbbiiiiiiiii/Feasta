@@ -243,6 +243,9 @@ function hasAssignmentContinuity(
   previous: SnapshotData, next: SnapshotData, event: SnapshotData,
 ): boolean {
   if (previous.type !== next.type) return false;
+  // A replacement must preserve the assignment contract, including the
+  // distinction between historical catering and independent packages.
+  if (previous.assignmentKind !== next.assignmentKind) return false;
   for (const field of ["eventType", "eventTime", "eventEndTime",
     "eventLocation", "eventAddress"]) {
     if (!canonicalText(event[field]) || previous[field] !== event[field] ||
@@ -259,6 +262,9 @@ function hasAssignmentContinuity(
 }
 
 function bundleCategories(request: SnapshotData): Map<string, number> | null {
+  if (request.assignmentKind !== undefined &&
+    request.assignmentKind !== "independent_package") return null;
+  if (request.assignmentKind === "independent_package" && request.type !== "catering") return null;
   if (request.type !== "catering" && request.type !== "addon") return null;
   if (!Array.isArray(request.services) || request.services.length === 0) return null;
   const ids = new Set<string>();

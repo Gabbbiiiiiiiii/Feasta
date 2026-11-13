@@ -1,5 +1,6 @@
 import 'widgets/provider_grid.dart';
 import 'event_list/event_list_navigation.dart';
+import 'event_list/event_list_scope.dart';
 import 'widgets/provider_brand_visual.dart';
 import '../../core/domain/service_category.dart';
 import 'package:flutter/material.dart';
@@ -16,6 +17,7 @@ import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
 import '../../shared/models/customer_address_model.dart';
 import '../../shared/models/feasta_models.dart';
+import '../../shared/widgets/loading_skeleton.dart';
 import '../../shared/models/promotion_model.dart';
 import '../authentication/data/repositories/feasta_repository.dart';
 import '../authentication/data/services/customer_address_storage_service.dart';
@@ -276,13 +278,60 @@ class _HomeHeader extends StatelessWidget {
                       ),
               ),
               const SizedBox(width: AppSpacing.sm),
-              IconButton(
-                tooltip: 'My Event List',
-                onPressed: () => openCustomerEventList(context),
-                icon: const Icon(
-                  Icons.checklist_rounded,
-                  color: customerDecorativeIconColor,
-                ),
+              AnimatedBuilder(
+                animation: EventListScope.of(context),
+                builder: (context, _) {
+                  final controller = EventListScope.of(context);
+                  final authenticated =
+                      controller.authentication.session.customerUid != null;
+
+                  final selectionCount = authenticated
+                      ? (controller.list?.entries.fold<int>(
+                              0,
+                              (total, entry) =>
+                                  total +
+                                  1 +
+                                  (entry.configuration?.selectedAddOns
+                                          .where(
+                                            (addon) =>
+                                                addon.source ==
+                                                'feasta_addon_provider',
+                                          )
+                                          .length ??
+                                      0),
+                            ) ??
+                            0)
+                      : 0;
+
+                  return IconButton(
+                    tooltip: authenticated
+                        ? selectionCount > 0
+                              ? 'My Event List, $selectionCount saved selections'
+                              : 'My Event List'
+                        : 'Sign in to use Event List',
+                    onPressed: authenticated
+                        ? () => openCustomerEventList(context)
+                        : null,
+                    style: IconButton.styleFrom(
+                      foregroundColor: customerDecorativeIconColor,
+                      disabledForegroundColor:
+                          AppColors.secondaryTextAccessible,
+                    ),
+                    icon: Badge(
+                      isLabelVisible: authenticated && selectionCount > 0,
+                      backgroundColor: const Color(0xFF084A35),
+                      textColor: Colors.white,
+                      label: Text(
+                        selectionCount > 99 ? '99+' : '$selectionCount',
+                        style: const TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      child: const Icon(Icons.checklist_rounded),
+                    ),
+                  );
+                },
               ),
               _NotificationButton(repository: repository),
             ],
@@ -764,30 +813,42 @@ class _EventServicesSection extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 12),
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(
-              children: [
-                _ServiceCategoryChip(
-                  label: 'All services',
-                  selected: !items.any((item) => item.code == selectedCategory),
-                  onTap: onSeeAll,
-                ),
-                for (final item in items) ...[
-                  const SizedBox(width: 8),
-                  _ServiceCategoryChip(
-                    label: item.name,
-                    selected: item.code == selectedCategory,
-                    onTap: () => onItemTap(item),
-                  ),
+          if (loading)
+            const FeastaSkeletonPulse(
+              child: Row(
+                children: [
+                  FeastaSkeletonBox(width: 112, height: 48, radius: 24),
+                  SizedBox(width: 8),
+                  FeastaSkeletonBox(width: 96, height: 48, radius: 24),
+                  SizedBox(width: 8),
+                  Expanded(child: FeastaSkeletonBox(height: 48, radius: 24)),
                 ],
-              ],
+              ),
+            )
+          else
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  _ServiceCategoryChip(
+                    label: 'All services',
+                    selected: !items.any(
+                      (item) => item.code == selectedCategory,
+                    ),
+                    onTap: onSeeAll,
+                  ),
+                  for (final item in items) ...[
+                    const SizedBox(width: 8),
+                    _ServiceCategoryChip(
+                      label: item.name,
+                      selected: item.code == selectedCategory,
+                      onTap: () => onItemTap(item),
+                    ),
+                  ],
+                ],
+              ),
             ),
-          ),
-          if (loading) ...[
-            const SizedBox(height: 12),
-            const LinearProgressIndicator(minHeight: 2),
-          ] else if (failed) ...[
+          if (failed) ...[
             const SizedBox(height: 8),
             const Text('Event Services could not be loaded.'),
             TextButton(onPressed: onRetry, child: const Text('Retry')),
@@ -908,7 +969,14 @@ class _PopularSectionState extends State<_PopularSection> {
                 )
               else if (snapshot.connectionState == ConnectionState.waiting ||
                   categorySnapshot.connectionState != ConnectionState.done)
-                const Center(child: CircularProgressIndicator())
+                const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: AppSpacing.screen),
+                  child: FeastaSkeletonHorizontalCards(
+                    itemCount: 3,
+                    height: 225,
+                    width: 180,
+                  ),
+                )
               else if (all.isEmpty)
                 const Padding(
                   padding: EdgeInsets.all(24),

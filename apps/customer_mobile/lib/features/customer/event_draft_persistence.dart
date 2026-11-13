@@ -59,11 +59,12 @@ class SecureEventDraftStore implements EventDraftStore {
 
 /// Independent of booking attempts: contains no request identity or consent.
 class EventDraftPersistence {
-  EventDraftPersistence(this.store);
+  EventDraftPersistence(this.store, {this.context = ''});
+  final String context;
   final EventDraftStore store;
   Future<void>? _tail;
   String key(String uid, String provider, String package) =>
-      'event_draft_v1_${base64Url.encode(utf8.encode(jsonEncode([uid, provider, package])))}';
+      'event_draft_v1_${base64Url.encode(utf8.encode(jsonEncode([uid, provider, package, if (context.isNotEmpty) context])))}';
   Future<T> _serial<T>(Future<T> Function() action) {
     final next = _tail == null
         ? Future<T>.sync(action)

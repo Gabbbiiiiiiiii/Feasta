@@ -13,11 +13,13 @@ class BookingAgreementReviewScreen extends StatefulWidget {
     required this.selection,
     this.loader,
     this.resolveProviders,
+    this.controller,
     super.key,
   });
   final BookingSelection selection;
   final AgreementLoader? loader;
   final AgreementProviderResolver? resolveProviders;
+  final BookingAgreementController? controller;
   @override
   State<BookingAgreementReviewScreen> createState() =>
       _BookingAgreementReviewScreenState();
@@ -31,17 +33,19 @@ class _BookingAgreementReviewScreenState
   @override
   void initState() {
     super.initState();
-    controller = BookingAgreementController(
-      resolveProviders:
-          widget.resolveProviders ??
-          FeastaRepository().resolveBookingAgreementProviders,
-      loader:
-          widget.loader ??
-          FeastaRepository().getBookingPaymentAgreementDisclosures,
-    );
+    controller =
+        widget.controller ??
+        BookingAgreementController(
+          resolveProviders:
+              widget.resolveProviders ??
+              FeastaRepository().resolveBookingAgreementProviders,
+          loader:
+              widget.loader ??
+              FeastaRepository().getBookingPaymentAgreementDisclosures,
+        );
     _owner = FirebaseAuth.instance.currentUser?.uid;
     controller.select(widget.selection, ownerId: _owner);
-    unawaited(controller.load());
+    unawaited(controller.load(revalidate: widget.controller != null));
     _account = FirebaseAuth.instance.authStateChanges().listen((user) {
       if (!mounted || user?.uid == _owner) return;
       _owner = user?.uid;
@@ -61,7 +65,7 @@ class _BookingAgreementReviewScreenState
   @override
   void dispose() {
     unawaited(_account?.cancel());
-    controller.dispose();
+    if (widget.controller == null) controller.dispose();
     super.dispose();
   }
 

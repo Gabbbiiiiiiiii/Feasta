@@ -18,6 +18,7 @@ export function useCustomizationDraft({
   context,
   value,
   restore,
+  explicitSource,
 }: {
   owner: string;
   providerId: string;
@@ -25,6 +26,7 @@ export function useCustomizationDraft({
   context: string;
   value: CustomizationDraft;
   restore: (value: CustomizationDraft) => void;
+  explicitSource?: () => Promise<CustomizationDraft>;
 }) {
   const key = customizationDraftKey(
     owner,
@@ -39,6 +41,8 @@ export function useCustomizationDraft({
     packageId,
     context,
   );
+
+  const [freshKey, setFreshKey] = useState<string | null>(null);
 
   const [status, setStatus] =
     useState("Preparing draft...");
@@ -59,12 +63,14 @@ export function useCustomizationDraft({
   const completed = useRef(false);
   const latest = useRef(value);
   const restoreRef = useRef(restore);
+  const explicitSourceRef = useRef(explicitSource);
   const lastSaved = useRef("");
 
   const submission =
     useRef<CustomizationDraft["submission"]>(
       undefined,
     );
+  const restoredSubmissionId = useRef<string | undefined>(undefined);
 
   const currentSignature =
     JSON.stringify(value);
@@ -72,6 +78,7 @@ export function useCustomizationDraft({
   useEffect(() => {
     latest.current = value;
     restoreRef.current = restore;
+    explicitSourceRef.current = explicitSource;
   });
 
   useEffect(() => {
@@ -79,12 +86,27 @@ export function useCustomizationDraft({
     completed.current = false;
 
     submission.current = undefined;
+    restoredSubmissionId.current = undefined;
     lastSaved.current = "";
 
     activeKey.current = key;
 
-    const timer = window.setTimeout(() => {
+    const timer = window.setTimeout(async () => {
       try {
+        if (explicitSourceRef.current) {
+          const selected = await explicitSourceRef.current();
+          if (activeKey.current !== key || completed.current) return;
+          restoreRef.current(selected);
+          latest.current = selected;
+          const signature = JSON.stringify(customizationDraftEditSignature(selected));
+          lastSaved.current = signature;
+          setSavedSignature(signature);
+          setChoices([]);
+          setStatus("Event List configuration restored. Review current options and prices.");
+          ready.current = true;
+          setIsReady(true);
+          return;
+        }
         /*
          * Preserve this customer's older local drafts
          * when using the explicit customer namespace.
@@ -165,6 +187,7 @@ export function useCustomizationDraft({
         if (saved) {
           submission.current =
             saved.submission;
+          restoredSubmissionId.current = saved.submission?.clientRequestId;
 
           restoreRef.current(saved);
           latest.current = saved;
@@ -199,6 +222,7 @@ export function useCustomizationDraft({
             "Draft restored. Review your selections and current availability.",
           );
         } else {
+          setFreshKey(key);
           const initialSignature =
             JSON.stringify(latest.current);
 
@@ -528,10 +552,7 @@ export function useCustomizationDraft({
             .padStart(2, "0"),
       ).join("");
 
-    if (
-      submission.current?.fingerprint !==
-      fingerprint
-    ) {
+    if (!submission.current) {
       submission.current = {
         fingerprint,
         clientRequestId: create(),
@@ -561,6 +582,7 @@ export function useCustomizationDraft({
   function resume(
     choice: (typeof choices)[number],
   ) {
+    setFreshKey(null);
     const guestPrefix =
       customizationDraftKey(
         "guest",
@@ -642,6 +664,7 @@ export function useCustomizationDraft({
 
     submission.current =
       current.submission;
+    restoredSubmissionId.current = current.submission?.clientRequestId;
 
     setChoices([]);
   }
@@ -657,6 +680,7 @@ export function useCustomizationDraft({
 
   return {
     status,
+    isFresh: freshKey === key,
     isReady,
     isDirty,
     isSaved,
@@ -664,6 +688,7 @@ export function useCustomizationDraft({
     discard,
     clear,
     submissionId,
+    previousSubmissionId: () => restoredSubmissionId.current,
     choices,
     resume,
   };

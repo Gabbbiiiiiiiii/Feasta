@@ -62,7 +62,7 @@ List<String> providerProfileTabs(ProviderModel provider) {
         'bakery',
       }).isNotEmpty ||
       provider.providerServiceType.trim().toLowerCase() == 'catering') {
-    return const ['Packages', 'Menu', 'Photos', 'Reviews'];
+    return const ['Packages', 'Reviews'];
   }
   return const ['Packages', 'Photos', 'Reviews'];
 }

@@ -7,6 +7,21 @@ import '../../features/customer/phone_verification_screen.dart';
 import '../constants/firestore_collections.dart';
 import '../security/auth_operation_coordinator.dart';
 
+bool _eligibleBookingCustomer(Map<String, dynamic>? data) {
+  return data?['role'] == 'customer' &&
+      data?['accountStatus'] == 'active' &&
+      data?['isActive'] == true &&
+      data?['isBlocked'] != true &&
+      data?['isPhoneVerified'] == true;
+}
+
+bool _activeBookingCustomer(Map<String, dynamic>? data) {
+  return data?['role'] == 'customer' &&
+      data?['accountStatus'] == 'active' &&
+      data?['isActive'] == true &&
+      data?['isBlocked'] != true;
+}
+
 Future<bool> requireVerifiedPhoneForBooking(BuildContext context) async {
   final auth = FirebaseAuth.instance;
   final user = auth.currentUser;
@@ -58,6 +73,11 @@ Future<bool> requireVerifiedPhoneForBooking(BuildContext context) async {
       .get();
 
   final data = userDoc.data();
+
+  if (auth.currentUser?.uid != user.uid || !_activeBookingCustomer(data)) {
+    return false;
+  }
+
   final isPhoneVerified = data?['isPhoneVerified'] == true;
 
   if (!isPhoneVerified) {
@@ -88,12 +108,10 @@ Future<bool> requireVerifiedPhoneForBooking(BuildContext context) async {
         .doc(postVerificationUser.uid)
         .get();
     final refreshedData = refreshedProfile.data();
-    return refreshedData?['role'] == 'customer' &&
-        refreshedData?['accountStatus'] == 'active' &&
-        refreshedData?['isActive'] == true &&
-        refreshedData?['isBlocked'] != true &&
-        refreshedData?['isPhoneVerified'] == true;
+
+    return auth.currentUser?.uid == user.uid &&
+        _eligibleBookingCustomer(refreshedData);
   }
 
-  return true;
+  return auth.currentUser?.uid == user.uid && _eligibleBookingCustomer(data);
 }

@@ -10,52 +10,151 @@ class ServiceOptionCards extends StatelessWidget {
     this.selected,
     this.onSelected,
     this.readOnly = false,
+    this.compact = false,
     super.key,
   });
   final PackageModel package;
   final String? selected;
   final ValueChanged<String>? onSelected;
   final bool readOnly;
+  final bool compact;
   @override
-  Widget build(BuildContext context) => Column(
-    children: [
-      for (final entry in preparationServices(package).entries)
-        Padding(
-          padding: const EdgeInsets.only(bottom: 12),
-          child: _OptionCard(
-            selected: !readOnly && selected == entry.key,
-            onTap: readOnly || onSelected == null
-                ? null
-                : () => onSelected!(entry.key),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  serviceOptionTitle(entry.key, entry.value),
-                  style: Theme.of(context).textTheme.titleMedium,
-                ),
-                if ((entry.value['description'] ?? '')
-                    .toString()
-                    .trim()
-                    .isNotEmpty) ...[
+  Widget build(BuildContext context) {
+    final services = preparationServices(package);
+
+    final pricedTiers = services.entries.where((entry) {
+      final price = entry.value['price'];
+      return price is num && knownPreparationPrice(price);
+    }).toList();
+
+    String? premiumTier;
+
+    if (services.isNotEmpty && pricedTiers.length == services.length) {
+      final highestPrice = pricedTiers
+          .map((entry) => (entry.value['price'] as num).toDouble())
+          .reduce((a, b) => a > b ? a : b);
+
+      final highestTiers = pricedTiers
+          .where(
+            (entry) => (entry.value['price'] as num).toDouble() == highestPrice,
+          )
+          .toList();
+
+      if (highestTiers.length == 1) {
+        premiumTier = highestTiers.single.key;
+      }
+    }
+
+    return Column(
+      children: [
+        for (final entry in services.entries)
+          Padding(
+            padding: EdgeInsets.only(bottom: compact ? 8 : 12),
+            child: _OptionCard(
+              compact: compact,
+              selected: !readOnly && selected == entry.key,
+              onTap: readOnly || onSelected == null
+                  ? null
+                  : () => onSelected!(entry.key),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (premiumTier == entry.key)
+                    const Padding(
+                      padding: EdgeInsets.only(bottom: 6),
+                      child: Align(
+                        alignment: Alignment.centerLeft,
+                        child: Chip(
+                          materialTapTargetSize:
+                              MaterialTapTargetSize.shrinkWrap,
+                          visualDensity: VisualDensity.compact,
+                          labelPadding: EdgeInsets.symmetric(horizontal: 2),
+                          avatar: Icon(
+                            Icons.workspace_premium_outlined,
+                            size: 14,
+                          ),
+                          label: Text(
+                            'Premium Tier',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  Text(
+                    serviceOptionTitle(entry.key, entry.value),
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      color: compact ? AppColors.primaryStrong : null,
+                      fontWeight: compact ? FontWeight.w700 : null,
+                    ),
+                  ),
                   const SizedBox(height: 6),
-                  Text(entry.value['description'].toString()),
-                ],
-                const SizedBox(height: 10),
-                Text(
-                  entry.value['price'] is num &&
-                          knownPreparationPrice(entry.value['price'] as num)
-                      ? FeastaPriceFormatter.format(entry.value['price'] as num)
-                      : 'Published price unavailable',
-                  style: const TextStyle(fontWeight: FontWeight.bold),
-                ),
-                if (package.pricingModel != null) Text(package.pricingModel == 'per_pax' ? 'Per guest' : 'Fixed bundle'),
-                for (final item in {
-                  ...preparationInclusions(package, 'serviceInclusions', entry.key),
-                  ...preparationInclusions(package, 'decorInclusions', entry.key),
-                  ...preparationInclusions(package, 'furnitureInclusions', entry.key),
-                  ...preparationInclusions(package, 'equipmentInclusions', entry.key),
-                })
+                  Text(canonicalServiceTierDescription(entry.key)),
+                  SizedBox(height: compact ? 6 : 10),
+                  if (compact)
+                    Wrap(
+                      spacing: 6,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      children: [
+                        Text(
+                          entry.value['price'] is num &&
+                                  knownPreparationPrice(
+                                    entry.value['price'] as num,
+                                  )
+                              ? FeastaPriceFormatter.format(
+                                  entry.value['price'] as num,
+                                )
+                              : 'Published price unavailable',
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w800,
+                            color: AppColors.primaryStrong,
+                          ),
+                        ),
+                        if (package.pricingModel != null)
+                          Text(package.priceUnitLabel),
+                      ],
+                    )
+                  else ...[
+                    Text(
+                      entry.value['price'] is num &&
+                              knownPreparationPrice(entry.value['price'] as num)
+                          ? FeastaPriceFormatter.format(
+                              entry.value['price'] as num,
+                            )
+                          : 'Published price unavailable',
+                      style: const TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    if (package.pricingModel != null)
+                      Text(
+                        package.pricingModel == 'per_pax'
+                            ? 'Per guest'
+                            : 'Fixed bundle',
+                      ),
+                  ],
+                  for (final item in {
+                    ...preparationInclusions(
+                      package,
+                      'serviceInclusions',
+                      entry.key,
+                    ),
+                    ...preparationInclusions(
+                      package,
+                      'decorInclusions',
+                      entry.key,
+                    ),
+                    ...preparationInclusions(
+                      package,
+                      'furnitureInclusions',
+                      entry.key,
+                    ),
+                    ...preparationInclusions(
+                      package,
+                      'equipmentInclusions',
+                      entry.key,
+                    ),
+                  })
                     if (item.trim().isNotEmpty)
                       Padding(
                         padding: const EdgeInsets.only(top: 6),
@@ -72,22 +171,36 @@ class ServiceOptionCards extends StatelessWidget {
                           ],
                         ),
                       ),
-                if (!readOnly) ...[
-                  const SizedBox(height: 10),
-                  Text(
-                    selected == entry.key ? 'Selected' : 'Choose',
-                    style: const TextStyle(
-                      color: AppColors.primaryStrong,
-                      fontWeight: FontWeight.bold,
+                  if (!readOnly) ...[
+                    const SizedBox(height: 10),
+                    Text(
+                      selected == entry.key ? 'Selected' : 'Choose',
+                      style: const TextStyle(
+                        color: AppColors.primaryStrong,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
-                  ),
+                  ],
                 ],
-              ],
+              ),
             ),
           ),
-        ),
-    ],
-  );
+      ],
+    );
+  }
+}
+
+String canonicalServiceTierDescription(String tier) {
+  switch (tier) {
+    case 'drop_off':
+      return 'Package delivery without buffet setup or on-site service staff.';
+    case 'buffet_setup':
+      return 'Food delivery with provider-defined buffet equipment and setup.';
+    case 'full_service':
+      return 'Catering with provider-defined setup, staffing, and event service.';
+    default:
+      return '';
+  }
 }
 
 String? themeReferenceImage(Map<String, dynamic> theme) {
@@ -220,10 +333,12 @@ class _OptionCard extends StatelessWidget {
     required this.child,
     this.onTap,
     this.themeCard = false,
+    this.compact = false,
   });
   final bool selected;
   final Widget child;
   final bool themeCard;
+  final bool compact;
   final VoidCallback? onTap;
   @override
   Widget build(BuildContext context) => Semantics(
@@ -242,7 +357,10 @@ class _OptionCard extends StatelessWidget {
       child: InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(16),
-        child: Padding(padding: const EdgeInsets.all(16), child: child),
+        child: Padding(
+          padding: EdgeInsets.all(compact ? 12 : 16),
+          child: child,
+        ),
       ),
     ),
   );
@@ -250,9 +368,8 @@ class _OptionCard extends StatelessWidget {
 
 const customizationSteps = [
   'Event Details',
-  'Customize Package',
-  'Event Services',
-  'Review',
+  'Customize package',
+  'Review Booking',
 ];
 
 class CustomizationProgress extends StatelessWidget {
@@ -260,17 +377,17 @@ class CustomizationProgress extends StatelessWidget {
   final int step;
   @override
   Widget build(BuildContext context) => Semantics(
-    label: 'Step ${step + 1} of 4: ${customizationSteps[step]}',
+    label: 'Step ${step + 1} of 3: ${customizationSteps[step]}',
     child: Column(
       children: [
         Text(
-          'Step ${step + 1} of 4 \u2014 ${customizationSteps[step]}',
+          'Step ${step + 1} of 3 \u2014 ${customizationSteps[step]}',
           style: Theme.of(context).textTheme.titleSmall,
         ),
         const SizedBox(height: 10),
         Row(
           children: [
-            for (var i = 0; i < 4; i++) ...[
+            for (var i = 0; i < customizationSteps.length; i++) ...[
               if (i > 0)
                 Expanded(
                   child: Container(

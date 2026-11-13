@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import '../features/customer/event_list/event_list_scope.dart';
 import 'package:flutter/material.dart';
 import '../core/security/customer_session_coordinator.dart';
@@ -30,6 +32,8 @@ class FeastaApp extends StatefulWidget {
 }
 
 class _FeastaAppState extends State<FeastaApp> with WidgetsBindingObserver {
+  final GlobalKey<NavigatorState> _eventListNavigatorKey =
+      GlobalKey<NavigatorState>();
   late final CustomerAuthenticationController _controller;
   late final bool _ownsController;
   bool _onboardingLoaded = false;
@@ -51,10 +55,6 @@ class _FeastaAppState extends State<FeastaApp> with WidgetsBindingObserver {
         );
 
     _controller.start();
-    final lifecycle = WidgetsBinding.instance.lifecycleState;
-    if (lifecycle != null && lifecycle != AppLifecycleState.resumed) {
-      _controller.sessions?.suspend();
-    }
     _controller.addListener(_reportStartup);
     _reportStartup();
   }
@@ -77,11 +77,10 @@ class _FeastaAppState extends State<FeastaApp> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    final sessions = _controller.sessions;
     if (state == AppLifecycleState.resumed) {
-      sessions?.resume();
-    } else {
-      sessions?.suspend();
+      // Focus loss (including Android screenshots) is not an auth boundary.
+      // Refresh still detects revocation; SDK identity checks remain immediate.
+      unawaited(_controller.refresh());
     }
   }
 
@@ -101,7 +100,9 @@ class _FeastaAppState extends State<FeastaApp> with WidgetsBindingObserver {
     return CustomerAuthenticationScope(
       controller: _controller,
       child: EventListScope(
+        navigatorKey: _eventListNavigatorKey,
         child: MaterialApp(
+          navigatorKey: _eventListNavigatorKey,
           title: 'Feasta',
           debugShowCheckedModeBanner: false,
           theme: AppTheme.light,

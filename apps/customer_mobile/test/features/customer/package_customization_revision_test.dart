@@ -125,10 +125,10 @@ void main() {
     final mapButton = find.widgetWithText(OutlinedButton, 'Choose on Map');
     expect(
       tester.getTopLeft(cityField).dy,
-      lessThan(tester.getTopLeft(find.text('Full event address')).dy),
+      lessThan(tester.getTopLeft(find.text('Complete event address')).dy),
     );
     expect(
-      tester.getTopLeft(find.text('Full event address')).dy,
+      tester.getTopLeft(find.text('Complete event address')).dy,
       lessThan(tester.getTopLeft(find.text('Enter address manually')).dy),
     );
     expect(
@@ -201,9 +201,14 @@ void main() {
       phone(tester);
       await seedDraft();
       final repo = PreparationRepository()..current = package;
+      var eligibilityChecks = 0;
       await tester.pumpWidget(
         MaterialApp(
           home: PackageDetailsScreen(
+            bookingEligibilityCheck: (_) async {
+              eligibilityChecks++;
+              return true;
+            },
             sessions: readyPreparationSessions(),
             provider: provider(),
             eventPackage: package,
@@ -227,10 +232,17 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('Selected'), findsNothing);
       expect(find.text('Choose'), findsNothing);
-      expect(find.text('Delivered to your venue'), findsOneWidget);
+      expect(
+        find.text(
+          'Package delivery without buffet setup or on-site service staff.',
+        ),
+        findsOneWidget,
+      );
       expect(find.text('Delivery'), findsOneWidget);
       await tester.tap(find.text('Select Package'));
       await tester.pumpAndSettle();
+      expect(eligibilityChecks, 1);
+      expect(find.byType(EventCustomizationScreen), findsOneWidget);
       expect(find.text('Selected Package'), findsOneWidget);
       expect(find.byType(ChoiceChip), findsNothing);
       await tester.tap(find.text('Continue'));
@@ -262,6 +274,9 @@ void main() {
       expect(find.text('Green table setting'), findsOneWidget);
       expect(find.byType(FeastaImage), findsWidgets);
       await tester.pageBack();
+      await tester.pumpAndSettle();
+      expect(find.text('Leave this customization?'), findsOneWidget);
+      await tester.tap(find.text('Leave customization'));
       await tester.pumpAndSettle();
       await tester.scrollUntilVisible(
         find.byType(ServiceOptionCards),
@@ -329,7 +344,7 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text('Continue'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Continue'));
+      await tester.tap(find.text('Review booking'));
       await tester.pumpAndSettle();
       expect(
         find.text('Choose an available catering service option.'),
@@ -365,9 +380,9 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text('Published garden'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Continue'));
+      await tester.tap(find.text('Review booking'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Back'));
+      await tester.pageBack();
       await tester.pumpAndSettle();
       await tester.scrollUntilVisible(
         find.byType(PackageThemeCards),
@@ -531,9 +546,9 @@ void main() {
       await tester.testTextInput.receiveAction(TextInputAction.done);
       FocusManager.instance.primaryFocus?.unfocus();
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Continue'));
+      await tester.tap(find.text('Review booking'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Back'));
+      await tester.pageBack();
       await tester.pumpAndSettle();
       final saved = (await eventDraftPersistence.read(
         'customer-1',
@@ -548,9 +563,7 @@ void main() {
         preparationEstimate(package, [], serviceTier: 'full_service'),
         20000,
       );
-      await tester.tap(find.text('Continue'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Review Event'));
+      await tester.tap(find.text('Review booking'));
       await tester.pumpAndSettle();
       final review = tester.widget<BookingSummaryScreen>(
         find.byType(BookingSummaryScreen),

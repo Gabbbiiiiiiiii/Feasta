@@ -25,17 +25,7 @@ List<BookingModel> homeActiveBookings(
 ) {
   final active = bookings.where((b) {
     if (b.lifecycleData['isDeleted'] == true ||
-        !const [
-          'pending',
-          'pending_provider_approval',
-          'needs_provider_replacement',
-          'accepted',
-          'waiting_payment',
-          'waiting_for_down_payment',
-          'payment_processing',
-          'confirmed',
-          'in_progress',
-        ].contains(b.status)) {
+        !const ['confirmed', 'in_progress'].contains(b.status)) {
       return false;
     }
     final end = scheduledBookingEnd({
@@ -120,35 +110,85 @@ class HomeBookingProgressCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final stage = homeBookingStage(booking.status);
+    final presentation = CustomerBookingPresentation(booking);
+    final textTheme = Theme.of(context).textTheme;
     const labels = ['Accepted', 'Confirmed', 'Preparation', 'Event day'];
     return Card(
       color: AppColors.surface,
       margin: EdgeInsets.zero,
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(24),
+        side: const BorderSide(color: AppColors.borderStrong),
+      ),
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              'Booking timeline',
-              style: Theme.of(context).textTheme.titleMedium,
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Icon(Icons.event_available_outlined,
+                    size: 18, color: AppColors.primary),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text('Your upcoming event',
+                      style: textTheme.labelMedium?.copyWith(
+                        color: AppColors.primary,
+                        fontWeight: FontWeight.w700,
+                      )),
+                ),
+                const SizedBox(width: 8),
+                Flexible(
+                  child: Container(
+                    key: const ValueKey('booking-status-pill'),
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: presentation.background,
+                      borderRadius: BorderRadius.circular(24),
+                    ),
+                    child: Text(presentation.label,
+                        textAlign: TextAlign.center,
+                        style: textTheme.labelSmall?.copyWith(
+                          color: presentation.foreground,
+                          fontWeight: FontWeight.w700,
+                        )),
+                  ),
+                ),
+              ],
             ),
             const SizedBox(height: 8),
             Text(
               booking.eventType.replaceAll('_', ' '),
-              style: Theme.of(context).textTheme.titleLarge,
-            ),
-            if (booking.eventDate != null)
-              Text(
-                '${MaterialLocalizations.of(context).formatMediumDate(booking.eventDate!.toUtc().add(const Duration(hours: 8)))} | ${booking.eventTime}',
+              style: textTheme.headlineSmall?.copyWith(
+                color: AppColors.primaryStrong,
+                fontWeight: FontWeight.w700,
               ),
-            if (booking.eventLocation.isNotEmpty) Text(booking.eventLocation),
+            ),
+            const SizedBox(height: 6),
+            if (booking.eventDate != null || booking.eventTime.isNotEmpty || booking.eventLocation.isNotEmpty)
+              Text(
+                [
+                  if (booking.eventDate != null)
+                    MaterialLocalizations.of(context).formatMediumDate(booking.eventDate!.toUtc().add(const Duration(hours: 8))),
+                  if (booking.eventTime.isNotEmpty) booking.eventTime,
+                  if (booking.eventLocation.isNotEmpty) booking.eventLocation,
+                ].join(' · '),
+                style: textTheme.bodySmall?.copyWith(color: AppColors.secondaryTextAccessible),
+              ),
             if (booking.providerBusinessName.isNotEmpty)
-              Text(booking.providerBusinessName),
-            const SizedBox(height: 8),
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text(booking.providerBusinessName,
+                    style: textTheme.bodySmall?.copyWith(color: AppColors.secondaryTextAccessible)),
+              ),
+            const SizedBox(height: 12),
+            const Divider(height: 1, color: AppColors.border),
+            const SizedBox(height: 12),
             Text(
-              CustomerBookingPresentation(booking).label,
-              style: const TextStyle(
+              'Event journey',
+              style: textTheme.titleSmall?.copyWith(
                 color: AppColors.primary,
                 fontWeight: FontWeight.bold,
               ),
@@ -165,24 +205,71 @@ class HomeBookingProgressCard extends StatelessWidget {
                       excludeSemantics: true,
                       child: Column(
                         children: [
-                          Icon(
-                            i <= stage
-                                ? Icons.check_circle
-                                : Icons.radio_button_unchecked,
-                            color: i <= stage
-                                ? AppColors.primary
-                                : AppColors.placeholder,
+                          Row(
+                            children: [
+                              Expanded(child: Container(height: 2, color: i == 0 ? Colors.transparent : i <= stage ? AppColors.primary : AppColors.borderStrong)),
+                              Container(
+                                width: 28,
+                                height: 28,
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  color: i <= stage ? AppColors.primary : AppColors.surface,
+                                  border: Border.all(color: i <= stage ? AppColors.primary : AppColors.borderStrong, width: 2),
+                                ),
+                                child: i <= stage ? const Icon(Icons.check, size: 16, color: AppColors.primaryForeground) : null,
+                              ),
+                              Expanded(child: Container(height: 2, color: i == labels.length - 1 ? Colors.transparent : i < stage ? AppColors.primary : AppColors.borderStrong)),
+                            ],
                           ),
                           const SizedBox(height: 4),
                           Text(
                             labels[i],
                             textAlign: TextAlign.center,
-                            style: Theme.of(context).textTheme.bodySmall,
+                            style: textTheme.labelSmall?.copyWith(
+                              color: i <= stage ? AppColors.primary : AppColors.secondaryTextAccessible,
+                              fontWeight: i <= stage ? FontWeight.w700 : FontWeight.w400,
+                            ),
                           ),
                         ],
                       ),
                     ),
                   ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: AppColors.primarySubtle,
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('CURRENT REFUND-POLICY STAGE',
+                      style: textTheme.labelSmall?.copyWith(color: AppColors.secondaryTextAccessible)),
+                  const SizedBox(height: 4),
+                  // The mobile booking model has no current policy-stage
+                  // projection. A settlement refundPercentage is not a policy rate.
+                  Text('View booking policies',
+                      style: textTheme.titleSmall?.copyWith(color: AppColors.primary, fontWeight: FontWeight.w700)),
+                  const SizedBox(height: 4),
+                  Text('Review the available refund policy in your booking details.',
+                      style: textTheme.bodySmall?.copyWith(color: AppColors.secondaryTextAccessible)),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+            const Divider(height: 1, color: AppColors.border),
+            const SizedBox(height: 12),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Icon(Icons.info_outline, size: 16, color: AppColors.secondaryTextAccessible),
+                const SizedBox(width: 8),
+                Expanded(child: Text('Your event updates at a glance.',
+                    style: textTheme.bodySmall?.copyWith(color: AppColors.secondaryTextAccessible))),
               ],
             ),
             const SizedBox(height: 12),

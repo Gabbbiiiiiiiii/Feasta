@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'package:feasta/core/security/customer_session_coordinator.dart';
+import 'package:feasta/features/customer/customization_session.dart';
 
 import 'package:feasta/features/authentication/application/customer_auth_controller.dart';
 import 'package:feasta/features/authentication/data/repositories/customer_auth_state_repository.dart';
@@ -32,6 +34,80 @@ Future<void> settleController() async {
 }
 
 void main() {
+  for (final boundary in [
+    'refresh',
+    'logout',
+    'switch',
+    'revoked',
+    'transition',
+  ]) {
+    test('customization lifetime across $boundary', () async {
+      final repository = FakeCustomerAuthStateRepository(
+        loadDelay: const Duration(milliseconds: 10),
+      );
+      final sessions = CustomerSessionCoordinator();
+      final controller = CustomerAuthenticationController(
+        repository: repository,
+        sessions: sessions,
+      )..start();
+      repository.emitAuth(identity);
+      await waitForLoads(controller, repository, 1);
+      final captured = sessions.readSnapshot();
+      final entry = CustomizationSession(
+        uid: identity.uid,
+        generation: captured.generation,
+        changes: sessions,
+        isCurrent: () => sessions.isCurrent(captured),
+      );
+      expect(entry.authorized, isTrue);
+      if (boundary == 'refresh') {
+        final pending = controller.refresh();
+        expect(entry.authorized, isTrue);
+        await pending;
+        expect(sessions.readSnapshot().generation, captured.generation);
+      } else if (boundary == 'logout') {
+        final pending = controller.signOut();
+        expect(entry.authorized, isFalse);
+        await pending;
+      } else if (boundary == 'switch') {
+        repository.emitAuth(
+          const CustomerAuthIdentity(
+            uid: 'second',
+            email: null,
+            emailVerified: true,
+          ),
+        );
+        expect(entry.authorized, isFalse);
+        await settleController();
+      } else if (boundary == 'revoked') {
+        repository.result = CustomerAccountLoadResult(
+          identity: identity,
+          userProfile: activeProfile(isBlocked: true),
+        );
+        await controller.refresh();
+        expect(entry.authorized, isFalse);
+      } else {
+        final ticket = sessions.beginTransition();
+        expect(entry.authorized, isFalse);
+        sessions.finishTransition(ticket);
+        await settleController();
+      }
+      if (boundary != 'refresh') {
+        repository.result = CustomerAccountLoadResult(
+          identity: identity,
+          userProfile: activeProfile(),
+        );
+        repository.emitAuth(identity);
+        await settleController();
+        await controller.refresh();
+      }
+      expect(entry.authorized, boundary == 'refresh');
+      entry.dispose();
+      controller.dispose();
+      sessions.dispose();
+      await repository.close();
+    });
+  }
   for (final tokenFirst in [false, true]) {
     test(
       'initial auth/token replay shares one authorization, tokenFirst=$tokenFirst',

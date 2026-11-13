@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../../app/router/customer_auth_navigation.dart';
+import '../../../core/helpers/verification_guard.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/widgets/widgets.dart';
 import '../../../shared/models/customer_event_list.dart';
@@ -10,13 +11,24 @@ import 'event_list_catalog.dart';
 import 'event_list_review_controller.dart';
 import 'event_list_review_models.dart';
 import 'event_list_customization_controller.dart';
+import 'event_list_configuration_summary.dart';
 import '../event_customization_screen.dart';
 import '../../authentication/data/repositories/feasta_repository.dart';
 
 class CustomerEventListScreen extends StatefulWidget {
-  const CustomerEventListScreen({this.catalog, this.repository, super.key});
+  const CustomerEventListScreen({
+    this.catalog,
+    this.repository,
+    this.bookingEligibilityCheck,
+    super.key,
+  });
+
   final EventListCatalog? catalog;
   final FeastaRepository? repository;
+
+  // Production always uses the real verification guard unless a caller
+  // explicitly supplies a verifier (used by controlled widget tests).
+  final Future<bool> Function(BuildContext context)? bookingEligibilityCheck;
   @override
   State<CustomerEventListScreen> createState() =>
       _CustomerEventListScreenState();
@@ -25,6 +37,7 @@ class CustomerEventListScreen extends StatefulWidget {
 class _CustomerEventListScreenState extends State<CustomerEventListScreen>
     with WidgetsBindingObserver {
   bool _busy = false;
+  bool _checkingPhoneForBooking = false;
   bool _clearDialogOpen = false;
   EventListCustomizationController? _customization;
   late final FeastaRepository _repository =
@@ -164,7 +177,8 @@ class _CustomerEventListScreenState extends State<CustomerEventListScreen>
   Widget build(BuildContext context) {
     final controller = EventListScope.of(context);
     final session = controller.authentication.session;
-    final authorized = session.customerUid != null;
+    final authorized =
+        session.customerUid != null || controller.isGuestPlanning;
     final list = controller.list;
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -255,30 +269,9 @@ class _CustomerEventListScreenState extends State<CustomerEventListScreen>
                   _EmptyEventList(
                     onBrowse: () => returnToCustomerRoot(Navigator.of(context)),
                   ),
-                for (final group in groupEventList(list)) ...[
-                  Semantics(
-                    header: true,
-                    label:
-                        '${group.providerName}, ${group.entries.length} saved packages',
-                    excludeSemantics: true,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Icon(
-                          Icons.storefront_outlined,
-                          color: AppColors.mainText,
-                        ),
-                        Text(
-                          group.providerName,
-                          style: Theme.of(context).textTheme.titleLarge,
-                        ),
-                        Text(
-                          '${group.entries.length} packages from this provider',
-                        ),
-                      ],
-                    ),
-                  ),
-                  for (final entry in group.entries)
+                if (list.entries.isNotEmpty) ...[
+                  _PlanningSummary(entries: list.entries),
+                  for (final entry in list.entries)
                     _card(entry, controller, session),
                 ],
                 if (list.entries.isNotEmpty)
@@ -305,7 +298,11 @@ class _CustomerEventListScreenState extends State<CustomerEventListScreen>
                 ),
               ),
               onPressed: () => returnToCustomerRoot(Navigator.of(context)),
-              child: const Text('Continue Browsing'),
+              child: Text(
+                authorized && (list?.entries.isNotEmpty ?? false)
+                    ? 'Add another provider'
+                    : 'Continue Browsing',
+              ),
             ),
           ],
         ),
@@ -324,22 +321,62 @@ class _CustomerEventListScreenState extends State<CustomerEventListScreen>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          FeastaImage.network(
-            imageUrl: entry.imageUrl,
-            description: '${entry.packageName} package cover',
-            height: 140,
-            width: double.infinity,
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(10),
+                child: FeastaImage.network(
+                  imageUrl: entry.imageUrl,
+                  compactFallback: true,
+                  description: '${entry.packageName} package cover',
+                  height: 72,
+                  width: 72,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      entry.packageName,
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                    Row(
+                      children: [
+                        const Icon(Icons.storefront_outlined, size: 16),
+                        const SizedBox(width: 4),
+                        Expanded(child: Text(entry.providerName)),
+                      ],
+                    ),
+                    Text(
+                      entry.configuration == null
+                          ? 'Needs customization'
+                          : 'Configured — revalidation required',
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
-          const SizedBox(height: 12),
-          Text(
-            entry.packageName,
-            style: Theme.of(context).textTheme.titleLarge,
-          ),
+          const SizedBox(height: 8),
+          if (entry.configuration != null)
+            EventListConfigurationSummary(
+              key: ValueKey(entry.identity.key),
+              entry: entry,
+              compact: true,
+              lookupPackage: _repository.getEligiblePackageForPreparation,
+            ),
           Semantics(
             liveRegion: true,
             child: Text(_review!.resultFor(entry).status.message),
           ),
-          const Text('Saved estimate'),
+          Text(
+            entry.configuration == null
+                ? 'Saved estimate'
+                : 'Saved package estimate',
+          ),
           if (entry.estimatedPrice != null)
             FeastaPriceText(
               amount: entry.estimatedPrice!,
@@ -371,33 +408,90 @@ class _CustomerEventListScreenState extends State<CustomerEventListScreen>
               child: Text('Retry verification for ${entry.packageName}'),
             ),
           FilledButton(
-            onPressed: _busy || (_customization?.busy ?? true)
+            onPressed:
+                _busy ||
+                    _checkingPhoneForBooking ||
+                    (_customization?.busy ?? true)
                 ? null
-                : () {
+                : () async {
                     if (session != controller.authentication.session) return;
-                    _customization?.customize(
-                      entry,
-                      originIsCurrent: () =>
-                          mounted &&
-                          (ModalRoute.of(context)?.isCurrent ?? false),
-                      navigate: (provider, package, binding) async {
-                        final route = EventCustomizationRoute(
-                          origin: ModalRoute.of(context),
-                          builder: (_) => EventCustomizationScreen(
-                            provider: provider,
-                            eventPackage: package,
-                            repository: _repository,
-                            session: binding,
+
+                    final originalUid = session.customerUid;
+                    final guest = controller.isGuestPlanning;
+                    if (originalUid == null && !guest) return;
+
+                    setState(() => _checkingPhoneForBooking = true);
+
+                    try {
+                      // Match Web: require verified phone before customization.
+                      final verify =
+                          widget.bookingEligibilityCheck ??
+                          requireVerifiedPhoneForBooking;
+                      final verified = guest || await verify(context);
+
+                      if (!mounted || !verified) return;
+
+                      // OTP may refresh authentication state. Preserve account
+                      // identity, rather than requiring the old session object.
+                      if (controller.authentication.session.customerUid !=
+                          originalUid) {
+                        return;
+                      }
+
+                      if (!(ModalRoute.of(context)?.isCurrent ?? false)) {
+                        return;
+                      }
+
+                      await _customization?.customize(
+                        entry,
+                        originIsCurrent: () =>
+                            mounted &&
+                            controller.authentication.session.customerUid ==
+                                originalUid &&
+                            (ModalRoute.of(context)?.isCurrent ?? false),
+                        navigate: (provider, package, binding) async {
+                          if (!mounted ||
+                              controller.authentication.session.customerUid !=
+                                  originalUid) {
+                            return;
+                          }
+
+                          final route = EventCustomizationRoute(
+                            origin: ModalRoute.of(context),
+                            builder: (_) => EventCustomizationScreen(
+                              provider: provider,
+                              eventPackage: package,
+                              repository: _repository,
+                              session: binding,
+                              initialConfiguration: entry.configuration,
+                            ),
+                          );
+                          unawaited(Navigator.of(context).push<void>(route));
+                          await route.completed;
+                        },
+                      );
+                    } catch (_) {
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text(
+                              'Could not verify booking eligibility. Please retry.',
+                            ),
                           ),
                         );
-                        unawaited(Navigator.of(context).push<void>(route));
-                        await route.completed;
-                      },
-                    );
+                      }
+                    } finally {
+                      if (mounted) {
+                        setState(() => _checkingPhoneForBooking = false);
+                      }
+                    }
                   },
             child: Text(
-              'Customize Package',
-              semanticsLabel: 'Customize Package: ${entry.packageName}',
+              entry.configuration == null
+                  ? 'Customize Package'
+                  : 'Edit configuration',
+              semanticsLabel:
+                  '${entry.configuration == null ? 'Customize Package' : 'Edit configuration'}: ${entry.packageName}',
             ),
           ),
           if (_customization?.selectedKey == entry.identity.key) ...[
@@ -437,6 +531,83 @@ class _CustomerEventListScreenState extends State<CustomerEventListScreen>
       ),
     ),
   );
+}
+
+class _PlanningSummary extends StatelessWidget {
+  const _PlanningSummary({required this.entries});
+  final List<CustomerEventListEntry> entries;
+
+  @override
+  Widget build(BuildContext context) {
+    // Configured totals include the saved choices. Never substitute a base
+    // package price when the configured total is unknown.
+    final prices = entries
+        .map(
+          (e) => e.configuration == null
+              ? e.estimatedPrice
+              : e.configuration!.estimatedTotal,
+        )
+        .whereType<double>()
+        .toList();
+    final events = entries.map((e) => e.configuration?.event).toList();
+    final configured = events.whereType<CustomerEventListEvent>().toList();
+    final consistent =
+        configured.isNotEmpty &&
+        configured.every(
+          (e) => e.toJson().toString() == configured.first.toJson().toString(),
+        );
+    final complete = configured.length == entries.length;
+    final event = consistent && complete ? configured.first : null;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (event != null) ...[
+              Text(
+                event.eventType,
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+              Text(
+                '${event.eventDate} · ${event.eventTime}–${event.eventEndTime}',
+              ),
+              Text('${event.guestCount} guests · ${event.eventLocation}'),
+            ] else if (!consistent && configured.length > 1)
+              const Text(
+                'Event details differ. Review each configuration to reconcile your event.',
+              ),
+            if (!complete)
+              const Text(
+                'Event details are incomplete. Configure each package and confirm its schedule.',
+              ),
+            const SizedBox(height: 8),
+            const Text('Known-price planning estimate'),
+            if (prices.isNotEmpty)
+              Text(
+                'Known estimate: ${FeastaPriceFormatter.format(prices.fold<double>(0, (a, b) => a + b))}',
+              )
+            else
+              const Text('Estimate unavailable'),
+            Text(
+              '${prices.length} of ${entries.length} saved package estimates included.',
+            ),
+            if (prices.length != entries.length)
+              const Text(
+                'Missing prices are excluded; this is not a complete total.',
+              ),
+            const Text(
+              'Saved estimates require revalidation. Final booking prices and availability must be confirmed.',
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'Booking submission for this list is not available. Your selections remain saved; review and edit each provider configuration.',
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class _EmptyEventList extends StatelessWidget {

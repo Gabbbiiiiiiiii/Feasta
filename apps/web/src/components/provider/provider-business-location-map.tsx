@@ -38,6 +38,8 @@ export function ProviderBusinessLocationMap({
   pinHint = "Click the map to place the red pin on your exact business location. Click another point to adjust it.",
   compact = false,
   expandable = false,
+  locateLabel = "Locate me",
+  unavailableMessage = "Search for your address instead.",
 }: {
   initialCoordinates: Coordinates | null;
   disabled: boolean;
@@ -48,6 +50,8 @@ export function ProviderBusinessLocationMap({
   pinHint?: string;
   compact?: boolean;
   expandable?: boolean;
+  locateLabel?: string;
+  unavailableMessage?: string;
 }) {
   const mapElementRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<google.maps.Map | null>(null);
@@ -82,7 +86,7 @@ export function ProviderBusinessLocationMap({
       if (!apiKey) {
         setMapStatus("error");
         setError(
-          "The map is not configured. Search for your address instead.",
+          `The map is not configured. ${unavailableMessage}`,
         );
         return;
       }
@@ -180,10 +184,10 @@ export function ProviderBusinessLocationMap({
           setError(null);
 
           reverseTimerRef.current = window.setTimeout(() => {
-            void reverseGeocodeEventVenue(
+            void Promise.resolve().then(() => reverseGeocodeEventVenue(
               position.lat,
               position.lng,
-            )
+            ))
               .then((details) => {
                 if (
                   cancelled ||
@@ -292,7 +296,7 @@ export function ProviderBusinessLocationMap({
 
         setMapStatus("error");
         setError(
-          "The map could not be loaded. Search for your address instead.",
+          `The map could not be loaded. ${unavailableMessage}`,
         );
       }
     }
@@ -320,7 +324,7 @@ export function ProviderBusinessLocationMap({
 
       mapRef.current = null;
     };
-  }, [compact, disabled, initialCoordinates, markerTitle]);
+  }, [compact, disabled, initialCoordinates, markerTitle, unavailableMessage]);
 
   function locateCurrentPosition() {
     if (disabled || locating) {
@@ -442,7 +446,7 @@ export function ProviderBusinessLocationMap({
             onClick={locateCurrentPosition}
             className="shrink-0"
           >
-            {locating ? "Locating..." : "Locate me"}
+            {locating ? "Locating..." : locateLabel}
           </Button>
         </div>
       )}
@@ -485,7 +489,7 @@ export function ProviderBusinessLocationMap({
               className="h-8 min-h-8 rounded-full px-3 text-xs shadow"
             >
               <LocateFixed aria-hidden="true" className="size-3.5" />
-              {locating ? "Locating..." : "Locate me"}
+              {locating ? "Locating..." : locateLabel}
             </Button>
           </div>
         ) : null}
@@ -571,6 +575,7 @@ export function ProviderBusinessLocationMap({
           size={compact ? "compact" : "default"}
           disabled={
             disabled ||
+            locating ||
             mapStatus !== "ready" ||
             resolveStatus === "resolving" ||
             !resolvedLocation

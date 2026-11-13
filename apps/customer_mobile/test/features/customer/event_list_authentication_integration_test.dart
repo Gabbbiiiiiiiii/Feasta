@@ -276,17 +276,70 @@ void main() {
   );
 
   test(
+    'successful same-customer refresh retains authorization and cache',
+    () async {
+      await saved();
+      final authorized = sessions.readSnapshot();
+      final cached = list.list;
+      final user = PendingReloadUser();
+      auth.user = user;
+      final refresh = customer.refresh();
+      await user.entered.future;
+      expect(sessions.isCurrent(authorized), isTrue);
+      expect(list.list, same(cached));
+      user.release.complete();
+      await refresh;
+      expect(customer.state.failure, isNull);
+      expect(sessions.isCurrent(authorized), isTrue);
+      expect(list.list, same(cached));
+    },
+  );
+
+  test(
     'failed authorization refresh closes access and explicit retry recovers',
     () async {
       await saved();
+      final authorized = sessions.readSnapshot();
+      final cached = list.list;
+      final persisted = Map<String, String>.of(memory.values);
+      final user = PendingReloadUser();
+      auth.user = user;
       profiles.failure = 'permission-denied';
       final refresh = customer.refresh();
-      expect(list.list, isNull);
+      await user.entered.future;
+      // Same-customer validation preserves the existing authorization lifetime.
+      expect(sessions.isCurrent(authorized), isTrue);
+      expect(list.list, same(cached));
+      user.release.complete();
       await refresh;
+      expect(
+        customer.state.failure,
+        CustomerAuthenticationFailureKind.accountAccess,
+      );
+      expect(sessions.readSnapshot().customerUid, isNull);
+      expect(sessions.isCurrent(authorized), isFalse);
+      expect(list.list, isNull);
+      expect(list.error, isNull);
+      final reads = memory.reads;
       expect(await list.load(), EventListResult.unauthorized);
+      expect(memory.reads, reads);
+      expect(memory.values, persisted);
       profiles.failure = null;
-      await customer.refresh();
+      final retryUser = PendingReloadUser();
+      auth.user = retryUser;
+      final retry = customer.refresh();
+      await retryUser.entered.future;
+      expect(sessions.readSnapshot().customerUid, isNull);
+      expect(list.list, isNull);
+      expect(await list.load(), EventListResult.unauthorized);
+      retryUser.release.complete();
+      await retry;
+      expect(customer.state.failure, isNull);
+      expect(sessions.readSnapshot().customerUid, 'one');
+      expect(sessions.isCurrent(authorized), isFalse);
+      expect(list.list, isNull);
       expect(await list.load(), EventListResult.loaded);
+      expect(list.list!.ownerUid, 'one');
       expect(list.list!.entries.length, 1);
     },
   );

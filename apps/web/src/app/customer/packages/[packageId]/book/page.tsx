@@ -62,9 +62,10 @@ export default async function CustomerPackageBookingPage({
 
   const [{packageId}, query] = await Promise.all([
     params,
-    searchParams ?? Promise.resolve({}),
+    searchParams ?? Promise.resolve<Record<string, string | string[] | undefined>>({}),
   ]);
   const initialEventContext = parseCustomerEventContext(query);
+  const editProvider = typeof query.eventListProvider === "string" && /^[A-Za-z0-9_-]{1,128}$/u.test(query.eventListProvider) ? query.eventListProvider : undefined;
 
   /*
    * Build the trusted customer booking destination ourselves.
@@ -74,7 +75,9 @@ export default async function CustomerPackageBookingPage({
   const bookingBasePath = `/customer/packages/${encodeURIComponent(
     packageId,
   )}/book`;
-  const eventContextQuery = customerEventContextQuery(initialEventContext);
+  const routingQuery = new URLSearchParams(customerEventContextQuery(initialEventContext));
+  if (editProvider) routingQuery.set("eventListProvider", editProvider);
+  const eventContextQuery = routingQuery.toString();
   const bookingPath = eventContextQuery
     ? `${bookingBasePath}?${eventContextQuery}`
     : bookingBasePath;
@@ -121,6 +124,7 @@ export default async function CustomerPackageBookingPage({
       <EventCustomizationExperience
         key={`${account.uid}:${packageId}:${eventContextQuery}`}
         draftOwner={`customer:${account.uid}`}
+        eventListEditProviderId={editProvider}
         detail={detail}
         eventServices={
           eventServices.services

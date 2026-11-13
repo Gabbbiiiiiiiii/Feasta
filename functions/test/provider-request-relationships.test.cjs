@@ -413,3 +413,18 @@ test("resolver accepts frozen input and returns detached relationship collection
   assert.deepEqual(input, before);
   assert.deepEqual(resolve(input).activeRequired, ["A", "B", "E"].map(rid));
 });
+
+test("independent package replacement preserves assignment kind and catering categories", () => {
+  const input = fixture(2, [["A", "D"]]);
+  for (const document of input.linkedRequests) {
+    Object.assign(document.data, {assignmentKind: "independent_package", type: "catering",
+      packageId: `package_${document.id}`, packageName: "Package",
+      services: [{serviceId: `package_${document.id}`, name: "Package", category: "catering_package"}]});
+  }
+  assert.equal(resolve(input).ok, true);
+  delete input.linkedRequests.at(-1).data.assignmentKind;
+  fails(input, "incompatible-assignment");
+  input.linkedRequests.at(-1).data.assignmentKind = "independent_package";
+  input.linkedRequests.at(-1).data.services[0].category = "photography";
+  fails(input, "incompatible-assignment");
+});

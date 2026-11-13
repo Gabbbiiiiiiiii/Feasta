@@ -134,7 +134,7 @@ class BookingAttempt {
 }
 
 /// One coordinator per process; all mutations serialize, including across accounts.
-/// No submission transport is exposed by M4.4.
+/// Dispatch hands off to an authenticated sender only after pending is persisted.
 class BookingAttemptCoordinator {
   BookingAttemptCoordinator({required this.store, required this.currentUid});
   final BookingAttemptStore store;
@@ -290,6 +290,7 @@ class BookingAttemptCoordinator {
       if (previous != null &&
           previous.selectionIdentity == identity &&
           previous.status != BookingAttemptStatus.safelyAbandoned &&
+          previous.status != BookingAttemptStatus.rejectedBeforeCreation &&
           previous.status != BookingAttemptStatus.completed) {
         final status = previous.safeToSupersede
             ? BookingAttemptStatus.blockedFreshDisclosures
@@ -322,10 +323,38 @@ class BookingAttemptCoordinator {
     });
   }
 
+  /// Persist before transport; interrupted requests cannot be sent again.
+  Future<BookingAttempt> beginDispatch(BookingSelection selection) {
+    final identity = bookingSelectionIdentity(selection);
+    return _serial(() async {
+      final a = await _read(_owner());
+      if (a == null ||
+          a.selectionIdentity != identity ||
+          a.status != BookingAttemptStatus.ready ||
+          a.result != null) {
+        throw StateError('Previous request requires reconciliation.');
+      }
+      return _save(a, BookingAttemptStatus.dispatchPending);
+    });
+  }
+
+  /// Once dispatch is persisted, hand off without consulting route visibility.
+  /// The sender must retain its authentication checks. Any failure here leaves
+  /// the saved attempt locked: transport absence must never be inferred.
+  Future<T> dispatch<T>(
+    BookingSelection selection,
+    Future<T> Function(BookingAttempt attempt) send,
+  ) async {
+    final attempt = await beginDispatch(selection);
+    _check(attempt.uid);
+    return send(attempt);
+  }
+
   Future<BookingAttempt?> restore() => _serial(() async {
     final a = await _read(_owner());
     if (a == null) return null;
     if (a.status == BookingAttemptStatus.completed ||
+        a.status == BookingAttemptStatus.rejectedBeforeCreation ||
         a.status == BookingAttemptStatus.safelyAbandoned) {
       return a;
     }
@@ -356,7 +385,9 @@ class BookingAttemptCoordinator {
       if (a == null || a.clientRequestId != requestId) {
         throw StateError('Attempt mismatch.');
       }
-      if (!a.safeToSupersede || a.result != null) {
+      if (!a.safeToSupersede ||
+          a.result != null ||
+          a.status == BookingAttemptStatus.rejectedBeforeCreation) {
         throw StateError('Resolve the previous outcome first.');
       }
       if (a.selectionIdentity != identity) {
@@ -383,7 +414,7 @@ class BookingAttemptCoordinator {
       try {
         providers = await resolveProviders(request);
       } catch (_) {
-        return _save(a, BookingAttemptStatus.requiresReconciliation);
+        return _save(a, BookingAttemptStatus.blockedFreshDisclosures);
       }
       _check(uid);
       if (!current() ||
@@ -399,7 +430,7 @@ class BookingAttemptCoordinator {
           .toSet();
       if (!setEquals(providers, agreementProviders) ||
           !setEquals(providers, refundProviders)) {
-        return _save(a, BookingAttemptStatus.requiresReconciliation);
+        return _save(a, BookingAttemptStatus.blockedFreshDisclosures);
       }
       return _save(
         a,
@@ -488,4 +519,47 @@ class BookingAttemptCoordinator {
         }
         return _save(a, BookingAttemptStatus.requiresReconciliation);
       });
+
+  /// Only the authenticated reconciliation callable may supply this response.
+  /// The original stored selection is reconciled even if the form has changed.
+  Future<BookingAttempt> reconcile(
+    String requestId,
+    Future<Map<String, dynamic>> Function(String requestId, String uid) lookup,
+  ) => _serial(() async {
+    final a = await _read(_owner());
+    if (a == null ||
+        a.clientRequestId != requestId ||
+        (a.safeToSupersede &&
+            a.result == null &&
+            a.status != BookingAttemptStatus.rejectedBeforeCreation)) {
+      throw StateError('No dispatched attempt to reconcile.');
+    }
+    final response = await lookup(a.clientRequestId, a.uid);
+    _check(a.uid);
+    if (response['clientRequestId'] != a.clientRequestId) {
+      return _save(a, BookingAttemptStatus.requiresReconciliation);
+    }
+    if (response['outcome'] == 'confirmed_created') {
+      BookingSubmissionResult result;
+      try {
+        result = BookingSubmissionResult.fromJson(response['booking']);
+      } catch (_) {
+        return _save(a, BookingAttemptStatus.requiresReconciliation);
+      }
+      if (a.result != null &&
+          (a.result!.bookingId != result.bookingId ||
+              a.result!.mainEventId != result.mainEventId ||
+              !listEquals(
+                a.result!.providerRequestIds,
+                result.providerRequestIds,
+              ))) {
+        return _save(a, BookingAttemptStatus.requiresReconciliation);
+      }
+      return _save(a, BookingAttemptStatus.confirmedExisting, result: result);
+    }
+    if (response['outcome'] == 'confirmed_rejected' && a.result == null) {
+      return _save(a, BookingAttemptStatus.rejectedBeforeCreation);
+    }
+    return _save(a, BookingAttemptStatus.requiresReconciliation);
+  });
 }

@@ -1,3 +1,6 @@
+import '../../../../core/helpers/booking_preparation.dart';
+import '../../../../shared/models/customer_availability.dart';
+import '../../../../shared/models/provider_calendar_month.dart';
 import '../../../../core/config/firebase_emulator_config.dart';
 import '../../../../core/domain/legacy_booking_payment_authority.dart';
 import 'customer_bookings_source.dart';
@@ -223,9 +226,14 @@ class FeastaRepository {
         .where('isPublished', isEqualTo: true)
         .where('providerPubliclyVisible', isEqualTo: true)
         .where('status', isEqualTo: 'published')
-        .where(FirebaseEmulatorConfig.v2DiscoveryEnabled
-          ? Filter.or(Filter('eventType', isEqualTo: eventType), Filter('occasionMatchIds', arrayContains: eventType))
-          : Filter('eventType', isEqualTo: eventType))
+        .where(
+          FirebaseEmulatorConfig.v2DiscoveryEnabled
+              ? Filter.or(
+                  Filter('eventType', isEqualTo: eventType),
+                  Filter('occasionMatchIds', arrayContains: eventType),
+                )
+              : Filter('eventType', isEqualTo: eventType),
+        )
         .where('isDeleted', isEqualTo: false)
         .orderBy('createdAt', descending: true)
         .orderBy(FieldPath.documentId, descending: true)
@@ -233,9 +241,10 @@ class FeastaRepository {
         .snapshots(includeMetadataChanges: true)
         .where((snapshot) => !snapshot.metadata.isFromCache)
         .asyncMap((snapshot) async {
-          final legacyCatalog = snapshot.docs.any(
-            (doc) => isLegacyOccasionPublicPackage(doc.data()),
-          )
+          final legacyCatalog =
+              snapshot.docs.any(
+                (doc) => isLegacyOccasionPublicPackage(doc.data()),
+              )
               ? _occasionCatalog.listActiveOccasions()
               : null;
 
@@ -248,9 +257,13 @@ class FeastaRepository {
               ),
             ),
           );
-          final providerIds = verified.whereType<Map<String, dynamic>>()
-              .where((data) => data['occasionSchemaVersion'] == 2
-                ? (data['occasionMatchIds'] as List).contains(eventType) : data['eventType'] == eventType)
+          final providerIds = verified
+              .whereType<Map<String, dynamic>>()
+              .where(
+                (data) => data['occasionSchemaVersion'] == 2
+                    ? (data['occasionMatchIds'] as List).contains(eventType)
+                    : data['eventType'] == eventType,
+              )
               .map((data) => data['providerId'])
               .where((id) => id != null && id.toString().isNotEmpty)
               .map((id) => id.toString())
@@ -391,9 +404,8 @@ class FeastaRepository {
   }) async {
     if (isLegacyOccasionPublicPackage(data)) {
       try {
-        final occasions = await (
-          legacyCatalog ?? _occasionCatalog.listActiveOccasions()
-        );
+        final occasions =
+            await (legacyCatalog ?? _occasionCatalog.listActiveOccasions());
 
         if (!isLegacyOccasionActiveInCatalog(data, occasions)) {
           return null;
@@ -440,55 +452,49 @@ class FeastaRepository {
         .snapshots(includeMetadataChanges: true)
         .where((snapshot) => !snapshot.metadata.isFromCache)
         .asyncMap((snapshot) async {
-          final legacyCatalog = snapshot.docs.any(
-            (doc) => isLegacyOccasionPublicPackage(doc.data()),
-          )
+          final legacyCatalog =
+              snapshot.docs.any(
+                (doc) => isLegacyOccasionPublicPackage(doc.data()),
+              )
               ? _occasionCatalog.listActiveOccasions()
               : null;
 
-          final packages = await Future.wait(snapshot.docs.map((doc) async {
-            final data = await _verifiedPublicPackage(
-              doc.id,
-              doc.data(),
-              legacyCatalog: legacyCatalog,
-            );
-            return data == null ? null : PackageModel.fromMap(doc.id, data);
-          }));
+          final packages = await Future.wait(
+            snapshot.docs.map((doc) async {
+              final data = await _verifiedPublicPackage(
+                doc.id,
+                doc.data(),
+                legacyCatalog: legacyCatalog,
+              );
+              return data == null ? null : PackageModel.fromMap(doc.id, data);
+            }),
+          );
           return packages.whereType<PackageModel>().toList();
         });
   }
 
   Future<AddonModel?> getEligiblePreparationAddon(String addonId) async {
     if (addonId.isEmpty) return null;
-    final doc = await _db
-        .collection(FirestoreCollections.addons)
-        .doc(addonId)
-        .get(const GetOptions(source: Source.server));
-    if (!doc.exists) return null;
-    final data = doc.data()!;
-    if (data['isActive'] != true ||
-        data['isAvailable'] != true ||
-        data['isDeleted'] != false) {
-      return null;
+    // Revalidate through the same owner-verified catalog used for discovery.
+    final services = await _loadEventServiceCatalogForAddon(addonId);
+    return services;
+  }
+
+  Future<AddonModel?> _loadEventServiceCatalogForAddon(String addonId) async {
+    // A provider id is only used for source classification and catalog ordering.
+    // Fetch the exact record so catalog pagination cannot invalidate a saved choice.
+    final services = await _loadEventServiceCatalog(
+      'catalog',
+      addonId: addonId,
+    );
+    for (final service in services) {
+      if (service.id == addonId &&
+          service.price.isFinite &&
+          service.price >= 0) {
+        return service;
+      }
     }
-    final providerId = data['providerId']?.toString() ?? '';
-    if (providerId.isEmpty) return null;
-    final providerDoc = await _db
-        .collection(FirestoreCollections.providers)
-        .doc(providerId)
-        .get(const GetOptions(source: Source.server));
-    final provider = providerDoc.exists
-        ? ProviderModel.fromDoc(providerDoc)
-        : null;
-    if (provider == null ||
-        !provider.isApproved ||
-        !provider.publiclyVisible ||
-        !provider.isActive ||
-        provider.isDeleted ||
-        provider.isSuspended) {
-      return null;
-    }
-    return AddonModel.fromDoc(doc);
+    return null;
   }
 
   /// Read-only revalidation for booking preparation, never a reservation.
@@ -529,7 +535,10 @@ class FeastaRepository {
 
     if (!doc.exists) return null;
 
-    final data = await _verifiedPublicPackage(doc.id, Map<String, dynamic>.from(doc.data()!));
+    final data = await _verifiedPublicPackage(
+      doc.id,
+      Map<String, dynamic>.from(doc.data()!),
+    );
     return data == null ? null : PackageModel.fromMap(doc.id, data);
   }
 
@@ -544,6 +553,55 @@ class FeastaRepository {
         .map((snapshot) {
           return snapshot.docs.map(AddonRequestModel.fromDoc).toList();
         });
+  }
+
+  // The server joins providers and owners; never fall back to raw add-on queries.
+  Future<List<AddonModel>> _loadEventServiceCatalog(
+    String providerId, {
+    String? addonId,
+  }) async {
+    final response = await _functions
+        .httpsCallable('listCustomerEventServices')
+        .call<dynamic>({'cateringProviderId': providerId, 'addonId': ?addonId});
+    final data = response.data;
+    if (data is! Map || data['services'] is! List) {
+      throw const FormatException('Invalid event service catalog.');
+    }
+    return (data['services'] as List).map((raw) {
+      if (raw is! Map ||
+          raw['id'] is! String ||
+          raw['providerId'] is! String ||
+          raw['name'] is! String ||
+          raw['providerName'] is! String) {
+        throw const FormatException('Invalid event service.');
+      }
+      return AddonModel(
+        id: raw['id'] as String,
+        providerId: raw['providerId'] as String,
+        name: raw['name'] as String,
+        description: raw['description'] as String? ?? '',
+        category: raw['category'] as String? ?? '',
+        price: (raw['price'] as num?)?.toDouble() ?? double.nan,
+        imageUrl: raw['imageUrl'] as String?,
+        bookingLeadTimeDays: raw['bookingLeadTimeDays'] as int?,
+        providerBusinessName: raw['providerName'] as String,
+        providerType: raw['source'] == 'catering_provider'
+            ? 'catering_provider'
+            : 'addon_provider',
+        isActive: true,
+        isAvailable: true,
+      );
+    }).toList();
+  }
+
+  Stream<List<AddonModel>> eventServiceCatalog(
+    String providerId, {
+    required bool own,
+  }) async* {
+    final services = await _loadEventServiceCatalog(providerId);
+    yield services
+        .where((service) => (service.providerId == providerId) == own)
+        .toList();
   }
 
   Stream<List<AddonModel>> addonsByProvider(String providerId) {
@@ -562,37 +620,45 @@ class FeastaRepository {
         });
   }
 
-  Future<bool> checkProviderAvailability({
-    required String providerId,
-    required DateTime eventDate,
-    required int maxEventsPerDay,
-  }) async {
-    final start = DateTime(eventDate.year, eventDate.month, eventDate.day);
-    final end = start.add(const Duration(days: 1));
-    final boundedMaximum = maxEventsPerDay.clamp(
-      1,
-      QueryBuilder.maximumPageSize,
-    );
-
-    final snapshot = await _db
-        .collection(FirestoreCollections.mainEvents)
-        .where('providerId', isEqualTo: providerId)
-        .where('eventDate', isGreaterThanOrEqualTo: Timestamp.fromDate(start))
-        .where('eventDate', isLessThan: Timestamp.fromDate(end))
-        .where(
-          'status',
-          whereIn: [
-            BookingStatus.pending,
-            BookingStatus.accepted,
-            BookingStatus.waitingPayment,
-            BookingStatus.paymentProcessing,
-            BookingStatus.confirmed,
-          ],
+  Future<ProviderCalendarMonth> getProviderCalendarMonth(
+    String providerId,
+    String month,
+  ) async {
+    final uid = currentUid;
+    final response = await _functions
+        .httpsCallable(
+          'getCustomerProviderCalendarAvailability',
+          options: HttpsCallableOptions(timeout: const Duration(seconds: 30)),
         )
-        .limit(boundedMaximum)
-        .get();
+        .call<dynamic>({'providerId': providerId, 'month': month});
+    if (_auth.currentUser?.uid != uid) {
+      throw StateError('Please sign in again to check availability.');
+    }
+    return ProviderCalendarMonth.parse(response.data, month);
+  }
 
-    return snapshot.docs.length < boundedMaximum;
+  Future<CustomerAvailability> checkProviderAvailability({
+    required String providerId,
+    required String packageId,
+    required EventCustomizationData customization,
+  }) async {
+    final uid = currentUid;
+    final startedAt = DateTime.now();
+    final selection = snapshotCustomization(customization);
+    final response = await _functions
+        .httpsCallable('checkCustomerProviderAvailability')
+        .call<dynamic>(CustomerAvailability.request(packageId, selection));
+    if (_auth.currentUser?.uid != uid) {
+      throw StateError('Please sign in again to check availability.');
+    }
+    return CustomerAvailability.parse(
+      response.data,
+      uid: uid,
+      providerId: providerId,
+      packageId: packageId,
+      customization: selection,
+      checkedAt: startedAt,
+    );
   }
 
   Stream<List<AddonRequestModel>> addonRequestsByProviderOwner() async* {
@@ -879,7 +945,50 @@ class FeastaRepository {
     return RefundDisclosures.fromJson(result.data);
   }
 
+  /// Server-only lookup. Missing documents never establish terminal rejection.
+  Future<Map<String, dynamic>> reconcileBookingSubmission(
+    String requestId,
+    String uid,
+  ) async {
+    if (currentUid != uid) throw StateError('Booking account changed.');
+    final response = await _functions
+        .httpsCallable('reconcileBookingSubmission')
+        .call({'clientRequestId': requestId});
+    if (currentUid != uid) throw StateError('Booking account changed.');
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<BookingSubmissionResult?> findSubmittedBooking(
+    String requestId,
+    String uid,
+  ) async {
+    if (currentUid != uid) throw StateError('Booking account changed.');
+    final snapshot = await _db
+        .collection('mainEvents')
+        .where('customerId', isEqualTo: uid)
+        .where('clientRequestId', isEqualTo: requestId)
+        .limit(2)
+        .get(const GetOptions(source: Source.server));
+    if (currentUid != uid) throw StateError('Booking account changed.');
+    if (snapshot.docs.isEmpty) return null;
+    if (snapshot.docs.length != 1) {
+      throw StateError('Ambiguous request result.');
+    }
+    final doc = snapshot.docs.single;
+    final data = doc.data();
+    return BookingSubmissionResult.fromJson({
+      'bookingId': doc.id,
+      'mainEventId': data['mainEventId'],
+      'providerRequestIds': data['providerRequestIds'],
+      'created': false,
+    });
+  }
+
   Future<BookingSubmissionResult> createBookingRequest({
+    List<Map<String, String>> policyAcknowledgements = const [],
+    List<Map<String, String>> agreementAcknowledgements = const [],
+    String? clientRequestId,
+    String? expectedUid,
     required CustomerModel customer,
     required ProviderModel provider,
     required PackageModel package,
@@ -902,12 +1011,18 @@ class FeastaRepository {
     String? packageThemeId,
   }) async {
     await _requireVerifiedActiveCustomer();
-    final requestId = '${currentUid}_${DateTime.now().microsecondsSinceEpoch}';
+    if (expectedUid != null && currentUid != expectedUid) {
+      throw StateError('Booking session changed.');
+    }
+    final requestId =
+        clientRequestId ??
+        '${currentUid}_${DateTime.now().microsecondsSinceEpoch}';
     final selection = BookingSelection(
       providerId: provider.id,
       packageId: package.id,
       customization: EventCustomizationData(
-        sharedContractVersion: package.sharedContractVersion, expectedPackageRevision: package.revision,
+        sharedContractVersion: package.sharedContractVersion,
+        expectedPackageRevision: package.revision,
         eventType: eventType,
         eventDate: eventDate,
         eventTime: eventTime,
@@ -927,9 +1042,11 @@ class FeastaRepository {
         packageThemeId: packageThemeId,
       ),
     );
-    final result = await _functions
-        .httpsCallable('submitBookingRequest')
-        .call(selection.toJson(clientRequestId: requestId));
+    final result = await _functions.httpsCallable('submitBookingRequest').call({
+      ...selection.toJson(clientRequestId: requestId),
+      'policyAcknowledgements': policyAcknowledgements,
+      'agreementAcknowledgements': agreementAcknowledgements,
+    });
     return BookingSubmissionResult.fromJson(result.data);
   }
 

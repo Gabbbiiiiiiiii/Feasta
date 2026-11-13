@@ -1,4 +1,7 @@
 import 'dart:convert';
+import 'food_choice_v2.dart';
+
+part 'customer_event_list_configuration.dart';
 
 Never _invalid() => throw const FormatException('Invalid customer Event List.');
 
@@ -61,6 +64,7 @@ class CustomerEventListEntry {
     required String providerName,
     this.estimatedPrice,
     this.imageUrl,
+    this.configuration,
   }) : providerId = eventListId(providerId),
        packageId = eventListId(packageId),
        packageName = _text(packageName),
@@ -85,9 +89,15 @@ class CustomerEventListEntry {
   final String providerId, packageId, packageName, providerName;
   final double? estimatedPrice;
   final String? imageUrl;
+  final CustomerEventListConfiguration? configuration;
+
+  /// Local planning state only. Booking and payment authority remain server-side.
+  CustomerEventListReadiness get readiness => configuration == null
+      ? CustomerEventListReadiness.needsCustomization
+      : CustomerEventListReadiness.configuredRevalidationRequired;
   EventListIdentity get identity =>
       EventListIdentity.package(providerId, packageId);
-  // Reserved for future attached references; v1 does not accept services.
+  // Standalone references remain reserved; configured add-ons live in the snapshot.
   List<EventListIdentity> get attachedServices => const [];
   Map<String, dynamic> toJson() => {
     'type': 'package',
@@ -98,6 +108,7 @@ class CustomerEventListEntry {
     'estimatedPrice': estimatedPrice,
     'imageUrl': imageUrl,
     'attachedServices': <Object>[],
+    if (configuration != null) 'configuration': configuration!.toJson(),
   };
   factory CustomerEventListEntry.fromJson(Map<String, dynamic> json) {
     _keys(json, {
@@ -109,6 +120,7 @@ class CustomerEventListEntry {
       'estimatedPrice',
       'imageUrl',
       'attachedServices',
+      'configuration',
     });
     final services = json['attachedServices'];
     final price = json['estimatedPrice'];
@@ -126,6 +138,11 @@ class CustomerEventListEntry {
       providerName: _text(json['providerName']),
       estimatedPrice: (price as num?)?.toDouble(),
       imageUrl: json['imageUrl'] as String?,
+      configuration: json.containsKey('configuration')
+          ? CustomerEventListConfiguration.fromJson(
+              _record(json['configuration']),
+            )
+          : null,
     );
   }
 }
@@ -162,7 +179,12 @@ class CustomerEventList {
     'currency': currency,
     'entries': entries.map((e) => e.toJson()).toList(),
   };
-  String encode() => jsonEncode(toJson());
+  String encode() {
+    final raw = jsonEncode(toJson());
+    if (utf8.encode(raw).length > maxRecordBytes) _invalid();
+    return raw;
+  }
+
   factory CustomerEventList.decode(String raw, {required String ownerUid}) {
     eventListId(ownerUid, owner: true);
     if (raw.length > maxRecordBytes ||

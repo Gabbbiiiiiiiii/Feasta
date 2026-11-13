@@ -1,3 +1,4 @@
+import {isDeepStrictEqual} from "node:util";
 import {
   Timestamp,
   type DocumentData,
@@ -176,9 +177,9 @@ export function validateAcceptanceProviderRequest(
 ): AcceptanceProviderRequestSnapshot {
   const {
     authorized,
-    mainEventData,
     now,
   } = input;
+  const mainEventData = packageAssignmentEvent(authorized.requestData, input.mainEventData);
   const requestData =
     authorized.requestData;
   const eventDate =
@@ -1022,4 +1023,48 @@ function snapshotMismatch(
     "failed-precondition",
     `The provider-request ${field} does not match the main event.`,
   );
+}
+/** Independent package snapshots have explicit membership; legacy records keep their parent contract. */
+function packageAssignmentEvent(request: DocumentData, event: DocumentData): DocumentData {
+  if (request.assignmentKind === undefined && event.packageAssignmentVersion === undefined) return event;
+  if (event.packageAssignmentVersion !== 1 || request.assignmentKind !== "independent_package" ||
+    request.type !== "catering" ||
+    !Array.isArray(event.packageAssignments) || !Array.isArray(event.providerRequestIds) ||
+    event.packageAssignments.length !== event.providerRequestIds.length ||
+    new Set(event.providerRequestIds).size !== event.providerRequestIds.length) throw invalidServiceLinkage();
+  const ids = new Set<string>();
+  const providers = new Set<string>();
+  for (const assignment of event.packageAssignments) {
+    if (!assignment || !optionalId(assignment.providerRequestId) ||
+      !optionalId(assignment.providerId) || !optionalId(assignment.packageId) ||
+      !event.providerRequestIds.includes(assignment.providerRequestId) ||
+      ids.has(assignment.providerRequestId) || providers.has(assignment.providerId)) throw invalidServiceLinkage();
+    ids.add(assignment.providerRequestId);
+    providers.add(assignment.providerId);
+  }
+  const assignment = event.packageAssignments.find((item: DocumentData) =>
+    item.providerRequestId === request.providerRequestId);
+  if (!assignment) throw invalidServiceLinkage();
+  if (!Array.isArray(assignment.services) || assignment.services.length !== 1 ||
+    assignment.services[0]?.serviceId !== assignment.packageId ||
+    assignment.services[0]?.category !== "catering_package" ||
+    (assignment.packageRevision !== null &&
+      (!Number.isSafeInteger(assignment.packageRevision) || assignment.packageRevision < 1))) {
+    throw invalidServiceLinkage();
+  }
+  for (const field of ["providerId", "packageId", "packageName", "packageRevision", "services",
+    "amount", "downPaymentAmount", "remainingBalance", "downPaymentPercentage", "packagePaymentTerms"]) {
+    if (!Object.hasOwn(assignment, field) || !isDeepStrictEqual(assignment[field], request[field])) {
+      throw invalidServiceLinkage();
+    }
+  }
+  if (!parsePackagePaymentTermsSnapshot(assignment.packagePaymentTerms)) throw invalidPaymentTerms();
+  // Project only assignment-owned fields. Shared event scope must always come
+  // from the actual parent, even if a malformed assignment contains extra keys.
+  return {...event, providerId: assignment.providerId, currentProviderId: assignment.providerId,
+    packageId: assignment.packageId, packageName: assignment.packageName,
+    packagePaymentTerms: assignment.packagePaymentTerms,
+    downPaymentAmount: assignment.downPaymentAmount, remainingBalance: assignment.remainingBalance,
+    downPaymentPercentage: assignment.downPaymentPercentage,
+    totalAmount: assignment.amount, packagePrice: assignment.amount, selectedAddOns: []};
 }

@@ -1,9 +1,12 @@
+vi.mock("firebase/auth", () => ({onAuthStateChanged: () => () => {}}));
 import type {ComponentProps} from "react";
-import {fireEvent, render, screen, waitFor, within} from "@testing-library/react";
+import {cleanup, fireEvent, render, screen, waitFor, within} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import {beforeEach, describe, expect, it, vi} from "vitest";
 
 import {BookingOfferSelection} from "@/components/customer/bookings/booking-offer-selection";
+import {addCustomerEventListItem, removeCustomerEventListItem, readCustomerEventList, CUSTOMER_EVENT_LIST_STORAGE_KEY,
+  type CustomerPackageEventListItem} from "@/lib/customer/event-list/customer-event-list";
 import {
   omitUntrustedBookingCustomization,
   reconcileBookingCustomization,
@@ -19,10 +22,12 @@ import type {PublicPackageDetail} from "@/lib/customer/discovery/marketplace-typ
 import type {CustomerRefundPolicyDisclosure} from "@/lib/customer/bookings/customer-refund-policy-client";
 
 const mocks = vi.hoisted(() => ({
+  auth: {currentUser: null as {uid: string} | null, authStateReady: vi.fn(async () => {})},
   checkAvailability: vi.fn(),
   loadCalendar: vi.fn(async (_providerId: string, month: string) => ({month, dates: [] as Array<{date: string; state: "booked" | "on_hold" | "unavailable"}>})),
   loadDisclosures: vi.fn(),
   submitBooking: vi.fn(),
+  reconcile: vi.fn(),
   replace: vi.fn(),
 }));
 
@@ -37,11 +42,12 @@ vi.mock("@/lib/customer/bookings/customer-provider-availability-client", () => (
 
 vi.mock("@/lib/customer/bookings/customer-booking-submission-client", () => ({
   submitCustomerBookingRequest: mocks.submitBooking,
+  reconcileCustomerBookingSubmission: mocks.reconcile,
   bookingSubmissionRequiresRefundPolicyRefresh: () => false,
 }));
 
 vi.mock("@/lib/firebase/client", () => ({
-  auth: {},
+  auth: mocks.auth,
   functions: {},
   initializeBrowserAppCheck: vi.fn(),
 }));
@@ -58,6 +64,17 @@ vi.mock("@/lib/customer/bookings/customer-refund-policy-client", async (importOr
 }));
 
 import {EventCustomizationExperience} from "@/components/customer/bookings/event-customization-experience";
+vi.mock("@/components/provider/provider-business-location-map", () => ({
+  ProviderBusinessLocationMap: (props: {
+    initialCoordinates: {latitude: number; longitude: number} | null;
+    onConfirm: (location: {address: string; city: string; province: string; latitude: number; longitude: number}) => void;
+    onCancel: () => void;
+  }) => <div aria-label="Mock event map">
+    <span>{props.initialCoordinates ? "Saved pin" : "No saved pin"}</span>
+    <button type="button" onClick={props.onCancel}>Cancel</button>
+    <button type="button" onClick={() => props.onConfirm({address: "Map venue address", city: "Ormoc City", province: "Leyte", latitude: 11, longitude: 124})}>Confirm this location</button>
+  </div>,
+}));
 vi.mock("@/lib/customer/bookings/customer-booking-agreement", async () => {
   const {bookingAgreementFixture} = await import("./booking-agreement-fixture");
   return {getCustomerBookingPaymentAgreements: vi.fn(async (input: {providerId: string}) => [bookingAgreementFixture(input.providerId)])};
@@ -520,9 +537,37 @@ describe("booking offer selection UI", () => {
 });
 
 describe("customer booking customization flow", () => {
+  it.each(["Event location", "Complete event address"])("confirms and persists a map address, then invalidates the pin on manual %s edits", async (label) => {
+    render(<EventCustomizationExperience planningOnly initialEventContext={null} detail={detailFixture()} eventServices={[]} />);
+    await screen.findByText("Changes save automatically");
+    fireEvent.click(screen.getByRole("button", {name: "Choose on map"}));
+    expect(screen.getByText("No saved pin")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", {name: "Cancel"}));
+    expect(screen.queryByLabelText("Mock event map")).not.toBeInTheDocument();
+    expect(screen.getByLabelText(/^Complete event address/)).toHaveValue("");
+    fireEvent.click(screen.getByRole("button", {name: "Continue"}));
+    expect(screen.getByText("Enter the complete event address.")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", {name: "Choose on map"}));
+    fireEvent.click(screen.getByRole("button", {name: "Confirm this location"}));
+    expect(screen.getByLabelText(/^Complete event address/)).toHaveValue("Map venue address");
+    expect(screen.getByLabelText(/^Event location/)).toHaveValue("Ormoc City, Leyte");
+    expect(screen.queryByText("Enter the complete event address.")).not.toBeInTheDocument();
+    await waitFor(() => expect(readCustomizationDraft(localStorage, customizationDraftKey("guest", PROVIDER_ID, PACKAGE_ID, "null"))?.event.eventAddress).toBe("Map venue address"));
+    fireEvent.click(screen.getByRole("button", {name: "Continue"}));
+    expect(screen.getByRole("heading", {name: "Event details"})).toBeVisible();
+    expect(screen.getByText("Choose your event date.")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", {name: "Choose on map"}));
+    expect(screen.getByText("Saved pin")).toBeVisible();
+    fireEvent.change(screen.getByLabelText(new RegExp(`^${label}`)), {target: {value: "Manual venue"}});
+    expect(screen.queryByLabelText("Mock event map")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", {name: "Choose on map"}));
+    expect(screen.getByText("No saved pin")).toBeVisible();
+  });
   beforeEach(() => {
     localStorage.clear();
     vi.clearAllMocks();
+    mocks.auth.currentUser = null;
+    mocks.auth.authStateReady.mockImplementation(async () => {});
     mocks.loadCalendar.mockImplementation(async (_providerId: string, month: string) => ({month, dates: []}));
     vi.setSystemTime(new Date("2026-09-01T02:00:00.000Z"));
     mocks.checkAvailability.mockResolvedValue([{
@@ -543,6 +588,77 @@ describe("customer booking customization flow", () => {
     });
   });
 
+  it.each(["confirmed_created", "confirmed_rejected", "unresolved"])("checks a previous package request: %s", async outcome => {
+    mocks.reconcile.mockResolvedValue({outcome, booking: {bookingId: "booking_existing", mainEventId: "booking_existing", providerRequestIds: ["request_existing"], created: false}});
+    render(<EventCustomizationExperience draftOwner="customer:customer-a" detail={detailFixture()} eventServices={[]} />);
+    const check = await screen.findByRole("button", {name: "Check Previous Request"});
+    await waitFor(() => expect(check).toBeEnabled());
+    fireEvent.click(check);
+    await waitFor(() => expect(mocks.reconcile).toHaveBeenCalledWith("customer-a", undefined));
+    if (outcome === "confirmed_created") {
+      await waitFor(() => expect(mocks.replace).toHaveBeenCalledWith("/customer/bookings?submitted=booking_existing"));
+    } else {
+      expect(await screen.findByText(outcome === "confirmed_rejected" ? /Previous request was confirmed rejected/ : /Previous request is unresolved/)).toBeVisible();
+      expect(mocks.replace).not.toHaveBeenCalled();
+    }
+    expect(mocks.submitBooking).not.toHaveBeenCalled();
+  });
+
+  it("requires current acknowledgments again after a confirmed package rejection", async () => {
+    const user = userEvent.setup();
+    mocks.reconcile.mockResolvedValue({outcome: "confirmed_rejected"});
+    render(<EventCustomizationExperience draftOwner="customer:customer-a" detail={detailFixture()} eventServices={[]} />);
+    await fillEventDetails();
+    await screen.findByText("Maria's Catering is available");
+    await user.click(screen.getByRole("button", {name: "Continue"}));
+    await user.click(screen.getByRole("checkbox", {name: "Lechon"}));
+    await user.click(screen.getByRole("button", {name: "Review booking"}));
+    for (const checkbox of await screen.findAllByRole("checkbox", {name: /I have reviewed/})) await user.click(checkbox);
+    await user.click(screen.getByRole("button", {name: "Check Previous Request"}));
+    await screen.findByText(/Previous request was confirmed rejected/);
+    expect(mocks.submitBooking).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", {name: "Submit booking request"})).toBeDisabled();
+    for (const checkbox of await screen.findAllByRole("checkbox", {name: /I have reviewed/})) {
+      expect(checkbox).not.toBeChecked();
+      await user.click(checkbox);
+    }
+    await user.click(screen.getByRole("button", {name: "Submit booking request"}));
+    await waitFor(() => expect(mocks.submitBooking).toHaveBeenCalledOnce());
+    expect(mocks.submitBooking.mock.calls[0][1]).toMatchObject({customerId: "customer-a", freshAttempt: true});
+    expect(mocks.submitBooking.mock.calls[0][0].policyAcknowledgements).toHaveLength(1);
+    expect(mocks.submitBooking.mock.calls[0][0].agreementAcknowledgements).toHaveLength(1);
+  });
+
+  it.each([true, false])("preserves and manages a restored service at review (catalog present: %s)", async present => {
+    const user = userEvent.setup();
+    const service = {id: "saved-staff", providerId: PROVIDER_ID, providerName: "Maria's Catering", name: "Saved staff",
+      description: null, category: "staff", price: 700, imageUrl: null, source: "catering_provider" as const};
+    saveCustomizationDraft(localStorage, customizationDraftKey("guest", PROVIDER_ID, PACKAGE_ID, "null"), {
+      ...baseDraft, event: {...baseDraft.event, eventLocation: "Ormoc City"}, addonIds: [service.id],
+    });
+    render(<EventCustomizationExperience detail={detailFixture()} eventServices={present ? [service] : []} />);
+    await screen.findByText(/Draft restored/);
+    await fillEventDetails();
+    await screen.findByText("Maria's Catering is available");
+    await user.click(screen.getByRole("button", {name: "Continue"}));
+    expect(screen.queryByRole("heading", {name: "Add event services"})).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", {name: "Review booking"}));
+    expect(await screen.findByRole("heading", {name: "Review your booking request"})).toBeVisible();
+    expect(screen.getByText("Step 3 of 3")).toBeVisible();
+    if (present) {
+      expect(screen.getByText(service.name)).toBeVisible();
+      await user.click(screen.getByRole("button", {name: "Remove Saved staff from Maria's Catering"}));
+    } else {
+      expect(screen.getByLabelText("Unavailable saved services")).toHaveTextContent("Unavailable saved service");
+      expect(screen.getByLabelText("Unavailable saved services")).not.toHaveTextContent(service.id);
+      await user.click(screen.getByRole("button", {name: "Remove unavailable service"}));
+    }
+    await waitFor(() => expect(readCustomizationDraft(localStorage, customizationDraftKey("guest", PROVIDER_ID, PACKAGE_ID, "null"))?.addonIds).toEqual([]));
+    await user.click(screen.getByRole("button", {name: "Back"}));
+    expect(screen.getByRole("heading", {name: "Customize your package"})).toBeVisible();
+    expect(mocks.submitBooking).not.toHaveBeenCalled();
+  });
+
   it("keeps a compact summary, read-only progress, and Step 1 values across navigation", async () => {
     const user = userEvent.setup();
     render(<EventCustomizationExperience planningOnly detail={detailFixture()} eventServices={[]} />);
@@ -556,7 +672,7 @@ describe("customer booking customization flow", () => {
     expect(screen.getByText("Wedding", {exact: true})).toBeVisible();
     const progress = screen.getByRole("navigation", {name: "Booking progress"});
     expect(within(progress).queryByRole("button")).toBeNull();
-    expect(within(progress).getAllByRole("listitem")).toHaveLength(4);
+    expect(within(progress).getAllByRole("listitem")).toHaveLength(3);
     await user.click(screen.getByRole("button", {name: "Continue"}));
     expect(screen.getByRole("heading", {name: "Event details"})).toBeVisible();
     expect(screen.getByText("Choose your event date.")).toBeVisible();
@@ -614,7 +730,7 @@ describe("customer booking customization flow", () => {
       expect(group).toHaveAttribute("aria-required", "true");
       expect(within(group).getAllByRole("radio").every((radio) => !(radio as HTMLInputElement).checked)).toBe(true);
       expect(group).toHaveClass("grid-cols-[repeat(auto-fit,minmax(min(100%,14rem),1fr))]");
-      await user.click(screen.getByRole("button", {name: "Continue"}));
+      await user.click(screen.getByRole("button", {name: "Review booking"}));
       expect(screen.getByRole("heading", {name: "Customize your package"})).toBeVisible();
       expect(group).toHaveAttribute("aria-invalid", "true");
       expect(document.getElementById(group.getAttribute("aria-describedby")!)).toHaveTextContent("Choose a catering service level offered by this package.");
@@ -634,8 +750,8 @@ describe("customer booking customization flow", () => {
       expect(screen.getByRole("radio", {name: "Full-Service Catering"})).toBeChecked();
       expect(summary).toHaveTextContent("180,000");
     }
-    await user.click(screen.getByRole("button", {name: "Continue"}));
-    expect(screen.getByRole("heading", {name: "Add event services"})).toBeVisible();
+    await user.click(screen.getByRole("button", {name: "Review booking"}));
+    expect(screen.getByRole("heading", {name: "Continue your saved plan"})).toBeVisible();
   });
 
   it.each(["drop_off", "buffet_setup", "full_service"] as const)("keeps visual styles optional and eligible only for setup tiers (%s)", async (tier) => {
@@ -656,8 +772,8 @@ describe("customer booking customization flow", () => {
       expect(screen.getByText(/not sent to providers/)).toBeVisible();
       await user.click(within(themes).getByRole("radio", {name: /No visual style/}));
     }
-    await user.click(screen.getByRole("button", {name: "Continue"}));
-    expect(screen.getByRole("heading", {name: "Add event services"})).toBeVisible();
+    await user.click(screen.getByRole("button", {name: "Review booking"}));
+    expect(screen.getByRole("heading", {name: "Continue your saved plan"})).toBeVisible();
   });
 
   it("keeps published options selectable and restores them with the tier after Back and remount", async () => {
@@ -693,8 +809,8 @@ describe("customer booking customization flow", () => {
     for (const name of ["Lechon", "Lanterns", "Round tables"]) expect(screen.getByRole("checkbox", {name})).toBeChecked();
     expect(screen.getByRole("checkbox", {name: "Grilled fish"})).not.toBeChecked();
     expect(screen.getByRole("radio", {name: "Buffet Setup"})).toBeChecked();
-    await user.click(screen.getByRole("button", {name: "Continue"}));
-    expect(screen.getByRole("heading", {name: "Add event services"})).toBeVisible();
+    await user.click(screen.getByRole("button", {name: "Review booking"}));
+    expect(screen.getByRole("heading", {name: "Continue your saved plan"})).toBeVisible();
   });
 
   it("keeps legacy package customization and existing food selections", async () => {
@@ -713,8 +829,8 @@ describe("customer booking customization flow", () => {
     expect(screen.getByText(/does not publish separate catering service levels/u)).toBeVisible();
     await user.click(screen.getByRole("checkbox", {name: "Lechon"}));
     expect(screen.getByRole("checkbox", {name: "Lechon"})).toBeChecked();
-    await user.click(screen.getByRole("button", {name: "Continue"}));
-    expect(screen.getByRole("heading", {name: "Add event services"})).toBeVisible();
+    await user.click(screen.getByRole("button", {name: "Review booking"}));
+    expect(screen.getByRole("heading", {name: "Continue your saved plan"})).toBeVisible();
   });
 
   it("requires food choices, reviews dish names, and submits only IDs", async () => {
@@ -726,14 +842,13 @@ describe("customer booking customization flow", () => {
     await fillEventDetails();
     expect(await screen.findByText("Maria's Catering is available")).toBeVisible();
     await user.click(screen.getByRole("button",{name:"Continue"}));
-    await user.click(screen.getByRole("button",{name:"Continue"}));
+    await user.click(screen.getByRole("button",{name:"Review booking"}));
     expect(screen.getByRole("alert")).toHaveTextContent(/required number/);
     expect(mocks.submitBooking).not.toHaveBeenCalled();
     await user.click(screen.getByRole("checkbox",{name:"Chicken Afritada"}));
     expect(screen.getByRole("checkbox",{name:"Chicken Afritada"})).toBeVisible();
     expect(screen.getByRole("checkbox",{name:"Chicken Afritada"})).toBeChecked();
     expect(screen.getByRole("checkbox",{name:"Pork Menudo"})).toBeDisabled();
-    await user.click(screen.getByRole("button",{name:"Continue"}));
     await user.click(screen.getByRole("button",{name:"Review booking"}));
     expect(await screen.findByRole("heading",{name:"Review your booking request"})).toBeVisible();
     expect(screen.getByText("Chicken Afritada")).toBeVisible();
@@ -764,7 +879,6 @@ describe("customer booking customization flow", () => {
     expect(screen.getByRole("checkbox", {name: "Chicken"})).toBeVisible();
     expect(screen.getByRole("checkbox", {name: "Chicken"})).toBeChecked();
     expect(screen.queryByRole("checkbox", {name: "Lechon"})).not.toBeInTheDocument();
-    await user.click(screen.getByRole("button", {name: "Continue"}));
     await user.click(screen.getByRole("button", {name: "Review booking"}));
     for (const checkbox of await screen.findAllByRole("checkbox", {name: /I have reviewed/})) await user.click(checkbox);
     await user.click(screen.getByRole("button", {name: "Submit booking request"}));
@@ -839,14 +953,13 @@ describe("customer booking customization flow", () => {
     expect(await screen.findByText("Maria's Catering is available")).toBeVisible();
     await user.click(screen.getByRole("button",{name:"Continue"}));
     await user.click(screen.getByRole("radio",{name:/Drop-Off Catering/}));
-    await user.click(screen.getByRole("button",{name:"Continue"}));
+    await user.click(screen.getByRole("button",{name:"Review booking"}));
     expect(screen.getByRole("alert")).toHaveTextContent(/required number/);
     expect(mocks.submitBooking).not.toHaveBeenCalled();
     await user.click(screen.getByRole("checkbox",{name:"Chicken Afritada"}));
     expect(screen.getByRole("checkbox",{name:"Chicken Afritada"})).toBeVisible();
     expect(screen.getByRole("checkbox",{name:"Chicken Afritada"})).toBeChecked();
     expect(screen.getByRole("checkbox",{name:"Pork Menudo"})).toBeDisabled();
-    await user.click(screen.getByRole("button",{name:"Continue"}));
     await user.click(screen.getByRole("button",{name:"Review booking"}));
     expect(await screen.findByRole("heading",{name:"Review your booking request"})).toBeVisible();
     expect(screen.getByText("Chicken Afritada")).toBeVisible();
@@ -872,7 +985,7 @@ describe("customer booking customization flow", () => {
     await fillEventDetails();
     expect(await screen.findByText("Maria's Catering is available")).toBeVisible();
     await user.click(screen.getByRole("button", {name: "Continue"}));
-    await user.click(screen.getByRole("button", {name: "Continue"}));
+    await user.click(screen.getByRole("button", {name: "Review booking"}));
     expect(screen.getByRole("alert")).toHaveTextContent(
       "Choose a catering service level offered by this package.",
     );
@@ -889,7 +1002,6 @@ describe("customer booking customization flow", () => {
     await user.click(screen.getByRole("radio", {name: /Full-Service Catering/u}));
     await user.click(screen.getByRole("radio", {name: /Garden/u}));
     await user.click(screen.getByRole("checkbox", {name: "Lechon"}));
-    await user.click(screen.getByRole("button", {name: "Continue"}));
     await user.click(screen.getByRole("button", {name: "Review booking"}));
     expect(await screen.findByRole("heading", {name: "Review your booking request"})).toBeVisible();
 
@@ -956,14 +1068,12 @@ describe("customer booking customization flow", () => {
     expect(sidebar).toHaveTextContent("2,000");
     expect(sidebar).not.toHaveTextContent("5,000");
     await user.click(screen.getByRole("radio", {name: /Buffet Setup/u}));
-    await user.click(screen.getByRole("button", {name: "Continue"}));
     await user.click(screen.getByRole("button", {name: "Review booking"}));
     expect(await screen.findByRole("heading", {name: "Review your booking request"})).toBeVisible();
     const estimate = screen.getByRole("heading", {name: "Review the displayed cost before submission."}).closest("section")!;
     expect(estimate).toHaveTextContent("5,000");
     expect(estimate).not.toHaveTextContent("2,000");
     expect(sidebar).toHaveTextContent("5,000");
-    await user.click(screen.getByRole("button", {name: "Back"}));
     await user.click(screen.getByRole("button", {name: "Back"}));
     expect(screen.getByRole("radio", {name: /Buffet Setup/u})).toBeChecked();
     expect(sidebar).toHaveTextContent("5,000");
@@ -1013,6 +1123,337 @@ describe("customer booking customization flow", () => {
     expect(screen.queryByRole("radio", {name: /Full-Service Catering/u})).not.toBeInTheDocument();
     expect(screen.getByRole("radio", {name: /Buffet Setup/u})).not.toBeChecked();
     expect(screen.queryByLabelText("Visual notes")).not.toBeInTheDocument();
+  });
+});
+
+describe("Event List explicit restore and edit", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks(); vi.clearAllMocks(); localStorage.clear();
+    mocks.auth.currentUser = {uid: "customer-a"}; mocks.auth.authStateReady.mockImplementation(async () => {});
+    vi.setSystemTime(new Date("2026-09-01T02:00:00Z"));
+  });
+  function saved(v2 = false): CustomerPackageEventListItem {
+    return {providerId: PROVIDER_ID, packageId: PACKAGE_ID, providerName: "Maria's Catering",
+      packageName: "Wedding celebration", price: 1, imageUrl: null, packageHref: `/customer/packages/${PACKAGE_ID}`,
+      configuration: {event: {eventType: "wedding", eventDate: "2026-09-20", eventTime: "18:00", eventEndTime: "22:00",
+        guestCount: 100, eventLocation: "Ormoc City", eventAddress: "Saved ballroom", specialRequest: "No peanuts"},
+        sharedContractVersion: v2 ? 2 : null, expectedPackageRevision: v2 ? 7 : null,
+        serviceTier: "full_service", packageThemeId: "theme_garden",
+        themeInspiration: {notes: "Rustic lights", referenceSetupId: null},
+        foodChoiceSelections: v2 ? [{groupId: "main", optionIds: ["fish"]}] : [],
+        selectedFoods: v2 ? [] : ["Lechon"], selectedDecorations: ["Flowers"], selectedFurniture: ["Tables"],
+        selectedEventServices: [], willArrangeOwnAddOns: false, customerArrangedAddOnsNote: "", estimatedTotal: 1}};
+  }
+  function sharedSource(date = "2026-09-20") {
+    const value = saved();
+    return {...value, providerId: "other-provider", packageId: "other-package", packageHref: "/customer/packages/other-package",
+      configuration: {...value.configuration!, event: {...value.configuration!.event, eventDate: date}}};
+  }
+  it("offers shared details, accepts only event fields and keeps the saved provider unchanged", async () => {
+    addCustomerEventListItem(sharedSource());
+    const before = JSON.stringify(readCustomerEventList());
+    render(<EventCustomizationExperience planningOnly draftOwner="customer:customer-a" detail={detail()} eventServices={[]} />);
+    fireEvent.click(await screen.findByRole("button", {name: /^Use Maria/}, {timeout: 5000}));
+    await waitFor(() => expect(screen.getByLabelText(/^Complete event address/)).toHaveValue("Saved ballroom"));
+    expect(screen.getByLabelText(/^Number of guests/)).toHaveValue(100);
+    expect(screen.getByLabelText(/Special requests/i)).toHaveValue("");
+    expect(JSON.stringify(readCustomerEventList())).toBe(before);
+    fireEvent.change(screen.getByLabelText(/^Complete event address/), {target: {value: "Editable venue"}});
+    expect(screen.getByLabelText(/^Complete event address/)).toHaveValue("Editable venue");
+  });
+  it("lets customers decline shared details", async () => {
+    addCustomerEventListItem(sharedSource());
+    render(<EventCustomizationExperience planningOnly draftOwner="customer:customer-a" detail={detail()} eventServices={[]} />);
+    fireEvent.click(await screen.findByRole("button", {name: "Enter new details"}));
+    expect(screen.getByLabelText(/^Complete event address/)).toHaveValue("");
+    expect(screen.queryByRole("region", {name: "Reuse event details"})).toBeNull();
+  });
+  it("requires a choice between conflicting plans", async () => {
+    addCustomerEventListItem(sharedSource());
+    addCustomerEventListItem({...sharedSource("2026-09-21"), packageId: "third-package"});
+    render(<EventCustomizationExperience planningOnly draftOwner="customer:customer-a" detail={detail()} eventServices={[]} />);
+    await screen.findByText(/Saved event details conflict/);
+    expect(screen.getAllByRole("button", {name: /^Use Maria/})).toHaveLength(2);
+    expect(screen.getByLabelText(/^Complete event address/)).toHaveValue("");
+  });
+  it("preserves an existing draft instead of offering shared details", async () => {
+    addCustomerEventListItem(sharedSource());
+    saveCustomizationDraft(localStorage, customizationDraftKey("customer:customer-a", PROVIDER_ID, PACKAGE_ID, "null"),
+      {...baseDraft, event: {...baseDraft.event, eventAddress: "Existing draft"}});
+    render(<EventCustomizationExperience planningOnly draftOwner="customer:customer-a" detail={detail()} eventServices={[]} />);
+    await waitFor(() => expect(screen.getByLabelText(/^Complete event address/)).toHaveValue("Existing draft"));
+    expect(screen.queryByRole("region", {name: "Reuse event details"})).toBeNull();
+  });
+  it("does not apply a source removed during calendar verification", async () => {
+    addCustomerEventListItem(sharedSource());
+    let finish!: (value: {month: string; dates: []}) => void;
+    mocks.loadCalendar.mockImplementationOnce(() => new Promise(resolve => {finish = resolve;}));
+    render(<EventCustomizationExperience planningOnly draftOwner="customer:customer-a" detail={detail()} eventServices={[]} />);
+    fireEvent.click(await screen.findByRole("button", {name: /^Use Maria/}));
+    removeCustomerEventListItem("other-package");
+    finish({month: "2026-09", dates: []});
+    await waitFor(() => expect(screen.queryByRole("button", {name: /^Use Maria/})).toBeNull());
+    expect(screen.getByLabelText(/^Complete event address/)).toHaveValue("");
+  });
+  it("checks the new provider calendar and omits an unavailable schedule", async () => {
+    addCustomerEventListItem(sharedSource());
+    mocks.loadCalendar.mockResolvedValueOnce({month: "2026-09", dates: [{date: "2026-09-20", state: "unavailable"}]});
+    render(<EventCustomizationExperience planningOnly draftOwner="customer:customer-a" detail={detail()} eventServices={[]} />);
+    fireEvent.click(await screen.findByRole("button", {name: /^Use Maria/}));
+    await waitFor(() => expect(screen.getByLabelText(/^Complete event address/)).toHaveValue("Saved ballroom"));
+    expect(mocks.loadCalendar).toHaveBeenCalledWith(PROVIDER_ID, "2026-09");
+    expect(screen.getByLabelText(/^Start time/)).toHaveValue("");
+  });
+  it("hides shared details on account switch and logout", async () => {
+    addCustomerEventListItem(sharedSource());
+    const element = () => <EventCustomizationExperience planningOnly draftOwner="customer:customer-a" detail={detail()} eventServices={[]} />;
+    const view = render(element());
+    await screen.findByRole("button", {name: /^Use Maria/});
+    mocks.auth.currentUser = {uid: "customer-b"}; view.rerender(element());
+    expect(screen.queryByRole("button", {name: /^Use Maria/})).toBeNull();
+    mocks.auth.currentUser = null; view.rerender(element());
+    expect(screen.queryByRole("button", {name: /^Use Maria/})).toBeNull();
+  });
+  function detail(v2 = false) {
+    const value = detailFixture(packageSource);
+    value.customization.decorations = ["Flowers"]; value.customization.furniture = ["Tables"];
+    if (v2) Object.assign(value.packageRecord, {sharedContractVersion: 2, revision: 7,
+      foodChoiceGroups: [{id: "main", title: "Main", selectionCount: 1, options: [{id: "fish", name: "Fish"}, {id: "rice", name: "Rice"}]}]});
+    return value;
+  }
+  async function open(v2 = false, store = true) {
+    const unrelatedKey = customizationDraftKey("guest", PROVIDER_ID, PACKAGE_ID, "null");
+    saveCustomizationDraft(localStorage, unrelatedKey, {...baseDraft, event: {...baseDraft.event, eventAddress: "Unrelated draft"}});
+    const unrelated = localStorage.getItem(unrelatedKey);
+    if (store) addCustomerEventListItem(saved(v2));
+    render(<EventCustomizationExperience planningOnly draftOwner="customer:customer-a" eventListEditProviderId={PROVIDER_ID}
+      detail={detail(v2)} eventServices={[]} />);
+    return {unrelatedKey, unrelated};
+  }
+  it("restores intentionally, edits and saves the same entry while preserving other entries and drafts", async () => {
+    const other = {...saved(), packageId: "other-package", packageHref: "/customer/packages/other-package"};
+    addCustomerEventListItem(other);
+    const {unrelatedKey, unrelated} = await open();
+    await screen.findByText(/Saved configuration restored/);
+    expect(screen.getByLabelText(/^Complete event address/)).toHaveValue("Saved ballroom");
+    expect(screen.getByLabelText(/^Number of guests/)).toHaveValue(100);
+    fireEvent.change(screen.getByLabelText(/^Special requests/i), {target: {value: "Updated request"}});
+    fireEvent.click(screen.getByRole("button", {name: "Confirm restored options"}));
+    fireEvent.click(screen.getByRole("button", {name: "Continue"}));
+    expect(screen.getByRole("radio", {name: "Full-Service Catering"})).toBeChecked();
+    expect(screen.getByRole("checkbox", {name: "Lechon"})).toBeChecked();
+    expect(screen.getByRole("checkbox", {name: "Flowers"})).toBeChecked();
+    expect(screen.getByRole("checkbox", {name: "Tables"})).toBeChecked();
+    expect(screen.getByLabelText("Visual notes")).toHaveValue("Rustic lights");
+    fireEvent.click(screen.getByRole("button", {name: "Review booking"}));
+    fireEvent.click(screen.getByRole("button", {name: "Save to Event List"}));
+    await screen.findByText(/Saved to Event List\. Configured/);
+    const values = readCustomerEventList() as CustomerPackageEventListItem[];
+    expect(values).toHaveLength(2);
+    expect(values.find(value => value.packageId === PACKAGE_ID)!.configuration!.event.specialRequest).toBe("Updated request");
+    expect(values.find(value => value.packageId === "other-package")!.configuration!.estimatedTotal).toBe(1);
+    expect(localStorage.getItem(unrelatedKey)).toBe(unrelated);
+    expect(mocks.submitBooking).not.toHaveBeenCalled();
+  });
+  it("restores V2 dish IDs and requires explicit review before saving", async () => {
+    await open(true); await screen.findByText(/Saved configuration restored/);
+    fireEvent.click(screen.getByRole("button", {name: "Continue"}));
+    expect(screen.getByRole("checkbox", {name: "Fish"})).toBeChecked();
+    fireEvent.click(screen.getByRole("button", {name: "Review booking"}));
+    expect(screen.queryByRole("button", {name: "Save to Event List"})).toBeNull();
+    fireEvent.click(screen.getByRole("button", {name: "Confirm restored options"}));
+    fireEvent.click(screen.getByRole("button", {name: "Review booking"}));
+    fireEvent.click(screen.getByRole("button", {name: "Save to Event List"}));
+    await screen.findByText(/Saved to Event List\. Configured/);
+    expect((readCustomerEventList()[0] as CustomerPackageEventListItem).configuration).toMatchObject({
+      sharedContractVersion: 2, expectedPackageRevision: 7, foodChoiceSelections: [{groupId: "main", optionIds: ["fish"]}], estimatedTotal: 180000});
+  });
+  it("keeps stale selections in storage until explicit correction and resave", async () => {
+    const value = saved(true); value.configuration!.foodChoiceSelections = [{groupId: "main", optionIds: ["removed-dish"]}];
+    value.configuration!.expectedPackageRevision = 6;
+    addCustomerEventListItem(value);
+    render(<EventCustomizationExperience planningOnly draftOwner="customer:customer-a" eventListEditProviderId={PROVIDER_ID} detail={detail(true)} eventServices={[]} />);
+    await screen.findByText(/Food-choice groups or dishes require correction/);
+    expect((readCustomerEventList()[0] as CustomerPackageEventListItem).configuration!.foodChoiceSelections![0].optionIds).toEqual(["removed-dish"]);
+    fireEvent.click(screen.getByRole("button", {name: "Remove unavailable options and review current package"}));
+    fireEvent.click(screen.getByRole("button", {name: "Continue"}));
+    fireEvent.click(screen.getByRole("button", {name: "Review booking"}));
+    expect(screen.queryByRole("button", {name: "Save to Event List"})).toBeNull();
+    fireEvent.click(screen.getByRole("checkbox", {name: "Fish"}));
+    fireEvent.click(screen.getByRole("button", {name: "Review booking"}));
+    fireEvent.click(screen.getByRole("button", {name: "Save to Event List"}));
+    await screen.findByText(/Saved to Event List\. Configured/);
+    expect((readCustomerEventList()[0] as CustomerPackageEventListItem).configuration!.expectedPackageRevision).toBe(7);
+  });
+  it("never recreates an edit target cleared after restoration", async () => {
+    await open(); await screen.findByText(/Saved configuration restored/);
+    fireEvent.click(screen.getByRole("button", {name: "Confirm restored options"}));
+    fireEvent.click(screen.getByRole("button", {name: "Continue"}));
+    fireEvent.click(screen.getByRole("button", {name: "Review booking"}));
+    const {clearCustomerEventList} = await import("@/lib/customer/event-list/customer-event-list");
+    clearCustomerEventList();
+    fireEvent.click(screen.getByRole("button", {name: "Save to Event List"}));
+    await screen.findByText(/was deleted or cleared/);
+    expect(screen.getByRole("link", {name: "Return to Event List"})).toBeVisible();
+    expect(readCustomerEventList()).toHaveLength(0);
+  });
+  it("missing saved configuration never falls back to an unrelated draft", async () => {
+    await open(false, false); await screen.findByText(/no other draft has been loaded/);
+    expect(screen.getByLabelText(/^Complete event address/)).toHaveValue("");
+    expect(readCustomerEventList()).toHaveLength(0);
+  });
+  it("blocks guest restoration after a signed-in identity appears", async () => {
+    mocks.auth.currentUser = {uid: "another-account"};
+    await open(); await screen.findByText(/Your session changed/);
+    expect(screen.getByLabelText(/^Complete event address/)).toHaveValue("");
+    expect(mocks.submitBooking).not.toHaveBeenCalled();
+  });
+  it("restores only the selected entry for the authenticated customer", async () => {
+    mocks.auth.currentUser = {uid: "customer-a"};
+    addCustomerEventListItem(saved());
+    saveCustomizationDraft(localStorage, customizationDraftKey("customer:customer-a", PROVIDER_ID, PACKAGE_ID, "null"),
+      {...baseDraft, event: {...baseDraft.event, eventAddress: "Unrelated customer draft"}});
+    render(<EventCustomizationExperience draftOwner="customer:customer-a" eventListEditProviderId={PROVIDER_ID}
+      detail={detail()} eventServices={[]} />);
+    await screen.findByText(/Saved configuration restored/);
+    expect(screen.getByLabelText(/^Complete event address/)).toHaveValue("Saved ballroom");
+    expect(mocks.submitBooking).not.toHaveBeenCalled();
+  });
+});
+
+describe("Review Booking Event List save", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks(); localStorage.clear(); vi.clearAllMocks();
+    mocks.auth.currentUser = {uid: "customer-a"}; mocks.auth.authStateReady.mockImplementation(async () => {});
+    vi.setSystemTime(new Date("2026-09-01T02:00:00Z"));
+    mocks.checkAvailability.mockResolvedValue([{providerId: PROVIDER_ID, available: true,
+      reasonCode: null, message: "Available for your selected event."}]);
+    mocks.loadDisclosures.mockResolvedValue({acknowledgementsRequired: true, policies: [primaryPolicy()]});
+  });
+  async function review(planningOnly = false, v2 = false) {
+    const detail = detailFixture(packageSource);
+    detail.customization.decorations = ["Flowers"]; detail.customization.furniture = ["Tables"];
+    if (v2) Object.assign(detail.packageRecord, {sharedContractVersion: 2, revision: 7,
+      pricingModel: "per_pax", foodChoiceGroups: [{id: "main", title: "Main", selectionCount: 1,
+        options: [{id: "rice", name: "Rice"}, {id: "fish", name: "Fish"}]}]});
+    const service = {id: "music", providerId: PROVIDER_ID, providerName: "Maria's Catering",
+      name: "Music", description: null, category: "music", price: 500, imageUrl: null,
+      source: "catering_provider" as const};
+    const owner = planningOnly ? "guest" : "customer:customer-a";
+    saveCustomizationDraft(localStorage, customizationDraftKey(owner, PROVIDER_ID, PACKAGE_ID, "null"), {
+      ...baseDraft, event: {...baseDraft.event, eventType: "wedding", eventDate: "2026-09-20",
+        eventTime: "18:00", eventEndTime: "22:00", guestCount: "100", eventLocation: "Ormoc City",
+        eventAddress: "Grand Ballroom", specialRequest: "No peanuts"},
+      customization: {selectedFoods: v2 ? [] : ["Lechon"], selectedDecorations: v2 ? [] : ["Flowers"],
+        selectedFurniture: v2 ? [] : ["Tables"],
+        ...(v2 ? {foodChoiceSelections: [{groupId: "main", optionIds: ["fish"]}]} : {})},
+      addonIds: ["music"], serviceTier: "full_service", packageThemeId: "theme_garden",
+      themeInspiration: {notes: "Rustic lights", referenceSetupId: "setup-one"},
+    });
+    render(<EventCustomizationExperience detail={detail} eventServices={[service]}
+      planningOnly={planningOnly} draftOwner={owner} />);
+    await screen.findByText(/Draft restored/);
+    if (!planningOnly) await screen.findByText("Maria's Catering is available");
+    fireEvent.click(screen.getByRole("button", {name: "Continue"}));
+    fireEvent.click(screen.getByRole("button", {name: "Review booking"}));
+    return screen.getByRole("button", {name: /^(Save to|Add to|Already in) Event List$/});
+  }
+  it.each([false])("saves all selections, replaces by identity and prevents downgrade; guest=%s", async guest => {
+    mocks.auth.currentUser = guest ? null : {uid: "customer-a"};
+    const save = await review(guest);
+    fireEvent.click(save); fireEvent.click(save);
+    await screen.findByText(/Saved to Event List\. Configured/);
+    expect(save).toBeDisabled();
+    const saved = readCustomerEventList()[0] as CustomerPackageEventListItem;
+    expect(saved.configuration).toMatchObject({event: {specialRequest: "No peanuts", guestCount: 100},
+      selectedFoods: ["Lechon"], selectedDecorations: ["Flowers"], selectedFurniture: ["Tables"],
+      serviceTier: "full_service", packageThemeId: "theme_garden",
+      themeInspiration: {notes: "Rustic lights", referenceSetupId: "setup-one"},
+      selectedEventServices: [{id: "music", source: "catering_provider"}], estimatedTotal: 180500});
+    const serialized = localStorage.getItem(CUSTOMER_EVENT_LIST_STORAGE_KEY + ":uid:customer-a")!;
+    expect(serialized).not.toMatch(/clientRequestId|acknowledgement|bookingToken|paymentToken/iu);
+    expect(mocks.submitBooking).not.toHaveBeenCalled(); expect(mocks.reconcile).not.toHaveBeenCalled();
+    expect(addCustomerEventListItem({...saved, configuration: undefined})).toBe(true);
+    expect((readCustomerEventList()[0] as CustomerPackageEventListItem).configuration).toEqual(saved.configuration);
+    const updated = {...saved, configuration: {...saved.configuration!, event: {...saved.configuration!.event, specialRequest: "Updated"}}};
+    expect(addCustomerEventListItem(updated)).toBe(true); expect(readCustomerEventList()).toHaveLength(1);
+    expect((readCustomerEventList()[0] as CustomerPackageEventListItem).configuration!.event.specialRequest).toBe("Updated");
+  });
+  it("detects a saved configuration after reopening and allows adding after clearing", async () => {
+    fireEvent.click(await review());
+    await screen.findByText(/Saved to Event List\. Configured/);
+    cleanup();
+    const reopened = await review();
+    expect(reopened).toHaveTextContent("Already in Event List");
+    expect(reopened).toBeDisabled();
+    expect(readCustomerEventList()).toHaveLength(1);
+    fireEvent.click(reopened);
+    expect(readCustomerEventList()).toHaveLength(1);
+    const {clearCustomerEventList} = await import("@/lib/customer/event-list/customer-event-list");
+    const {act} = await import("@testing-library/react");
+    act(() => clearCustomerEventList());
+    expect(screen.getByRole("button", {name: "Add to Event List"})).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", {name: "Add to Event List"}));
+    await screen.findByText(/Saved to Event List\. Configured/);
+    expect(readCustomerEventList()).toHaveLength(1);
+  });
+  it("guests can review but cannot save", async () => {
+    mocks.auth.currentUser = null;
+    const save = await review(true);
+    expect(save).toBeDisabled(); fireEvent.click(save);
+    expect(readCustomerEventList()).toHaveLength(0);
+    expect(mocks.submitBooking).not.toHaveBeenCalled();
+  });
+  it("preserves V2 IDs, revision, theme and display-only per-guest price", async () => {
+    mocks.auth.currentUser = {uid: "customer-a"};
+    fireEvent.click(await review(false, true));
+    await screen.findByText(/Saved to Event List\. Configured/);
+    expect((readCustomerEventList()[0] as CustomerPackageEventListItem).configuration).toMatchObject({
+      sharedContractVersion: 2, expectedPackageRevision: 7,
+      foodChoiceSelections: [{groupId: "main", optionIds: ["fish"]}],
+      serviceTier: "full_service", packageThemeId: "theme_garden", estimatedTotal: null,
+      pricingContext: {currency: "PHP", pricingModel: "per_pax", displayedServicePrice: 180000},
+    });
+  });
+  it.each(["throw", "mismatch", "read"])("reports persistence failure and allows retry: %s", async failure => {
+    const save = await review();
+    const originalSet = Storage.prototype.setItem, originalGet = Storage.prototype.getItem;
+    const set = vi.spyOn(Storage.prototype, "setItem").mockImplementation(function (this: Storage, key, value) {
+      if (key === CUSTOMER_EVENT_LIST_STORAGE_KEY + ":uid:customer-a") {
+        if (failure === "throw") throw new Error("Storage denied");
+        if (failure === "mismatch") return;
+      }
+      originalSet.call(this, key, value);
+    });
+    const get = vi.spyOn(Storage.prototype, "getItem").mockImplementation(function (this: Storage, key) {
+      if (key === CUSTOMER_EVENT_LIST_STORAGE_KEY + ":uid:customer-a" && failure === "read") throw new Error("Storage denied");
+      return originalGet.call(this, key);
+    });
+    fireEvent.click(save);
+    await screen.findByText(/Could not verify your Event List/);
+    expect(save).not.toBeDisabled(); expect(screen.queryByText(/Saved to Event List\. Configured/)).toBeNull();
+    set.mockRestore(); get.mockRestore(); fireEvent.click(save);
+    await screen.findByText(/Saved to Event List\. Configured/);
+    expect(mocks.submitBooking).not.toHaveBeenCalled();
+  });
+  it.each([true, false])("blocks a changed customer or non-guest SDK identity; planning=%s", async guest => {
+    mocks.auth.currentUser = guest ? null : {uid: "customer-a"};
+    const save = await review(guest);
+    mocks.auth.currentUser = {uid: "other-account"}; fireEvent.click(save);
+    if (guest) { expect(save).toBeDisabled(); expect(readCustomerEventList()).toHaveLength(0); return; }
+    // Session changes remount the editor and discard the prior account form.
+    await waitFor(() => expect(screen.getByRole("heading", {name: "Event details"})).toBeInTheDocument());
+    expect(readCustomerEventList()).toHaveLength(0); expect(mocks.submitBooking).not.toHaveBeenCalled();
+  });
+  it("locks repeated taps while authentication initializes", async () => {
+    const save = await review();
+    let ready!: () => void;
+    mocks.auth.authStateReady.mockImplementation(() => new Promise<void>(resolve => {ready = resolve;}));
+    fireEvent.click(save); fireEvent.click(save);
+    await waitFor(() => expect(mocks.auth.authStateReady).toHaveBeenCalledOnce());
+    expect(save).toBeDisabled(); expect(readCustomerEventList()).toHaveLength(0);
+    ready(); await screen.findByText(/Saved to Event List\. Configured/);
+    expect(readCustomerEventList()).toHaveLength(1);
   });
 });
 

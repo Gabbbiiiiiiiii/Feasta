@@ -1,5 +1,7 @@
 "use client";
 
+import {useCustomerEventListSession} from "@/lib/customer/event-list/customer-event-list";
+
 import {
   ArrowLeft,
   ArrowRight,
@@ -14,6 +16,8 @@ import {
   UsersRound,
 } from "lucide-react";
 import Link from "next/link";
+import {ConfigurationSummary} from "./configuration-summary";
+import {eventListPackageEditHref} from "@/lib/customer/event-list/configuration-edit";
 import {useRouter} from "next/navigation";
 import {
   useEffect,
@@ -32,12 +36,14 @@ import {
 } from "@/components/ui/dialog";
 import {Input} from "@/components/ui/input";
 import {Textarea} from "@/components/ui/textarea";
+import {auth} from "@/lib/firebase/client";
 import {
   loadCustomerMenuItemForEditAction,
 } from "@/app/customer/providers/menu-item-actions";
 import {
   bookingSubmissionRequiresRefundPolicyRefresh,
   submitCustomerBookingRequest,
+  reconcileCustomerBookingSubmission,
   type SubmitCustomMenuBookingRequestInput,
 } from "@/lib/customer/bookings/customer-booking-submission-client";
 import {
@@ -49,17 +55,14 @@ import {
   type RefundPolicyDisclosureError,
 } from "@/lib/customer/bookings/customer-refund-policy-client";
 import {
-  addCustomerEventListItem,
   customerEventListItemKey,
-  removeCustomerEventListItem,
   type CustomerCustomMenuEventListItem,
   type CustomerEventListItem,
   type CustomerEventListSchedule,
   type CustomerPackageEventListItem,
   useCustomerEventList,
   useCustomerEventListSchedule,
-  writeCustomerEventListSchedule,
-} from "@/lib/customer/event-list/customer-event-list";
+  } from "@/lib/customer/event-list/customer-event-list";
 import {
   CUSTOMER_PLANNING_EVENT_TYPES,
   formatCustomerEventDate,
@@ -131,7 +134,18 @@ type RefundPolicyStatus =
   | "ready"
   | "error";
 
-export function CustomerEventListReview() {
+function CustomerEventListReviewSession() {
+  const {addItem, readItems, removeItem: removeStoredItem, writeSchedule} = useCustomerEventList();
+  const submissionOwner = useRef(auth.currentUser?.uid);
+  const [freshAttempt, setFreshAttempt] = useState(false);
+  const [recoveryNotice, setRecoveryNotice] = useState<string | null>(null);
+  useEffect(() => {
+    let mounted = true;
+    void auth.authStateReady?.().then(() => {
+      if (mounted && !submissionOwner.current) submissionOwner.current = auth.currentUser?.uid;
+    });
+    return () => { mounted = false; };
+  }, []);
   const router =
     useRouter();
 
@@ -660,6 +674,13 @@ export function CustomerEventListReview() {
   }
 
   function saveCustomMenuEdit() {
+    if (!auth.currentUser || auth.currentUser.uid !== submissionOwner.current) {
+      setMenuEditError("Sign in with the original account to save changes."); return;
+    }
+    if (!menuEditSourceItem || !readItems().some(item => customerEventListItemKey(item) === customerEventListItemKey(menuEditSourceItem))) {
+      setMenuEditError("This item was deleted or cleared. Return to Event List."); return;
+    }
+
     if (
       !menuEditSourceItem ||
       !menuEditRecord ||
@@ -719,7 +740,7 @@ export function CustomerEventListReview() {
         menuEditRecord.url,
     };
 
-    addCustomerEventListItem(
+    addItem(
       updated,
     );
 
@@ -751,6 +772,10 @@ export function CustomerEventListReview() {
   }
 
   function saveEventDetails() {
+    if (!auth.currentUser || auth.currentUser.uid !== submissionOwner.current) {
+      setSubmissionError("Sign in with the original account to save changes."); return;
+    }
+
     const result =
       validateEventDraft(eventDraft);
 
@@ -762,7 +787,7 @@ export function CustomerEventListReview() {
       return;
     }
 
-    writeCustomerEventListSchedule(
+    writeSchedule(
       result.schedule,
     );
 
@@ -781,7 +806,7 @@ export function CustomerEventListReview() {
   function removeItem(
     item: CustomerEventListItem,
   ) {
-    removeCustomerEventListItem(
+    removeStoredItem(
       customerEventListItemKey(
         item,
       ),
@@ -822,6 +847,32 @@ export function CustomerEventListReview() {
         return next;
       },
     );
+  }
+
+  async function checkPreviousRequest() {
+    if (isSubmitting) return;
+    setIsSubmitting(true);
+    setFreshAttempt(false);
+    try {
+      const result = await reconcileCustomerBookingSubmission(submissionOwner.current);
+      if (result.outcome === "confirmed_created") {
+        router.replace(`/customer/bookings?submitted=${encodeURIComponent(result.booking.bookingId)}`);
+      } else if (result.outcome === "confirmed_rejected") {
+        setAcknowledgedPolicyKeys({});
+        setAgreementKeys({});
+        setBookingAgreements([]);
+        setAgreementNonce(value => value + 1);
+        setRefundRetryNonce(value => value + 1);
+        setFreshAttempt(true);
+        setRecoveryNotice("Previous request was confirmed rejected. Review and acknowledge the current policies and agreement. Submit Booking will start a fresh attempt.");
+      } else {
+        setRecoveryNotice("Previous request is unresolved. Another submission is blocked. Keep this request and check again.");
+      }
+    } catch (error) {
+      setRecoveryNotice(error instanceof Error ? error.message : "Unable to check the previous request. Check again.");
+    } finally {
+      setIsSubmitting(false);
+    }
   }
 
   async function submitCustomMenuBooking() {
@@ -952,6 +1003,7 @@ export function CustomerEventListReview() {
       const clientRequestId =
         getSubmissionClientRequestId(
           draftKey,
+          submissionIdentityRef,
         );
 
       const input:
@@ -1002,6 +1054,7 @@ export function CustomerEventListReview() {
       const result =
         await submitCustomerBookingRequest(
           {...input, agreementAcknowledgements: bookingAgreements.map(({providerId, agreementKey}) => ({providerId, agreementKey}))},
+          {customerId: submissionOwner.current, freshAttempt},
         );
 
       clearItems();
@@ -1056,6 +1109,8 @@ export function CustomerEventListReview() {
           <h1 className="text-2xl font-extrabold text-foreground">
             Your Event List is empty
           </h1>
+          <button type="button" className="min-h-11 font-semibold text-primary" disabled={isSubmitting} onClick={checkPreviousRequest}>Check Previous Request</button>
+          {recoveryNotice ? <p role="status">{recoveryNotice}</p> : null}
 
           <p className="mx-auto mt-3 max-w-lg text-sm leading-6 text-feasta-text-secondary">
             Browse providers, packages, and menu items before reviewing your event.
@@ -1102,6 +1157,10 @@ export function CustomerEventListReview() {
   return (
     <>
       <main className="mx-auto grid w-full max-w-6xl gap-6 px-4 py-8 sm:px-6 lg:px-8">
+        <div>
+          <button type="button" className="min-h-11 font-semibold text-primary" disabled={isSubmitting} onClick={checkPreviousRequest}>Check Previous Request</button>
+          {recoveryNotice ? <p role="status">{recoveryNotice}</p> : null}
+        </div>
         <header>
           <Link
             href="/customer/providers"
@@ -1433,28 +1492,7 @@ export function CustomerEventListReview() {
                               Package
                             </p>
 
-                            {item.configuration ? (
-                              <p className="mt-1 text-xs leading-5 text-feasta-text-secondary">
-                                {
-                                  formatCustomerEventDate(
-                                    item.configuration
-                                      .event
-                                      .eventDate,
-                                  )
-                                }{" "}
-                                ·{" "}
-                                {
-                                  formatCustomerEventTime(item.configuration.event.eventTime)
-}{" "}
-                                ·{" "}
-                                {
-                                  item.configuration
-                                    .event
-                                    .guestCount
-                                }{" "}
-                                guests
-                              </p>
-                            ) : null}
+                            <ConfigurationSummary item={item} />
                           </div>
 
                           <div className="flex min-w-[8rem] flex-row items-center justify-between gap-3 sm:flex-col sm:items-end sm:justify-start">
@@ -1470,7 +1508,7 @@ export function CustomerEventListReview() {
                             <div className="flex flex-wrap justify-end gap-2">
                               <Link
                                 href={
-                                  item.packageHref
+                                  eventListPackageEditHref(item)
                                 }
                                 className="inline-flex min-h-9 items-center gap-1.5 rounded-full border border-feasta-border-soft px-3 text-xs font-bold text-primary-strong outline-none transition hover:bg-secondary focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
                               >
@@ -1479,7 +1517,7 @@ export function CustomerEventListReview() {
                                   className="size-3.5"
                                 />
 
-                                Edit
+                                {item.configuration ? "Edit configuration" : "Customize package"}
                               </Link>
 
                               <button
@@ -2640,9 +2678,10 @@ function validateCompleteScheduleForSubmission(
 
 function getSubmissionClientRequestId(
   draftKey: string,
+  identity: {current: {draftKey: string; clientRequestId: string} | null},
 ): string {
   const existing =
-    submissionIdentityRefGlobal.current;
+    identity.current;
 
   if (
     existing &&
@@ -2665,7 +2704,7 @@ function getSubmissionClientRequestId(
   const clientRequestId =
     `booking-${randomId}`;
 
-  submissionIdentityRefGlobal.current =
+  identity.current =
     {
       draftKey,
       clientRequestId,
@@ -2673,20 +2712,6 @@ function getSubmissionClientRequestId(
 
   return clientRequestId;
 }
-
-/*
- * This object is replaced by the component-local reference below
- * before submission. Keeping generation in one helper avoids
- * accidental non-idempotent retry IDs.
- */
-const submissionIdentityRefGlobal: {
-  current: {
-    draftKey: string;
-    clientRequestId: string;
-  } | null;
-} = {
-  current: null,
-};
 
 function humanizeStage(
   value: string,
@@ -2754,3 +2779,9 @@ function packageReviewHref(
 }
 import {getCustomerBookingPaymentAgreements, type BookingAgreementDisclosure} from "@/lib/customer/bookings/customer-booking-agreement";
 import {BookingPaymentAgreementReview} from "@/components/customer/bookings/booking-payment-agreement-review";
+
+// Reset editable and pending UI state when the authenticated session changes.
+export function CustomerEventListReview() {
+  const session = useCustomerEventListSession();
+  return <CustomerEventListReviewSession key={session.generation} />;
+}

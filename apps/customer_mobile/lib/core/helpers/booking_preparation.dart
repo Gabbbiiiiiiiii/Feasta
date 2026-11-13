@@ -62,11 +62,17 @@ double? preparationEstimate(
 }) {
   final base = preparationBasePrice(package, serviceTier: serviceTier);
   if (base == null) return null;
-  if (package.pricingModel == 'per_pax' && (guests == null || guests < preparationMinimumGuests(package) ||
-      (preparationMaximumGuests(package) != null && guests > preparationMaximumGuests(package)!))) {
+  if (package.pricingModel == 'per_pax' &&
+      (guests == null ||
+          guests < preparationMinimumGuests(package) ||
+          (preparationMaximumGuests(package) != null &&
+              guests > preparationMaximumGuests(package)!))) {
     return null;
   }
-  var total = (base * 100).round() * (package.pricingModel == 'per_pax' ? guests! : 1) / 100;
+  var total =
+      (base * 100).round() *
+      (package.pricingModel == 'per_pax' ? guests! : 1) /
+      100;
   if (total > 10000000) return null;
   for (final addon in addons) {
     final price = addon['price'];
@@ -99,8 +105,9 @@ String? validatePreparation({
   }
   if (eventType != null &&
       package.eventType.trim().isNotEmpty &&
-      !(package.sharedContractVersion == 2 ? package.occasionMatchIds.contains(eventType) :
-        eventType == package.eventType.trim())) {
+      !(package.sharedContractVersion == 2
+          ? package.occasionMatchIds.contains(eventType)
+          : eventType == package.eventType.trim())) {
     return 'This package supports ${package.eventType} events. Please choose the current event type.';
   }
   if (date == null) return 'Please select an event date.';
@@ -145,14 +152,30 @@ String? validatePreparation({
   bool allowed(List<String> chosen, List<String> options) =>
       chosen.toSet().length == chosen.length && chosen.every(options.contains);
   if (!allowed(foods, package.foodInclusions) ||
-      !allowed(decorations, preparationInclusions(package, 'decorInclusions', serviceTier)) ||
-      !allowed(furniture, preparationInclusions(package, 'furnitureInclusions', serviceTier))) {
+      !allowed(
+        decorations,
+        preparationInclusions(package, 'decorInclusions', serviceTier),
+      ) ||
+      !allowed(
+        furniture,
+        preparationInclusions(package, 'furnitureInclusions', serviceTier),
+      )) {
     return 'Package options changed. Please select the current options again.';
   }
   if (!package.isCustomizable &&
       (foods.length != package.foodInclusions.length ||
-          decorations.length != preparationInclusions(package, 'decorInclusions', serviceTier).length ||
-          furniture.length != preparationInclusions(package, 'furnitureInclusions', serviceTier).length)) {
+          decorations.length !=
+              preparationInclusions(
+                package,
+                'decorInclusions',
+                serviceTier,
+              ).length ||
+          furniture.length !=
+              preparationInclusions(
+                package,
+                'furnitureInclusions',
+                serviceTier,
+              ).length)) {
     return 'This package has fixed inclusions.';
   }
   if (package.serviceOptions.isNotEmpty &&
@@ -235,12 +258,35 @@ EventCustomizationData snapshotCustomization(EventCustomizationData value) =>
       specialRequest: value.specialRequest,
       serviceTier: value.serviceTier,
       packageThemeId: value.packageThemeId,
+      themeChoice: value.themeChoice,
+      customTheme: value.customTheme,
     );
 
-List<String> preparationInclusions(PackageModel package, String key, String? tier) {
-  final shared = key == 'decorInclusions' ? package.decorInclusions :
-    key == 'furnitureInclusions' ? package.furnitureInclusions :
-    key == 'equipmentInclusions' ? package.equipmentInclusions : package.serviceInclusions;
-  final extra = package.serviceOptions[tier]?[key == 'serviceInclusions' ? 'includedServices' : key];
+List<String> preparationInclusions(
+  PackageModel package,
+  String key,
+  String? tier,
+) {
+  final shared = key == 'decorInclusions'
+      ? package.decorInclusions
+      : key == 'furnitureInclusions'
+      ? package.furnitureInclusions
+      : key == 'equipmentInclusions'
+      ? package.equipmentInclusions
+      : package.serviceInclusions;
+  final extra =
+      package.serviceOptions[tier]?[key == 'serviceInclusions'
+          ? 'includedServices'
+          : key];
   return {...shared, ...stringListFromValue(extra)}.toList();
 }
+
+/// Fixed offers include the published set; customizable offers retain only
+/// still-available choices without selecting new options for the customer.
+List<String> reconcilePreparationSelections(
+  PackageModel package,
+  List<String> selected,
+  List<String> available,
+) => package.isCustomizable
+    ? selected.where(available.contains).toSet().toList()
+    : List<String>.of(available);

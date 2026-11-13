@@ -4,6 +4,7 @@ import {
   ArrowRight,
   PackageOpen,
   Plus,
+  ListChecks,
   StickyNote,
   Trash2,
   X,
@@ -22,13 +23,31 @@ import {
   CUSTOMER_EVENT_LIST_OPEN_EVENT,
   customerEventListItemKey,
   useCustomerEventList,
+  useCustomerEventListSession,
 } from "@/lib/customer/event-list/customer-event-list";
 import {menuServingGuestLabel} from "@/lib/provider/provider-menu";
 import {cn} from "@/lib/utils";
 
-export function CustomerEventListMenu() {
-  const [open, setOpen] =
+export function CustomerEventListMenu({
+  authenticated: authenticatedProp,
+}: {
+  authenticated: boolean;
+}) {
+  const session = useCustomerEventListSession();
+  const authenticated = authenticatedProp && !!session.user;
+  const [previousSession, setPreviousSession] = useState(session.generation);
+  const [requestedOpen, setOpen] =
     useState(false);
+  if (previousSession !== session.generation) {
+    setPreviousSession(session.generation);
+    setOpen(false);
+  }
+  const [previousAuthenticated, setPreviousAuthenticated] = useState(authenticated);
+  if (previousAuthenticated !== authenticated) {
+    setPreviousAuthenticated(authenticated);
+    setOpen(false);
+  }
+  const open = authenticated && requestedOpen;
   const mounted =
     useSyncExternalStore(
       subscribeToNothing,
@@ -98,6 +117,7 @@ export function CustomerEventListMenu() {
   }, [items]);
 
   function openDrawer() {
+    if (!authenticated) return;
     setOpen(true);
   }
 
@@ -122,7 +142,7 @@ export function CustomerEventListMenu() {
 
   useEffect(() => {
     function handleOpenRequest() {
-      openDrawer();
+      if (authenticated) setOpen(true);
     }
 
     window.addEventListener(
@@ -138,7 +158,7 @@ export function CustomerEventListMenu() {
         handleOpenRequest,
       );
     };
-  }, []);
+  }, [authenticated]);
 
   useEffect(() => {
     if (!open) {
@@ -245,7 +265,9 @@ export function CustomerEventListMenu() {
         ref={triggerRef}
         type="button"
         aria-label={
-          selectionCount > 0
+          !authenticated
+            ? "Event List unavailable. Sign in to use Event List."
+            : selectionCount > 0
             ? `Open Event List, ${selectionCount} ${
                 selectionCount === 1
                   ? "selected service"
@@ -253,11 +275,15 @@ export function CustomerEventListMenu() {
               }`
             : "Open Event List"
         }
+        disabled={!authenticated}
+        aria-disabled={!authenticated}
         aria-haspopup="dialog"
-        aria-expanded={open}
+        aria-expanded={authenticated && open}
         aria-controls="customer-event-list-panel"
-        title="Event List"
+        title={authenticated ? "Event List" : "Sign in to use Event List"}
         onClick={() => {
+          if (!authenticated) return;
+
           if (open) {
             closeDrawer({
               restoreFocus: false,
@@ -274,19 +300,20 @@ export function CustomerEventListMenu() {
           "rounded-xl border border-transparent",
           "outline-none",
           "transition-colors",
-          "hover:border-border hover:bg-card",
-          hasEventListItems ? "text-primary-strong" : "text-foreground",
+          "enabled:hover:border-border enabled:hover:bg-card",
+          "disabled:cursor-not-allowed",
+          authenticated ? "text-primary-strong" : "text-feasta-text-tertiary",
           "focus-visible:ring-2",
           "focus-visible:ring-ring",
         ].join(" ")}
       >
-        <StickyNote
+        <ListChecks
           aria-hidden="true"
           strokeWidth={2}
           className="size-5"
         />
 
-        {selectionCount > 0 ? (
+        {authenticated && selectionCount > 0 ? (
           <span
             aria-hidden="true"
             className={[
@@ -317,7 +344,7 @@ export function CustomerEventListMenu() {
           backdrop-filter does not trap this fixed panel.
          ===================================================== */}
 
-      {mounted
+      {mounted && authenticated
         ? createPortal(
       <div
         className={[
@@ -327,6 +354,7 @@ export function CustomerEventListMenu() {
           "w-full max-w-[410px]",
         ].join(" ")}
         aria-hidden={!open}
+        inert={!open}
       >
         <aside
           id="customer-event-list-panel"

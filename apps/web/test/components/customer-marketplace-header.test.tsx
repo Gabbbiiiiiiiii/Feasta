@@ -46,6 +46,18 @@ vi.mock("@/components/auth/logout-button", () => ({
 }));
 
 describe("customer marketplace header", () => {
+  it("resets the open drawer when the signed-in account changes and disables the guest layout", () => {
+    const {rerender} = render(<CustomerMarketplaceHeader accountLabel="Alice" accountEmail="alice@example.test" />);
+    fireEvent.click(screen.getByRole("button", {name: /Open Event List/}));
+    expect(screen.getByRole("dialog", {name: "Event List"})).toBeInTheDocument();
+    rerender(<CustomerMarketplaceHeader accountLabel="Bob" accountEmail="bob@example.test" />);
+    expect(screen.queryByRole("dialog", {name: "Event List"})).not.toBeInTheDocument();
+    expect(screen.getByRole("button", {name: /Open Event List/})).toBeEnabled();
+    rerender(<CustomerMarketplaceHeader />);
+    expect(screen.getByRole("button", {name: /Event List unavailable/})).toBeDisabled();
+    expect(document.getElementById("customer-event-list-panel")).toBeNull();
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.searchEventVenues.mockResolvedValue([]);

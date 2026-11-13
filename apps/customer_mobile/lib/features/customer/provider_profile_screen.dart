@@ -1,3 +1,4 @@
+import 'public_provider_reviews_sliver.dart';
 import 'widgets/provider_brand_visual.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
@@ -14,7 +15,6 @@ import '../../shared/models/feasta_models.dart';
 import '../../shared/widgets/loading_skeleton.dart';
 import '../authentication/data/repositories/feasta_repository.dart';
 import 'package_details_screen.dart';
-import '../presentation/widgets/provider_review_card.dart';
 
 class ProviderProfileScreen extends StatefulWidget {
   const ProviderProfileScreen({
@@ -30,7 +30,8 @@ class ProviderProfileScreen extends StatefulWidget {
   State<ProviderProfileScreen> createState() => _ProviderProfileScreenState();
 }
 
-class _ProviderProfileScreenState extends State<ProviderProfileScreen> with WidgetsBindingObserver {
+class _ProviderProfileScreenState extends State<ProviderProfileScreen>
+    with WidgetsBindingObserver {
   late final FeastaRepository _repository;
   late final Future<Map<String, String>> _serviceCategoryNames;
 
@@ -224,12 +225,7 @@ class _ProviderProfileScreenState extends State<ProviderProfileScreen> with Widg
         ];
 
       case 'Reviews':
-        return [
-          _ProviderReviewsSliver(
-            providerId: widget.provider.id,
-            repository: _repository,
-          ),
-        ];
+        return [PublicProviderReviewsSliver(providerId: widget.provider.id)];
 
       default:
         return const [];
@@ -387,13 +383,9 @@ class _HeroImage extends StatelessWidget {
           return child;
         }
 
-        return Container(
-          color: AppColors.surfaceMuted,
-          alignment: Alignment.center,
-          child: const CircularProgressIndicator(
-            strokeWidth: 2.5,
-            color: AppColors.primary,
-          ),
+        return Semantics(
+          label: 'Loading provider cover image',
+          child: const FeastaSkeletonBox(height: 280, radius: 0),
         );
       },
       errorBuilder: (context, error, stackTrace) {
@@ -607,7 +599,7 @@ class _ProviderIdentitySection extends StatelessWidget {
                       icon: const Icon(Icons.chat_bubble_outline_rounded),
                       onPressed: onChat,
                     );
-                    if (constraints.maxWidth < 250 ||
+                    if (constraints.maxWidth < 420 ||
                         MediaQuery.textScalerOf(context).scale(1) > 1.6) {
                       return Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -934,7 +926,20 @@ class PackageCard extends StatelessWidget {
                     const SizedBox(width: AppSpacing.xs),
                     Expanded(
                       child: Text(
-                        'Good for ${eventPackage.guestCapacity} guests',
+                        eventPackage.minimumGuests > 0 &&
+                                eventPackage.maximumGuests >=
+                                    eventPackage.minimumGuests
+                            ? eventPackage.minimumGuests ==
+                                      eventPackage.maximumGuests
+                                  ? '${eventPackage.minimumGuests} guests'
+                                  : '${eventPackage.minimumGuests}–${eventPackage.maximumGuests} guests'
+                            : eventPackage.minimumGuests > 0
+                            ? 'At least ${eventPackage.minimumGuests} guests'
+                            : eventPackage.maximumGuests > 0
+                            ? 'Up to ${eventPackage.maximumGuests} guests'
+                            : eventPackage.guestCapacity > 0
+                            ? 'Good for ${eventPackage.guestCapacity} guests'
+                            : 'Capacity not published',
                         style: AppTypography.bodySmall.copyWith(
                           color: AppColors.secondaryTextAccessible,
                         ),
@@ -1134,76 +1139,6 @@ class _MenuImageFallback extends StatelessWidget {
         color: customerDecorativeIconColor,
         size: 32,
       ),
-    );
-  }
-}
-
-class _ProviderReviewsSliver extends StatelessWidget {
-  const _ProviderReviewsSliver({
-    required this.providerId,
-    required this.repository,
-  });
-
-  final String providerId;
-  final FeastaRepository repository;
-
-  @override
-  Widget build(BuildContext context) {
-    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-      stream: repository.providerReviews(providerId),
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const SliverToBoxAdapter(
-            child: SizedBox(
-              height: 400,
-              child: FeastaSkeletonList(
-                itemCount: 3,
-                padding: EdgeInsets.all(AppSpacing.screen),
-              ),
-            ),
-          );
-        }
-
-        if (snapshot.hasError) {
-          return const SliverFillRemaining(
-            hasScrollBody: false,
-            child: FeastaApplicationErrorState(
-              kind: FeastaErrorKind.load,
-              message: 'We couldn\'t load this provider\'s reviews.',
-            ),
-          );
-        }
-
-        final reviews = snapshot.data?.docs ?? [];
-
-        if (reviews.isEmpty) {
-          return const SliverFillRemaining(
-            hasScrollBody: false,
-            child: FeastaEmptyState(
-              icon: Icons.rate_review_outlined,
-              title: 'No reviews yet',
-              message:
-                  'Customer reviews will appear here after completed bookings.',
-            ),
-          );
-        }
-
-        return SliverPadding(
-          padding: const EdgeInsets.fromLTRB(
-            AppSpacing.screen,
-            AppSpacing.xs,
-            AppSpacing.screen,
-            AppSpacing.xl,
-          ),
-          sliver: SliverList.separated(
-            itemCount: reviews.length,
-            separatorBuilder: (_, _) => const SizedBox(height: AppSpacing.sm),
-            itemBuilder: (context, index) {
-              return ProviderReviewCard(data: reviews[index].data());
-            },
-          ),
-        );
-      },
     );
   }
 }

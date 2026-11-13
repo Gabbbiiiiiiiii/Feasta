@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'event_list/save_package_to_event_list.dart';
 import '../../core/security/customer_session_coordinator.dart';
 import 'customization_session.dart';
 import 'widgets/package_option_cards.dart';
@@ -7,6 +6,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/helpers/auth_guard.dart';
+import '../../core/helpers/verification_guard.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_radius.dart';
 import '../../core/theme/app_shadows.dart';
@@ -26,11 +26,16 @@ class PackageDetailsScreen extends StatefulWidget {
     required this.eventPackage,
     this.repository,
     this.sessions,
+    this.bookingEligibilityCheck,
     super.key,
   });
 
   final FeastaRepository? repository;
   final CustomerSessionCoordinator? sessions;
+
+  // Production uses the real verification guard by default.
+  // A controlled widget test may supply an explicit verifier.
+  final Future<bool> Function(BuildContext context)? bookingEligibilityCheck;
   final ProviderModel provider;
   final PackageModel eventPackage;
 
@@ -43,6 +48,7 @@ class _PackageDetailsScreenState extends State<PackageDetailsScreen> {
   late PackageModel _currentPackage;
   String? _selectedServiceTier;
   bool _checkingPackage = false;
+  bool _checkingPhoneForBooking = false;
   String? _selectionError;
 
   @override
@@ -113,7 +119,7 @@ class _PackageDetailsScreenState extends State<PackageDetailsScreen> {
   }
 
   Future<void> _customizeEvent() async {
-    if (_checkingPackage) return;
+    if (_checkingPackage || _checkingPhoneForBooking) return;
     if (isGuestUser) {
       await requireLogin(
         context,
@@ -125,6 +131,34 @@ class _PackageDetailsScreenState extends State<PackageDetailsScreen> {
     }
 
     if (!mounted) {
+      return;
+    }
+
+    // Match Web: verification is required before creating a booking draft.
+    setState(() => _checkingPhoneForBooking = true);
+
+    bool verifiedForBooking = false;
+    try {
+      final verify =
+          widget.bookingEligibilityCheck ?? requireVerifiedPhoneForBooking;
+      verifiedForBooking = await verify(context);
+    } catch (_) {
+      if (mounted) {
+        FeastaSnackbars.show(
+          context,
+          message: 'Could not verify your booking eligibility. Please retry.',
+          tone: FeastaSnackbarTone.error,
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _checkingPhoneForBooking = false);
+      }
+    }
+
+    if (!mounted ||
+        !verifiedForBooking ||
+        !(ModalRoute.of(context)?.isCurrent ?? false)) {
       return;
     }
 
@@ -239,10 +273,6 @@ class _PackageDetailsScreenState extends State<PackageDetailsScreen> {
               ),
               sliver: SliverList.list(
                 children: [
-                  SavePackageToEventList(
-                    provider: provider,
-                    eventPackage: eventPackage,
-                  ),
                   if (_selectionError != null) ...[
                     Text(
                       _selectionError!,
@@ -259,6 +289,7 @@ class _PackageDetailsScreenState extends State<PackageDetailsScreen> {
                       child: ServiceOptionCards(
                         package: eventPackage,
                         readOnly: true,
+                        compact: true,
                       ),
                     ),
                   const SizedBox(height: AppSpacing.md),
@@ -285,7 +316,7 @@ class _PackageDetailsScreenState extends State<PackageDetailsScreen> {
                         eventPackage.description.trim(),
                         style: AppTypography.body.copyWith(
                           color: AppColors.secondaryTextAccessible,
-                          height: 1.55,
+                          height: 1.4,
                         ),
                       ),
                     ),
@@ -319,15 +350,21 @@ class _PackageDetailsScreenState extends State<PackageDetailsScreen> {
                   ),
                   const SizedBox(height: AppSpacing.md),
                   for (final group in eventPackage.foodChoiceGroups)
-                    ListTile(title: Text('${group.title}: choose ${group.selectionCount}'),
-                      subtitle: Text(group.options.values.join(', '))),
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+                      child: _PackageSectionCard(
+                        title: '${group.title}: choose ${group.selectionCount}',
+                        icon: Icons.restaurant_menu_rounded,
+                        child: Text(group.options.values.join(', ')),
+                      ),
+                    ),
                   Text(eventPackage.priceUnitLabel),
                   Text(eventPackage.occasionDisplayLabel),
                   _AvailableAddonsSection(
                     providerId: provider.id,
                     repository: _repository,
                   ),
-                  const SizedBox(height: 120),
+                  const SizedBox(height: AppSpacing.md),
                 ],
               ),
             ),
@@ -476,8 +513,6 @@ class _PackageHeroState extends State<_PackageHero> {
                     ),
                     child: Text(
                       provider.businessName,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
                       style: AppTypography.label.copyWith(
                         color: Colors.white,
                         fontWeight: FontWeight.w800,
@@ -649,11 +684,11 @@ class _PackageOverviewCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Transform.translate(
-      offset: const Offset(0, -22),
+      offset: const Offset(0, -12),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: AppSpacing.screen),
         child: FeastaCard(
-          padding: const EdgeInsets.all(AppSpacing.card),
+          padding: const EdgeInsets.all(AppSpacing.md),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -694,8 +729,6 @@ class _PackageOverviewCard extends StatelessWidget {
                   Expanded(
                     child: Text(
                       provider.businessName,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
                       style: AppTypography.bodySmall.copyWith(
                         color: AppColors.secondaryTextAccessible,
                         fontWeight: FontWeight.w600,
@@ -704,24 +737,40 @@ class _PackageOverviewCard extends StatelessWidget {
                   ),
                 ],
               ),
-              const SizedBox(height: AppSpacing.lg),
+              const SizedBox(height: AppSpacing.md),
               Wrap(
                 spacing: AppSpacing.sm,
                 runSpacing: AppSpacing.sm,
                 children: [
-                  _PackageInfoPill(
-                    icon: Icons.people_outline_rounded,
-                    label: eventPackage.guestCapacity > 0
-                        ? '${eventPackage.guestCapacity} guests'
-                        : 'Capacity not published',
-                  ),
-                  const _PackageInfoPill(
-                    icon: Icons.payments_outlined,
-                    label: 'Full Payment',
-                  ),
+                  if (eventPackage.pricingModel != null)
+                    _PackageInfoPill(
+                      icon: Icons.sell_outlined,
+                      label: eventPackage.pricingModel == 'per_pax'
+                          ? 'Per Pax'
+                          : 'Fixed bundle',
+                    ),
+                  if (eventPackage.guestCapacity > 0 ||
+                      (eventPackage.minimumGuests <= 0 &&
+                          eventPackage.maximumGuests <= 0))
+                    _PackageInfoPill(
+                      icon: Icons.people_outline_rounded,
+                      label: eventPackage.guestCapacity > 0
+                          ? '${eventPackage.guestCapacity} guests'
+                          : 'Capacity not published',
+                    ),
+                  if (eventPackage.minimumGuests > 0)
+                    _PackageInfoPill(
+                      icon: Icons.people_outline_rounded,
+                      label: 'Minimum: ${eventPackage.minimumGuests} guests',
+                    ),
+                  if (eventPackage.maximumGuests > 0)
+                    _PackageInfoPill(
+                      icon: Icons.people_outline_rounded,
+                      label: 'Maximum: ${eventPackage.maximumGuests} guests',
+                    ),
                 ],
               ),
-              const SizedBox(height: AppSpacing.xl),
+              const SizedBox(height: AppSpacing.md),
               Text(
                 eventPackage.priceUnitLabel,
                 style: AppTypography.caption.copyWith(
@@ -815,11 +864,13 @@ class _PackageInfoPill extends StatelessWidget {
             color: AppColors.secondaryTextAccessible,
           ),
           const SizedBox(width: 5),
-          Text(
-            label,
-            style: AppTypography.caption.copyWith(
-              color: AppColors.mainText,
-              fontWeight: FontWeight.w700,
+          Flexible(
+            child: Text(
+              label,
+              style: AppTypography.caption.copyWith(
+                color: AppColors.mainText,
+                fontWeight: FontWeight.w700,
+              ),
             ),
           ),
         ],
@@ -842,15 +893,15 @@ class _PackageSectionCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return FeastaCard(
-      padding: const EdgeInsets.all(AppSpacing.card),
+      padding: const EdgeInsets.all(AppSpacing.md),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
               Container(
-                width: 42,
-                height: 42,
+                width: 32,
+                height: 32,
                 alignment: Alignment.center,
                 decoration: BoxDecoration(
                   color: AppColors.primarySubtle,
@@ -909,7 +960,7 @@ class InclusionSection extends StatelessWidget {
             _InclusionRow(text: items[index]),
             if (index != items.length - 1)
               const Padding(
-                padding: EdgeInsets.symmetric(vertical: AppSpacing.sm),
+                padding: EdgeInsets.symmetric(vertical: AppSpacing.xs),
                 child: Divider(height: 1, color: AppColors.border),
               ),
           ],
@@ -930,8 +981,8 @@ class _InclusionRow extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Container(
-          width: 28,
-          height: 28,
+          width: 20,
+          height: 20,
           alignment: Alignment.center,
           decoration: const BoxDecoration(
             color: AppColors.successSubtle,
@@ -1013,7 +1064,7 @@ class _AvailableAddonsSection extends StatelessWidget {
                 _AddonRow(addon: addons[index]),
                 if (index != addons.length - 1)
                   const Padding(
-                    padding: EdgeInsets.symmetric(vertical: AppSpacing.sm),
+                    padding: EdgeInsets.symmetric(vertical: AppSpacing.xs),
                     child: Divider(height: 1, color: AppColors.border),
                   ),
               ],
@@ -1099,7 +1150,11 @@ class _AddonRow extends StatelessWidget {
 }
 
 class _PackageBottomAction extends StatelessWidget {
-  const _PackageBottomAction({required this.price, required this.onPressed, this.unitLabel = 'Package price'});
+  const _PackageBottomAction({
+    required this.price,
+    required this.onPressed,
+    this.unitLabel = 'Package price',
+  });
 
   final double price;
   final String unitLabel;
@@ -1121,44 +1176,53 @@ class _PackageBottomAction extends StatelessWidget {
       ),
       child: SafeArea(
         top: false,
-        child: Row(
-          children: [
-            Expanded(
-              flex: 4,
-              child: Column(
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final stacked =
+                constraints.maxWidth < 340 ||
+                MediaQuery.textScalerOf(context).scale(14) > 18;
+            final priceSummary = Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  unitLabel,
+                  style: AppTypography.caption.copyWith(
+                    color: AppColors.secondaryTextAccessible,
+                  ),
+                ),
+                FeastaPriceText(
+                  amount: price,
+                  decimalDigits: 0,
+                  semanticLabel: unitLabel,
+                  style: AppTypography.cardTitle.copyWith(
+                    color: AppColors.primaryStrong,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ],
+            );
+            final button = FeastaPrimaryButton(
+              label: onPressed == null
+                  ? 'Checking package...'
+                  : 'Select Package',
+              onPressed: onPressed,
+            );
+            if (stacked) {
+              return Column(
                 mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    unitLabel,
-                    style: AppTypography.caption.copyWith(
-                      color: AppColors.secondaryTextAccessible,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  FeastaPriceText(
-                    amount: price,
-                    decimalDigits: 0,
-                    semanticLabel: unitLabel,
-                    style: AppTypography.cardTitle.copyWith(
-                      color: AppColors.primaryStrong,
-                      fontWeight: FontWeight.w900,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(width: AppSpacing.md),
-            Expanded(
-              flex: 6,
-              child: FeastaPrimaryButton(
-                label: onPressed == null
-                    ? 'Checking package...'
-                    : 'Select Package',
-                onPressed: onPressed,
-              ),
-            ),
-          ],
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [priceSummary, const SizedBox(height: 8), button],
+              );
+            }
+            return Row(
+              children: [
+                Expanded(flex: 4, child: priceSummary),
+                const SizedBox(width: 12),
+                Expanded(flex: 6, child: button),
+              ],
+            );
+          },
         ),
       ),
     );

@@ -1198,4 +1198,5 @@ export {getCustomerPackageV2} from "./packages/customer-package-v2.js";
 export {initializeProviderOccasionCapabilities} from "./packages/provider-occasion-capabilities-v2.js";
 
 export {reconcileBookingSubmission} from "./bookings/reconcile-booking-submission.js";
+
 export {listCustomerEventServices} from "./catalog/list-customer-event-services.js";

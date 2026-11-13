@@ -41,6 +41,14 @@ class HandoffRepository extends PreparationRepository {
   Future<ProviderModel?> getProviderById(String id) async => provider();
 }
 
+Future<void> confirmLeave(WidgetTester tester) async {
+  await tester.pump(const Duration(milliseconds: 350));
+  expect(find.text('Leave this customization?'), findsOneWidget);
+  await tester.tap(find.text('Leave customization'));
+  await tester.pump();
+  await tester.pump(const Duration(milliseconds: 250));
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   setUpAll(() async {
@@ -53,9 +61,12 @@ void main() {
   late MemoryEventStorage memory;
   late HandoffRepository repo;
   late DraftStore drafts;
+  late Future<bool> Function(BuildContext) verificationCheck;
+
   void reset() {
     GuestAuth.signedIn = true;
     PreparationAuth.owner = 'customer-1';
+    verificationCheck = (_) async => true;
     auth = EventAuth()..switchTo('customer-1');
     memory = MemoryEventStorage();
     list = EventListController(
@@ -82,6 +93,7 @@ void main() {
           home: CustomerEventListScreen(
             repository: repo,
             catalog: EventListCatalog(lookup: (_, _) async => null),
+            bookingEligibilityCheck: verificationCheck,
           ),
         ),
       ),
@@ -91,6 +103,40 @@ void main() {
     await tester.ensureVisible(find.text('Customize Package').first);
     await tester.pumpAndSettle();
   }
+
+  scenario('unverified customer cannot open customization', (tester) async {
+    verificationCheck = (_) async => false;
+    await show(tester);
+
+    final before = Map<String, String>.from(memory.values);
+
+    await tester.tap(find.text('Customize Package'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(EventCustomizationScreen), findsNothing);
+    expect(find.text('Customize Package'), findsWidgets);
+    expect(memory.values, before);
+  });
+
+  scenario('account change during verification cancels customization', (
+    tester,
+  ) async {
+    final gate = Completer<bool>();
+    verificationCheck = (_) => gate.future;
+
+    await show(tester);
+
+    await tester.tap(find.text('Customize Package'));
+    await tester.pump();
+
+    auth.switchTo('customer-other');
+    gate.complete(true);
+
+    await tester.pumpAndSettle();
+
+    expect(find.byType(EventCustomizationScreen), findsNothing);
+    expect(list.list?.ownerUid, isNot('customer-1'));
+  });
 
   scenario('Phase 3 unavailable cannot authorize or prevent fresh handoff', (
     tester,
@@ -108,6 +154,7 @@ void main() {
     expect(destination.session!.authorized, isTrue);
     expect(memory.values, before);
     Navigator.of(tester.element(find.byType(EventCustomizationScreen))).pop();
+    await confirmLeave(tester);
     await tester.pumpAndSettle();
     expect(find.byType(EventCustomizationScreen), findsNothing);
     expect(
@@ -213,6 +260,103 @@ void main() {
   NavigatorState navigator(WidgetTester tester) =>
       Navigator.of(tester.element(find.byType(EventCustomizationScreen)));
 
+  scenario('clean Back offers three actions and continue retains the form', (
+    tester,
+  ) async {
+    await openCustomization(tester);
+    await tester.tap(find.byType(BackButton));
+    await tester.pumpAndSettle();
+    expect(find.text('Leave this customization?'), findsOneWidget);
+    expect(find.byType(FilledButton), findsOneWidget);
+    expect(find.text('Discard saved draft'), findsOneWidget);
+    await tester.tap(find.text('Continue editing'));
+    await tester.pumpAndSettle();
+    expect(find.byType(EventCustomizationScreen), findsOneWidget);
+    await edit(tester, 'Ormoc retained');
+    await tester.tap(find.byType(BackButton));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Continue editing'));
+    await tester.pumpAndSettle();
+    expect(
+      tester.widget<TextField>(cityField()).controller!.text,
+      'Ormoc retained',
+    );
+  });
+
+  for (final failDelete in [false, true]) {
+    scenario('exit discard deletion failure=$failDelete', (tester) async {
+      await openCustomization(tester);
+      await edit(tester, 'Ormoc discard');
+      await tester.pumpAndSettle();
+      final before = Map<String, String>.of(drafts.values);
+      drafts.failDelete = failDelete;
+      await tester.tap(find.byType(BackButton));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Discard saved draft'));
+      await tester.pumpAndSettle();
+      expect(drafts.deleteCalls, 1);
+      expect(
+        find.byType(EventCustomizationScreen),
+        failDelete ? findsOneWidget : findsNothing,
+      );
+      expect(drafts.values, failDelete ? before : isEmpty);
+      expect(list.list!.entries, hasLength(1));
+      await tester.pump(const Duration(seconds: 1));
+      expect(drafts.values, failDelete ? before : isEmpty);
+    });
+  }
+
+  scenario('saved clean draft confirms on narrow screen with enlarged text', (
+    tester,
+  ) async {
+    await openCustomization(tester);
+    await edit(tester, 'Ormoc clean');
+    await tester.pumpAndSettle();
+    final writes = drafts.writes;
+    tester.view.physicalSize = const Size(320, 640);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    tester.platformDispatcher.textScaleFactorTestValue = 1.8;
+    addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    expect(find.text('Leave this customization?'), findsOneWidget);
+    await tester.ensureVisible(find.text('Leave customization'));
+    await tester.tap(find.text('Leave customization'));
+    await tester.pumpAndSettle();
+    expect(find.byType(EventCustomizationScreen), findsNothing);
+    expect(drafts.writes, writes);
+    expect(tester.takeException(), isNull);
+    tester.view.resetPhysicalSize();
+    tester.view.resetDevicePixelRatio();
+    tester.platformDispatcher.clearTextScaleFactorTestValue();
+  });
+
+  scenario(
+    'discard waits behind queued saves and stays blocked during deletion',
+    (tester) async {
+      await openCustomization(tester);
+      final gate = Completer<void>();
+      drafts.gate = gate;
+      await edit(tester, 'Ormoc queued discard');
+      await tester.pump(const Duration(milliseconds: 351));
+      await tester.tap(find.byType(BackButton));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Discard saved draft'));
+      await tester.pump();
+      await tester.binding.handlePopRoute();
+      await tester.pump();
+      expect(drafts.deleteCalls, 0);
+      expect(find.byType(EventCustomizationScreen), findsOneWidget);
+      gate.complete();
+      await tester.pumpAndSettle();
+      expect(drafts.deleteCalls, 1);
+      expect(drafts.values, isEmpty);
+      expect(find.byType(EventCustomizationScreen), findsNothing);
+    },
+  );
+
   scenario(
     'immediate system Back persists and reopens without duplicate recovery write',
     (tester) async {
@@ -220,6 +364,7 @@ void main() {
       expect(drafts.writes, 0);
       await edit(tester, 'Ormoc latest');
       await tester.binding.handlePopRoute();
+      await confirmLeave(tester);
       await tester.pumpAndSettle();
       expect(find.byType(EventCustomizationScreen), findsNothing);
       expect(drafts.writes, 1);
@@ -236,6 +381,7 @@ void main() {
         'Ormoc latest',
       );
       navigator(tester).pop();
+      await confirmLeave(tester);
       await tester.pumpAndSettle();
       expect(find.byType(EventCustomizationScreen), findsNothing);
       expect(drafts.writes, 1);
@@ -255,6 +401,7 @@ void main() {
       await edit(tester, 'Ormoc newest');
       nav.pop();
       nav.pop();
+      await confirmLeave(tester);
       await tester.pump();
       await tester.pump();
       expect(find.byType(EventCustomizationScreen), findsOneWidget);
@@ -286,6 +433,7 @@ void main() {
       drafts.fail = true;
       await edit(tester, 'Ormoc retry');
       navigator(tester).pop();
+      await confirmLeave(tester);
       await tester.pumpAndSettle();
       expect(find.byType(EventCustomizationScreen), findsOneWidget);
       expect(drafts.writes, 0);
@@ -318,6 +466,7 @@ void main() {
       await tester.pump();
       drafts.fail = false;
       await tester.tap(find.text('Retry saving and leave'));
+      await confirmLeave(tester);
       await tester.pumpAndSettle();
       expect(find.byType(EventCustomizationScreen), findsNothing);
       expect(drafts.writes, 1);
@@ -367,7 +516,9 @@ void main() {
   scenario('untouched Back does not create draft', (tester) async {
     await openCustomization(tester);
     navigator(tester).pop();
+    await confirmLeave(tester);
     await tester.pumpAndSettle();
+    expect(find.byType(EventCustomizationScreen), findsNothing);
     expect(drafts.writes, 0);
   });
 
@@ -400,7 +551,7 @@ void main() {
     (tester) async {
       await seedDraft();
       await openCustomization(tester);
-      await openStep(tester, '3');
+      await openStep(tester, '1');
       final notes = find.byWidgetPredicate(
         (w) => w is TextField && w.minLines == 4 && w.maxLines == 6,
       );
@@ -409,13 +560,17 @@ void main() {
         200,
         scrollable: find.byType(Scrollable).first,
       );
-      await tester.enterText(notes, 'Preserve while leaving');
+      final requestController = tester.widget<TextField>(notes).controller!;
+      await openStep(tester, '3');
       final gate = Completer<PackageModel?>();
       repo.gate = gate;
       drafts.fail = true;
-      await tester.tap(find.text('Review Event'));
+      // Keep an unsaved Step 1 edit pending while the Step 3 review starts.
+      requestController.text = 'Preserve while leaving';
+      await tester.tap(find.text('Review booking'));
       await tester.pump();
       navigator(tester).pop();
+      await confirmLeave(tester);
       await tester.pumpAndSettle();
       expect(find.byType(EventCustomizationScreen), findsOneWidget);
       gate.complete(preparationPackage());
@@ -423,14 +578,14 @@ void main() {
       expect(find.byType(BookingSummaryScreen), findsNothing);
       repo.gate = null;
       drafts.fail = false;
-      await tester.tap(find.text('Review Event'));
+      await tester.tap(find.text('Review booking'));
       await tester.pumpAndSettle();
       expect(find.byType(BookingSummaryScreen), findsOneWidget);
       expect(repo.unexpected, isEmpty);
     },
   );
 
-  scenario('dirty iOS edge swipe waits for saving before its eventual exit', (
+  scenario('dirty iOS edge swipe stays put and app bar confirms exit', (
     tester,
   ) async {
     await show(tester, platform: TargetPlatform.iOS);
@@ -441,6 +596,9 @@ void main() {
     drafts.gate = gate;
     await tester.dragFrom(const Offset(0, 300), const Offset(600, 0));
     await tester.pump(const Duration(milliseconds: 400));
+    expect(find.text('Leave this customization?'), findsNothing);
+    await tester.tap(find.byType(BackButton));
+    await confirmLeave(tester);
     expect(find.byType(EventCustomizationScreen), findsOneWidget);
     gate.complete();
     await tester.pumpAndSettle();
@@ -467,6 +625,7 @@ void main() {
     WidgetController.hitTestWarningShouldBeFatal = true;
     try {
       await tester.tap(back);
+      await confirmLeave(tester);
       await tester.pump();
       expect(
         find.text('Saving unfinished draft before leaving'),
@@ -483,6 +642,31 @@ void main() {
     }
   });
 
+  scenario('Package Details refuses unverified customization', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: PackageDetailsScreen(
+          sessions: readyPreparationSessions(),
+          provider: provider(),
+          eventPackage: preparationPackage(),
+          repository: repo,
+          bookingEligibilityCheck: (_) async => false,
+        ),
+      ),
+    );
+
+    await tester.pumpAndSettle();
+
+    final before = drafts.writes;
+
+    await tester.tap(find.text('Select Package'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(EventCustomizationScreen), findsNothing);
+    expect(find.byType(PackageDetailsScreen), findsOneWidget);
+    expect(drafts.writes, before);
+  });
+
   scenario(
     'Package Details entry saves on app bar Back and restores unchanged',
     (tester) async {
@@ -493,6 +677,7 @@ void main() {
             provider: provider(),
             eventPackage: preparationPackage(),
             repository: repo,
+            bookingEligibilityCheck: (_) async => true,
           ),
         ),
       );
@@ -503,6 +688,7 @@ void main() {
       expect(drafts.writes, 0);
       await edit(tester, 'Ormoc details');
       await tester.tap(find.byType(BackButton));
+      await confirmLeave(tester);
       await tester.pumpAndSettle();
       expect(find.byType(PackageDetailsScreen), findsOneWidget);
       expect(drafts.writes, 1);
@@ -518,6 +704,7 @@ void main() {
         'Ormoc details',
       );
       navigator(tester).pop();
+      await confirmLeave(tester);
       await tester.pumpAndSettle();
       expect(drafts.writes, 1);
       expect(repo.unexpected, isEmpty);
@@ -565,7 +752,7 @@ void main() {
     }
     gate.complete(preparationPackage());
     await tester.pumpAndSettle();
-    expect(find.bySemanticsLabel('Customize Event'), findsOneWidget);
+    expect(find.bySemanticsLabel('Customize your event'), findsOneWidget);
     expect(find.bySemanticsLabel(RegExp('.*Celebration.*')), findsWidgets);
     expect(
       find.bySemanticsLabel('Checking current package: Saved package'),
@@ -612,7 +799,7 @@ void main() {
       expect(find.bySemanticsLabel(label), findsNothing);
       gate.complete(preparationPackage());
       await tester.pumpAndSettle();
-      expect(find.bySemanticsLabel('Customize Event'), findsOneWidget);
+      expect(find.bySemanticsLabel('Customize your event'), findsOneWidget);
       semantics.dispose();
       tester.view.resetPhysicalSize();
       tester.view.resetDevicePixelRatio();

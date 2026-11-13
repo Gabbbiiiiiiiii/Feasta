@@ -1,5 +1,8 @@
 "use client";
 
+import type {ComponentProps} from "react";
+import {useCustomerEventListSession} from "@/lib/customer/event-list/customer-event-list";
+
 import {
   type MouseEvent,
   useEffect,
@@ -18,12 +21,8 @@ import {
 } from "@/components/ui/dialog";
 import {Input} from "@/components/ui/input";
 import {
-  addCustomerEventListItem,
+  useCustomerEventList,
   customerEventListItemKey,
-  openCustomerEventList,
-  readCustomerEventList,
-  readCustomerEventListSchedule,
-  writeCustomerEventListSchedule,
   type CustomerCustomMenuEventListItem,
 } from "@/lib/customer/event-list/customer-event-list";
 import {
@@ -76,7 +75,7 @@ function validOptions(
   );
 }
 
-export function CustomerProviderMenu({
+function CustomerProviderMenuSession({
   providerId,
   providerName,
   menuImages,
@@ -85,7 +84,8 @@ export function CustomerProviderMenu({
   providerName: string;
   menuImages: readonly ProviderMenuImage[];
 }) {
-    const router =
+    const {addItem, readItems, writeSchedule, readSchedule, openList} = useCustomerEventList();
+  const router =
     useRouter();
 const [
     active,
@@ -233,7 +233,7 @@ const [
           );
 
           const schedule =
-            readCustomerEventListSchedule();
+            readSchedule();
 
           setSelectedId(
             selectedOption?.id ??
@@ -297,7 +297,7 @@ const [
         timer,
       );
     };
-  }, [menuImages]);
+  }, [menuImages, readSchedule]);
 function openMenuItem(
     event: MouseEvent<HTMLButtonElement>,
     item: ProviderMenuImage,
@@ -307,7 +307,7 @@ function openMenuItem(
       event.currentTarget;
 
     const schedule =
-      readCustomerEventListSchedule();
+      readSchedule();
 
     editContextRef.current =
       null;
@@ -333,7 +333,12 @@ function openMenuItem(
     });
   }
 
-  function addSelection() {
+  async function addSelection() {
+    const {auth} = await import("@/lib/firebase/client");
+    await auth.authStateReady();
+    if (!auth.currentUser) { setError("Sign in to save to Event List."); return; }
+    const owner = auth.currentUser.uid;
+
     if (
       !active ||
       !selected
@@ -414,12 +419,13 @@ function openMenuItem(
         `/customer/providers/${providerId}`,
     };
 
-    addCustomerEventListItem(
+    if (auth.currentUser?.uid !== owner) { setError("Your session changed. Reopen this menu."); return; }
+    addItem(
       item,
     );
 
     const saved =
-      readCustomerEventList()
+      readItems()
         .find(
           (entry) =>
             customerEventListItemKey(
@@ -442,9 +448,9 @@ function openMenuItem(
     }
 
     const existingSchedule =
-      readCustomerEventListSchedule();
+      readSchedule();
 
-    writeCustomerEventListSchedule({
+    writeSchedule({
       ...(existingSchedule ?? {
         eventDate:
           normalizedDate,
@@ -461,7 +467,7 @@ function openMenuItem(
     });
 
     const savedSchedule =
-      readCustomerEventListSchedule();
+      readSchedule();
 
     if (
       savedSchedule?.eventDate !==
@@ -613,7 +619,7 @@ function openMenuItem(
               openListAfterClose.current =
                 false;
 
-              openCustomerEventList();
+              openList();
             }
           }}
         >
@@ -868,4 +874,9 @@ function validEventDate(
       parsed,
     ) === value
   );
+}
+// Reset editable and pending UI state when the authenticated session changes.
+export function CustomerProviderMenu(props: ComponentProps<typeof CustomerProviderMenuSession>) {
+  const session = useCustomerEventListSession();
+  return <CustomerProviderMenuSession key={session.generation} {...props} />;
 }

@@ -69,11 +69,14 @@ class BookingAgreementController extends ChangeNotifier {
     return true;
   }
 
-  Future<void> load() {
+  Future<void> load({bool revalidate = false}) {
     if (_disposed || _request == null) return Future.value();
     if (_pending != null) return _pending!;
     final generation = _generation;
     final request = _request!;
+    final accepted = revalidate
+        ? Map<String, String>.from(_accepted)
+        : <String, String>{};
     status = AgreementReviewStatus.loading;
     agreements = const [];
     _accepted.clear();
@@ -100,6 +103,11 @@ class BookingAgreementController extends ChangeNotifier {
           );
         }
         agreements = List.unmodifiable(result);
+        for (final agreement in agreements) {
+          if (accepted[agreement.providerId] == agreement.agreementKey) {
+            _accepted[agreement.providerId] = agreement.agreementKey;
+          }
+        }
         loadedAt = DateTime.now().toUtc();
         status = AgreementReviewStatus.ready;
         _scheduleExpiry();

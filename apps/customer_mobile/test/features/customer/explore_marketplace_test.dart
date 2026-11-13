@@ -1,3 +1,7 @@
+import 'customer_event_list_test.dart' show EventAuth, MemoryEventStorage;
+import 'package:feasta/features/customer/event_list/event_list_controller.dart';
+import 'package:feasta/features/customer/event_list/event_list_store.dart';
+import 'package:feasta/features/customer/event_list/event_list_scope.dart';
 import 'dart:async';
 import 'package:feasta/features/customer/customer_home_screen.dart';
 import 'package:feasta/features/customer/customer_main_screen.dart';
@@ -174,7 +178,16 @@ void main() {
     'shared navigation hides for keyboard, restores and handles back',
     (tester) async {
       phone(tester);
-      await tester.pumpWidget(const MaterialApp(home: CustomerMainScreen()));
+      final eventListController = EventListController(
+        store: EventListStore(storage: MemoryEventStorage()),
+        authentication: EventAuth(),
+      );
+      await tester.pumpWidget(
+        EventListScope(
+          controller: eventListController,
+          child: const MaterialApp(home: CustomerMainScreen()),
+        ),
+      );
       await tester.pump(const Duration(milliseconds: 200));
       final home = tester.widget<CustomerHomeScreen>(
         find.byType(CustomerHomeScreen),

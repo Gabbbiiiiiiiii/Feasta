@@ -1,4 +1,8 @@
+vi.mock("@/lib/firebase/client", () => ({auth: {currentUser: {uid: "test-customer"}}}));
+vi.mock("firebase/auth", () => ({onAuthStateChanged: () => () => {}}));
+vi.mock("@/app/customer/packages/event-list-labels", () => ({loadEventListPackageLabels: vi.fn(async () => null)}));
 import {fireEvent, render, screen, waitFor} from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import {readFileSync} from "node:fs";
 import {join} from "node:path";
 import {NextRequest} from "next/server";
@@ -13,6 +17,7 @@ import {normalizePublicProvider} from "@/lib/customer/providers/provider-normali
 import type {PublicPackage} from "@/lib/customer/discovery/marketplace-types";
 import {
   CUSTOMER_EVENT_LIST_MAX_ITEMS,
+  CUSTOMER_EVENT_LIST_OPEN_EVENT,
   CUSTOMER_EVENT_LIST_SCHEDULE_STORAGE_KEY,
   CUSTOMER_EVENT_LIST_STORAGE_KEY,
   addCustomerEventListItem,
@@ -92,7 +97,7 @@ describe("customer event list storage", () => {
       price: 2400,
     });
 
-    const stored = JSON.parse(window.localStorage.getItem(CUSTOMER_EVENT_LIST_STORAGE_KEY) ?? "");
+    const stored = JSON.parse(window.localStorage.getItem(CUSTOMER_EVENT_LIST_STORAGE_KEY + ":uid:test-customer") ?? "");
     expect(stored.version).toBe(1);
     expect(readCustomerEventList()).toMatchObject([
       {
@@ -111,16 +116,16 @@ describe("customer event list storage", () => {
   });
 
   it("rejects malformed JSON, unknown versions, and malformed items", () => {
-    window.localStorage.setItem(CUSTOMER_EVENT_LIST_STORAGE_KEY, "{");
+    window.localStorage.setItem(CUSTOMER_EVENT_LIST_STORAGE_KEY + ":uid:test-customer", "{");
     expect(readCustomerEventList()).toEqual([]);
 
-    window.localStorage.setItem(CUSTOMER_EVENT_LIST_STORAGE_KEY, JSON.stringify({
+    window.localStorage.setItem(CUSTOMER_EVENT_LIST_STORAGE_KEY + ":uid:test-customer", JSON.stringify({
       version: 2,
       items: [packageItem],
     }));
     expect(readCustomerEventList()).toEqual([]);
 
-    window.localStorage.setItem(CUSTOMER_EVENT_LIST_STORAGE_KEY, JSON.stringify({
+    window.localStorage.setItem(CUSTOMER_EVENT_LIST_STORAGE_KEY + ":uid:test-customer", JSON.stringify({
       version: 1,
       items: [
         packageItem,
@@ -146,7 +151,7 @@ describe("customer event list storage", () => {
     expect(capped[0]?.type === "package" ? capped[0].packageId : null)
       .toBe(`package-${CUSTOMER_EVENT_LIST_MAX_ITEMS + 2}`);
 
-    window.localStorage.setItem(CUSTOMER_EVENT_LIST_STORAGE_KEY, JSON.stringify([
+    window.localStorage.setItem(CUSTOMER_EVENT_LIST_STORAGE_KEY + ":uid:test-customer", JSON.stringify([
       packageItem,
       packageItem,
     ]));
@@ -219,7 +224,7 @@ describe("customer event list storage", () => {
     window.addEventListener("storage", listener);
     window.dispatchEvent(new StorageEvent("storage", {
       key: CUSTOMER_EVENT_LIST_STORAGE_KEY,
-      newValue: window.localStorage.getItem(CUSTOMER_EVENT_LIST_STORAGE_KEY),
+      newValue: window.localStorage.getItem(CUSTOMER_EVENT_LIST_STORAGE_KEY + ":uid:test-customer"),
     }));
     expect(listener).toHaveBeenCalled();
     window.removeEventListener("storage", listener);
@@ -229,7 +234,46 @@ describe("customer event list storage", () => {
 });
 
 describe("customer event list planning UI", () => {
-  it("lets a guest add a legacy package without submitting a booking", async () => {
+  it("keeps the guest icon grey and blocks clicks, keyboard and open events with saved items", async () => {
+    addCustomerEventListItem(packageItem);
+    const user = userEvent.setup();
+    render(<CustomerEventListMenu authenticated={false} />);
+    const trigger = screen.getByRole("button", {name: /Event List unavailable/});
+    expect(trigger).toBeDisabled();
+    expect(trigger).toHaveAttribute("aria-disabled", "true");
+    expect(trigger).toHaveAttribute("title", "Sign in to use Event List");
+    expect(trigger).toHaveClass("text-feasta-text-tertiary");
+    expect(trigger.querySelector("svg")).toBeInTheDocument();
+    expect(trigger.querySelector("span")).toBeNull();
+    await user.click(trigger);
+    trigger.focus();
+    await user.keyboard("{Enter} ");
+    fireEvent(window, new Event(CUSTOMER_EVENT_LIST_OPEN_EVENT));
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+    expect(document.getElementById("customer-event-list-panel")).toBeNull();
+    expect(readCustomerEventList()).toHaveLength(1);
+  });
+
+  it("opens for signed-in customers and disables again on sign-out without reopening on sign-in", () => {
+    addCustomerEventListItem(packageItem);
+    const {rerender} = render(<CustomerEventListMenu authenticated />);
+    const trigger = screen.getByRole("button", {name: /Open Event List/});
+    expect(trigger).toBeEnabled();
+    expect(trigger).toHaveClass("text-primary-strong");
+    expect(trigger.querySelector("span")).toHaveTextContent("1");
+    fireEvent.click(trigger);
+    expect(screen.getByRole("dialog", {name: "Event List"})).toBeInTheDocument();
+    rerender(<CustomerEventListMenu authenticated={false} />);
+    expect(screen.getByRole("button", {name: /Event List unavailable/})).toBeDisabled();
+    fireEvent(window, new Event(CUSTOMER_EVENT_LIST_OPEN_EVENT));
+    expect(document.getElementById("customer-event-list-panel")).toBeNull();
+    rerender(<CustomerEventListMenu authenticated />);
+    expect(screen.queryByRole("dialog", {name: "Event List"})).not.toBeInTheDocument();
+    fireEvent(window, new Event(CUSTOMER_EVENT_LIST_OPEN_EVENT));
+    expect(screen.getByRole("dialog", {name: "Event List"})).toBeInTheDocument();
+  });
+
+  it("keeps package details free of Add to List for guests", async () => {
     const provider = normalizePublicProvider("provider-one", {
       ownerId: "owner",
       businessName: "Ana Events",
@@ -252,23 +296,15 @@ describe("customer event list planning UI", () => {
       "href",
       "/customer/packages/package-one/book",
     );
-    fireEvent.click(screen.getAllByRole("button", {name: "Add to List"})[0]!);
-    await waitFor(() => expect(readCustomerEventList()).toMatchObject([{
-      packageId: "package-one",
-      price: 45000,
-      configuration: null,
-    }]));
-    expect(screen.getAllByRole("button", {name: "Added to List"})[0]).toHaveAttribute("aria-pressed", "true");
+    expect(screen.queryByRole("button", {name: "Add to List"})).not.toBeInTheDocument();
+    expect(readCustomerEventList()).toEqual([]);
     expect(screen.queryByRole("button", {name: /submit booking/iu})).not.toBeInTheDocument();
   });
 
-  it("opens an empty planning menu for guests and routes review through the protected page", () => {
+  it("disables the guest checklist and protects the review route", () => {
     render(<CustomerMarketplaceHeader authReturnTo="/customer/packages" />);
-    fireEvent.click(screen.getByRole("button", {name: "Open Event List"}));
-    expect(screen.getByRole("dialog", {name: "Event List"})).toHaveTextContent(
-      "Customize a package or add an event service to begin planning your event.",
-    );
-    expect(screen.getByText("Your Event List is empty")).toBeVisible();
+    expect(screen.getByRole("button", {name: "Event List unavailable. Sign in to use Event List."})).toBeDisabled();
+    expect(screen.queryByRole("dialog", {name: "Event List"})).not.toBeInTheDocument();
 
     const response = proxy(new NextRequest("https://feasta.test/customer/event-list/review"));
     expect(response.status).toBe(307);
@@ -340,7 +376,7 @@ describe("customer event list planning UI", () => {
 
   it("removes a planned item from the menu", async () => {
     addCustomerEventListItem(packageItem);
-    render(<CustomerEventListMenu />);
+    render(<CustomerEventListMenu authenticated={true} />);
     fireEvent.click(screen.getByRole("button", {name: /Open Event List/}));
     fireEvent.click(screen.getByRole("button", {name: "Remove Garden Celebration from Event List"}));
     await waitFor(() => expect(readCustomerEventList()).toEqual([]));

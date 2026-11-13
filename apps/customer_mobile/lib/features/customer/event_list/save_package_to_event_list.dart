@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
-import '../../../core/helpers/auth_guard.dart';
 import '../../../shared/models/customer_event_list.dart';
 import '../../../shared/models/feasta_models.dart';
 import 'event_list_controller.dart';
 import 'event_list_navigation.dart';
+import 'guest_event_list_panel.dart';
 import 'event_list_scope.dart';
 
 class SavePackageToEventList extends StatefulWidget {
@@ -27,17 +27,13 @@ class _SavePackageToEventListState extends State<SavePackageToEventList> {
     EventListAuthSession displayedSession,
   ) async {
     if (_busy || displayedSession != controller.authentication.session) return;
-    if (controller.authentication.session.customerUid == null) {
-      setState(() => _busy = true);
-      try {
-        await requireLogin(
-          context,
-          message:
-              'Log in to save packages to your Event List. Return to the package and tap Add to Event List after login.',
-        );
-      } finally {
-        if (mounted) setState(() => _busy = false);
-      }
+    // Planning is allowed for a real signed-out guest.
+    // A signed-in but unauthorized account must not use guest storage.
+    if (displayedSession.customerUid == null && !controller.isGuestPlanning) {
+      setState(() {
+        _feedbackSession = displayedSession;
+        _message = 'Please sign in with an eligible customer account.';
+      });
       return;
     }
     final session = controller.authentication.session;
@@ -77,7 +73,7 @@ class _SavePackageToEventListState extends State<SavePackageToEventList> {
       if (mounted && session == controller.authentication.session) {
         setState(
           () => _message = result == EventListResult.saved
-              ? 'Added to Event List'
+              ? null
               : eventListMessage(result),
         );
       }
@@ -99,40 +95,107 @@ class _SavePackageToEventListState extends State<SavePackageToEventList> {
     if (controller == null) {
       return const Text('Event List unavailable. Please reopen the app.');
     }
-    final session = controller.authentication.session;
-    final package = widget.eventPackage;
-    final saved =
-        controller.list?.entries.any(
-          (entry) =>
-              entry.providerId == widget.provider.id &&
-              entry.packageId == package.id,
-        ) ??
-        false;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        OutlinedButton.icon(
-          onPressed: _busy ? null : () => _save(controller, session),
-          icon: const Icon(Icons.playlist_add, color: Colors.black87),
-          label: Text(
-            _busy
-                ? 'Saving package…'
-                : saved
-                ? 'Added to Event List'
-                : 'Add to Event List',
-          ),
-        ),
-        if (_message != null &&
-            _feedbackSession == controller.authentication.session)
-          Semantics(liveRegion: true, child: Text(_message!)),
-        TextButton(
-          onPressed: () => openCustomerEventList(context),
-          child: const Text('View Event List'),
-        ),
-        const Text(
-          'Planning selection only. No reservation or availability guarantee.',
-        ),
-      ],
+    return AnimatedBuilder(
+      animation: Listenable.merge([controller, controller.authentication]),
+      builder: (context, _) {
+        final session = controller.authentication.session;
+        final package = widget.eventPackage;
+        final saved =
+            controller.list?.entries.any(
+              (entry) =>
+                  entry.providerId == widget.provider.id &&
+                  entry.packageId == package.id,
+            ) ??
+            false;
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            OutlinedButton.icon(
+              style: OutlinedButton.styleFrom(
+                backgroundColor: saved ? const Color(0xFFE5F3EA) : null,
+                foregroundColor: saved ? const Color(0xFF075238) : null,
+                side: BorderSide(
+                  color: saved
+                      ? const Color(0xFF0B6546)
+                      : Theme.of(context).colorScheme.outlineVariant,
+                  width: saved ? 1.5 : 1,
+                ),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 20,
+                  vertical: 18,
+                ),
+              ),
+              onPressed: _busy ? null : () => _save(controller, session),
+              icon: AnimatedSwitcher(
+                duration: const Duration(milliseconds: 180),
+                child: Icon(
+                  saved
+                      ? Icons.check_circle_rounded
+                      : Icons.playlist_add_rounded,
+                  key: ValueKey<bool>(saved),
+                  color: saved
+                      ? const Color(0xFF075238)
+                      : Theme.of(context).colorScheme.onSurface,
+                ),
+              ),
+              label: Text(
+                _busy
+                    ? 'Saving package…'
+                    : saved
+                    ? 'Added to List'
+                    : 'Add to List',
+              ),
+            ),
+            if (saved)
+              const Padding(
+                padding: EdgeInsets.only(top: 8),
+                child: Text(
+                  'Saved in your Event List',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: Color(0xFF075238),
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            if (_message != null &&
+                _feedbackSession == controller.authentication.session)
+              Semantics(liveRegion: true, child: Text(_message!)),
+            TextButton(
+              onPressed: () async {
+                if (controller.isGuestPlanning) {
+                  final result = await controller.load();
+                  if (!context.mounted || !controller.isGuestPlanning) return;
+
+                  if (result != EventListResult.loaded) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text(eventListMessage(result))),
+                    );
+                    return;
+                  }
+
+                  await showModalBottomSheet<void>(
+                    context: context,
+                    isScrollControlled: true,
+                    showDragHandle: true,
+                    builder: (_) => GuestEventListPanel(
+                      controller: controller,
+                      session: controller.authentication.session,
+                    ),
+                  );
+                  return;
+                }
+
+                await openCustomerEventList(context);
+              },
+              child: const Text('View Event List'),
+            ),
+            const Text(
+              'Planning selection only. No reservation or availability guarantee.',
+            ),
+          ],
+        );
+      },
     );
   }
 }

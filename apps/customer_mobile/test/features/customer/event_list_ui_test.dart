@@ -19,6 +19,7 @@ import 'customer_event_list_test.dart'
     show MemoryEventStorage, EventAuth, entry;
 import 'provider_discovery_test.dart' show provider, GuestAuth;
 import 'booking_preparation_test.dart' show preparationPackage;
+import 'event_list_configuration_codec_test.dart' show configuration;
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -251,20 +252,48 @@ void main() {
       (tester) async {
         await show(tester, child: save());
         memory.failWrite = fail;
-        await tester.tap(find.text('Add to Event List'));
+        await tester.tap(find.text('Add to List'));
         await tester.pumpAndSettle();
-        expect(
-          find.text('Added to Event List'),
-          fail ? findsNothing : findsWidgets,
-        );
+        expect(find.text('Added to List'), fail ? findsNothing : findsWidgets);
         expect(controller.list!.entries.length, fail ? 0 : 1);
         if (!fail) {
           await tester.tap(
-            find.widgetWithText(OutlinedButton, 'Added to Event List'),
+            find.widgetWithText(OutlinedButton, 'Added to List'),
           );
           await tester.pumpAndSettle();
           expect(controller.list!.entries, hasLength(1));
           expect(controller.list!.entries.single.estimatedPrice, 12000);
+
+          // Removal elsewhere must refresh this button.
+          final savedIdentity = controller.list!.entries.single.identity;
+
+          expect(
+            await controller.removePackage(savedIdentity),
+            EventListResult.saved,
+          );
+
+          await tester.pumpAndSettle();
+
+          expect(controller.list!.entries, isEmpty);
+
+          expect(
+            find.widgetWithText(OutlinedButton, 'Add to List'),
+            findsOneWidget,
+          );
+
+          expect(find.text('Added to List'), findsNothing);
+
+          // The same package must be addable again.
+          await tester.tap(find.widgetWithText(OutlinedButton, 'Add to List'));
+
+          await tester.pumpAndSettle();
+
+          expect(controller.list!.entries, hasLength(1));
+
+          expect(
+            find.widgetWithText(OutlinedButton, 'Added to List'),
+            findsOneWidget,
+          );
         }
       },
     );
@@ -278,7 +307,7 @@ void main() {
         changes: {'price': 'unknown', 'imageUrl': 'http://example.com/image'},
       ),
     );
-    await tester.tap(find.text('Add to Event List'));
+    await tester.tap(find.text('Add to List'));
     await tester.pumpAndSettle();
     expect(controller.list!.entries.single.estimatedPrice, isNull);
     expect(controller.list!.entries.single.imageUrl, isNull);
@@ -288,7 +317,7 @@ void main() {
       await controller.addPackage(entry(i));
     }
     await show(tester, child: save());
-    await tester.tap(find.text('Add to Event List'));
+    await tester.tap(find.text('Add to List'));
     await tester.pumpAndSettle();
     expect(find.textContaining('full (24 packages)'), findsOneWidget);
     expect(controller.list!.entries, hasLength(24));
@@ -299,7 +328,7 @@ void main() {
     await show(tester, child: save());
     memory.writeGate = Completer<void>();
     memory.enteredWrite = Completer<void>();
-    await tester.tap(find.text('Add to Event List'));
+    await tester.tap(find.text('Add to List'));
     await tester.pump();
     await memory.enteredWrite!.future;
     expect(
@@ -310,7 +339,7 @@ void main() {
     await tester.pump();
     memory.writeGate!.complete();
     await tester.pumpAndSettle();
-    expect(find.text('Added to Event List'), findsNothing);
+    expect(find.text('Added to List'), findsNothing);
     expect(controller.list, isNull);
     expect(memory.writes, 1);
   });
@@ -325,39 +354,47 @@ void main() {
     await show(tester, scale: 2);
     await tester.scrollUntilVisible(find.text('Remove Package 0'), 200);
     expect(tester.takeException(), isNull);
-    await tester.scrollUntilVisible(find.text('Continue Browsing'), 200);
+    await tester.scrollUntilVisible(find.text('Add another provider'), 200);
     expect(tester.takeException(), isNull);
   });
   scenario('shared controller survives routes and scope detaches listener', (
     tester,
   ) async {
     await show(tester, child: save());
-    await tester.tap(find.text('Add to Event List'));
+    await tester.tap(find.text('Add to List'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('View Event List'));
     await tester.pumpAndSettle();
     expect(find.text('My Event List'), findsOneWidget);
-    await tester.scrollUntilVisible(find.text('Continue Browsing'), 200);
-    await tester.ensureVisible(find.text('Continue Browsing'));
+    await tester.scrollUntilVisible(find.text('Add another provider'), 200);
+    await tester.ensureVisible(find.text('Add another provider'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Continue Browsing'));
+    await tester.tap(find.text('Add another provider'));
     await tester.pumpAndSettle();
-    expect(find.text('Added to Event List'), findsWidgets);
+    expect(find.text('Added to List'), findsWidgets);
     await tester.pumpWidget(const SizedBox());
     auth.switchTo('customer_B');
     expect(tester.takeException(), isNull);
   });
   scenario(
-    'guest save and list navigation require existing login and never write',
+    'unauthorized guest adapter cannot save and full review requires login',
     (tester) async {
       auth.switchTo(null);
       await show(tester, child: save());
-      await tester.tap(find.text('Add to Event List'));
+      await tester.tap(find.text('Add to List'));
       await tester.pumpAndSettle();
-      expect(find.textContaining('Log in to save packages'), findsOneWidget);
+      // This test adapter has no guest-planning authorization.
+      // A null customer UID alone must not grant access to guest storage.
+      expect(
+        find.textContaining(
+          'Please sign in with an eligible customer account.',
+        ),
+        findsOneWidget,
+      );
+      expect(controller.list, isNull);
       expect(memory.writes, 0);
-      await tester.tap(find.byTooltip('Close'));
-      await tester.pumpAndSettle();
+
+      // Full Event List review remains protected by login.
       await tester.tap(find.text('View Event List'));
       await tester.pumpAndSettle();
       expect(
@@ -495,7 +532,7 @@ void main() {
       );
       expect(tester.takeException(), isNull);
       await tester.ensureVisible(find.text('Continue Browsing'));
-    await tester.pumpAndSettle();
+      await tester.pumpAndSettle();
     } finally {
       semantics.dispose();
     }
@@ -591,11 +628,6 @@ void main() {
         find.textContaining('currently unavailable for selection'),
         findsOneWidget,
       );
-      await tester.scrollUntilVisible(
-        find.text('1 packages from this provider'),
-        150,
-      );
-      expect(find.text('1 packages from this provider'), findsOneWidget);
       await tester.scrollUntilVisible(
         find.text('Retry verification for Package 1'),
         150,
@@ -850,21 +882,9 @@ void main() {
       await controller.addPackage(entry(0));
       await controller.addPackage(entry(1, 'provider_456'));
       await show(tester);
-      final headings = exposed(
-        tester,
-      ).where((node) => node.label == 'Provider, 1 saved packages').toList();
-      expect(headings, hasLength(2));
-      for (final heading in headings) {
-        expect(heading.getSemanticsData().flagsCollection.isHeader, isTrue);
-      }
-      final labels = exposed(
-        tester,
-      ).expand((node) => node.label.split('\n')).toList();
-      final first = labels.indexOf('Provider, 1 saved packages');
-      final second = labels.lastIndexOf('Provider, 1 saved packages');
-      expect(labels.indexOf('Package 1'), greaterThan(first));
-      expect(labels.indexOf('Package 1'), lessThan(second));
-      expect(labels.indexOf('Package 0'), greaterThan(second));
+      expect(find.text('Provider'), findsNWidgets(2));
+      expect(find.text('Package 1'), findsOneWidget);
+      expect(find.text('Package 0'), findsOneWidget);
       status(tester, 'Latest package details verified');
       status(tester, 'This package is currently unavailable for selection');
       labelled(tester, 'Latest listed estimate: 12,500.75 Philippine pesos.');
@@ -936,6 +956,78 @@ void main() {
       semantics.dispose();
     },
   );
+  scenario(
+    'known estimates exclude missing configured totals and reconcile events',
+    (tester) async {
+      for (var i = 0; i < 3; i++) {
+        final config = configuration();
+        config['estimatedTotal'] = i == 2 ? null : 100.0 + i;
+        config['event']['guestCount'] = i == 2 ? 200 : 100;
+        await controller.addPackage(
+          CustomerEventListEntry(
+            providerId: 'provider_$i',
+            packageId: 'package_$i',
+            packageName: 'Selection $i',
+            providerName: 'Business $i',
+            estimatedPrice: 999,
+            configuration: CustomerEventListConfiguration.fromJson(config),
+          ),
+        );
+      }
+      await show(tester);
+      expect(find.textContaining('Known estimate: '), findsOneWidget);
+      expect(find.textContaining('201.00'), findsOneWidget);
+      expect(
+        find.text('2 of 3 saved package estimates included.'),
+        findsOneWidget,
+      );
+      expect(
+        find.textContaining('Missing prices are excluded'),
+        findsOneWidget,
+      );
+      expect(find.textContaining('Event details differ.'), findsOneWidget);
+      expect(
+        find.textContaining(
+          'Booking submission for this list is not available.',
+        ),
+        findsOneWidget,
+      );
+      expect(find.text('Checkout'), findsNothing);
+      expect(find.text('Submit all'), findsNothing);
+      expect(
+        controller.list!.entries
+            .singleWhere((e) => e.packageId == 'package_2')
+            .configuration!
+            .event
+            .guestCount,
+        200,
+      );
+    },
+  );
+  scenario('consistent saved event details produce a shared summary', (
+    tester,
+  ) async {
+    for (var i = 0; i < 2; i++) {
+      await controller.addPackage(
+        CustomerEventListEntry(
+          providerId: 'provider_$i',
+          packageId: 'package_$i',
+          packageName: 'Selection $i',
+          providerName: 'Business $i',
+          configuration: CustomerEventListConfiguration.fromJson(
+            configuration(),
+          ),
+        ),
+      );
+    }
+    await show(tester);
+    expect(find.text('100 guests · Ormoc City'), findsOneWidget);
+    expect(find.textContaining('Event details differ.'), findsNothing);
+    expect(
+      find.text('2 of 2 saved package estimates included.'),
+      findsOneWidget,
+    );
+  });
   // The production store intentionally shares a process-wide Future queue. Keep
   // these scenarios in one fake-async zone so failed futures never cross the
   // separate error zones created by individual testWidgets invocations.

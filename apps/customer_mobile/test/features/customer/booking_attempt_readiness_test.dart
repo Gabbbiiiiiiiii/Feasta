@@ -100,6 +100,72 @@ void main() {
       BookingAttemptStatus.blockedFreshDisclosures,
     );
   });
+  test(
+    'fresh validation preserves only explicitly accepted current keys',
+    () async {
+      final a = await c.prepare(selection());
+      await review();
+      await agreements.load(revalidate: true);
+      await refunds.load(revalidate: true);
+      expect(
+        (await ready(a.clientRequestId)).status,
+        BookingAttemptStatus.ready,
+      );
+      final dispatched = await c.beginDispatch(selection());
+      expect(dispatched.clientRequestId, a.clientRequestId);
+      await expectLater(c.beginDispatch(selection()), throwsStateError);
+    },
+  );
+  test('changed fresh agreement invalidates acceptance', () async {
+    await c.prepare(selection());
+    await review();
+    agreementKey = 'b';
+    await agreements.load(revalidate: true);
+    expect(agreements.allAcknowledged, isFalse);
+  });
+  test('changed fresh refund invalidates acceptance', () async {
+    await c.prepare(selection());
+    await review();
+    refundVersion = 2;
+    await refunds.load(revalidate: true);
+    expect(refunds.allAcknowledged, isFalse);
+  });
+  test('missing payment acceptance prevents dispatch', () async {
+    final a = await c.prepare(selection());
+    await review();
+    agreements.acknowledge(
+      'provider_123',
+      agreements.agreements.single.agreementKey,
+      false,
+    );
+    expect(
+      (await ready(a.clientRequestId)).status,
+      BookingAttemptStatus.blockedFreshDisclosures,
+    );
+    await expectLater(c.beginDispatch(selection()), throwsStateError);
+  });
+  test('missing refund acceptance prevents dispatch', () async {
+    final a = await c.prepare(selection());
+    await review();
+    refunds.acknowledge(
+      'provider_123',
+      refunds.disclosures!.policies.single.effectivePolicyKey,
+      false,
+    );
+    expect(
+      (await ready(a.clientRequestId)).status,
+      BookingAttemptStatus.blockedFreshDisclosures,
+    );
+    await expectLater(c.beginDispatch(selection()), throwsStateError);
+  });
+  test('revalidation never fabricates acceptance', () async {
+    agreements.select(selection(), ownerId: 'customer_123');
+    refunds.select(selection(), ownerId: 'customer_123');
+    await agreements.load(revalidate: true);
+    await refunds.load(revalidate: true);
+    expect(agreements.allAcknowledged, isFalse);
+    expect(refunds.allAcknowledged, isFalse);
+  });
   test('old agreement keys cannot establish readiness', () async {
     final a = await c.prepare(selection());
     await review();
@@ -134,18 +200,24 @@ void main() {
       BookingAttemptStatus.blockedFreshDisclosures,
     );
   });
-  test('provider ownership change requires reconciliation', () async {
-    final a = await c.prepare(selection());
-    await review();
-    expect(
-      (await ready(
-        a.clientRequestId,
-        resolver: (_) async => {'provider_456'},
-      )).status,
-      BookingAttemptStatus.requiresReconciliation,
-    );
-    await expectLater(c.close(a.clientRequestId), throwsStateError);
-  });
+  test(
+    'provider ownership change before dispatch blocks fresh review',
+    () async {
+      final a = await c.prepare(selection());
+      await review();
+      expect(
+        (await ready(
+          a.clientRequestId,
+          resolver: (_) async => {'provider_456'},
+        )).status,
+        BookingAttemptStatus.blockedFreshDisclosures,
+      );
+      expect(
+        (await c.close(a.clientRequestId)).status,
+        BookingAttemptStatus.safelyAbandoned,
+      );
+    },
+  );
   test('read failure does not establish absence', () async {
     final a = await c.prepare(selection());
     await review();
@@ -154,7 +226,7 @@ void main() {
         a.clientRequestId,
         resolver: (_) async => throw StateError('network'),
       )).status,
-      BookingAttemptStatus.requiresReconciliation,
+      BookingAttemptStatus.blockedFreshDisclosures,
     );
   });
   test('changed keys during ownership lookup invalidate evidence', () async {

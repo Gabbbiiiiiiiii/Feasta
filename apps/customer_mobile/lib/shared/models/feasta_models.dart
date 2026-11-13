@@ -716,6 +716,7 @@ class AddonRequestModel {
 }
 
 class AddonModel {
+  final int? bookingLeadTimeDays;
   final String id;
   final String providerId;
   final String name;
@@ -729,6 +730,7 @@ class AddonModel {
   final String providerType;
 
   AddonModel({
+    this.bookingLeadTimeDays,
     required this.id,
     required this.providerId,
     required this.name,

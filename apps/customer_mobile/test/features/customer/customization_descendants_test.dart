@@ -4,6 +4,9 @@ import 'package:firebase_core/firebase_core.dart';
 // ignore: depend_on_referenced_packages
 import 'package:firebase_core_platform_interface/test.dart';
 // ignore: depend_on_referenced_packages, implementation_imports
+import 'package:cloud_firestore_platform_interface/src/pigeon/messages.pigeon.dart'
+    as firestore_host;
+// ignore: depend_on_referenced_packages, implementation_imports
 import 'package:cloud_functions_platform_interface/src/pigeon/messages.pigeon.dart'
     as functions_host;
 // ignore: depend_on_referenced_packages
@@ -16,15 +19,17 @@ import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:feasta/app/router/customer_auth_navigation.dart';
+import 'package:feasta/core/widgets/widgets.dart';
 import 'package:feasta/core/security/customer_session_coordinator.dart';
 import 'package:feasta/features/customer/booking_attempt_coordinator.dart';
 import 'package:feasta/features/customer/booking_summary_screen.dart';
-import 'package:feasta/features/customer/addon_marketplace_screen.dart';
+import 'package:feasta/features/customer/widgets/event_services_selection.dart';
 import 'package:feasta/shared/models/feasta_models.dart';
 import 'package:feasta/features/customer/booking_agreement_review_screen.dart';
 import 'package:feasta/features/customer/booking_refund_policy_review_screen.dart';
 import 'package:feasta/features/customer/customization_session.dart';
 import 'package:feasta/features/customer/event_customization_screen.dart';
+import 'package:feasta/features/customer/widgets/provider_calendar.dart';
 import 'package:feasta/features/customer/event_draft_persistence.dart';
 import 'package:feasta/features/customer/event_list/customer_event_list_screen.dart';
 import 'package:feasta/features/customer/event_list/event_list_catalog.dart';
@@ -39,7 +44,12 @@ import 'package:feasta/shared/models/customer_address_model.dart';
 import 'package:feasta/shared/models/event_customization_data.dart';
 import 'booking_attempt_test.dart' show MemoryStore;
 import 'booking_preparation_flow_test.dart'
-    show PreparationAuth, readyPreparationSessions, seedDraft, openStep;
+    show
+        PreparationAuth,
+        PreparationUser,
+        readyPreparationSessions,
+        seedDraft,
+        openStep;
 import 'booking_preparation_test.dart' show preparationPackage;
 import 'customer_event_list_test.dart' show MemoryEventStorage;
 import 'event_draft_persistence_test.dart' show DraftStore;
@@ -48,9 +58,36 @@ import 'event_list_customization_ui_test.dart' show HandoffRepository;
 import 'location_picker_selection_test.dart' show FakeMaps, FakeLocation;
 import 'provider_discovery_test.dart' show GuestAuth, provider;
 
+// Model the verified customer used by these descendant-navigation scenarios.
+// Keep the shared preparation fake and eligibility-denial fixtures unchanged.
+class DescendantUser extends PreparationUser {
+  DescendantUser() : uid = PreparationAuth.owner;
+
+  @override
+  final String uid;
+  @override
+  bool get isEmailVerified => true;
+  static int reloads = 0;
+
+  @override
+  Future<void> reload() async {
+    reloads++;
+  }
+}
+
+class DescendantAuth extends PreparationAuth {
+  @override
+  UserPlatform? get currentUser => GuestAuth.signedIn ? DescendantUser() : null;
+}
+
 class DescendantRepository extends HandoffRepository {
   @override
   Stream<List<AddonModel>> marketplaceAddons() => Stream.value([]);
+  @override
+  Stream<List<AddonModel>> eventServiceCatalog(
+    String providerId, {
+    required bool own,
+  }) => Stream.value([]);
 }
 
 class HeldAttemptStore extends MemoryStore {
@@ -85,7 +122,7 @@ void main() {
   setUpAll(() async {
     setupFirebaseCoreMocks();
     await Firebase.initializeApp();
-    FirebaseAuthPlatform.instance = PreparationAuth();
+    FirebaseAuthPlatform.instance = DescendantAuth();
   });
   const privateAddress = 'Private venue A 771';
   const privateNotes = 'Private notes A 991';
@@ -116,10 +153,40 @@ void main() {
     'dev.flutter.pigeon.cloud_functions_platform_interface.CloudFunctionsHostApi.call',
     functions_host.CloudFunctionsHostApi.pigeonChannelCodec,
   );
+  const profileChannel = BasicMessageChannel<Object?>(
+    'dev.flutter.pigeon.cloud_firestore_platform_interface.FirebaseFirestoreHostApi.documentReferenceGet',
+    firestore_host.FirebaseFirestoreHostApi.pigeonChannelCodec,
+  );
+  int profileReads = 0;
   void reset() {
     SharedPreferences.setMockInitialValues({});
     GuestAuth.signedIn = true;
     PreparationAuth.owner = 'customer-1';
+    DescendantUser.reloads = 0;
+    profileReads = 0;
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockDecodedMessageHandler<Object?>(profileChannel, (message) async {
+          final request =
+              (message as List)[1] as firestore_host.DocumentReferenceRequest;
+          expect(request.path, 'users/${PreparationAuth.owner}');
+          profileReads++;
+          return [
+            firestore_host.InternalDocumentSnapshot(
+              path: request.path,
+              data: {
+                'role': 'customer',
+                'accountStatus': 'active',
+                'isActive': true,
+                'isBlocked': false,
+                'isPhoneVerified': true,
+              },
+              metadata: firestore_host.InternalSnapshotMetadata(
+                hasPendingWrites: false,
+                isFromCache: false,
+              ),
+            ),
+          ];
+        });
     sessions = readyPreparationSessions();
     final captured = sessions.readSnapshot();
     session = CustomizationSession(
@@ -369,8 +436,12 @@ void main() {
     );
     await tester.ensureVisible(action);
     await tester.pumpAndSettle();
+    final reloadsBefore = DescendantUser.reloads;
+    final readsBefore = profileReads;
     await tester.tap(action);
     await tester.pumpAndSettle();
+    expect(DescendantUser.reloads, reloadsBefore + 1);
+    expect(profileReads, readsBefore + 1);
     return tester
         .widget<EventCustomizationScreen>(find.byType(EventCustomizationScreen))
         .session!;
@@ -584,8 +655,8 @@ void main() {
     },
   );
   for (final disclosure in [
-    'Review Booking & Payment Agreements',
-    'Review Refund Policies',
+    'Review Booking & Payment Agreement',
+    'Review Refund Policy',
   ]) {
     scenario(
       'nested Review Event disclosure is unmounted on session closure: $disclosure',
@@ -593,12 +664,15 @@ void main() {
         final handle = tester.ensureSemantics();
         await summary(tester);
         disclosureGate = Completer<Object?>();
-        await tester.ensureVisible(find.text(disclosure));
+        final link = find.byWidgetPredicate(
+          (widget) => widget is Text && widget.semanticsLabel == disclosure,
+        );
+        await tester.ensureVisible(link);
         await tester.pumpAndSettle();
-        await tester.tap(find.text(disclosure));
+        await tester.tap(link);
         await tester.pump();
         await tester.pump(const Duration(milliseconds: 400));
-        final finder = disclosure.contains('Agreements')
+        final finder = disclosure.contains('Agreement')
             ? find.byType(BookingAgreementReviewScreen)
             : find.byType(BookingRefundPolicyReviewScreen);
         expect(finder, findsOneWidget);
@@ -650,9 +724,22 @@ void main() {
       '$entry production handoff passes original binding into open Review Event',
       (tester) async {
         final handle = tester.ensureSemantics();
+        // Production review restores a saved attempt on entry. Model an empty
+        // store, but reject every write or other unexpected native operation.
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(
+              const MethodChannel(
+                'plugins.it_nomads.com/flutter_secure_storage',
+              ),
+              (call) async {
+                nativeAttemptCalls++;
+                expect(call.method, 'read');
+                return null;
+              },
+            );
         final original = await productionCustomization(tester, entry);
         await openStep(tester, '3');
-        await tester.tap(find.text('Review Event'));
+        await tester.tap(find.text('Review booking'));
         await tester.pumpAndSettle();
         expect(
           tester
@@ -660,17 +747,27 @@ void main() {
               .session,
           same(original),
         );
+        final review = tester.widget<BookingSummaryScreen>(
+          find.byType(BookingSummaryScreen),
+        );
+        expect(review.preparationOnly, isFalse);
+        expect(review.customization.specialRequest, privateNotes);
+        await tester.scrollUntilVisible(
+          find.text(privateNotes),
+          300,
+          scrollable: find.byType(Scrollable).first,
+        );
         expect(find.text(privateNotes), findsOneWidget);
-        final prepare = tester
-            .widget<OutlinedButton>(
-              find.widgetWithText(OutlinedButton, 'Prepare request identity'),
-            )
-            .onPressed!;
+        expect(nativeAttemptCalls, 1);
+        final submit = tester.widget<FeastaPrimaryButton>(
+          find.widgetWithText(FeastaPrimaryButton, 'Submit booking request'),
+        );
+        // Current disclosures have not been acknowledged; submission stays disabled.
+        expect(submit.onPressed, isNull);
         replace('A to B');
-        prepare();
         await tester.pumpAndSettle();
         hidden(tester);
-        expect(nativeAttemptCalls, 0);
+        expect(nativeAttemptCalls, 1);
         final exit = returnToCustomerRoot(key.currentState!);
         await tester.pumpAndSettle();
         expect(await exit, isTrue);
@@ -723,13 +820,13 @@ void main() {
     'end time',
     'manual address',
     'discard',
-    'marketplace',
+    'inline services',
   ]) {
     scenario(
       'production customization $kind route conceals on generation replacement',
       (tester) async {
         final handle = tester.ensureSemantics();
-        await productionCustomization(tester, 'Event List');
+        final original = await productionCustomization(tester, 'Event List');
         Finder target;
         if (kind == 'date') {
           target = find.byIcon(Icons.calendar_today_outlined);
@@ -741,16 +838,40 @@ void main() {
           target = find.text('Discard unfinished draft');
         } else {
           await openStep(tester, '3');
-          final title = find.text('FEASTA add-on marketplace');
-          await tester.scrollUntilVisible(
-            title,
-            150,
-            scrollable: find.byType(Scrollable).first,
+          // The inline-services entry point has been retired. Exercise the
+          // descendant with the original binding to retain privacy coverage.
+          expect(find.byType(EventServicesSelection), findsNothing);
+          key.currentState!.push<void>(
+            CustomizationSessionRoute<void>(
+              session: original,
+              builder: (_) => Scaffold(
+                body: SingleChildScrollView(
+                  child: EventServicesSelection(
+                    session: original,
+                    providerName: 'Caterer',
+                    providerId: 'caterer-1',
+                    catering: Stream.value(const <AddonModel>[]),
+                    marketplace: Stream.value(const <AddonModel>[]),
+                    selected: const [
+                      {
+                        'addonId': 'private-service',
+                        'name': privateNotes,
+                        'providerBusinessName': privateAddress,
+                        'price': 100,
+                      },
+                    ],
+                    onToggle: (_, _, _) => fail('Unexpected service edit'),
+                    check: (_) async =>
+                        (available: false, message: 'Unavailable'),
+                  ),
+                ),
+              ),
+            ),
           );
-          target = find.descendant(
-            of: find.ancestor(of: title, matching: find.byType(Row)).first,
-            matching: find.byType(Switch),
-          );
+          await tester.pumpAndSettle();
+          expect(find.text(privateNotes), findsOneWidget);
+          expect(semantics(tester), contains(privateNotes));
+          target = find.text('1 service selected');
         }
         await tester.scrollUntilVisible(
           target,
@@ -759,29 +880,51 @@ void main() {
         );
         await tester.ensureVisible(target);
         await tester.pumpAndSettle();
-        await tester.tap(target);
-        await tester.pumpAndSettle();
+        if (kind != 'inline services') {
+          await tester.tap(target);
+          await tester.pumpAndSettle();
+        }
         final privateRoute = ModalRoute.of(
           tester.element(
             kind == 'date'
-                ? find.byType(DatePickerDialog)
+                ? find.byType(ProviderCalendar)
                 : kind.contains('time')
                 ? find.byType(TimePickerDialog)
                 : kind == 'manual address'
                 ? find.byType(ManualAddressScreen)
                 : kind == 'discard'
                 ? find.byType(AlertDialog)
-                : find.byType(AddonMarketplaceScreen),
+                : find.byWidgetPredicate(
+                    (widget) =>
+                        widget is EventServicesSelection && !widget.expanded,
+                  ),
           ),
         )!;
         replace('same UID');
         await tester.pumpAndSettle();
         expect(privateRoute.isCurrent, isTrue);
-        hidden(tester);
-        expect(find.byType(DatePickerDialog), findsNothing);
+        if (kind == 'inline services') {
+          expect(find.byType(EventServicesSelection), findsNothing);
+          expect(find.textContaining(privateNotes), findsNothing);
+          expect(find.textContaining(privateAddress), findsNothing);
+          expect(semantics(tester), isNot(contains(privateNotes)));
+          expect(semantics(tester), isNot(contains(privateAddress)));
+          expect(
+            find.text('Please sign in again to continue preparing your event.'),
+            findsOneWidget,
+          );
+        } else {
+          hidden(tester);
+        }
+        expect(find.byType(ProviderCalendar), findsNothing);
         expect(find.byType(TimePickerDialog), findsNothing);
         expect(find.byType(ManualAddressScreen), findsNothing);
-        expect(find.byType(AddonMarketplaceScreen), findsNothing);
+        expect(
+          find.byWidgetPredicate(
+            (widget) => widget is EventServicesSelection && widget.expanded,
+          ),
+          findsNothing,
+        );
         handle.dispose();
       },
     );
@@ -854,6 +997,7 @@ void main() {
       }
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         ..setMockDecodedMessageHandler<Object?>(callableChannel, null)
+        ..setMockDecodedMessageHandler<Object?>(profileChannel, null)
         ..setMockMethodCallHandler(
           const MethodChannel('feasta/maps_configuration'),
           null,

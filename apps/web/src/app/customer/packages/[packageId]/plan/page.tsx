@@ -13,8 +13,11 @@ export default async function CustomerPackagePlanPage({params, searchParams}: {
   const [{packageId}, query, account] = await Promise.all([params, searchParams, getOptionalAccountContext()]);
   const context = parseCustomerEventContext(query);
   const contextQuery = customerEventContextQuery(context);
+  const editProvider = typeof query.eventListProvider === "string" && /^[A-Za-z0-9_-]{1,128}$/u.test(query.eventListProvider) ? query.eventListProvider : undefined;
+  const routingQuery = new URLSearchParams(contextQuery);
+  if (editProvider) routingQuery.set("eventListProvider", editProvider);
   if (account?.role === "customer") {
-    redirect(`/customer/packages/${encodeURIComponent(packageId)}/book${contextQuery ? `?${contextQuery}` : ""}`);
+    redirect(`/customer/packages/${encodeURIComponent(packageId)}/book${routingQuery.size ? `?${routingQuery}` : ""}`);
   }
   const detail = await getPublicPackageDetail(packageId);
   if (!detail) notFound();
@@ -22,7 +25,7 @@ export default async function CustomerPackagePlanPage({params, searchParams}: {
     getPublicEventServices(detail.provider.id),
     readPublishedProviderSetups(detail.provider.id),
   ]);
-  return <EventCustomizationExperience key={`${packageId}:${contextQuery}`} detail={detail}
-    eventServices={services.services} initialEventContext={context} draftOwner="guest" planningOnly
+  return <EventCustomizationExperience key={`${packageId}:${contextQuery}:${editProvider ?? ""}`} detail={detail}
+    eventServices={services.services} initialEventContext={context} draftOwner="guest" planningOnly eventListEditProviderId={editProvider}
     publishedSetups={publishedSetups} />;
 }

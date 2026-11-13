@@ -4,6 +4,8 @@ class EventCustomizationData {
   final List<Map<String, dynamic>> foodChoiceSelections;
   final String? serviceTier;
   final String? packageThemeId;
+  final String? themeChoice;
+  final String customTheme;
   final String eventType;
   final DateTime eventDate;
   final String eventTime;
@@ -29,6 +31,8 @@ class EventCustomizationData {
     this.foodChoiceSelections = const [],
     this.serviceTier,
     this.packageThemeId,
+    this.themeChoice,
+    this.customTheme = '',
     required this.eventType,
     required this.eventDate,
     required this.eventTime,

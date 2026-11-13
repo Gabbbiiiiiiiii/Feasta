@@ -74,6 +74,131 @@ void main() {
     'providerRequestIds': ['request_123'],
     'created': true,
   };
+  test(
+    'dispatch persists pending and interrupted restoration blocks another dispatch',
+    () async {
+      final a = await c.prepare(selection());
+      final saved = jsonDecode(store.values[uid]!) as Map<String, dynamic>;
+      saved['status'] = 'ready';
+      store.values[uid!] = jsonEncode(saved);
+      final pending = await c.beginDispatch(selection());
+      expect(pending.clientRequestId, a.clientRequestId);
+      expect(pending.status, BookingAttemptStatus.dispatchPending);
+      final restored = BookingAttemptCoordinator(
+        store: store,
+        currentUid: () => uid,
+      );
+      expect(
+        (await restored.prepare(selection())).status,
+        BookingAttemptStatus.requiresReconciliation,
+      );
+      await expectLater(restored.beginDispatch(selection()), throwsStateError);
+    },
+  );
+  test(
+    'regression: old post-persistence route guard strands an unsent request',
+    () async {
+      final prepared = await c.prepare(selection());
+      final raw = jsonDecode(store.values[uid]!) as Map<String, dynamic>;
+      raw['status'] = 'ready';
+      store.values[uid!] = jsonEncode(raw);
+      final delayed = DispatchGateStore()..values.addAll(store.values);
+      final coordinator = BookingAttemptCoordinator(
+        store: delayed,
+        currentUid: () => uid,
+      );
+      var canAct = true;
+      var sends = 0;
+      Future<void> oldHandoff() async {
+        await coordinator.beginDispatch(selection());
+        if (!canAct) return;
+        sends++;
+      }
+
+      final operation = oldHandoff();
+      await delayed.entered.future;
+      canAct = false;
+      delayed.release.complete();
+      await operation;
+      expect(sends, 0);
+      expect(jsonDecode(delayed.values[uid]!)['status'], 'dispatchPending');
+      final restored = (await coordinator.restore())!;
+      expect(restored.clientRequestId, prepared.clientRequestId);
+      expect(restored.status, BookingAttemptStatus.requiresReconciliation);
+      expect(restored.safeToSupersede, isFalse);
+    },
+  );
+
+  for (final interruption in [
+    'none',
+    'account',
+    'session',
+    'write',
+    'transport',
+  ]) {
+    test('dispatch handoff retains safety: $interruption', () async {
+      final prepared = await c.prepare(selection());
+      final raw = jsonDecode(store.values[uid]!) as Map<String, dynamic>;
+      raw['status'] = 'ready';
+      store.values[uid!] = jsonEncode(raw);
+      final delayed = DispatchGateStore()..values.addAll(store.values);
+      final coordinator = BookingAttemptCoordinator(
+        store: delayed,
+        currentUid: () => uid,
+      );
+      var sends = 0;
+      final operation = coordinator.dispatch(selection(), (attempt) async {
+        sends++;
+        expect(
+          jsonDecode(delayed.values[attempt.uid]!)['status'],
+          'dispatchPending',
+        );
+        expect(attempt.clientRequestId, prepared.clientRequestId);
+        if (interruption == 'transport') {
+          throw StateError('transport may have started');
+        }
+        return 'sent';
+      });
+      final expectation = interruption == 'none'
+          ? expectLater(operation, completion('sent'))
+          : expectLater(operation, throwsStateError);
+      await delayed.entered.future;
+      expect(sends, 0);
+      if (interruption == 'account') uid = 'customer_456';
+      if (interruption == 'session') coordinator.invalidateSession();
+      if (interruption == 'write') delayed.fail = true;
+      delayed.release.complete();
+      await expectation;
+      expect(sends, ['none', 'transport'].contains(interruption) ? 1 : 0);
+      uid = 'customer_123';
+      delayed.fail = false;
+      final restarted = BookingAttemptCoordinator(
+        store: delayed,
+        currentUid: () => uid,
+      );
+      final restored = (await restarted.restore())!;
+      expect(restored.clientRequestId, prepared.clientRequestId);
+      if (interruption != 'write') {
+        expect(restored.safeToSupersede, isFalse);
+        await expectLater(
+          restarted.dispatch(selection(), (_) async {
+            sends++;
+          }),
+          throwsStateError,
+        );
+        await expectLater(
+          restarted.prepare(selection(address: 'Changed')),
+          throwsStateError,
+        );
+      }
+    });
+  }
+
+  test('account switch prevents dispatch of prepared selection', () async {
+    await c.prepare(selection());
+    uid = 'other_customer';
+    await expectLater(c.beginDispatch(selection()), throwsStateError);
+  });
   test('stable repeated preparation', () async {
     final a = await c.prepare(selection());
     expect((await c.prepare(selection())).clientRequestId, a.clientRequestId);
@@ -291,4 +416,18 @@ void main() {
       throwsStateError,
     );
   });
+}
+
+class DispatchGateStore extends MemoryStore {
+  final entered = Completer<void>();
+  final release = Completer<void>();
+  @override
+  Future<void> write(String uid, String value) async {
+    if (jsonDecode(value)['status'] == 'dispatchPending' &&
+        !entered.isCompleted) {
+      entered.complete();
+      await release.future;
+    }
+    await super.write(uid, value);
+  }
 }

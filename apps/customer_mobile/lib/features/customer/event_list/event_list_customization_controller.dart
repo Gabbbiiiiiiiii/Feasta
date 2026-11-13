@@ -5,6 +5,7 @@ import '../../../shared/models/customer_event_list.dart';
 import '../../../shared/models/feasta_models.dart';
 import '../customization_session.dart';
 import 'event_list_controller.dart';
+import 'event_list_store.dart';
 import 'event_list_catalog.dart';
 
 /// Holds one lock through verification and navigation's full route completion.
@@ -67,18 +68,22 @@ class EventListCustomizationController extends ChangeNotifier {
     final auth = controller.authentication.session;
     final list = controller.list;
     final key = entry.identity.key;
-    if (auth.customerUid == null ||
+    final guest = controller.isGuestPlanning;
+    if ((auth.customerUid == null && !guest) ||
         list == null ||
-        list.ownerUid != auth.customerUid ||
+        list.ownerUid !=
+            (guest ? EventListStore.guestOwnerUid : auth.customerUid) ||
         !list.entries.any((e) => e.identity.key == key)) {
       return;
     }
     final token = Object();
+    bool navigating = false;
     bool selectionCurrent() =>
         !_disposed &&
         auth == controller.authentication.session &&
+        (!guest || controller.isGuestPlanning) &&
         controller.list?.ownerUid == list.ownerUid &&
-        controller.list?.revision == list.revision &&
+        (navigating || controller.list?.revision == list.revision) &&
         (controller.list?.entries.any((e) => e.identity.key == key) ?? false);
     bool active() =>
         identical(_operation, token) && selectionCurrent() && originIsCurrent();
@@ -120,15 +125,20 @@ class EventListCustomizationController extends ChangeNotifier {
       }
       if (!active()) return;
       binding = CustomizationSession(
-        uid: auth.customerUid!,
+        uid: auth.customerUid ?? EventListStore.guestOwnerUid,
+        eventListIdentity: entry.identity,
+        isGuest: guest,
         generation: auth.generation,
         changes: controller.authentication,
-        isCurrent: () => auth == controller.authentication.session,
+        isCurrent: () =>
+            auth == controller.authentication.session &&
+            (!guest || controller.isGuestPlanning),
       );
       _session = binding;
       verifying = false;
       notifyListeners();
       if (!active() || !binding.authorized) return;
+      navigating = true;
       await navigate(provider, package, binding);
     } catch (_) {
       if (active()) {

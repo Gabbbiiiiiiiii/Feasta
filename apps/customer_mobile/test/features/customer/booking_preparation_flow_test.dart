@@ -1,4 +1,8 @@
+import 'package:feasta/shared/models/event_customization_data.dart';
+import 'package:feasta/shared/models/customer_availability.dart';
+import 'package:feasta/shared/models/provider_calendar_month.dart';
 import 'package:feasta/core/security/customer_session_coordinator.dart';
+import 'package:feasta/features/customer/widgets/booking_preparation_price.dart';
 import 'package:feasta/core/widgets/widgets.dart';
 import 'dart:async';
 import 'dart:convert';
@@ -14,7 +18,6 @@ import 'package:cloud_firestore_platform_interface/src/pigeon/messages.pigeon.da
 import 'package:cloud_functions_platform_interface/src/pigeon/messages.pigeon.dart'
     as functions_host;
 import 'package:feasta/features/customer/availability_check_screen.dart';
-import 'package:feasta/shared/models/event_customization_data.dart';
 import 'package:feasta/features/customer/widgets/package_option_cards.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -77,9 +80,47 @@ CustomerSessionCoordinator readyPreparationSessions() {
 }
 
 class PreparationRepository implements FeastaRepository {
+  @override
+  Future<ProviderCalendarMonth> getProviderCalendarMonth(
+    String providerId,
+    String month,
+  ) async => ProviderCalendarMonth.parse({'month': month, 'dates': []}, month);
+
+  @override
+  Future<CustomerAvailability> checkProviderAvailability({
+    required String providerId,
+    required String packageId,
+    required EventCustomizationData customization,
+  }) async => CustomerAvailability.parse(
+    {
+      'results': [
+        {
+          'providerId': providerId,
+          'available': true,
+          'reasonCode': null,
+          'message': 'Available for your selected event.',
+        },
+      ],
+    },
+    uid: 'customer-1',
+    providerId: providerId,
+    packageId: packageId,
+    customization: customization,
+  );
+
   PackageModel? current = preparationPackage();
   bool fail = false;
   List<AddonModel> addons = [];
+  @override
+  Stream<List<AddonModel>> eventServiceCatalog(
+    String providerId, {
+    required bool own,
+  }) => Stream.value(
+    addons.where((a) => (a.providerId == providerId) == own).toList(),
+  );
+  @override
+  Stream<List<AddonModel>> marketplaceAddons() =>
+      Stream.value(addons.where((a) => a.providerId != 'caterer-1').toList());
   @override
   Future<AddonModel?> getEligiblePreparationAddon(String id) async {
     final matching = addons.where(
@@ -151,6 +192,9 @@ void phone(WidgetTester tester) {
 }
 
 Future<void> openStep(WidgetTester tester, String label) async {
+  FocusManager.instance.primaryFocus?.unfocus();
+  tester.testTextInput.hide();
+  await tester.pumpAndSettle();
   tester
       .state<ScrollableState>(find.byType(Scrollable).first)
       .position
@@ -161,7 +205,7 @@ Future<void> openStep(WidgetTester tester, String label) async {
     100,
     scrollable: find.byType(Scrollable).first,
   );
-  final target = int.parse(label[0]) - 1;
+  final target = (int.parse(label[0]) - 1).clamp(0, 1);
   var current = tester
       .widget<CustomizationProgress>(find.byType(CustomizationProgress))
       .step;
@@ -183,6 +227,18 @@ Future<void> openStep(WidgetTester tester, String label) async {
     );
     current = next;
   }
+}
+
+Future<void> expectRecoveredDraft(WidgetTester tester) async {
+  await tester.scrollUntilVisible(
+    find.byTooltip('Show recovery details'),
+    -200,
+    scrollable: find.byType(Scrollable).first,
+  );
+  expect(find.text('Draft recovered'), findsOneWidget);
+  await tester.tap(find.byTooltip('Show recovery details'));
+  await tester.pumpAndSettle();
+  expect(find.textContaining('Unfinished draft recovered'), findsOneWidget);
 }
 
 EventCustomizationData reviewData() => EventCustomizationData(
@@ -248,6 +304,313 @@ void main() {
     GuestAuth.signedIn = false;
     preparationDraftMemory.clear();
   });
+  testWidgets(
+    'special requests remain editable only in Step 1 and survive Step 3 review',
+    (tester) async {
+      await seedDraft();
+      final repo = PreparationRepository();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: EventCustomizationScreen(
+            provider: provider(),
+            eventPackage: preparationPackage(),
+            repository: repo,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final request = find.byWidgetPredicate(
+        (w) => w is TextField && w.minLines == 4 && w.maxLines == 6,
+      );
+      await tester.scrollUntilVisible(
+        request,
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
+      expect(find.text('Special requests (optional)'), findsOneWidget);
+      expect(tester.widget<TextField>(request).controller!.text, 'No peanuts');
+      await tester.enterText(request, 'Keep the saved dietary request');
+      await openStep(tester, '3 Services');
+      expect(find.text('Customize your event'), findsOneWidget);
+      expect(find.text('STEP 3 OF 4'), findsNothing);
+      await expectRecoveredDraft(tester);
+      expect(find.text('Selected Package'), findsOneWidget);
+      expect(
+        find.textContaining('Published price (before tier choice):'),
+        findsOneWidget,
+      );
+      await tester.tap(find.byTooltip('Draft actions'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Discard unfinished draft'));
+      await tester.pumpAndSettle();
+      expect(find.text('Discard unfinished draft?'), findsOneWidget);
+      await tester.tap(find.text('Keep draft'));
+      await tester.pumpAndSettle();
+      expect(request, findsNothing);
+      expect(find.text('I will arrange my own add-ons'), findsNothing);
+      await tester.scrollUntilVisible(
+        find.byType(BookingPreparationPrice),
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
+      expect(find.byType(BookingPreparationPrice), findsOneWidget);
+      expect(find.text('Add event services'), findsNothing);
+      await tester.tap(find.text('Review booking'));
+      await tester.pumpAndSettle();
+      final review = tester.widget<BookingSummaryScreen>(
+        find.byType(BookingSummaryScreen),
+      );
+      expect(
+        review.customization.specialRequest,
+        'Keep the saved dietary request',
+      );
+      expect(review.customization.selectedAddOns, isEmpty);
+      expect(repo.unexpected, isEmpty);
+    },
+  );
+  for (final structure in ['fixed', 'customizable']) {
+    for (final pricing in ['per_pax', 'per_bundle']) {
+      testWidgets(
+        'V2 $structure $pricing initial tier includes published items',
+        (tester) async {
+          final package = preparationPackage({
+            'sharedContractVersion': 2,
+            'offerStructure': structure,
+            'pricingModel': pricing,
+            'serviceOptions': {
+              'full_service': {
+                'price': 650,
+                'decorInclusions': ['Full decor'],
+                'furnitureInclusions': ['Full table'],
+              },
+            },
+          });
+          await tester.pumpWidget(
+            MaterialApp(
+              home: EventCustomizationScreen(
+                provider: provider(),
+                eventPackage: package,
+                repository: PreparationRepository(),
+                initialServiceTier: 'full_service',
+              ),
+            ),
+          );
+          await tester.pumpAndSettle();
+          final dynamic state = tester.state(
+            find.byType(EventCustomizationScreen),
+          );
+          expect(state.selectedDecorations, ['Flowers', 'Full decor']);
+          expect(state.selectedFurniture, ['Tables', 'Full table']);
+          expect(
+            preparationEstimate(
+              package,
+              [],
+              serviceTier: 'full_service',
+              guests: 30,
+            ),
+            pricing == 'per_pax' ? 19500 : 650,
+          );
+          expect(
+            preparationEstimate(
+              package,
+              [
+                {'price': 125.50},
+              ],
+              serviceTier: 'full_service',
+              guests: 30,
+            ),
+            pricing == 'per_pax' ? 19625.50 : 775.50,
+          );
+        },
+      );
+      testWidgets('V2 $structure $pricing draft tiers and review estimates', (
+        tester,
+      ) async {
+        phone(tester);
+        final package = preparationPackage({
+          'sharedContractVersion': 2,
+          'revision': 1,
+          'offerStructure': structure,
+          'pricingModel': pricing,
+          'occasionMatchIds': ['Wedding'],
+          'serviceOptions': {
+            'drop_off': {
+              'price': 400,
+              'decorInclusions': ['Drop decor'],
+              'furnitureInclusions': ['Drop table'],
+            },
+            'full_service': {
+              'price': 650,
+              'decorInclusions': ['Full decor'],
+              'furnitureInclusions': ['Full table'],
+            },
+          },
+        });
+        await seedDraft();
+        final saved = (await eventDraftPersistence.read(
+          'customer-1',
+          'caterer-1',
+          'package-1',
+        ))!;
+        saved['tier'] = 'full_service';
+        saved['decorations'] = structure == 'fixed'
+            ? ['Stale']
+            : ['Flowers', 'Full decor', 'Stale'];
+        saved['furniture'] = structure == 'fixed'
+            ? ['Stale']
+            : ['Tables', 'Full table', 'Stale'];
+        await eventDraftPersistence.save(
+          'customer-1',
+          'caterer-1',
+          'package-1',
+          saved,
+          () => 'customer-1',
+        );
+        final repo = PreparationRepository()..current = package;
+        await tester.pumpWidget(
+          MaterialApp(
+            home: EventCustomizationScreen(
+              provider: provider(),
+              eventPackage: package,
+              repository: repo,
+              initialServiceTier: 'drop_off',
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        final dynamic state = tester.state(
+          find.byType(EventCustomizationScreen),
+        );
+        expect(state.selectedServiceTier, 'full_service');
+        expect(state.selectedDecorations, ['Flowers', 'Full decor']);
+        expect(state.selectedFurniture, ['Tables', 'Full table']);
+        await openStep(tester, '2 Package');
+        await tester.scrollUntilVisible(
+          find.byType(ServiceOptionCards),
+          200,
+          scrollable: find.byType(Scrollable).first,
+        );
+        final cards = tester.widget<ServiceOptionCards>(
+          find.byType(ServiceOptionCards),
+        );
+        cards.onSelected!('drop_off');
+        await tester.pumpAndSettle();
+        expect(
+          state.selectedDecorations,
+          structure == 'fixed' ? ['Flowers', 'Drop decor'] : ['Flowers'],
+        );
+        expect(
+          state.selectedFurniture,
+          structure == 'fixed' ? ['Tables', 'Drop table'] : ['Tables'],
+        );
+        cards.onSelected!('full_service');
+        await tester.pumpAndSettle();
+        for (final step in ['2 Package']) {
+          await openStep(tester, step);
+          await tester.scrollUntilVisible(
+            find.byType(BookingPreparationPrice),
+            200,
+            scrollable: find.byType(Scrollable).first,
+          );
+          final card = tester.widget<BookingPreparationPrice>(
+            find.byType(BookingPreparationPrice),
+          );
+          expect(card.package, same(package));
+          expect(card.serviceTier, 'full_service');
+          expect(card.guests, 50);
+          expect(card.addons, isEmpty);
+          expect(
+            preparationEstimateText(
+              card.package,
+              card.addons,
+              serviceTier: card.serviceTier,
+              guests: card.guests,
+            ),
+            'Known estimate: ${FeastaPriceFormatter.format(pricing == 'per_pax' ? 32500 : 650)}',
+          );
+        }
+        await openStep(tester, '3 Services');
+        await tester.scrollUntilVisible(
+          find.byType(BookingPreparationPrice),
+          200,
+          scrollable: find.byType(Scrollable).first,
+        );
+        expect(find.byType(BookingPreparationPrice), findsOneWidget);
+        expect(find.text('Add event services'), findsNothing);
+        final decorations = List<String>.from(
+          state.selectedDecorations as List,
+        );
+        final furniture = List<String>.from(state.selectedFurniture as List);
+        await tester.tap(find.text('Review booking'));
+        await tester.pumpAndSettle();
+        expect(
+          find.byType(BookingSummaryScreen),
+          findsOneWidget,
+          reason: tester
+              .widgetList<Text>(find.byType(Text))
+              .map((t) => t.data)
+              .join(' | '),
+        );
+        final review = tester.widget<BookingSummaryScreen>(
+          find.byType(BookingSummaryScreen),
+        );
+        expect(review.customization.selectedDecorations, decorations);
+        expect(review.customization.selectedFurniture, furniture);
+        expect(review.eventPackage, same(package));
+        expect(review.customization.guestCount, 50);
+        expect(review.customization.serviceTier, 'full_service');
+        expect(review.customization.selectedAddOns, isEmpty);
+        await tester.scrollUntilVisible(
+          find.text('Booking estimate'),
+          200,
+          scrollable: find.byType(Scrollable).first,
+        );
+        final priceCard = find.ancestor(
+          of: find.text('Booking estimate'),
+          matching: find.byType(FeastaCard),
+        );
+        expect(
+          find.descendant(
+            of: priceCard,
+            matching: find.text('Selected service'),
+          ),
+          findsOneWidget,
+        );
+        expect(
+          find.descendant(
+            of: priceCard,
+            matching: find.text('Full-Service Catering'),
+          ),
+          findsOneWidget,
+        );
+        expect(
+          find.descendant(
+            of: priceCard,
+            matching: find.text('Estimated service price'),
+          ),
+          findsOneWidget,
+        );
+        expect(
+          find.descendant(
+            of: priceCard,
+            matching: find.text('Estimated total'),
+          ),
+          findsOneWidget,
+        );
+        expect(
+          find.descendant(
+            of: priceCard,
+            matching: find.text(
+              FeastaPriceFormatter.format(pricing == 'per_pax' ? 32500 : 650),
+            ),
+          ),
+          findsNWidgets(2),
+        );
+        expect(find.textContaining('Estimate unavailable'), findsNothing);
+        expect(repo.unexpected, isEmpty);
+      });
+    }
+  }
   for (final source in ['catering_provider', 'feasta_addon_provider']) {
     testWidgets(
       'duplicate $source record blocks recovery without displaying an inflated estimate',
@@ -521,8 +884,8 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      expect(find.textContaining('Unfinished draft recovered'), findsOneWidget);
-      await tester.tap(find.text('Review Event'));
+      await expectRecoveredDraft(tester);
+      await tester.tap(find.text('Review booking'));
       await tester.pumpAndSettle();
       final review = tester.widget<BookingSummaryScreen>(
         find.byType(BookingSummaryScreen),
@@ -538,6 +901,82 @@ void main() {
       expect(review.preparationOnly, isTrue);
     },
   );
+  testWidgets(
+    'legacy services draft resumes customization and permits deliberate service removal',
+    (tester) async {
+      phone(tester);
+      await seedDraft();
+      final addon = AddonModel(
+        id: 'saved-service',
+        providerId: 'caterer-1',
+        name: 'Saved staff',
+        description: '',
+        category: 'staff',
+        price: 700,
+        isAvailable: true,
+        isActive: true,
+        providerBusinessName: 'Ana Catering',
+        providerType: 'catering_provider',
+      );
+      final saved = (await eventDraftPersistence.read(
+        'customer-1',
+        'caterer-1',
+        'package-1',
+      ))!;
+      await eventDraftPersistence.save('customer-1', 'caterer-1', 'package-1', {
+        ...saved,
+        'step': 2,
+        'addons': [addon.toBookingMap(source: 'catering_provider')],
+      }, () => 'customer-1');
+      final repo = PreparationRepository()..addons = [addon];
+      await tester.pumpWidget(
+        MaterialApp(
+          home: EventCustomizationScreen(
+            provider: provider(),
+            eventPackage: preparationPackage(),
+            repository: repo,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        tester
+            .widget<CustomizationProgress>(find.byType(CustomizationProgress))
+            .step,
+        1,
+      );
+      expect(find.byType(BookingSummaryScreen), findsNothing);
+      await tester.scrollUntilVisible(
+        find.text('Selected event services'),
+        180,
+        scrollable: find.byType(Scrollable).first,
+      );
+      expect(find.text('Selected event services'), findsOneWidget);
+      final before = (await eventDraftPersistence.read(
+        'customer-1',
+        'caterer-1',
+        'package-1',
+      ))!;
+      expect((before['addons'] as List).single['addonId'], 'saved-service');
+      await tester.scrollUntilVisible(
+        find.widgetWithText(TextButton, 'Remove'),
+        120,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(TextButton, 'Remove'));
+      await tester.pumpAndSettle();
+      final after = (await eventDraftPersistence.read(
+        'customer-1',
+        'caterer-1',
+        'package-1',
+      ))!;
+      expect(after['addons'], isEmpty);
+      expect(after['notes'], 'No peanuts');
+      expect(find.text('Add event services'), findsNothing);
+    },
+  );
+
   testWidgets(
     'fresh process restores saved step, tier and notes before initial defaults',
     (tester) async {
@@ -579,18 +1018,19 @@ void main() {
         tester
             .widget<CustomizationProgress>(find.byType(CustomizationProgress))
             .step,
-        2,
+        1,
       );
-      expect(find.textContaining('Unfinished draft recovered'), findsOneWidget);
-      await tester.tap(find.text('Review Event'));
+      await expectRecoveredDraft(tester);
+      await tester.tap(find.text('Review booking'));
       await tester.pumpAndSettle();
       final review = tester.widget<BookingSummaryScreen>(
         find.byType(BookingSummaryScreen),
       );
       expect(review.customization.serviceTier, 'full_service');
       expect(review.customization.specialRequest, contains('Ocean blue'));
+      expect(review.customization.specialRequest, contains('No peanuts'));
       expect(review.preparationOnly, isTrue);
-      expect(find.text('Submit Booking Request'), findsNothing);
+      expect(find.text('Submit booking request'), findsNothing);
     },
   );
   testWidgets('unreadable draft is retained until confirmed discard', (
@@ -630,6 +1070,120 @@ void main() {
     expect(callableNames, isEmpty);
   });
   testWidgets(
+    'compact review groups selections and service sources on a small screen',
+    (tester) async {
+      tester.view.physicalSize = const Size(320, 640);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final data = reviewData();
+      data.selectedAddOns.addAll([
+        {
+          'name': 'Catering lights',
+          'source': 'catering_provider',
+          'price': 500,
+        },
+        {
+          'name': 'Photo booth',
+          'source': 'feasta_addon_provider',
+          'providerBusinessName': 'Photo team',
+          'price': 900,
+        },
+      ]);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: BookingSummaryScreen(
+            provider: provider(),
+            eventPackage: preparationPackage(),
+            customization: data,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      for (final text in [
+        'Event details',
+        'Main Street',
+        'Package & customization',
+        'Food selections',
+        'Optional event services',
+        'Catering lights',
+        'Photo booth',
+        'Photo team \u2022 FEASTA marketplace',
+        'Booking estimate',
+      ]) {
+        await tester.scrollUntilVisible(
+          find.text(text),
+          150,
+          scrollable: find.byType(Scrollable).first,
+        );
+        expect(find.text(text), findsOneWidget);
+        expect(tester.takeException(), isNull);
+      }
+      expect(find.text('Submit booking request'), findsNothing);
+      expect(callableNames, isEmpty);
+    },
+  );
+  testWidgets(
+    'review selections remain readable on a small screen at 200 percent text',
+    (tester) async {
+      tester.view.physicalSize = const Size(320, 640);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final data = reviewData();
+      data.selectedAddOns.addAll([
+        {
+          'name': 'Catering lights',
+          'source': 'catering_provider',
+          'price': 500,
+        },
+        {
+          'name': 'Photo booth',
+          'source': 'feasta_addon_provider',
+          'providerBusinessName': 'Photo team',
+          'price': 900,
+        },
+      ]);
+      await tester.pumpWidget(
+        MaterialApp(
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(
+              context,
+            ).copyWith(textScaler: const TextScaler.linear(2)),
+            child: child!,
+          ),
+          home: BookingSummaryScreen(
+            provider: provider(),
+            eventPackage: preparationPackage(),
+            customization: data,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      for (final text in [
+        'Event details',
+        'Main Street',
+        'Package & customization',
+        'Food selections',
+        'Optional event services',
+        'Catering lights',
+        'Photo booth',
+        'Photo team \u2022 FEASTA marketplace',
+        'Booking estimate',
+      ]) {
+        await tester.scrollUntilVisible(
+          find.text(text),
+          150,
+          scrollable: find.byType(Scrollable).first,
+        );
+        expect(find.text(text), findsOneWidget);
+        expect(tester.takeException(), isNull);
+      }
+      expect(find.text('Submit booking request'), findsNothing);
+      expect(callableNames, isEmpty);
+    },
+  );
+  testWidgets(
     'omitted preparationOnly defaults to safe review without submission',
     (tester) async {
       phone(tester);
@@ -647,31 +1201,21 @@ void main() {
         ),
         findsOneWidget,
       );
-      expect(find.text('Submit Booking Request'), findsNothing);
-      expect(find.text('Edit event details and selections'), findsOneWidget);
+      expect(find.text('Submit booking request'), findsNothing);
+      expect(find.text('Edit event'), findsOneWidget);
       expect(callableNames, isEmpty);
       expect(tester.takeException(), isNull);
     },
   );
   testWidgets(
-    'older availability navigation inherits preparation-only default',
+    'availability without a session blocks all reads and progression',
     (tester) async {
       phone(tester);
-      var availabilityReads = 0;
+      var reads = 0;
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-          .setMockDecodedMessageHandler<Object?>(queryChannel, (message) async {
-            expect((message as List)[1], 'mainEvents');
-            availabilityReads++;
-            return [
-              firestore_host.InternalQuerySnapshot(
-                documents: [],
-                documentChanges: [],
-                metadata: firestore_host.InternalSnapshotMetadata(
-                  hasPendingWrites: false,
-                  isFromCache: false,
-                ),
-              ),
-            ];
+          .setMockDecodedMessageHandler<Object?>(queryChannel, (_) async {
+            reads++;
+            return null;
           });
       await tester.pumpWidget(
         MaterialApp(
@@ -683,29 +1227,10 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      expect(
-        availabilityReads,
-        1,
-        reason: tester
-            .widgetList<Text>(find.byType(Text))
-            .map((w) => w.data)
-            .join(' | '),
-      );
-      expect(find.text('Available'), findsOneWidget);
-      await tester.tap(find.text('Continue to Booking Summary'));
-      await tester.pumpAndSettle();
-      expect(
-        tester
-            .widget<BookingSummaryScreen>(find.byType(BookingSummaryScreen))
-            .preparationOnly,
-        isTrue,
-      );
-      expect(find.text('Submit Booking Request'), findsNothing);
-      await tester.tap(find.text('Edit event details and selections'));
-      await tester.pumpAndSettle();
-      expect(find.byType(AvailabilityCheckScreen), findsOneWidget);
+      expect(reads, 0);
       expect(callableNames, isEmpty);
-      expect(tester.takeException(), isNull);
+      expect(find.text('Continue to Booking Summary'), findsNothing);
+      expect(find.text('Submit booking request'), findsNothing);
     },
   );
   testWidgets(
@@ -725,7 +1250,7 @@ void main() {
       );
       await tester.pumpAndSettle();
       await openStep(tester, '3 Services');
-      await tester.tap(find.text('Review Event'));
+      await tester.tap(find.text('Review booking'));
       await tester.pumpAndSettle();
       expect(
         tester
@@ -733,29 +1258,38 @@ void main() {
             .preparationOnly,
         isTrue,
       );
-      final link = find.text('Review Booking & Payment Agreements');
+      final link = find.byWidgetPredicate(
+        (widget) =>
+            widget is Text &&
+            widget.semanticsLabel == 'Review Booking & Payment Agreement',
+      );
       await tester.scrollUntilVisible(
         link,
         300,
         scrollable: find.byType(Scrollable).first,
       );
+      await tester.pumpAndSettle();
       await tester.tap(link);
       await tester.pumpAndSettle();
       expect(find.byType(BookingAgreementReviewScreen), findsOneWidget);
       expect(callableNames, ['getBookingPaymentAgreementDisclosures']);
-      expect(find.text('Submit Booking Request'), findsNothing);
+      expect(find.text('Submit booking request'), findsNothing);
       expect(find.byType(CheckboxListTile), findsNothing);
       expect(find.text('Reload current agreements'), findsOneWidget);
       expect(find.byType(LinearProgressIndicator), findsNothing);
       await tester.binding.handlePopRoute();
       await tester.pumpAndSettle();
       expect(find.byType(BookingSummaryScreen), findsOneWidget);
-      final refundLink = find.text('Review Refund Policies');
+      final refundLink = find.byWidgetPredicate(
+        (widget) =>
+            widget is Text && widget.semanticsLabel == 'Review Refund Policy',
+      );
       await tester.scrollUntilVisible(
         refundLink,
         250,
         scrollable: find.byType(Scrollable).first,
       );
+      await tester.pumpAndSettle();
       await tester.tap(refundLink);
       await tester.pumpAndSettle();
       expect(find.byType(BookingRefundPolicyReviewScreen), findsOneWidget);
@@ -765,7 +1299,7 @@ void main() {
       ]);
       expect(find.byType(CheckboxListTile), findsNothing);
       expect(find.text('Reload current refund policies'), findsOneWidget);
-      expect(find.text('Submit Booking Request'), findsNothing);
+      expect(find.text('Submit booking request'), findsNothing);
       await tester.binding.handlePopRoute();
       await tester.pumpAndSettle();
       expect(find.byType(BookingSummaryScreen), findsOneWidget);
@@ -817,14 +1351,14 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      expect(find.textContaining('Step 1 of 4'), findsOneWidget);
+      expect(find.textContaining('Step 1 of 3'), findsOneWidget);
       await tester.tap(find.text('Continue'));
       await tester.pumpAndSettle();
-      expect(find.textContaining('Step 2 of 4'), findsOneWidget);
+      expect(find.textContaining('Step 2 of 3'), findsOneWidget);
       await tester.tap(find.text('Back'));
       await tester.pumpAndSettle();
       await tester.scrollUntilVisible(
-        find.text('Full event address'),
+        find.text('Complete event address'),
         200,
         scrollable: find.byType(Scrollable).first,
       );
@@ -845,7 +1379,7 @@ void main() {
       await tester.tap(find.text('Back'));
       await tester.pumpAndSettle();
       await tester.scrollUntilVisible(
-        find.text('Full event address'),
+        find.text('Complete event address'),
         200,
         scrollable: find.byType(Scrollable).first,
       );
@@ -855,7 +1389,7 @@ void main() {
     },
   );
   testWidgets(
-    'Select Package opens existing customization and preparation-only review; edits persist',
+    'Select Package opens customization and direct review; edits persist',
     (tester) async {
       phone(tester);
       await seedDraft();
@@ -863,6 +1397,7 @@ void main() {
       await tester.pumpWidget(
         MaterialApp(
           home: PackageDetailsScreen(
+            bookingEligibilityCheck: (_) async => true,
             sessions: readyPreparationSessions(),
             provider: provider(),
             eventPackage: preparationPackage(),
@@ -877,37 +1412,46 @@ void main() {
       expect(find.byType(EventCustomizationScreen), findsOneWidget);
       await openStep(tester, '1 Details');
       await tester.scrollUntilVisible(
-        find.text('Full event address'),
+        find.text('Complete event address'),
         200,
         scrollable: find.byType(Scrollable).first,
       );
       expect(find.text('Main Street, District 1'), findsOneWidget);
-      await openStep(tester, '3 Services');
-      await tester.tap(find.text('Review Event'));
-      await tester.pumpAndSettle();
-      expect(find.byType(BookingSummaryScreen), findsOneWidget);
-      expect(
-        tester
-            .widget<BookingSummaryScreen>(find.byType(BookingSummaryScreen))
-            .preparationOnly,
-        isTrue,
+      await tester.enterText(
+        find.byWidgetPredicate(
+          (widget) =>
+              widget is TextField &&
+              widget.controller?.text == 'Main Street, District 1',
+        ),
+        'Edited package venue',
       );
-      expect(find.text('Submit Booking Request'), findsNothing);
-      expect(find.text('Edit event details and selections'), findsOneWidget);
-      await tester.tap(find.text('Edit event details and selections'));
+      await openStep(tester, '3 Services');
+      await tester.tap(find.text('Review booking'));
+      await tester.pumpAndSettle();
+      expect(find.byType(AvailabilityCheckScreen), findsNothing);
+      expect(find.byType(BookingSummaryScreen), findsOneWidget);
+      final review = tester.widget<BookingSummaryScreen>(
+        find.byType(BookingSummaryScreen),
+      );
+      expect(review.customization.eventAddress, 'Edited package venue');
+      expect(review.customization.specialRequest, 'No peanuts');
+      expect(find.text('Submit booking request'), findsOneWidget);
+      await tester.binding.handlePopRoute();
       await tester.pumpAndSettle();
       expect(find.byType(EventCustomizationScreen), findsOneWidget);
       await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Leave customization'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Select Package'));
       await tester.pumpAndSettle();
       await openStep(tester, '1 Details');
       await tester.scrollUntilVisible(
-        find.text('Full event address'),
+        find.text('Complete event address'),
         200,
         scrollable: find.byType(Scrollable).first,
       );
-      expect(find.text('Main Street, District 1'), findsOneWidget);
+      expect(find.text('Edited package venue'), findsOneWidget);
       expect(repo.validations, 5);
       expect(repo.unexpected, isEmpty);
       expect(tester.takeException(), isNull);
@@ -920,6 +1464,7 @@ void main() {
       await tester.pumpWidget(
         MaterialApp(
           home: PackageDetailsScreen(
+            bookingEligibilityCheck: (_) async => true,
             sessions: readyPreparationSessions(),
             provider: provider(),
             eventPackage: preparationPackage(),
@@ -1013,6 +1558,15 @@ void main() {
         providerBusinessName: 'Ana Catering',
         providerType: 'catering_provider',
       );
+      final saved = (await eventDraftPersistence.read(
+        'customer-1',
+        'caterer-1',
+        'package-1',
+      ))!;
+      await eventDraftPersistence.save('customer-1', 'caterer-1', 'package-1', {
+        ...saved,
+        'addons': [addon(500).toBookingMap(source: 'catering_provider')],
+      }, () => 'customer-1');
       final repo = PreparationRepository()..addons = [addon(500)];
       await tester.pumpWidget(
         MaterialApp(
@@ -1034,17 +1588,10 @@ void main() {
       await tester.tap(find.text('Fish'));
       await tester.pumpAndSettle();
       await openStep(tester, '3 Services');
-      await tester.scrollUntilVisible(
-        find.text('Extra staff'),
-        200,
-        scrollable: find.byType(Scrollable).first,
-      );
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Extra staff'));
-      await tester.pumpAndSettle();
+      expect(find.text('Add event services'), findsNothing);
       repo.addons = [addon(900)];
       await openStep(tester, '3 Services');
-      await tester.tap(find.text('Review Event'));
+      await tester.tap(find.text('Review booking'));
       await tester.pumpAndSettle();
       final review = tester.widget<BookingSummaryScreen>(
         find.byType(BookingSummaryScreen),
@@ -1058,7 +1605,7 @@ void main() {
         ),
         12900,
       );
-      expect(find.text('Submit Booking Request'), findsNothing);
+      expect(find.text('Submit booking request'), findsNothing);
       expect(repo.unexpected, isEmpty);
       expect(tester.takeException(), isNull);
     },
@@ -1134,7 +1681,7 @@ void main() {
     );
     await tester.pumpAndSettle();
     await openStep(tester, '3 Services');
-    await tester.tap(find.text('Review Event'));
+    await tester.tap(find.text('Review booking'));
     await tester.pumpAndSettle();
     // Recovery already refreshed and removed the stale inclusion before review.
     expect(find.byType(BookingSummaryScreen), findsOneWidget);
@@ -1224,7 +1771,7 @@ void main() {
       await tester.tap(find.text('Garden'));
       await tester.pumpAndSettle();
       await openStep(tester, '3 Services');
-      await tester.tap(find.text('Review Event'));
+      await tester.tap(find.text('Review booking'));
       await tester.pumpAndSettle();
       final review = tester.widget<BookingSummaryScreen>(
         find.byType(BookingSummaryScreen),
@@ -1267,7 +1814,7 @@ void main() {
       );
       await tester.pumpAndSettle();
       await openStep(tester, '3 Services');
-      await tester.tap(find.text('Review Event'));
+      await tester.tap(find.text('Review booking'));
       await tester.pumpAndSettle();
       expect(find.byType(BookingSummaryScreen), findsOneWidget);
       await tester.scrollUntilVisible(
@@ -1276,8 +1823,8 @@ void main() {
         scrollable: find.byType(Scrollable).first,
       );
       await tester.pumpAndSettle();
-      expect(find.text('Submit Booking Request'), findsNothing);
-      expect(find.text('Edit event details and selections'), findsOneWidget);
+      expect(find.text('Submit booking request'), findsNothing);
+      expect(find.text('Edit event'), findsOneWidget);
       expect(repo.unexpected, isEmpty);
       expect(tester.takeException(), isNull);
     },
@@ -1332,7 +1879,7 @@ void main() {
         expect(find.text('Food choices'), findsNothing);
         await openStep(tester, '3 Services');
         await tester.scrollUntilVisible(
-          find.text('Special request'),
+          find.byType(BookingPreparationPrice),
           200,
           scrollable: find.byType(Scrollable).first,
         );

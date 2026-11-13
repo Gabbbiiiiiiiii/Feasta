@@ -55,10 +55,13 @@ class BookingRefundPolicyController extends ChangeNotifier {
     return true;
   }
 
-  Future<void> load() {
+  Future<void> load({bool revalidate = false}) {
     if (_disposed || _request == null) return Future.value();
     if (_pending != null) return _pending!;
     final generation = _generation, request = _request!;
+    final accepted = revalidate
+        ? Map<String, String>.from(_accepted)
+        : <String, String>{};
     status = RefundReviewStatus.loading;
     disclosures = null;
     _accepted.clear();
@@ -100,6 +103,11 @@ class BookingRefundPolicyController extends ChangeNotifier {
           );
         }
         disclosures = result;
+        for (final policy in result.policies) {
+          if (accepted[policy.providerId] == policy.effectivePolicyKey) {
+            _accepted[policy.providerId] = policy.effectivePolicyKey;
+          }
+        }
         loadedAt = DateTime.now().toUtc();
         status = RefundReviewStatus.ready;
       } catch (error) {

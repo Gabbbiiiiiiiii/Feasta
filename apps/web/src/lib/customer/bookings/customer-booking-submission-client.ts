@@ -96,6 +96,53 @@ type SubmitBookingRequestResponse = {
 
 export async function submitCustomerBookingRequest(
   input: SubmitBookingRequestInput,
+  options: {customerId?: string; freshAttempt?: boolean; restoredRequestId?: string} = {},
+): Promise<SubmitBookingRequestResult> {
+  return withSubmissionLock(options.customerId, async (uid, journal, save) => {
+    const selectionKey = await bookingSelectionKey(input);
+    assertSubmissionOwner(uid);
+    const completed = journal.completed[input.clientRequestId] ?? journal.completed[selectionKey];
+    if (completed) return parseSubmitBookingResponse(completed);
+    if (!journal.active && options.restoredRequestId && !journal.outcomes[options.restoredRequestId]) {
+      journal.active = options.restoredRequestId;
+      journal.sourceRequestId = options.restoredRequestId;
+      journal.sourceSelectionKey = undefined;
+      save();
+    }
+    const previous = journal.outcomes[input.clientRequestId];
+    if (previous?.outcome === "confirmed_created") return parseSubmitBookingResponse(previous.booking);
+    if (previous?.outcome === "confirmed_rejected" && !options.freshAttempt) {
+      throw new Error("Check Previous Request and acknowledge the current policies before starting a fresh attempt.");
+    }
+    if (journal.active) {
+      const outcome = journal.outcomes[journal.active];
+      if (outcome?.outcome !== "confirmed_rejected" || !options.freshAttempt) {
+        throw new Error("Check Previous Request before submitting another booking. Its outcome may still be unresolved.");
+      }
+    }
+    // A rejected identifier is permanently fenced, including when a restored
+    // draft still contains it. Only the explicit, acknowledged retry reaches here.
+    const clientRequestId = previous?.outcome === "confirmed_rejected" || journal.active
+      ? `booking-${crypto.randomUUID()}` : input.clientRequestId;
+    journal.active = clientRequestId;
+    journal.sourceRequestId = input.clientRequestId;
+    journal.sourceSelectionKey = selectionKey;
+    save(); // Persist BEFORE dispatch; storage failure must prevent submission.
+    assertSubmissionOwner(uid);
+    const result = await dispatchCustomerBookingRequest({...input, clientRequestId}, uid);
+    assertSubmissionOwner(uid);
+    journal.outcomes[clientRequestId] = {outcome: "confirmed_created", booking: result};
+    journal.completed[input.clientRequestId] = result;
+    journal.completed[selectionKey] = result;
+    journal.active = null;
+    save();
+    return result;
+  });
+}
+
+async function dispatchCustomerBookingRequest(
+  input: SubmitBookingRequestInput,
+  uid: string,
 ): Promise<SubmitBookingRequestResult> {
   try {
     await auth.authStateReady();
@@ -109,6 +156,7 @@ export async function submitCustomerBookingRequest(
     }
 
     initializeBrowserAppCheck();
+    assertSubmissionOwner(uid);
 
     const callable = httpsCallable<
       SubmitBookingRequestInput,
@@ -131,6 +179,101 @@ export async function submitCustomerBookingRequest(
       error,
     );
   }
+}
+
+export type BookingSubmissionOutcome =
+  | {outcome: "confirmed_created"; booking: SubmitBookingRequestResult}
+  | {outcome: "confirmed_rejected"}
+  | {outcome: "unresolved"};
+
+type SubmissionJournal = {
+  active: string | null;
+  sourceRequestId?: string;
+  sourceSelectionKey?: string;
+  completed: Record<string, SubmitBookingRequestResult>;
+  outcomes: Record<string, Exclude<BookingSubmissionOutcome, {outcome: "unresolved"}>>;
+};
+
+async function bookingSelectionKey(input: SubmitBookingRequestInput): Promise<string> {
+  const selection = Object.fromEntries(Object.entries(input)
+    .filter(([key]) => !["clientRequestId", "policyAcknowledgements", "agreementAcknowledgements"].includes(key))
+    .sort(([left], [right]) => left.localeCompare(right)));
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify(selection)));
+  return `selection:${Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join("")}`;
+}
+
+function assertSubmissionOwner(uid: string) {
+  if (auth.currentUser?.uid !== uid) {
+    throw new Error("Your account changed. Reload this booking page before continuing.");
+  }
+}
+
+async function withSubmissionLock<T>(
+  expectedCustomerId: string | undefined,
+  run: (uid: string, journal: SubmissionJournal, save: () => void) => Promise<T>,
+): Promise<T> {
+  await auth.authStateReady();
+  if (!expectedCustomerId) throw new Error("Sign in and reload this booking page before continuing.");
+  assertSubmissionOwner(expectedCustomerId);
+  if (!navigator.locks) throw new Error("This browser cannot safely preserve booking attempts. Use a browser with Web Locks support.");
+  return navigator.locks.request(`feasta-booking:${expectedCustomerId}`, {ifAvailable: true}, async (lock) => {
+    if (!lock) throw new Error("A booking operation is already in progress. Check Previous Request when it finishes.");
+    assertSubmissionOwner(expectedCustomerId);
+    const key = `feasta:booking-submission:v1:${expectedCustomerId}`;
+    const stored = localStorage.getItem(key);
+    const journal: SubmissionJournal = stored ? JSON.parse(stored) : {active: null, outcomes: {}, completed: {}};
+    if (!journal || (journal.active !== null && !validId(journal.active)) ||
+        !journal.outcomes || typeof journal.outcomes !== "object" || Array.isArray(journal.outcomes) ||
+        !journal.completed || typeof journal.completed !== "object" || Array.isArray(journal.completed)) {
+      throw new Error("Saved booking evidence cannot be read safely. Contact support before submitting.");
+    }
+    return run(expectedCustomerId, journal, () => {
+      assertSubmissionOwner(expectedCustomerId);
+      localStorage.setItem(key, JSON.stringify(journal));
+    });
+  });
+}
+
+/** Read-only authenticated reconciliation. Missing records remain unresolved. */
+export async function reconcileCustomerBookingSubmission(customerId?: string, restoredRequestId?: string): Promise<BookingSubmissionOutcome> {
+  return withSubmissionLock(customerId, async (uid, journal, save) => {
+    if (restoredRequestId && journal.completed[restoredRequestId]) {
+      return {outcome: "confirmed_created", booking: parseSubmitBookingResponse(journal.completed[restoredRequestId])};
+    }
+    if (!journal.active && restoredRequestId && !journal.outcomes[restoredRequestId]) {
+      if (!/^[A-Za-z0-9_-]{8,160}$/.test(restoredRequestId)) throw new Error("Invalid saved request identifier.");
+      journal.active = restoredRequestId;
+      journal.sourceRequestId = restoredRequestId;
+      journal.sourceSelectionKey = undefined;
+      save();
+    }
+    const clientRequestId = journal.active;
+    if (!clientRequestId) throw new Error("No previous request is saved for this account on this device.");
+    initializeBrowserAppCheck();
+    const callable = httpsCallable<{clientRequestId: string}, {
+      clientRequestId?: unknown; outcome?: unknown; booking?: SubmitBookingRequestResponse;
+    }>(functions, "reconcileBookingSubmission", {timeout: 30_000});
+    const {data} = await callable({clientRequestId});
+    assertSubmissionOwner(uid);
+    if (data?.clientRequestId !== clientRequestId) throw new Error("Invalid reconciliation response. Keep the original request and check again.");
+    if (data.outcome === "confirmed_created" && data.booking) {
+      const booking = parseSubmitBookingResponse(data.booking);
+      if (booking.created || !booking.providerRequestIds.length) throw new Error("Invalid recovery evidence. Check again.");
+      const outcome = {outcome: "confirmed_created" as const, booking};
+      journal.outcomes[clientRequestId] = outcome;
+      journal.completed[journal.sourceRequestId ?? clientRequestId] = booking;
+      if (journal.sourceSelectionKey) journal.completed[journal.sourceSelectionKey] = booking;
+      journal.active = null;
+      save();
+      return outcome;
+    }
+    if (data.outcome === "confirmed_rejected") {
+      journal.outcomes[clientRequestId] = {outcome: "confirmed_rejected"};
+      save(); // Retain terminal evidence even after an explicitly initiated retry.
+      return {outcome: "confirmed_rejected"};
+    }
+    return {outcome: "unresolved"};
+  });
 }
 
 /* ==================================================================
@@ -263,7 +406,7 @@ function normalizeBookingSubmissionError(
 
     case "deadline-exceeded":
       return new Error(
-        "The booking request took too long to complete. Please try again. FEASTA will safely reuse the same request identifier.",
+        "The booking request took too long to complete. Use Check Previous Request to recover its outcome before submitting again.",
       );
 
     case "unavailable":

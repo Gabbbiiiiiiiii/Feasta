@@ -23,6 +23,7 @@ import 'package:feasta/shared/models/feasta_models.dart';
 import 'package:feasta/features/customer/provider_profile_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:feasta/shared/widgets/loading_skeleton.dart';
 
 ProviderModel provider({
   String city = 'Ormoc City',
@@ -566,7 +567,7 @@ void main() {
       await tester.pump();
       await tester.drag(find.byType(CustomScrollView), const Offset(0, -450));
       await tester.pump();
-      expect(find.byType(CircularProgressIndicator), findsOneWidget);
+      expect(find.byType(FeastaSkeletonHorizontalCards), findsOneWidget);
       expect(tester.takeException(), isNull);
       updates.addError(StateError('offline'));
       await tester.pumpAndSettle();
@@ -608,16 +609,12 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('No reviews yet'), findsWidgets);
       await tester.ensureVisible(find.text('Book Now'));
-      if (scale == 1.0) {
-        expect(
-          tester.getTopLeft(find.text('Book Now')).dx,
-          lessThan(tester.getTopLeft(find.text('Chat')).dx),
-        );
-        expect(
-          tester.getTopLeft(find.text('Book Now')).dy,
-          tester.getTopLeft(find.text('Chat')).dy,
-        );
-      }
+      final bookPosition = tester.getTopLeft(find.text('Book Now'));
+      final chatPosition = tester.getTopLeft(find.text('Chat'));
+
+      // Compact screens stack the buttons vertically to avoid text wrapping.
+      expect(chatPosition.dy, greaterThan(bookPosition.dy));
+      expect((chatPosition.dx - bookPosition.dx).abs(), lessThan(80));
       expect(tester.takeException(), isNull);
     });
   }
@@ -659,10 +656,9 @@ void main() {
             .selected,
         isTrue,
       );
-      await tester.ensureVisible(find.widgetWithText(ChoiceChip, 'Menu'));
-      await tester.tap(find.widgetWithText(ChoiceChip, 'Menu'));
-      await tester.pumpAndSettle();
-      expect(find.text('No menu items yet'), findsOneWidget);
+      expect(find.widgetWithText(ChoiceChip, 'Menu'), findsNothing);
+      expect(find.widgetWithText(ChoiceChip, 'Photos'), findsNothing);
+      expect(find.widgetWithText(ChoiceChip, 'Reviews'), findsOneWidget);
       await show('florist', 'florist');
       expect(find.widgetWithText(ChoiceChip, 'Menu'), findsNothing);
       expect(find.widgetWithText(ChoiceChip, 'Catalog'), findsNothing);
@@ -674,7 +670,10 @@ void main() {
         isTrue,
       );
       await show('cake_pastry', 'cake');
-      expect(find.widgetWithText(ChoiceChip, 'Menu'), findsOneWidget);
+      expect(find.widgetWithText(ChoiceChip, 'Packages'), findsOneWidget);
+      expect(find.widgetWithText(ChoiceChip, 'Reviews'), findsOneWidget);
+      expect(find.widgetWithText(ChoiceChip, 'Menu'), findsNothing);
+      expect(find.widgetWithText(ChoiceChip, 'Photos'), findsNothing);
       expect(tester.takeException(), isNull);
     },
   );
@@ -785,12 +784,7 @@ void main() {
   test(
     'category tab rules use existing classification and supported sources',
     () {
-      expect(providerProfileTabs(provider()), [
-        'Packages',
-        'Menu',
-        'Photos',
-        'Reviews',
-      ]);
+      expect(providerProfileTabs(provider()), ['Packages', 'Reviews']);
       for (final category in [
         'photographer',
         'Photography / Videography',
@@ -815,7 +809,7 @@ void main() {
         providerProfileTabs(
           provider(category: 'cake_pastry', serviceType: 'addon'),
         ),
-        contains('Menu'),
+        ['Packages', 'Reviews'],
       );
     },
   );

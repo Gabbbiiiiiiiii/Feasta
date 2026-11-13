@@ -71,12 +71,27 @@ void main() {
       expect(find.text('No provider add-ons selected.'), findsNothing);
       expect(find.text('Submit Booking Request'), findsNothing);
       await tester.scrollUntilVisible(
-        find.textContaining('Known estimate:'),
+        find.text('Known estimate'),
         150,
         scrollable: find.byType(Scrollable).first,
       );
+      final knownEstimateRow = find
+          .ancestor(
+            of: find.text('Known estimate'),
+            matching: find.byType(LayoutBuilder),
+          )
+          .first;
+
       expect(
-        find.text(preparationEstimateText(preparationPackage(), [])),
+        find.descendant(
+          of: knownEstimateRow,
+          matching: find.text(
+            preparationEstimateText(
+              preparationPackage(),
+              [],
+            ).replaceFirst('Known estimate: ', ''),
+          ),
+        ),
         findsOneWidget,
       );
       expect(tester.takeException(), isNull);

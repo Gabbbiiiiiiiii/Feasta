@@ -43,10 +43,33 @@ void main() {
         booking('deleted', 'confirmed', deleted: true),
         booking('pending', 'pending_provider_approval'),
       ], DateTime.utc(2027, 2, 14));
-      expect(result.map((b) => b.id), ['pending', 'later']);
+      expect(result.map((b) => b.id), ['later']);
       expect(homeActiveBookings([], DateTime.now()), isEmpty);
     },
   );
+  test('home timeline shows confirmed bookings only', () {
+    final result = homeActiveBookings([
+      booking('pending', 'pending'),
+      booking('approval', 'pending_provider_approval'),
+      booking('replacement', 'needs_provider_replacement'),
+      booking('accepted', 'accepted'),
+      booking('waiting', 'waiting_payment'),
+      booking('down-payment', 'waiting_for_down_payment'),
+      booking('processing', 'payment_processing'),
+      booking('confirmed', 'confirmed'),
+      booking('in_progress', 'in_progress'),
+      booking('cancelled', 'cancelled'),
+      booking('rejected', 'rejected'),
+      booking('expired', 'expired'),
+      booking('completed', 'completed'),
+      booking('deleted', 'confirmed', deleted: true),
+    ], DateTime.utc(2027, 2, 14));
+
+    expect(
+      result.map((b) => b.id).toList(),
+      ['confirmed', 'in_progress'],
+    );
+  });
   test('pending and processing payments do not appear confirmed', () {
     expect(homeBookingStage('pending_provider_approval'), -1);
     expect(homeBookingStage('payment_processing'), 0);
@@ -74,8 +97,51 @@ void main() {
         ),
       ),
     );
-    expect(find.text('Booking timeline'), findsOneWidget);
+    expect(find.text('Your upcoming event'), findsOneWidget);
+    expect(find.text('Event journey'), findsOneWidget);
+    expect(find.byKey(const ValueKey('booking-status-pill')), findsOneWidget);
+    expect(find.text('Confirmed'), findsNWidgets(2));
+    expect(find.text('Accepted'), findsOneWidget);
+    expect(find.text('Preparation'), findsOneWidget);
+    expect(find.text('Event day'), findsOneWidget);
+    expect(find.byIcon(Icons.check), findsNWidgets(2));
+    expect(find.text('CURRENT REFUND-POLICY STAGE'), findsOneWidget);
+    expect(find.text('View booking policies'), findsOneWidget);
+    expect(find.text('100%'), findsNothing);
+    expect(find.text('Your event updates at a glance.'), findsOneWidget);
     expect(find.text('View booking details'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+  testWidgets('only active cards render with the matching journey progress', (
+    tester,
+  ) async {
+    final visible = homeActiveBookings([
+      booking('confirmed', 'confirmed'),
+      booking('in_progress', 'in_progress'),
+      booking('cancelled', 'cancelled'),
+      booking('rejected', 'rejected'),
+      booking('request', 'pending_provider_approval'),
+      booking('accepted', 'accepted'),
+      booking('processing', 'payment_processing'),
+    ], DateTime.utc(2027, 2, 14));
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: SingleChildScrollView(
+          child: Column(children: [
+            for (final item in visible) HomeBookingProgressCard(booking: item),
+          ]),
+        ),
+      ),
+    ));
+    expect(find.byType(HomeBookingProgressCard), findsNWidgets(2));
+    expect(find.text('Your upcoming event'), findsNWidgets(2));
+    expect(find.text('Event journey'), findsNWidgets(2));
+    expect(find.text('View booking details'), findsNWidgets(2));
+    expect(find.text('In Progress'), findsOneWidget);
+    expect(find.byIcon(Icons.check), findsNWidgets(6));
+    expect(find.text('Cancelled'), findsNothing);
+    expect(find.text('Rejected'), findsNothing);
+    expect(find.text('Awaiting provider'), findsNothing);
     expect(tester.takeException(), isNull);
   });
 }

@@ -14,7 +14,7 @@ import {
 import Link from "next/link";
 import type {ReactNode} from "react";
 
-import {PackageEventListAction} from "@/components/customer/event-list/package-event-list-action";
+
 import {CustomerAuthLink} from "@/components/customer/layout/customer-auth-provider";
 import {PackagePaymentTerms} from "@/components/shared/package-payment-terms";
 import {PriceDisplay} from "@/components/shared/price-display";
@@ -198,7 +198,7 @@ export function PackageDetail({
                 className="size-4 transition-transform duration-normal group-hover:translate-x-0.5 motion-reduce:transform-none"
               />
             </CustomerAuthLink>
-            <PackageEventListAction packageRecord={packageRecord} />
+
             <p className="mt-3 text-xs leading-5 text-feasta-text-secondary">
               Requesting does not confirm a booking or charge you. The provider
               reviews your request first; payment is available after acceptance.

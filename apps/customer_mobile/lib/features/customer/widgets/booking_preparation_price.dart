@@ -13,7 +13,12 @@ String preparationEstimateText(
   if (services.isNotEmpty && !services.containsKey(serviceTier)) {
     return 'Choose a service to see your estimate';
   }
-  final total = preparationEstimate(package, addons, serviceTier: serviceTier, guests: guests);
+  final total = preparationEstimate(
+    package,
+    addons,
+    serviceTier: serviceTier,
+    guests: guests,
+  );
   return total == null
       ? 'Estimate unavailable - published pricing needs confirmation'
       : 'Known estimate: ${FeastaPriceFormatter.format(total)}';
@@ -36,7 +41,12 @@ class BookingPreparationPrice extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final services = preparationServices(package);
-    final base = preparationEstimate(package, const [], serviceTier: serviceTier, guests: guests);
+    final base = preparationEstimate(
+      package,
+      const [],
+      serviceTier: serviceTier,
+      guests: guests,
+    );
     final needsSelection =
         services.isNotEmpty && !services.containsKey(serviceTier);
     String money(dynamic value) => value is num && knownPreparationPrice(value)
@@ -44,7 +54,7 @@ class BookingPreparationPrice extends StatelessWidget {
         : 'Published price unavailable';
     return FeastaCard(
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Text(
             'Price estimate',
@@ -62,6 +72,8 @@ class BookingPreparationPrice extends StatelessWidget {
                 : 'Selected service: ${services.containsKey(serviceTier) ? serviceOptionTitle(serviceTier!, services[serviceTier]!) : 'Choose a service option'}',
             value: needsSelection ? 'Selection required' : money(base),
           ),
+          if (guests != null && guests! > 0)
+            _PriceRow(label: 'Guests', value: '$guests'),
           if (addons.isEmpty)
             const _PriceRow(
               label: 'Additional priced services',
@@ -74,13 +86,61 @@ class BookingPreparationPrice extends StatelessWidget {
             ),
           const Divider(),
           Text(
-            preparationEstimateText(package, addons, serviceTier: serviceTier, guests: guests),
+            preparationEstimateText(
+              package,
+              addons,
+              serviceTier: serviceTier,
+              guests: guests,
+            ),
+            textAlign: TextAlign.end,
+            style: Theme.of(
+              context,
+            ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
           ),
           const SizedBox(height: 8),
           if (hasUnconfirmedRequests)
             const Text(
               'Customer-arranged services and special requests: costs unconfirmed and excluded from the known estimate.',
             ),
+          if (package.paymentPolicy == 'deposit_then_balance' ||
+              package.paymentPolicy == 'full_payment') ...[
+            const SizedBox(height: 12),
+            Text(
+              'Payment terms',
+              style: Theme.of(context).textTheme.titleSmall,
+            ),
+            const SizedBox(height: 6),
+            Text(
+              package.paymentPolicy == 'full_payment'
+                  ? 'Full payment'
+                  : 'Deposit + balance',
+            ),
+            if (package.paymentPolicy == 'full_payment')
+              const Text('100% due after booking acceptance')
+            else ...[
+              Text(
+                package.depositPercentage != null &&
+                        package.depositPercentage!.isFinite &&
+                        package.depositPercentage! >= 0 &&
+                        package.depositPercentage! <= 100
+                    ? '${package.depositPercentage!.toStringAsFixed(2).replaceFirst(RegExp(r"\.?0+$"), "")}% deposit + remaining balance'
+                    : 'Deposit + remaining balance',
+              ),
+              if (package.paymentTermsSchemaVersion == 2)
+                const Text('Balance due 24 hours before event')
+              else if (package.balanceDueHoursBeforeEvent != null &&
+                  package.balanceDueHoursBeforeEvent! > 0)
+                Text(
+                  'Balance due ${package.balanceDueHoursBeforeEvent} hours before event',
+                )
+              else if (package.balanceDueDaysBeforeEvent != null &&
+                  package.balanceDueDaysBeforeEvent! > 0)
+                Text(
+                  'Balance due ${package.balanceDueDaysBeforeEvent} days before event',
+                ),
+            ],
+          ],
+          const SizedBox(height: 8),
           const Text(
             'Based on published prices for selected services. This is not a confirmed whole-event total. Final charges and availability are subject to booking confirmation.',
           ),
@@ -92,18 +152,28 @@ class BookingPreparationPrice extends StatelessWidget {
 
 class _PriceRow extends StatelessWidget {
   const _PriceRow({required this.label, required this.value});
+
   final String label;
   final String value;
+
   @override
-  Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.symmetric(vertical: 6),
-    child: Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Expanded(child: Text(label)),
-        const SizedBox(width: 12),
-        Flexible(child: Text(value, textAlign: TextAlign.end)),
-      ],
-    ),
-  );
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 5),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(flex: 3, child: Text(label, softWrap: true)),
+          const SizedBox(width: 12),
+          Flexible(
+            flex: 2,
+            child: Align(
+              alignment: Alignment.centerRight,
+              child: Text(value, textAlign: TextAlign.end, softWrap: true),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }

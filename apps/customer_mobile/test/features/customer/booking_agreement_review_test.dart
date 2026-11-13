@@ -11,6 +11,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:feasta/features/customer/booking_agreement_review_screen.dart';
+import 'package:feasta/features/customer/booking_agreement_controller.dart';
 import 'package:feasta/features/authentication/data/repositories/feasta_repository.dart';
 import 'package:feasta/shared/models/booking_agreement.dart';
 import 'package:feasta/shared/models/feasta_models.dart';
@@ -167,6 +168,37 @@ void main() {
     },
   );
 
+  testWidgets(
+    'summary-owned controller retains explicit review after route closes',
+    (tester) async {
+      final controller = BookingAgreementController(
+        loader: (_) async => [BookingAgreement.fromJson(agreementFixture())],
+        resolveProviders: (_) async => {'provider_123'},
+      );
+      controller.select(agreementSelection(), ownerId: 'customer-1');
+      await tester.pumpWidget(
+        MaterialApp(
+          home: BookingAgreementReviewScreen(
+            selection: agreementSelection(),
+            controller: controller,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final checkbox = find.byType(Checkbox).first;
+      await tester.ensureVisible(checkbox);
+      await tester.pumpAndSettle();
+      await tester.tap(checkbox);
+      await tester.pump();
+      expect(controller.allAcknowledged, isTrue);
+      await tester.pumpWidget(const MaterialApp(home: SizedBox()));
+      await tester.pumpAndSettle();
+      expect(controller.allAcknowledged, isTrue);
+      await controller.load(revalidate: true);
+      expect(controller.allAcknowledged, isTrue);
+      controller.dispose();
+    },
+  );
   testWidgets(
     'partial agreements show refresh error; retry requires fresh consent',
     (tester) async {

@@ -131,7 +131,7 @@ export function CustomerMarketplaceHeader({
 
             {authenticated && accountLabel ? (
               <div className="col-start-2 row-start-1 ml-auto flex shrink-0 items-center gap-1 md:col-start-3">
-                <CustomerEventListMenu />
+                <CustomerEventListMenu key={accountEmail || accountLabel} authenticated={authenticated} />
                 <NotificationMenu role="customer" />
                 <CustomerAccountMenu
                   accountLabel={accountLabel}
@@ -358,7 +358,7 @@ function GuestAccountActions({
       aria-label="Guest marketplace account"
       className="col-start-2 row-start-1 ml-auto flex shrink-0 items-center gap-1 sm:gap-2 md:col-start-3"
     >
-      <CustomerEventListMenu />
+      <CustomerEventListMenu authenticated={false} />
       <button
         type="button"
         onClick={onLogin}
