@@ -15,6 +15,10 @@ test("v3 scheduler is bounded, server-owned and validates payment and provider a
 });
 
 const policies = [
+  ["listCustomerEventServices", "catalog/list-customer-event-services.ts", [
+    "onCall(appCheckCallableOptions", "enforceCallableRateLimit", "EVENT_SERVICE_CANDIDATE_LIMIT",
+    "EVENT_SERVICE_RESULT_LIMIT", "owner.accountStatus", "provider.verificationStatus",
+    "candidate.data.ownerId !== providerRecord.ownerId", "data.isPublished !== true"]],
   ...["previewFixedPackageV2Recovery", "recoverFixedPackageV2Draft"].map(name => [name,
     "packages/provider-package-drafts-v2.ts", ["requireAuth(request)", "requireRole",
       "enforceCallableRateLimit", "appCheckCallableOptions", "authorizeOwnedPackage",
@@ -68,6 +72,20 @@ const policies = [
   ["updateAccountPreferences", "auth/manage-role-account.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "rejectUnknownFields", "writeAuditLogInTransaction", "appCheckCallableOptions"]],
   ["revokeAllAccountSessions", "auth/manage-role-account.ts", ["requireAuth(request)", "requireRole", "requireRecentAuthentication", "enforceCallableRateLimit", "revokeRefreshTokens", "appCheckCallableOptions"]],
   ["deactivateProviderAccount", "auth/manage-role-account.ts", ["requireAuth(request)", "requireRole", "requireRecentAuthentication", "enforceCallableRateLimit", "activeProviderRequestStatuses", "revokeRefreshTokens", "writeAuditLogInTransaction", "appCheckCallableOptions"]],
+  [
+    "reconcileBookingSubmission",
+    "bookings/reconcile-booking-submission.ts",
+    [
+      "onCall(",
+      "appCheckCallableOptions",
+      "requireAuth(request)",
+      'requireRole(actor.uid, ["customer"])',
+      "enforceCallableRateLimit",
+      "bookingOutcomeId(actor.uid, requestId)",
+      "db.runTransaction",
+      "reconcileSubmissionOutcome(actor.uid, requestId",
+    ],
+  ],
   ["submitBookingRequest", "bookings/submit-booking-request.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "assertBookingSubmissionAllowed", "runTransaction", "appCheckCallableOptions"]],
   ["searchCustomerBookings", "bookings/search-customer-bookings.ts", [
     "requireAuth(request)", "requireRole", "enforceCallableRateLimit", "appCheckCallableOptions",
@@ -592,6 +610,7 @@ test("all deployed exports remain in the reviewed inventory", () => {
   "listMyOccasionSuggestions",
   "listOccasionSuggestionsForReview",
   "listPublicServiceCategories",
+  "listCustomerEventServices",
   "reviewOccasionSuggestion",
   "acceptCurrentProviderAgreement",
   "acceptProviderRequest",
@@ -658,6 +677,7 @@ test("all deployed exports remain in the reviewed inventory", () => {
   "reactivateServiceCategory",
   "reconcileProviderRequestRefund",
   "reconcileBookingPolicyV3",
+  "reconcileBookingSubmission",
   "reconcileHistoricalBookingCompletion",
   "reconcileProviderDisbursements",
   "reconcileRemainingBalanceLifecycle",

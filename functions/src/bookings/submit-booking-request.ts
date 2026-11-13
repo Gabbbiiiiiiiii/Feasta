@@ -1,4 +1,5 @@
 import {readFreelanceServiceDetails, supportsServicePackageDetails} from "@feasta/shared-types/freelance-service-details";
+import {bookingOutcomeId, rejectAcknowledgementInTransaction, assertNoRejectedSubmission} from "./submission-outcome.js";
 import {occasionDependencyEntryPath} from "../admin/occasion-dependency-registry.js";
 import {requireCustomerPackageV2} from "../packages/customer-package-v2.js";
 import {resolveOfferV2} from "../packages/offer-v2-validation.js";
@@ -397,12 +398,7 @@ async function handleBookingSelection(request: CallableRequest, disclosureOnly: 
         actor.uid,
       );
 
-      const bookingId = createHash("sha256")
-        .update(
-          `${actor.uid}:${clientRequestId}`,
-        )
-        .digest("hex")
-        .slice(0, 40);
+      const bookingId = bookingOutcomeId(actor.uid, clientRequestId);
 
       const bookingCode =
         `BK-${bookingId
@@ -446,6 +442,8 @@ async function handleBookingSelection(request: CallableRequest, disclosureOnly: 
       const bookingReference = db
         .collection(COLLECTIONS.mainEvents)
         .doc(bookingId);
+
+      const outcomeReference = db.collection("bookingSubmissionOutcomes").doc(bookingId);
 
       const userReference = db
         .collection(COLLECTIONS.users)
@@ -542,6 +540,9 @@ async function handleBookingSelection(request: CallableRequest, disclosureOnly: 
               created: false,
             };
           }
+
+          const outcomeSnapshot = await transaction.get(outcomeReference);
+          assertNoRejectedSubmission(outcomeSnapshot.data(), actor.uid, clientRequestId, submissionFingerprint);
 
           await requireMaintenanceOpen(transaction, db, "intake");
 
@@ -1140,10 +1141,12 @@ async function handleBookingSelection(request: CallableRequest, disclosureOnly: 
                 relationships,
               );
 
-            if (!disclosureOnly) assertRefundPolicyAcknowledgements(
-              policies,
-              policyAcknowledgements,
-            );
+            if (!disclosureOnly) {
+              const rejection = rejectAcknowledgementInTransaction(transaction, outcomeReference,
+                {customerId: actor.uid, clientRequestId, submissionFingerprint},
+                () => assertRefundPolicyAcknowledgements(policies, policyAcknowledgements));
+              if (rejection) return {rejection};
+            }
 
             const evidenceTimestamp =
               serverTimestamp();
@@ -1296,7 +1299,10 @@ async function handleBookingSelection(request: CallableRequest, disclosureOnly: 
                 ),
             };
           }
-          assertBookingPaymentAgreementAcknowledgements(agreements, input.agreementAcknowledgements);
+          const rejection = rejectAcknowledgementInTransaction(transaction, outcomeReference,
+            {customerId: actor.uid, clientRequestId, submissionFingerprint},
+            () => assertBookingPaymentAgreementAcknowledgements(agreements, input.agreementAcknowledgements));
+          if (rejection) return {rejection};
           const frozenAgreement = (providerId: string) => ({bookingPaymentAgreement: {
             ...agreements.find(agreement => agreement.providerId === providerId)!,
             agreedAt: Timestamp.fromDate(submissionTime),
@@ -1960,6 +1966,9 @@ async function handleBookingSelection(request: CallableRequest, disclosureOnly: 
           };
         },
       );
+
+      // Throw only AFTER the rejection receipt commits. Failed commits stay uncertain.
+      if ("rejection" in result) throw result.rejection;
 
       logSecurityEvent({
         action: "booking_submission",

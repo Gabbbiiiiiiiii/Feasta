@@ -1,6 +1,7 @@
+"use client";
 import {ServicePortfolioGallery} from "@/components/shared/service-portfolio-gallery";
 import {FreelanceServiceSummary} from "@/components/shared/freelance-service-summary";
-"use client";
+
 import type {FoodChoiceSelectionV2} from "@feasta/shared-types/provider-package-v2";
 import {customerPackageEstimate} from "@feasta/shared-types/customer-package-v2";
 import {FixedPackageInclusions} from "./fixed-package-inclusions";
