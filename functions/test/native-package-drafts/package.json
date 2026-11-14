@@ -1,0 +1,12 @@
+{
+  "name": "feasta-native-v2-demo-tests",
+  "private": true,
+  "main": "index.cjs",
+  "engines": {
+    "node": "22"
+  },
+  "dependencies": {
+    "firebase-admin": "^13.6.0",
+    "firebase-functions": "^7.2.5"
+  }
+}

@@ -1,0 +1,5 @@
+firestore.rules
+firestore.indexes.json
+.env.local
+.secret.local
+storage.rules

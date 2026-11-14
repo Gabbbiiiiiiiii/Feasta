@@ -1,0 +1,14 @@
+import {beforeEach, expect, it, vi} from "vitest";
+const mocks=vi.hoisted(() => ({profile:vi.fn(),create:vi.fn(),remove:vi.fn(),verify:vi.fn(),login:vi.fn(),signOut:vi.fn(),auth:{currentUser:null as unknown}}));
+vi.mock("@/lib/firebase/client",()=>({auth:mocks.auth,functions:{}}));
+vi.mock("firebase/functions",()=>({httpsCallable:()=>mocks.profile}));
+vi.mock("firebase/auth",()=>({browserLocalPersistence:{},setPersistence:vi.fn(),createUserWithEmailAndPassword:mocks.create,deleteUser:mocks.remove,sendEmailVerification:mocks.verify,signInWithEmailAndPassword:mocks.login,signOut:mocks.signOut}));
+import {registerCustomer, signInWithEmail} from "@/lib/auth/client-session";
+const consent={acceptedTerms:true as const,acceptedPrivacy:true as const,termsPolicyVersion:"T-7",privacyPolicyVersion:"P-3"};
+const input={...consent,firstName:" Ada ",lastName:" Test ",email:"ADA@example.test",password:"password123"};
+const user={getIdToken:vi.fn().mockResolvedValue("token")};
+beforeEach(()=>{vi.clearAllMocks();mocks.profile.mockResolvedValue({});mocks.create.mockResolvedValue({user});mocks.login.mockResolvedValue({user});mocks.verify.mockResolvedValue(undefined);mocks.remove.mockResolvedValue(undefined);vi.stubGlobal("fetch",vi.fn().mockImplementation(async url=>({ok:true,json:async()=>String(url).endsWith("csrf")?{token:"csrf"}:String(url).endsWith("session")?{role:"customer",destination:"/customer"}:{}})));});
+it("new registration submits exact independent displayed versions",async()=>{await expect(registerCustomer(input)).resolves.toEqual({verificationEmailSent:true});expect(mocks.profile).toHaveBeenCalledWith({...consent,firstName:"Ada",lastName:"Test"});});
+it.each(["consent-required","policy-version-outdated","policy-unavailable","invalid-policy-version"])("registration recovers from %s without resubmission",async reason=>{mocks.profile.mockRejectedValueOnce({details:{reason}});await expect(registerCustomer(input)).rejects.toEqual({details:{reason}});expect(mocks.remove).toHaveBeenCalledWith(user);expect(mocks.profile).toHaveBeenCalledTimes(1);expect(mocks.verify).not.toHaveBeenCalled();});
+it("verification delivery failure preserves completed profiles",async()=>{mocks.verify.mockRejectedValueOnce(new Error("mail"));await expect(registerCustomer(input)).resolves.toEqual({verificationEmailSent:false});expect(mocks.remove).not.toHaveBeenCalled();});
+it("existing email login synchronizes with empty input",async()=>{await signInWithEmail("ada@example.test","password");expect(mocks.profile).toHaveBeenCalledWith({});});

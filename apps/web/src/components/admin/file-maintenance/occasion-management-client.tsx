@@ -1,0 +1,1211 @@
+"use client";
+
+import {useCallback, useEffect, useRef, useState} from "react";
+import type {NewInactiveOccasionInput, OccasionSuggestionListItem} from "@feasta/shared-types/provider-package-v2";
+import {Button} from "@/components/ui/button";
+import {Input} from "@/components/ui/input";
+import {Select} from "@/components/ui/select";
+import {Badge} from "@/components/ui/badge";
+import {Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle} from "@/components/ui/dialog";
+import {ConfirmationDialog} from "@/components/shared/confirmation-dialog";
+import {listAdminOccasions, saveAdminOccasion, addAdminOccasionApplicableServices, previewAdminOccasionImpact,
+  listOccasionSuggestions, reviewOccasionSuggestion, inspectAdminOccasionAtomicReadiness, checkAdminOccasionActivationReadiness,
+  changeAdminOccasionState,
+  type AdminOccasion, type AdminOccasionCatalog, type OccasionImpact,
+  type OccasionMutation, type OccasionReadiness} from "@/lib/admin/file-maintenance/admin-occasion-client";
+import type {AdminServiceCategory} from "@/lib/admin/file-maintenance/admin-service-category-types";
+
+const empty = (): NewInactiveOccasionInput => ({id: "", label: "", aliases: [],
+  sortOrder: 0, applicableServiceCategoryCodes: []});
+// Matches the backend occasion-v2-validation canonical ID contract.
+const validId = (id: string) => /^[a-z][a-z0-9_]{1,63}$/.test(id);
+export const generateOccasionId = (name: string) => name.normalize("NFKD")
+  .replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9\s_-]/g, "")
+  .trim().replace(/[\s_-]+/g, "_").replace(/^_+|_+$/g, "");
+const message = (error: unknown) => error instanceof Error ? error.message : "The request failed. Try again.";
+
+export function OccasionManagementClient({categories, onDirtyChange}: {
+  categories: AdminServiceCategory[]; onDirtyChange: (dirty: boolean) => void;
+}) {
+  const [catalog, setCatalog] = useState<AdminOccasionCatalog>();
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [search, setSearch] = useState("");
+  const [sort, setSort] = useState("order");
+  const [status, setStatus] = useState("all");
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  const [editor, setEditor] = useState<"create" | AdminOccasion | null>(null);
+  const [draft, setDraft] = useState(empty);
+  const [idOverride, setIdOverride] = useState(false);
+  const nameInput = useRef<HTMLInputElement>(null);
+  const baseline = useRef("");
+  const [reason, setReason] = useState("");
+  const [dirty, setDirty] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [formError, setFormError] = useState("");
+  const [confirm, setConfirm] = useState(false);
+  const [discard, setDiscard] = useState(false);
+  const [impact, setImpact] = useState<OccasionImpact>();
+  const [readinessItem, setReadinessItem] = useState<AdminOccasion>();
+  const [readiness, setReadiness] = useState<OccasionReadiness>();
+  const [readinessError, setReadinessError] = useState("");
+  const [checkingReadiness, setCheckingReadiness] = useState(false);
+  const readinessRequest = useRef(0);
+  const [lifecycleReason, setLifecycleReason] = useState("");
+  const [lifecycleBusy, setLifecycleBusy] = useState(false);
+  const [lifecycleConfirm, setLifecycleConfirm] = useState(false);
+  const [lifecycleError, setLifecycleError] = useState("");
+  const lifecyclePending = useRef<{signature: string; key: string} | undefined>(undefined);
+  const [previewItem, setPreviewItem] = useState<AdminOccasion>();
+  const [previewOperation, setPreviewOperation] = useState<"activate" | "deactivate" | "applicability">("activate");
+  const [proposedCategories, setProposedCategories] = useState<string[]>([]);
+  const [suggestions, setSuggestions] = useState<OccasionSuggestionListItem[]>();
+  const [suggestionsOpen, setSuggestionsOpen] = useState(false);
+  const [pendingSummary, setPendingSummary] = useState<{count: number; hasMore: boolean} | null>(null);
+  const [pendingSummaryError, setPendingSummaryError] = useState(false);
+  const [cursor, setCursor] = useState<string | null>(null);
+  const [review, setReview] = useState<OccasionSuggestionListItem>();
+  const [target, setTarget] = useState("");
+  const [reviewReason, setReviewReason] = useState("");
+  const [decision, setDecision] = useState("reject");
+  const [reviewNew, setReviewNew] = useState<NewInactiveOccasionInput>(empty());
+  const [reviewConfirm, setReviewConfirm] = useState(false);
+  const pending = useRef<{signature: string; input: OccasionMutation} | undefined>(undefined);
+  const reviewKey = useRef<{signature: string; key: string} | undefined>(undefined);
+
+  const load = useCallback(async () => {
+    readinessRequest.current++; setReadinessItem(undefined); setReadiness(undefined);
+    setLifecycleReason(""); setLifecycleError(""); lifecyclePending.current = undefined;
+    setCheckingReadiness(false);
+    setLoading(true); setError(""); setCatalog(undefined);
+    try {setCatalog(await listAdminOccasions());} catch (e) {setError(message(e));}
+    finally {setLoading(false);}
+  }, []);
+  useEffect(() => {
+    let ignore = false;
+    listAdminOccasions().then((value) => {if (!ignore) setCatalog(value);},
+      (e) => {if (!ignore) setError(message(e));})
+      .finally(() => {if (!ignore) setLoading(false);});
+    return () => {ignore = true;};
+  }, []);
+  useEffect(() => {
+    onDirtyChange(dirty || !!reviewReason || !!lifecycleReason);
+    const prevent = (event: BeforeUnloadEvent) => {event.preventDefault();};
+    const guardLink = (event: MouseEvent) => {
+      const anchor = event.target instanceof Element ? event.target.closest("a[href]") : null;
+      if (anchor && !window.confirm("Discard unsaved occasion changes?")) {
+        event.preventDefault(); event.stopPropagation();
+      }
+    };
+    if (dirty || reviewReason || lifecycleReason) window.addEventListener("beforeunload", prevent);
+    if (dirty || reviewReason || lifecycleReason) document.addEventListener("click", guardLink, true);
+    return () => {
+      window.removeEventListener("beforeunload", prevent);
+      document.removeEventListener("click", guardLink, true); onDirtyChange(false);
+    };
+  }, [dirty, reviewReason, lifecycleReason, onDirtyChange]);
+
+  useEffect(() => {
+    if (!openMenuId) return;
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Element) ||
+          !target.closest("[data-occasion-menu]")) {
+        setOpenMenuId(null);
+      }
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setOpenMenuId(null);
+      }
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [openMenuId]);
+  function open(item: "create" | AdminOccasion) {
+    setIdOverride(false); setConfirm(false); setDiscard(false);
+    const highest = Math.max(0, ...(catalog?.items ?? []).map((o) => o.sortOrder));
+    const next = item === "create" ? {...empty(), sortOrder: Math.min(Number.MAX_SAFE_INTEGER, highest + 1)} : {id: item.id, label: item.label,
+      aliases: [...item.aliases], sortOrder: item.sortOrder,
+      applicableServiceCategoryCodes: [...item.applicableServiceCategoryCodes]};
+    baseline.current = JSON.stringify(next); setEditor(item); setDraft(next);
+    setReason(""); setDirty(false); setFormError(""); pending.current = undefined;
+  }
+  function close() {
+    if (busy || confirm || discard) return;
+    if (JSON.stringify(draft) !== baseline.current || reason) setDiscard(true); else resetEditor();
+  }
+  function resetEditor() {
+    setEditor(null); setDraft(empty()); setReason(""); setDirty(false); setDiscard(false);
+    setConfirm(false); setIdOverride(false); pending.current = undefined;
+  }
+  const idError = editor === "create" ? !validId(draft.id) ?
+    "Enter a valid permanent ID in Advanced options: 2-64 lowercase letters, numbers or underscores, starting with a letter." :
+    catalog?.items.some((o) => o.id === draft.id) ?
+    "This permanent ID already exists. Choose another name or a unique ID in Advanced options." : "" : "";
+  const originalApplicableCodes =
+    editor !== null && editor !== "create"
+      ? editor.applicableServiceCategoryCodes
+      : [];
+  const applicabilityChanged = editor !== null && editor !== "create" &&
+    (draft.applicableServiceCategoryCodes.length !== originalApplicableCodes.length ||
+      draft.applicableServiceCategoryCodes.some((code) => !originalApplicableCodes.includes(code)));
+  function validate() {
+    if (idError) return idError;
+    if (editor && editor !== "create" &&
+        (draft.applicableServiceCategoryCodes.length !== originalApplicableCodes.length ||
+          draft.applicableServiceCategoryCodes.some((code) => !originalApplicableCodes.includes(code)))) {
+      const added = draft.applicableServiceCategoryCodes
+        .filter((code) => !originalApplicableCodes.includes(code));
+      const removed = originalApplicableCodes
+        .filter((code) => !draft.applicableServiceCategoryCodes.includes(code));
+      if (editor.active || removed.length || added.length === 0) {
+        return "Only adding services to inactive occasions is supported. Active occasion edits and service removals require release safeguards.";
+      }
+      if (draft.label !== editor.label || draft.sortOrder !== editor.sortOrder ||
+          JSON.stringify(draft.aliases) !== JSON.stringify(editor.aliases)) {
+        return "Save name, aliases, or sort order separately before adding services. No changes were saved.";
+      }
+    }
+    if (!Number.isSafeInteger(draft.sortOrder)) return "Sort order must be a safe integer.";
+    if (!draft.applicableServiceCategoryCodes.length || draft.applicableServiceCategoryCodes.some((code) =>
+      !categories.some((c) => c.code === code && c.status === "active"))) return "Choose at least one active service category.";
+    if (draft.label.trim().length < 2 || draft.label.trim().length > 80) return "Event Type Name must contain 2-80 characters.";
+    if (reason.trim().length < 10 || reason.trim().length > 500) return "Provide a reason containing 10-500 characters.";
+    return "";
+  }
+  async function save() {
+    if (!catalog || !editor || busy) return;
+    const validation = validate();
+    if (validation) {setFormError(validation); setConfirm(false); return;}
+    setBusy(true); setFormError("");
+    const input: OccasionMutation = {occasion: draft, reason,
+      expectedCatalogRevision: catalog.revision,
+      ...(editor === "create" ? {} : {expectedOccasionRevision: editor.revision}),
+      idempotencyKey: ""};
+    const signature = JSON.stringify(input);
+    if (pending.current?.signature !== signature) pending.current = {signature,
+      input: {...input, idempotencyKey: crypto.randomUUID()}};
+    try {
+      const applicabilityChanged = editor !== "create" &&
+        (draft.applicableServiceCategoryCodes.length !== originalApplicableCodes.length ||
+          draft.applicableServiceCategoryCodes.some((code) => !originalApplicableCodes.includes(code)));
+      if (applicabilityChanged) {
+        await addAdminOccasionApplicableServices({occasionId: editor.id,
+          applicableServiceCategoryCodes: draft.applicableServiceCategoryCodes,
+          expectedCatalogRevision: catalog.revision,
+          expectedOccasionRevision: editor.revision,
+          reason, idempotencyKey: pending.current.input.idempotencyKey});
+      } else {
+        await saveAdminOccasion(pending.current.input, editor === "create");
+      }
+      resetEditor(); await load();
+    } catch (e) {setFormError(message(e)); setConfirm(false);}
+    finally {setBusy(false);}
+  }
+  async function preview() {
+    if (!previewItem || !catalog) return;
+    setBusy(true); setFormError(""); setImpact(undefined);
+    try {setImpact(await previewAdminOccasionImpact({occasionId: previewItem.id,
+      expectedOccasionRevision: previewItem.revision, expectedCatalogRevision: catalog.revision,
+      operation: previewOperation, ...(previewOperation === "applicability" ?
+        {applicableServiceCategoryCodes: proposedCategories} : {})}));}
+    catch (e) {setFormError(message(e));} finally {setBusy(false);}
+  }
+  async function checkReadiness(item: AdminOccasion) {
+    if (!catalog) return;
+    const requestId = ++readinessRequest.current;
+    setReadinessItem(item); setReadiness(undefined); setReadinessError("");
+    setLifecycleReason(""); setLifecycleError(""); lifecyclePending.current = undefined;
+    setCheckingReadiness(true);
+    try {
+      let result: OccasionReadiness;
+      try {
+        result = await inspectAdminOccasionAtomicReadiness({
+          action: item.active ? "deactivate" : "activate",
+          occasionId: item.id,
+          expectedOccasionRevision: item.revision,
+          expectedCatalogRevision: catalog.revision,
+        });
+      } catch (atomicError) {
+        // Never hide authorization, validation or server failures.
+        // Legacy readiness is advisory, never permission to activate.
+        const errorCode = atomicError &&
+          typeof atomicError === "object" &&
+          "code" in atomicError ?
+          (atomicError as {code?: unknown}).code : null;
+
+        const endpointMissing =
+          errorCode === "functions/not-found" ||
+          errorCode === "functions/unimplemented";
+
+        if (item.active || !endpointMissing) {
+          throw atomicError;
+        }
+
+        const legacy = await checkAdminOccasionActivationReadiness({
+          occasionId: item.id,
+          expectedOccasionRevision: item.revision,
+          expectedCatalogRevision: catalog.revision,
+        });
+        result = {...legacy, status: "BLOCKED", lifecycleAvailable: false};
+      }
+      if (requestId === readinessRequest.current) setReadiness(result);
+    } catch (error) {
+      if (requestId === readinessRequest.current) setReadinessError(message(error));
+    } finally {
+      if (requestId === readinessRequest.current) setCheckingReadiness(false);
+    }
+  }
+  async function executeLifecycle() {
+    if (!catalog || !readinessItem || !readiness?.lifecycleAvailable ||
+        readiness.status !== "ELIGIBLE_FOR_TRANSACTION" || lifecycleBusy) return;
+    const text = lifecycleReason.trim();
+    if (text.length < 10 || text.length > 500) {
+      setLifecycleError("Provide a reason containing 10–500 characters.");
+      return;
+    }
+    const action = readinessItem.active ? "deactivate" : "activate";
+    const input = {occasionId: readinessItem.id,
+      expectedOccasionRevision: readinessItem.revision,
+      expectedCatalogRevision: catalog.revision, reason: text};
+    const signature = JSON.stringify({action, ...input});
+    if (lifecyclePending.current?.signature !== signature) {
+      lifecyclePending.current = {signature, key: crypto.randomUUID()};
+    }
+    setLifecycleBusy(true); setLifecycleError("");
+    try {
+      await changeAdminOccasionState(action, {
+        ...input, idempotencyKey: lifecyclePending.current.key,
+      });
+      setLifecycleConfirm(false); setReadinessItem(undefined);
+      setReadiness(undefined); setLifecycleReason("");
+      lifecyclePending.current = undefined;
+      await load();
+    } catch (error) {
+      setLifecycleError(message(error)); setLifecycleConfirm(false);
+    } finally {setLifecycleBusy(false);}
+  }
+  useEffect(() => {
+    let active = true;
+    void listOccasionSuggestions()
+      .then((page) => {
+        if (!active) return;
+        setPendingSummary({
+          count: page.items.length,
+          hasMore: Boolean(page.nextCursor),
+        });
+        setPendingSummaryError(false);
+      })
+      .catch(() => {
+        if (active) setPendingSummaryError(true);
+      });
+    return () => { active = false; };
+  }, []);
+
+  async function queue(next?: string) {
+    setBusy(true); setError("");
+    try {
+      const page = await listOccasionSuggestions(next);
+      setSuggestions(page.items);
+      setCursor(page.nextCursor);
+      if (!next) {
+        setPendingSummary({
+          count: page.items.length,
+          hasMore: Boolean(page.nextCursor),
+        });
+        setPendingSummaryError(false);
+      }
+    }
+    catch (e) {setError(message(e));} finally {setBusy(false);}
+  }
+  const reviewNewValid =
+    validId(reviewNew.id) &&
+    reviewNew.label.trim().length >= 2 &&
+    reviewNew.label.trim().length <= 80 &&
+    Number.isSafeInteger(reviewNew.sortOrder) &&
+    reviewNew.applicableServiceCategoryCodes.length > 0 &&
+    reviewNew.applicableServiceCategoryCodes.every((code) =>
+      categories.some((category) =>
+        category.code === code && category.status === "active"));
+
+  async function moderate() {
+    if (!review || !catalog || busy) return;
+
+    if (!reviewReason.trim()) {
+      setFormError("A review reason is required.");
+      return;
+    }
+
+    const selected = catalog.items.find((o) => o.id === target);
+
+    if (decision === "approve_new" && !reviewNewValid) {
+      setFormError(
+        "Enter a valid occasion name, permanent ID, sort order, and at least one active service category."
+      );
+      return;
+    }
+
+    if (
+      decision !== "reject" &&
+      decision !== "approve_new" &&
+      !selected
+    ) {
+      setFormError("Choose an existing occasion.");
+      return;
+    }
+
+    setBusy(true);
+    setFormError("");
+
+    const signature = JSON.stringify([
+      review.suggestionId,
+      reviewReason,
+      decision,
+      target,
+      catalog.revision,
+      decision === "approve_new" ? reviewNew : null,
+    ]);
+
+    if (reviewKey.current?.signature !== signature) {
+      reviewKey.current = {
+        signature,
+        key: crypto.randomUUID(),
+      };
+    }
+
+    const base = {
+      suggestionId: review.suggestionId,
+      expectedRevision: review.revision,
+      expectedCatalogRevision: catalog.revision,
+      reason: reviewReason,
+      idempotencyKey: reviewKey.current.key,
+    };
+
+    try {
+      await reviewOccasionSuggestion(
+        decision === "reject"
+          ? {...base, decision: "reject"}
+          : decision === "approve_new"
+            ? {
+                ...base,
+                decision: "approve_new",
+                newOccasion: reviewNew,
+              }
+            : {
+                ...base,
+                decision: decision === "map"
+                  ? "map"
+                  : "approve_existing_inactive",
+                targetOccasionId: selected!.id,
+                targetExpectedRevision: selected!.revision,
+              }
+      );
+
+      setReview(undefined);
+      setReviewReason("");
+      setReviewNew(empty());
+      setTarget("");
+      setDecision("reject");
+
+      await load();
+      await queue();
+    } catch (error) {
+      setFormError(message(error));
+    } finally {
+      setBusy(false);
+    }
+  }
+  const items = (catalog?.items ?? []).filter((o) =>
+    `${o.id} ${o.label} ${o.aliases.join(" ")}`.toLocaleLowerCase().includes(search.toLocaleLowerCase()) &&
+    (status === "all" || o.active === (status === "active")))
+    .sort((a, b) => sort === "name" ? a.label.localeCompare(b.label) :
+      sort === "id" ? a.id.localeCompare(b.id) : a.sortOrder - b.sortOrder || a.id.localeCompare(b.id));
+  return <section className="grid gap-5" aria-label="Event Types / Occasions">
+    <div className="flex flex-wrap items-center justify-between gap-3">
+      <h2 className="text-xl font-semibold">Event Types / Occasions</h2>
+      <div className="flex flex-wrap gap-2">
+        <Button variant="secondary" disabled={loading || busy} onClick={() => void load()}>Refresh catalog</Button>
+        <Button variant="secondary" disabled={busy} onClick={() => {
+          setSuggestionsOpen(true);
+          void queue();
+        }}>Review provider suggestions</Button>
+        <Button disabled={!catalog || loading || busy} onClick={() => open("create")}>Add Occasion</Button>
+      </div>
+    </div>
+
+    {error && <div role="alert">{error} <Button variant="secondary" onClick={() => void load()}>Retry catalog</Button></div>}
+    {loading ? <div
+  role="status"
+  aria-label="Loading occasions"
+  aria-busy="true"
+  className="grid gap-3"
+>
+  {Array.from({length: 6}, (_, index) => (
+    <div
+      key={`occasion-skeleton-${index}`}
+      data-testid="occasion-skeleton"
+      aria-hidden="true"
+      className="rounded-[20px] border border-border bg-card px-4 py-4 sm:px-5"
+    >
+      <div className="flex items-center justify-between gap-4">
+        <div className="min-w-0 flex-1 space-y-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="h-5 w-32 animate-pulse rounded-md bg-muted" />
+            <div className="h-6 w-20 animate-pulse rounded-full bg-muted" />
+          </div>
+          <div className="h-3.5 w-48 max-w-full animate-pulse rounded bg-muted" />
+          <div className="h-3.5 w-64 max-w-full animate-pulse rounded bg-muted" />
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          <div className="h-10 w-20 animate-pulse rounded-full bg-muted" />
+          <div className="h-10 w-10 animate-pulse rounded-full bg-muted" />
+        </div>
+      </div>
+    </div>
+  ))}
+  <span className="sr-only">Loading event types and occasions</span>
+</div> : catalog && <>
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" aria-label="Occasion overview">
+        {[
+          {label: "Total occasions", value: catalog.items.length},
+          {label: "Active", value: catalog.items.filter((o) => o.active).length},
+          {label: "Inactive", value: catalog.items.filter((o) => !o.active).length},
+        ].map((stat) => (
+          <div key={stat.label} className="rounded-xl border bg-card p-4">
+            <p className="text-sm text-muted-foreground">{stat.label}</p>
+            <p className="mt-1 text-2xl font-semibold tabular-nums">{stat.value}</p>
+          </div>
+        ))}
+        <button
+          type="button"
+          aria-label="Review pending occasion requests"
+          disabled={busy}
+          onClick={() => {
+            setSuggestionsOpen(true);
+            void queue();
+          }}
+          className="rounded-xl border bg-card p-4 text-left transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
+        >
+          <p className="text-sm text-muted-foreground">Pending Requests</p>
+          <p className="mt-1 text-2xl font-semibold tabular-nums">
+            {pendingSummaryError ? "—" : pendingSummary
+              ? `${pendingSummary.count}${pendingSummary.hasMore ? "+" : ""}`
+              : "…"}
+          </p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {pendingSummaryError ? "Count unavailable — click to retry" :
+              pendingSummary?.hasMore ? "At least this many pending · Click to review" :
+              "Click to review"}
+          </p>
+        </button>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-3">
+        <Input
+          aria-label="Search occasions"
+          placeholder="Search name or canonical ID"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+        <Select
+          aria-label="Occasion status"
+          value={status}
+          onChange={(e) => setStatus(e.target.value)}
+        >
+          <option value="all">All statuses</option>
+          <option value="active">Active</option>
+          <option value="inactive">Inactive</option>
+        </Select>
+        <Select
+          aria-label="Sort occasions"
+          value={sort}
+          onChange={(e) => setSort(e.target.value)}
+        >
+          <option value="order">Catalog order</option>
+          <option value="name">Name</option>
+          <option value="id">Canonical ID</option>
+        </Select>
+      </div>
+
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-sm text-muted-foreground">
+          Catalog revision {catalog.revision}
+        </p>
+        <p className="text-sm text-muted-foreground" role="status">
+          Showing {items.length} of {catalog.items.length} occasions
+        </p>
+      </div>
+
+      {!items.length && (
+        <p className="rounded-xl border border-dashed p-6 text-center text-sm text-muted-foreground">
+          No occasions match this view.
+        </p>
+      )}
+
+      <div className="grid gap-2" aria-label="Occasion list">
+        {items.map((o) => (
+          <article
+            key={o.id}
+            className={`relative flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-card px-4 py-3 ${
+              openMenuId === o.id ? "z-40" : "z-0"
+            }`}
+          >
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <h3 className="font-semibold">{o.label}</h3>
+                <Badge>{o.active ? "Active" : "Inactive"}</Badge>
+              </div>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {o.id} · Order {o.sortOrder} · Revision {o.revision}
+              </p>
+              <p className="mt-1 break-words text-xs text-muted-foreground">
+                {o.applicableServiceCategoryCodes.join(", ") || "No service categories"}
+              </p>
+              {o.aliases.length > 0 && (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Aliases: {o.aliases.join(", ")}
+                </p>
+              )}
+            </div>
+
+            <div className="flex items-center gap-2">
+
+              <Button
+                type="button"
+                variant="secondary"
+                className="h-10 min-h-10 gap-2 rounded-full px-4 text-sm"
+                disabled={busy || lifecycleBusy}
+                onClick={() => {
+                  setOpenMenuId(null);
+                  open(o);
+                }}
+              >
+                <svg
+                  aria-hidden="true"
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M12 20h9" />
+                  <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
+                </svg>
+                Edit
+              </Button>
+              <div className="relative shrink-0" data-occasion-menu>
+                <button
+                  type="button"
+                  aria-label={`More actions for ${o.label}`}
+                  aria-expanded={openMenuId === o.id}
+                  aria-controls={`occasion-actions-${o.id}`}
+                  className="flex h-10 w-10 items-center justify-center rounded-lg border bg-background text-lg transition-colors hover:bg-muted focus-visible:outline-2 focus-visible:outline-offset-2"
+                  onClick={() => setOpenMenuId(
+                    openMenuId === o.id ? null : o.id
+                  )}
+                >
+                  <span aria-hidden="true">⋯</span>
+                </button>
+
+                {openMenuId === o.id && (
+                  <div
+                    id={`occasion-actions-${o.id}`}
+                    role="group"
+                    aria-label={`Actions for ${o.label}`}
+                    className="absolute right-0 top-full z-50 mt-2 grid w-64 max-w-[calc(100vw-3rem)] gap-1 rounded-xl border bg-popover p-2 shadow-lg"
+                  >
+
+                    <Button
+                      variant="secondary"
+                      disabled={busy || checkingReadiness || lifecycleBusy}
+                      onClick={() => {
+                        setOpenMenuId(null);
+                        void checkReadiness(o);
+                      }}
+                    >
+                      {o.active ? "Deactivate" : "Activate"} {o.label}
+                    </Button>
+
+
+                  </div>
+                )}
+              </div>
+            </div>
+          </article>
+        ))}
+      </div>
+    </>}
+    <Dialog open={!!readinessItem} onOpenChange={(open) => {if (!open && !lifecycleBusy && !lifecycleConfirm) {
+      readinessRequest.current++; setReadinessItem(undefined); setReadiness(undefined);
+      setCheckingReadiness(false);
+    }}}><DialogContent className="flex max-h-[90dvh] w-[calc(100vw-2rem)] max-w-2xl flex-col overflow-hidden p-5 sm:p-6">
+      <DialogHeader><DialogTitle>{readinessItem?.active ? "Deactivate Event Type" : "Activate Event Type"}: {readinessItem?.label}</DialogTitle>
+        <DialogDescription>{readinessItem?.active ? "This event type will become unavailable for new bookings. Existing bookings and provider records will remain unchanged." : "This read-only check does not change the occasion or grant provider approval."}</DialogDescription>      </DialogHeader>
+      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto pr-1 text-sm">
+      {!readinessItem?.active && <p>The read-only inventory check does not change occasion status. Execution repeats the authority and inventory checks atomically and may still reject concurrent changes.</p>}
+      {checkingReadiness && <p role="status">Checking event type availability…</p>}
+      {readinessError && <div role="alert">{readinessError}<p>Readiness could not be verified. No change was made.</p></div>}
+      {readiness && (readinessItem?.active ? (
+        <div className="grid gap-3 text-sm">
+          <p>
+            Existing bookings and payments remain unchanged.
+            Provider packages and gallery records are not modified.
+          </p>
+          {readiness.lifecycleAvailable &&
+            readiness.status === "ELIGIBLE_FOR_TRANSACTION" ? (
+              <p role="status" className="font-medium text-foreground">
+                Safety checks passed. You can deactivate this event type.
+              </p>
+            ) : (
+              <div role="alert" className="rounded-lg border p-3">
+                <p className="font-medium">
+                  Deactivation is not available yet.
+                </p>
+                {readiness.checks.some((check) =>
+                  check.status === "BLOCKED") ? (
+                    <ul className="mt-2 list-disc space-y-1 pl-5">
+                      {readiness.checks
+                        .filter((check) => check.status === "BLOCKED")
+                        .map((check) => (
+                          <li key={check.code}>{check.message}</li>
+                        ))}
+                    </ul>
+                  ) : (
+                    <p className="mt-2">
+                      {readiness.blockers.join(", ") ||
+                        "Safety verification is incomplete."}
+                    </p>
+                  )}
+              </div>
+            )}
+        </div>
+      ) : (
+        <div className="space-y-3">
+          <p className="text-xs text-muted-foreground">
+            Catalog revision {readiness.catalogRevision ?? "unavailable"} ·
+            Occasion revision {readiness.occasionRevision ?? "unavailable"}.
+            Read-only results; execution repeats all checks.
+          </p>
+
+          <div className="grid grid-cols-2 gap-2">
+            <div className="rounded-lg border bg-muted/30 p-3">
+              <p className="text-xs text-muted-foreground">Packages scanned</p>
+              <p className="text-xl font-semibold">
+                {readiness.packageCount ?? "—"}
+              </p>
+            </div>
+            <div className="rounded-lg border bg-muted/30 p-3">
+              <p className="text-xs text-muted-foreground">Gallery documents</p>
+              <p className="text-xl font-semibold">
+                {readiness.galleryCount ?? "—"}
+              </p>
+            </div>
+          </div>
+
+          <p className="rounded-lg border p-3 text-sm">
+            Content requiring review:
+            {" "}{readiness.affectedPackages ?? "unknown"} packages,
+            {" "}{readiness.affectedGallerySetups ?? "unknown"} setup entries.
+          </p>
+
+          {readiness.lifecycleAvailable &&
+          readiness.status === "ELIGIBLE_FOR_TRANSACTION" ? (
+            <div role="status" className="rounded-lg border p-3">
+              <p className="font-semibold">Ready for activation</p>
+              <p className="mt-1 text-muted-foreground">
+                The preview checks passed. The server will recheck
+                everything before changing the event type.
+              </p>
+            </div>
+          ) : (
+            <div role="alert" className="rounded-lg border p-3">
+              <p className="font-semibold">Activation is not available yet</p>
+              {readiness.checks.some((check) =>
+                check.status === "BLOCKED") ? (
+                  <ul className="mt-2 list-disc space-y-1 pl-5">
+                    {readiness.checks
+                      .filter((check) => check.status === "BLOCKED")
+                      .map((check) => (
+                        <li key={check.code}>{check.message}</li>
+                      ))}
+                  </ul>
+                ) : (readiness.blockers?.length ?? 0) > 0 ? (
+                  <ul className="mt-2 list-disc space-y-1 pl-5">
+                    {readiness.blockers?.map((blocker) => (
+                      <li key={blocker}>{blocker}</li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="mt-1 text-muted-foreground">
+                    The server has not confirmed activation readiness
+                    or provided a specific blocking reason.
+                    No change has been made.
+                  </p>
+                )}
+            </div>
+          )}
+
+          <details className="rounded-lg border p-3">
+            <summary className="cursor-pointer font-medium">
+              Verified for this check (
+              {readiness.checks.filter((check) =>
+                check.status === "SATISFIED").length})
+            </summary>
+            <ul className="mt-3 list-disc space-y-1 pl-5">
+              {readiness.checks
+                .filter((check) => check.status === "SATISFIED")
+                .map((check) => (
+                  <li key={check.code}>{check.message}</li>
+                ))}
+            </ul>
+          </details>
+        </div>
+      ))}
+      </div>
+      <div className="shrink-0 space-y-3 border-t pt-3">
+      <Button variant="secondary" className="w-full"
+        disabled={checkingReadiness || !readinessItem}
+        onClick={() => {if (readinessItem) void checkReadiness(readinessItem);}}>Check again</Button>
+      {readiness?.lifecycleAvailable && <label className="grid gap-1 text-sm">{readinessItem?.active ? "Reason for deactivation" : "Reason for activation"}
+        <Input aria-label="Lifecycle reason" disabled={lifecycleBusy} value={lifecycleReason}
+          minLength={10} maxLength={500} onChange={(e) => {setLifecycleReason(e.target.value); setLifecycleError("");}} />
+      </label>}
+      {lifecycleError && <p role="alert">{lifecycleError}</p>}
+      <Button disabled={lifecycleBusy || !readiness?.lifecycleAvailable ||
+        readiness.status !== "ELIGIBLE_FOR_TRANSACTION" || lifecycleReason.trim().length < 10}        onClick={() => setLifecycleConfirm(true)}
+        className="w-full">
+        {readinessItem?.active ? "Deactivate" : "Activate"}
+      </Button>
+      </div>
+      <ConfirmationDialog open={lifecycleConfirm} stopEscapePropagation
+        onOpenChange={setLifecycleConfirm} title={`Confirm ${readinessItem?.active ? "deactivation" : "activation"}?`}
+        description={readinessItem?.active ?
+          `This event type will become unavailable for new bookings. Existing bookings and payments remain unchanged. Provider content is not automatically withdrawn. Reason: ${lifecycleReason}` :
+          `This event type will become active. Existing provider content will not be automatically published or withdrawn. Reason: ${lifecycleReason}`}
+        confirmLabel={readinessItem?.active ? "Deactivate occasion" : "Activate occasion"}
+        loading={lifecycleBusy} onConfirm={() => void executeLifecycle()} />
+    </DialogContent></Dialog>
+    <Dialog
+      open={suggestionsOpen}
+      onOpenChange={(open) => {
+        if (!open && (busy || !!review)) return;
+        setSuggestionsOpen(open);
+      }}
+    >
+      <DialogContent
+        className="flex max-h-[90dvh] w-[calc(100vw-2rem)] max-w-2xl flex-col gap-0 overflow-hidden p-0 [&>button]:z-10"
+      >
+        <DialogHeader className="shrink-0 border-b p-5 pr-14 sm:p-6">
+          <DialogTitle>Provider Occasion Suggestions</DialogTitle>
+          <DialogDescription>
+            Review occasion requests submitted by providers.
+            Approval does not activate an occasion or grant provider capability.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-5 sm:p-6">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h3 className="font-semibold">Pending suggestions</h3>
+            <span className="rounded-full border px-3 py-1 text-xs font-medium">
+              {suggestions ? `${suggestions.length} on this page` : "Loading"}
+            </span>
+          </div>
+
+          <p className="text-sm text-muted-foreground">
+            To approve a new occasion identity, add an inactive occasion first.
+            Then approve the matching suggestion through the existing review workflow.
+          </p>
+
+          {!suggestions ? (
+            <p
+              role="status"
+              className="rounded-xl border p-6 text-center text-sm text-muted-foreground"
+            >
+              Loading provider suggestions...
+            </p>
+          ) : suggestions.length === 0 ? (
+            <div className="rounded-xl border border-dashed p-6 text-center">
+              <p className="font-medium">No pending suggestions</p>
+              <p className="mt-2 text-sm text-muted-foreground">
+                New provider occasion suggestions will appear here.
+              </p>
+            </div>
+          ) : (
+            <div className="grid gap-3" aria-label="Pending provider suggestions">
+              {suggestions.map((s) => (
+                <div
+                  key={s.suggestionId}
+                  className="flex flex-wrap items-center justify-between gap-3 rounded-xl border p-4"
+                >
+                  <span className="min-w-0 break-words font-medium">
+                    {s.name}
+                  </span>
+                  <Button
+                    variant="secondary"
+                    disabled={!catalog || busy}
+                    onClick={() => {
+                      setReview(s);
+                      setReviewReason("");
+                      setTarget("");
+                      setDecision("reject");
+                      setFormError("");
+                    }}
+                  >
+                    Review {s.name}
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t p-4 sm:px-6">
+          <Button
+            variant="secondary"
+            disabled={busy}
+            onClick={() => void queue()}
+          >
+            Refresh suggestions
+          </Button>
+
+          <div className="flex flex-wrap gap-2">
+            {cursor && (
+              <Button
+                disabled={busy}
+                onClick={() => void queue(cursor)}
+              >
+                Next suggestions
+              </Button>
+            )}
+
+            <Button
+              variant="secondary"
+              disabled={busy || !!review}
+              onClick={() => setSuggestionsOpen(false)}
+            >
+              Close
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+    <Dialog open={!!editor} onOpenChange={(open) => {if (!open) close();}}><DialogContent className="flex max-h-[90dvh] flex-col gap-0 overflow-hidden p-0 [&>button]:z-10"
+      onEscapeKeyDown={(e) => {if (busy || confirm || discard) e.preventDefault();}}
+      onInteractOutside={(e) => {if (busy || confirm || discard) e.preventDefault();}}>
+      <DialogHeader className="shrink-0 border-b p-5 pr-16"><DialogTitle>{editor === "create" ? "Add Occasion" : "Edit Occasion"}</DialogTitle><DialogDescription>Permanent IDs cannot be changed. New occasions are approved and inactive.</DialogDescription></DialogHeader>
+      <form className="flex min-h-0 flex-1 flex-col" onSubmit={(e) => {e.preventDefault(); const validation = validate(); setFormError(validation); if (!validation) setConfirm(true);}}>
+        <div className="min-h-0 flex-1 overflow-y-auto p-5">
+        <fieldset disabled={busy} className="grid gap-4">
+          <label className="grid gap-1">Event Type Name<Input ref={nameInput} required minLength={2} maxLength={80} placeholder="e.g., Birthday, Wedding, Graduation" value={draft.label} onChange={(e) => {setDraft({...draft, label: e.target.value, ...(editor === "create" && !idOverride ? {id: generateOccasionId(e.target.value)} : {})}); setDirty(true);}} /></label>
+          {editor === "create" ? <p className="break-all text-xs text-muted-foreground" aria-live="polite">Permanent ID: <code>{draft.id || "Enter an event type name"}</code></p> : <label>Canonical ID<Input disabled value={draft.id} /></label>}
+          {idError && draft.label && <p role="alert" className="text-sm text-destructive">{idError}</p>}
+          <fieldset disabled={busy} className="grid gap-2"><legend>Applicable Services</legend><p className="text-sm text-muted-foreground">Choose which services this event type applies to.</p>
+            {categories.filter((c) => c.status === "active" || (editor !== "create" && draft.applicableServiceCategoryCodes.includes(c.code))).map((c) => <label key={c.code} className="flex items-center gap-2"><input type="checkbox" checked={draft.applicableServiceCategoryCodes.includes(c.code)} disabled={c.status !== "active" || busy} onChange={(e) => {setDraft({...draft, applicableServiceCategoryCodes: e.target.checked ? [...draft.applicableServiceCategoryCodes, c.code] : draft.applicableServiceCategoryCodes.filter((v) => v !== c.code)}); setDirty(true);}} />{c.name}{c.status !== "active" ? " (inactive)" : ""}</label>)}
+          </fieldset>
+          {editor !== "create" && <div className="grid gap-1 text-sm" aria-live="polite">
+  <p className="text-muted-foreground">
+    Adding services to an inactive occasion can be saved after server validation.
+    Removing services or changing an active occasion requires separate release safeguards.
+  </p>
+  <p>
+    Added: {draft.applicableServiceCategoryCodes
+      .filter((code) => !originalApplicableCodes.includes(code))
+      .map((code) => categories.find((c) => c.code === code)?.name ?? code)
+      .join(", ") || "None"}
+  </p>
+  <p>
+    Removed: {originalApplicableCodes
+      .filter((code) => !draft.applicableServiceCategoryCodes.includes(code))
+      .map((code) => categories.find((c) => c.code === code)?.name ?? code)
+      .join(", ") || "None"}
+  </p>
+</div>}
+          <label className="grid gap-1">{editor === "create" ? "Reason for adding" : "Reason for change"}<Input placeholder={editor === "create" ? "Explain why this occasion should be added to FEASTA." : "Explain the change."} required minLength={10} maxLength={500} value={reason} onChange={(e) => {setReason(e.target.value); setDirty(true);}} /></label>
+          <details className="rounded-lg border p-3"><summary className="cursor-pointer font-medium">Advanced options</summary><div className="mt-4 grid gap-4">
+          {editor === "create" && <label className="grid gap-1">Canonical ID override<Input aria-label="Canonical ID override" placeholder="Use generated ID" value={idOverride ? draft.id : ""} onChange={(e) => {setIdOverride(!!e.target.value); setDraft({...draft, id: e.target.value || generateOccasionId(draft.label)}); setDirty(true);}} /><span className="text-xs text-muted-foreground">Permanent IDs cannot be changed after creation.</span></label>}
+          <label className="grid gap-1">Aliases (comma separated)<Input value={draft.aliases.join(",")} onChange={(e) => {setDraft({...draft, aliases: e.target.value ? e.target.value.split(",") : []}); setDirty(true);}} /></label>
+          <label className="grid gap-1">Sort order<Input required type="number" step="1" min={Number.MIN_SAFE_INTEGER} max={Number.MAX_SAFE_INTEGER} value={Number.isNaN(draft.sortOrder) ? "" : draft.sortOrder} onChange={(e) => {setDraft({...draft, sortOrder: e.target.valueAsNumber}); setDirty(true);}} /></label>
+
+          </div></details>
+        </fieldset>
+        {formError && <p role="alert">{formError}</p>}
+        </div><div className="flex shrink-0 justify-end gap-2 border-t bg-card p-4"><Button type="button" variant="secondary" disabled={busy} onClick={close}>Cancel</Button><Button type="submit" disabled={busy}>{editor === "create" ? "Review Occasion" : "Review changes"}</Button></div>
+      </form>
+    <ConfirmationDialog open={confirm} stopEscapePropagation onCloseAutoFocus={(e) => {e.preventDefault(); nameInput.current?.focus();}} onOpenChange={setConfirm} title={applicabilityChanged ? "Add applicable services?" : "Save occasion metadata?"} description={applicabilityChanged ?
+      `Add ${draft.applicableServiceCategoryCodes.filter((code) => !originalApplicableCodes.includes(code))
+        .map((code) => categories.find((c) => c.code === code)?.name ?? code).join(", ")} to ${draft.label}. The occasion stays inactive. Reason: ${reason}` :
+      `Save ${draft.label} (${draft.id}) at catalog revision ${catalog?.revision}. ${editor === "create" ? "It will remain inactive." : "Publication status and eligibility stay unchanged."}`} confirmLabel="Save occasion" loading={busy} onConfirm={save} />
+    <ConfirmationDialog open={discard} stopEscapePropagation onCloseAutoFocus={(e) => {e.preventDefault(); nameInput.current?.focus();}} cancelLabel="Keep Editing" onOpenChange={setDiscard} title="Discard unsaved changes?" description="Your occasion edits have not been saved." confirmLabel="Discard Changes" onConfirm={resetEditor} />
+    </DialogContent></Dialog>
+    <Dialog open={!!previewItem} onOpenChange={(open) => {if (!open && !busy) setPreviewItem(undefined);}}><DialogContent>
+      <DialogHeader><DialogTitle>Impact preview: {previewItem?.label}</DialogTitle><DialogDescription>Read-only analysis. Lifecycle operations are unavailable.</DialogDescription></DialogHeader>
+      <Select aria-label="Proposed operation" disabled={busy} value={previewOperation} onChange={(e) => {setPreviewOperation(e.target.value as typeof previewOperation); setImpact(undefined);}}><option value="activate">Activate</option><option value="deactivate">Deactivate</option><option value="applicability">Change applicability</option></Select>
+      {previewOperation === "applicability" && <fieldset disabled={busy} className="grid gap-2"><legend>Proposed service categories</legend>{categories.filter((c) => c.status === "active").map((c) => <label key={c.code}><input type="checkbox" checked={proposedCategories.includes(c.code)} onChange={(e) => {setProposedCategories(e.target.checked ? [...proposedCategories, c.code] : proposedCategories.filter((v) => v !== c.code)); setImpact(undefined);}} /> {c.name}</label>)}</fieldset>}
+      <Button disabled={busy} onClick={() => void preview()}>{busy ? "Inspecting…" : "Inspect impact"}</Button>
+      {formError && <p role="alert">{formError}</p>}
+      {impact && <div className="grid gap-3" role="status"><p>Catalog revision {impact.catalogRevision} · Occasion revision {impact.occasionRevision}</p>{impact.usage.map((u) => <p key={u.collection}>{u.collection}: {u.potentialReferences} potential references in {u.scanned} scanned records{u.truncated ? " (scan truncated)" : ""}</p>)}{impact.mappings.map((m) => <p key={m.code}>{m.code}: {m.valid ? "Active category" : "Invalid or inactive category"}</p>)}{impact.blockers.map((b) => <p key={b}>{b}</p>)}<p className="text-sm">{impact.disclaimer}</p></div>}
+      <Button disabled>Apply lifecycle change — unavailable</Button>
+    </DialogContent></Dialog>
+    <Dialog
+      open={!!review}
+      onOpenChange={(open) => {
+        if (!open && !busy &&
+          (!reviewReason || window.confirm("Discard the unsaved review?"))) {
+          setReview(undefined);
+          setReviewReason("");
+          setReviewNew(empty());
+          setFormError("");
+        }
+      }}
+    >
+      <DialogContent className="flex max-h-[90dvh] flex-col gap-0 overflow-hidden p-0">
+        <DialogHeader className="shrink-0 border-b p-5 pr-14">
+          <DialogTitle>Review {review?.name}</DialogTitle>
+          <DialogDescription>
+            Moderation never automatically activates an occasion or grants provider capability.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="min-h-0 space-y-4 overflow-y-auto p-5">
+          {review?.reason && (
+            <div className="rounded-lg border p-3 text-sm">
+              <p className="mb-1 font-medium">Provider&apos;s reason</p>
+              <p className="break-words">{review.reason}</p>
+            </div>
+          )}
+
+          <label className="grid gap-1">
+            Review decision
+            <Select
+              aria-label="Review decision"
+              disabled={busy}
+              value={decision}
+              onChange={(e) => {
+                const next = e.target.value;
+                setDecision(next);
+                setTarget("");
+                setFormError("");
+
+                if (next === "approve_new" && review) {
+                  setReviewNew({
+                    id: generateOccasionId(review.name),
+                    label: review.name,
+                    aliases: [],
+                    sortOrder:
+                      Math.max(
+                        0,
+                        ...(catalog?.items ?? []).map((o) => o.sortOrder)
+                      ) + 10,
+                    applicableServiceCategoryCodes: [],
+                  });
+                }
+              }}
+            >
+              <option value="reject">Reject request</option>
+              <option value="map">Map to active occasion</option>
+              <option value="approve_existing_inactive">
+                Approve matching inactive occasion
+              </option>
+              <option value="approve_new">
+                Create &amp; Approve New Occasion
+              </option>
+            </Select>
+          </label>
+
+          {(decision === "map" ||
+            decision === "approve_existing_inactive") && (
+            <label className="grid gap-1">
+              Choose occasion
+              <Select
+                aria-label="Review target"
+                disabled={busy}
+                value={target}
+                onChange={(e) => setTarget(e.target.value)}
+              >
+                <option value="">Choose occasion</option>
+                {catalog?.items
+                  .filter((o) => o.active === (decision === "map"))
+                  .map((o) => (
+                    <option key={o.id} value={o.id}>
+                      {o.label} ({o.id})
+                    </option>
+                  ))}
+              </Select>
+            </label>
+          )}
+
+          {decision === "approve_new" && (
+            <div className="grid gap-3 rounded-xl border p-4">
+              <div>
+                <p className="font-semibold">Create new inactive occasion</p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Creation and request approval happen together.
+                  Activation and provider eligibility remain separate.
+                </p>
+              </div>
+
+              <label className="grid gap-1">
+                New occasion name
+                <Input
+                  disabled={busy}
+                  maxLength={80}
+                  value={reviewNew.label}
+                  onChange={(e) => setReviewNew((current) => ({
+                    ...current,
+                    label: e.target.value,
+                  }))}
+                />
+              </label>
+
+              <label className="grid gap-1">
+                New occasion ID
+                <Input
+                  disabled={busy}
+                  value={reviewNew.id}
+                  onChange={(e) => setReviewNew((current) => ({
+                    ...current,
+                    id: e.target.value,
+                  }))}
+                />
+              </label>
+
+              <p className="text-xs text-muted-foreground">
+                The ID is permanent and must be unique.
+              </p>
+
+              <label className="grid gap-1">
+                New occasion sort order
+                <Input
+                  type="number"
+                  disabled={busy}
+                  value={reviewNew.sortOrder}
+                  onChange={(e) => setReviewNew((current) => ({
+                    ...current,
+                    sortOrder: Number(e.target.value),
+                  }))}
+                />
+              </label>
+
+              <fieldset className="grid gap-2" disabled={busy}>
+                <legend className="font-medium">
+                  Applicable service categories
+                </legend>
+
+                {categories
+                  .filter((category) => category.status === "active")
+                  .map((category) => (
+                    <label
+                      key={category.code}
+                      className="flex items-center gap-2 text-sm"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={reviewNew.applicableServiceCategoryCodes.includes(
+                          category.code
+                        )}
+                        onChange={(e) => setReviewNew((current) => ({
+                          ...current,
+                          applicableServiceCategoryCodes: e.target.checked
+                            ? [
+                                ...current.applicableServiceCategoryCodes,
+                                category.code,
+                              ]
+                            : current.applicableServiceCategoryCodes.filter(
+                                (code) => code !== category.code
+                              ),
+                        }))}
+                      />
+                      {category.name}
+                    </label>
+                  ))}
+              </fieldset>
+            </div>
+          )}
+
+          <label className="grid gap-1">
+            Review reason
+            <Input
+              disabled={busy}
+              value={reviewReason}
+              maxLength={500}
+              onChange={(e) => setReviewReason(e.target.value)}
+            />
+          </label>
+
+          {formError && (
+            <p role="alert" className="text-sm text-destructive">
+              {formError}
+            </p>
+          )}
+        </div>
+
+        <div className="flex shrink-0 justify-end gap-2 border-t p-4">
+          <Button
+            type="button"
+            variant="secondary"
+            disabled={busy}
+            onClick={() => {
+              if (
+                !reviewReason ||
+                window.confirm("Discard the unsaved review?")
+              ) {
+                setReview(undefined);
+                setReviewReason("");
+                setReviewNew(empty());
+                setFormError("");
+              }
+            }}
+          >
+            Cancel
+          </Button>
+
+          <Button
+            type="button"
+            disabled={
+              busy ||
+              !reviewReason.trim() ||
+              (decision === "approve_new"
+                ? !reviewNewValid
+                : decision !== "reject" && !target)
+            }
+            onClick={() => setReviewConfirm(true)}
+          >
+            {decision === "approve_new"
+              ? "Create & Approve Occasion"
+              : "Submit review"}
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>    <ConfirmationDialog
+      open={reviewConfirm}
+      onOpenChange={(open) => {
+        if (!busy) setReviewConfirm(open);
+      }}
+      title={decision === "approve_new"
+        ? `Create & Approve ${review?.name ?? "Occasion"}?`
+        : "Confirm occasion request review?"}
+      description={decision === "approve_new"
+        ? `FEASTA will create ${reviewNew.label} as an inactive occasion and approve this provider request. The request will leave Pending Requests. Activation and provider eligibility remain separate.`
+        : "FEASTA will submit this review decision. This does not automatically activate an occasion or grant provider eligibility."}
+      confirmLabel={decision === "approve_new"
+        ? "Create & Approve"
+        : "Confirm review"}
+      loading={busy}
+      onConfirm={() => {
+        setReviewConfirm(false);
+        void moderate();
+      }}
+    />
+  </section>;
+}

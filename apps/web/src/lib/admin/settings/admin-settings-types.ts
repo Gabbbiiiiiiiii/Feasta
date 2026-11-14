@@ -1,0 +1,139 @@
+import type {
+  TaxRegistrationStatus,
+} from "@feasta/shared-types";
+
+export type AdminPlatformSettings = {
+  platformName: string;
+  operatingCity: string;
+  supportEmail: string;
+  serviceAreaDescription: string;
+
+  platformCommissionRateBps: number;
+
+  /**
+   * This is system configuration.
+   *
+   * For the capstone, vat_registered represents
+   * a simulation/configuration and does not claim
+   * that FEASTA is actually BIR VAT-registered.
+   */
+  platformTaxStatus:
+    TaxRegistrationStatus;
+
+  platformVatRateBps: number;
+
+  minimumDepositRateBps: number;
+  maximumDepositRateBps: number;
+
+  /** Legacy stored bounds; new packages use the FEASTA T-24 deadline. */
+  minimumBalanceDueDaysBeforeEvent:
+    number;
+
+  maximumBalanceDueDaysBeforeEvent:
+    number;
+
+  /**
+   * Incremented only when the financial policy
+   * actually changes.
+   */
+  financialPolicyVersion: number;
+
+  financialPolicyEffectiveAt:
+    string | null;
+
+  timezone: "Asia/Manila";
+  currencyCode: "PHP";
+  schemaVersion: 1;
+  isPublic: true;
+
+  updatedAt: string | null;
+  updatedBy: string | null;
+};
+
+export type UpdateAdminPlatformSettingsInput = {
+  platformName: string;
+  operatingCity: string;
+  supportEmail: string;
+  serviceAreaDescription: string;
+
+  /**
+   * Private administrative justification stored
+   * only in the immutable audit record.
+   */
+  internalReason: string;
+};
+
+export type UpdateAdminPlatformSettingsResult = {
+  settings: AdminPlatformSettings;
+  changed: boolean;
+};
+
+export type UpdateAdminFinancialPolicyInput = {
+  platformCommissionRateBps: number;
+
+  platformTaxStatus:
+    TaxRegistrationStatus;
+
+  platformVatRateBps: number;
+
+  minimumDepositRateBps: number;
+  maximumDepositRateBps: number;
+
+  minimumBalanceDueDaysBeforeEvent:
+    number;
+
+  maximumBalanceDueDaysBeforeEvent:
+    number;
+
+  /**
+   * Private administrative justification.
+   */
+  internalReason: string;
+};
+
+export type UpdateAdminFinancialPolicyResult = {
+  settings: AdminPlatformSettings;
+  changed: boolean;
+};
+export type AdminCustomerCancellationMode =
+  | "off"
+  | "review_only"
+  | "enabled";
+
+export type AdminAutomaticCancellationMode =
+  | "off"
+  | "enabled";
+
+export type AdminCancellationRolloutSettings = {
+  bookingRefundPolicyCaptureMode: "off" | "required";
+  bookingCaptureConfigurationStatus: "missing" | "valid" | "invalid";
+  bookingCaptureUpdatedAt: string | null;
+  bookingCaptureUpdatedBy: string | null;
+  customerCancellationMode:
+    AdminCustomerCancellationMode;
+
+  automaticPolicyRefundApprovalMode:
+    AdminAutomaticCancellationMode;
+
+  schemaVersion: 1;
+  isPublic: false;
+
+  updatedAt: string | null;
+  updatedBy: string | null;
+};
+
+export type UpdateAdminCancellationRolloutInput = {
+  bookingRefundPolicyCaptureMode: "off" | "required";
+  customerCancellationMode:
+    AdminCustomerCancellationMode;
+
+  automaticPolicyRefundApprovalMode:
+    AdminAutomaticCancellationMode;
+
+  internalReason: string;
+};
+
+export type UpdateAdminCancellationRolloutResult = {
+  settings: AdminCancellationRolloutSettings;
+  changed: boolean;
+};

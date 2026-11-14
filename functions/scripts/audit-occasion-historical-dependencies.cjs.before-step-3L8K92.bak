@@ -1,0 +1,284 @@
+"use strict";
+
+/**
+ * FEASTA historical dependency audit.
+ *
+ * Operator-only, read-only.
+ * No Firestore writes, lifecycle transitions, or release authorization.
+ *
+ * A successful audit does NOT certify coverage or allow deactivation.
+ */
+
+const EXPECTED_PROJECT = "feasta-catering-system";
+
+const MAX_REGISTRY_ROOTS = 1000;
+const PAGE_SIZE = 100;
+const MAX_REGISTRY_PAGES = 100;
+
+function assertExecutionGuard() {
+  if (process.argv.length !== 3 ||
+      process.argv[2] !== "--read-only-live") {
+    throw new Error("READ_ONLY_LIVE_APPROVAL_REQUIRED");
+  }
+
+  if (process.env.FEASTA_AUDIT_READ_ONLY !== "YES") {
+    throw new Error("READ_ONLY_AUDIT_ENV_REQUIRED");
+  }
+
+  if (process.env.GCLOUD_PROJECT !== EXPECTED_PROJECT ||
+      process.env.GOOGLE_CLOUD_PROJECT !== EXPECTED_PROJECT) {
+    throw new Error("UNEXPECTED_FIREBASE_PROJECT");
+  }
+
+  if (process.env.FIRESTORE_EMULATOR_HOST) {
+    throw new Error("UNEXPECTED_FIRESTORE_EMULATOR");
+  }
+}
+
+function requireRuntime(path) {
+  try {
+    return require(path);
+  } catch (error) {
+    throw new Error(
+      `COMPILED_RUNTIME_UNAVAILABLE: ${path}: ${error.message}`
+    );
+  }
+}
+
+async function readAllRegistryEntries(db) {
+  const witnesses = [];
+  const families = new Set([
+    "occasionDependencies",
+    "occasionCategoryDependencies",
+  ]);
+
+  let cursor = null;
+  let exhausted = false;
+
+  for (let page = 0; page < MAX_REGISTRY_PAGES; page++) {
+    const base = db.collectionGroup("entries")
+      .orderBy("__name__");
+
+    const query = cursor === null ?
+      base.limit(PAGE_SIZE) :
+      base.startAfter(cursor).limit(PAGE_SIZE);
+
+    const snapshot = await query.get();
+
+    if (snapshot.empty) {
+      exhausted = true;
+      break;
+    }
+
+    for (const doc of snapshot.docs) {
+      const segments = doc.ref.path.split("/");
+
+      if (segments.length !== 4 ||
+          !families.has(segments[0]) ||
+          segments[2] !== "entries") {
+        throw new Error(
+          "UNEXPECTED_REGISTRY_ENTRY_PATH"
+        );
+      }
+
+      if (cursor !== null &&
+          doc.ref.path <= cursor) {
+        throw new Error(
+          "REGISTRY_PAGINATION_INCONSISTENT"
+        );
+      }
+
+      witnesses.push({
+        path: doc.ref.path,
+        value: doc.data(),
+      });
+
+      cursor = doc.ref.path;
+    }
+  }
+
+  if (!exhausted) {
+    throw new Error("REGISTRY_NOT_EXHAUSTED");
+  }
+
+  return witnesses;
+}
+function assertRegistryContracts(witnesses, occasion, category) {
+  const {
+    validOccasionDependencyEntry,
+    occasionDependencyEntryPath,
+  } = occasion;
+
+  const {
+    validOccasionCategoryDependencyEntry,
+    occasionCategoryDependencyEntryPath,
+  } = category;
+
+  const violations = [];
+
+  for (const witness of witnesses) {
+    const isOccasion =
+      witness.path.startsWith("occasionDependencies/");
+
+    const isCategory =
+      witness.path.startsWith("occasionCategoryDependencies/");
+
+    try {
+      if (isOccasion) {
+        if (!validOccasionDependencyEntry(witness.value) ||
+            occasionDependencyEntryPath(witness.value) !== witness.path) {
+          violations.push(witness.path);
+        }
+      } else if (isCategory) {
+        if (!validOccasionCategoryDependencyEntry(witness.value) ||
+            occasionCategoryDependencyEntryPath(witness.value) !==
+              witness.path) {
+          violations.push(witness.path);
+        }
+      } else {
+        violations.push(witness.path);
+      }
+    } catch {
+      violations.push(witness.path);
+    }
+  }
+
+  return violations.sort();
+}
+
+async function main() {
+  // Guard BEFORE loading Firestore modules or obtaining credentials.
+  assertExecutionGuard();
+
+  // Initialize Admin before importing the shared Firestore module.
+  const {
+    initializeApp,
+    getApp,
+    getApps,
+    applicationDefault,
+  } = require("firebase-admin/app");
+
+  if (getApps().length !== 0) {
+    throw new Error("UNEXPECTED_EXISTING_FIREBASE_APP");
+  }
+
+  initializeApp({
+    credential: applicationDefault(),
+    projectId: EXPECTED_PROJECT,
+  });
+
+  if (getApp().options.projectId !== EXPECTED_PROJECT) {
+    throw new Error("FIREBASE_APP_PROJECT_MISMATCH");
+  }
+
+  const {db} = requireRuntime("../lib/shared/firestore.js");
+
+  const {
+    readHistoricalOccasionCollection,
+  } = requireRuntime(
+    "../lib/admin/occasion-historical-inventory-server.js"
+  );
+
+  const {
+    buildHistoricalOccasionReconciliationReport,
+  } = requireRuntime(
+    "../lib/admin/occasion-historical-reconciliation-report.js"
+  );
+
+  const occasion = requireRuntime(
+    "../lib/admin/occasion-dependency-registry.js"
+  );
+
+  const category = requireRuntime(
+    "../lib/admin/occasion-category-dependency-registry.js"
+  );
+
+  if (getApp().options.projectId !== EXPECTED_PROJECT) {
+    throw new Error("FIRESTORE_CLIENT_PROJECT_MISMATCH");
+  }
+
+  const packages = await readHistoricalOccasionCollection("packages");
+  const mainEvents = await readHistoricalOccasionCollection("mainEvents");
+  const providerRequests =
+    await readHistoricalOccasionCollection("providerRequests");
+
+  const actual = await readAllRegistryEntries(db);
+
+  const occasionWitnesses = actual.filter(witness =>
+    witness.path.startsWith("occasionDependencies/"));
+
+  const categoryWitnesses = actual.filter(witness =>
+    witness.path.startsWith("occasionCategoryDependencies/"));
+
+  const invalidRegistryPaths = assertRegistryContracts(
+    actual,
+    occasion,
+    category
+  );
+
+  const report = buildHistoricalOccasionReconciliationReport({
+    packages: packages.rows,
+    mainEvents: mainEvents.rows,
+    providerRequests: providerRequests.rows,
+    actual,
+  });
+
+  const issues = report.issues.map(issue => ({
+    path: issue.path,
+    reason: issue.reason,
+  }));
+
+  for (const path of invalidRegistryPaths) {
+    if (!issues.some(issue =>
+      issue.path === path && issue.reason === "invalid")) {
+      issues.push({path, reason: "invalid"});
+    }
+  }
+
+  issues.sort((a, b) =>
+    a.path.localeCompare(b.path) ||
+    a.reason.localeCompare(b.reason)
+  );
+
+  // Never print raw source documents, credentials or payment fields.
+  const output = {
+    project: EXPECTED_PROJECT,
+    mode: "read_only",
+    inventory: {
+      packages: packages.scannedCount,
+      mainEvents: mainEvents.scannedCount,
+      providerRequests: providerRequests.scannedCount,
+    },
+    registry: {
+      occasionEntries: occasionWitnesses.length,
+      categoryEntries: categoryWitnesses.length,
+    },
+    reconciliation: {
+      checked: report.checked,
+      matched: report.matched,
+      issues,
+      unresolved: report.unresolved,
+      excludedCount: report.excluded.length,
+      retainedArchivedWitnessCount:
+        report.retainedArchivedWitnesses.length,
+    },
+    snapshotIsolated: false,
+    writersFenced: false,
+    coverageVerified: false,
+    canDeactivate: false,
+  };
+
+  console.log(JSON.stringify(output, null, 2));
+
+  if (issues.length || report.unresolved.length) {
+    process.exitCode = 2;
+  }
+}
+
+main().catch(error => {
+  console.error(
+    "AUDIT_FAILED:",
+    error instanceof Error ? error.message : "UNKNOWN_ERROR"
+  );
+  process.exitCode = 1;
+});

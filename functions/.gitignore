@@ -57,6 +57,10 @@ Desktop.ini
 # Secrets (DO NOT COMMIT)
 # ------------------------------------------------------------------------------
 *.pem
+service-account*.json
+*service-account*.json
+firebase-adminsdk*.json
+google-application-credentials*.json
 *.p12
 *.key
 *.crt

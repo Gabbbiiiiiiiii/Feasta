@@ -1,0 +1,321 @@
+---
+description: Core FEASTA repository workflow, safety, validation, and change-control rules
+alwaysApply: true
+---
+
+# FEASTA Core Development Rule
+
+Repository root: `C:\flutterProject\feasta`
+
+Default workflow: **Inspect → Patch → Validate**
+
+These are durable repository-wide rules. Task-specific instructions may add stricter requirements, but must not silently weaken these safeguards.
+
+## 1. Mandatory preflight
+
+Before modifying anything:
+
+1. Confirm the repository root.
+2. Confirm the current Git branch. Never assume it from a previous task.
+3. Run `git status --short` and identify existing modified, staged, deleted, renamed, and untracked files.
+4. Treat all pre-existing worktree changes as user work that must be preserved.
+5. Inspect relevant repository instructions, including `.cursor/rules`, `AGENTS.md`, `CLAUDE.md`, `.agents`, and relevant documentation when present.
+6. Inspect the target implementation and the smallest relevant set of callers, types, tests, schemas, configuration, contracts, and validation scripts.
+7. Determine the actual root cause before patching.
+
+If repository instructions genuinely conflict, stop and report the conflict rather than silently choosing one.
+
+## 2. Scope and change discipline
+
+- Keep every change narrowly scoped to the user's request.
+- Prefer the smallest correct patch.
+- Preserve unrelated worktree changes.
+- Never overwrite, revert, reset, clean, delete, or reformat unrelated user work.
+- Do not perform speculative refactors.
+- Do not redesign architecture unless explicitly requested.
+- Do not invent routes, collections, fields, statuses, APIs, services, dependencies, commands, paths, or backend behavior.
+- Reuse existing FEASTA models, services, repositories, utilities, components, conventions, and status-transition contracts when available.
+- Inspect existing status-transition documentation and trusted backend contracts before changing booking or payment states.
+- If a required backend capability does not exist, report the dependency instead of faking it with unsafe client-side behavior.
+- Do not install, remove, or upgrade dependencies unless explicitly requested.
+
+## 3. Git safety
+
+- Never use `git add .`.
+- Never use `git add -A`.
+- Never stage files unless explicitly requested.
+- Never commit unless explicitly requested.
+- Never push unless explicitly requested.
+- Never pull, merge, rebase, cherry-pick, or switch branches unless explicitly requested.
+- Never run destructive Git commands against existing user work, including `git reset`, `git checkout --`, `git restore`, `git clean`, or equivalents.
+- Never discard untracked files merely because they are outside the current task.
+- Before any requested commit:
+  - run `git status --short`
+  - show the exact files intended for staging
+  - stage only those files
+  - inspect the staged diff before committing
+- CRLF/LF warnings alone are not failures.
+
+## 4. Package manager and toolchain discipline
+
+FEASTA is a pnpm monorepo for web, Functions, and shared packages.
+
+- Use `pnpm`/Corepack for JavaScript/TypeScript work unless the repository explicitly says otherwise.
+- Do not substitute `npm` or `yarn`.
+- Do not modify `pnpm-lock.yaml` unless a legitimate dependency change requires it.
+- Do not upgrade Node, pnpm, Flutter, Dart, Firebase tooling, or package versions unless explicitly requested.
+- Respect versions already configured by the repository.
+- On Windows, prefer PowerShell-compatible commands unless another shell is explicitly confirmed.
+
+## 5. Generated, dependency, and cache files
+
+Do not manually edit generated/dependency/cache outputs such as:
+
+- `node_modules`
+- `.next`
+- `dist`
+- `build`
+- `.dart_tool`
+- `.pnpm-store`
+- temporary/cache directories
+- generated logs
+- generated Firebase/debug artifacts
+
+If generated output must change, modify its source and regenerate it through normal repository tooling.
+
+Do not add generated artifacts to Git unless the repository intentionally tracks them and the task requires updating them.
+
+## 6. FEASTA repository structure
+
+- Web: `apps/web` — Next.js, React, TypeScript, Tailwind CSS, shadcn/ui, React Hook Form, Zod
+- Customer mobile: `apps/customer_mobile` — Flutter, Dart, Riverpod, GoRouter
+- Firebase Functions: `functions` — Firebase Cloud Functions, Node.js, TypeScript
+- Shared packages: `packages`
+- Firebase configuration: `firebase`, `firebase.json`, `.firebaserc`
+- Other relevant areas: `docs`, `scripts`, `.github`, `.agents`, `.vscode`
+
+## 7. Data and contract safety
+
+- Treat server-controlled IDs, roles, statuses, prices, payment amounts, refund values, commissions, VAT, payout values, and financial snapshots as trusted backend data.
+- Do not trust client-calculated financial values as authoritative.
+- Do not let client code directly mark payments as paid, refunded, confirmed, or otherwise settled.
+- Do not bypass trusted backend transitions with direct Firestore writes.
+- Preserve existing Firestore collection/document contracts unless an explicit migration is requested.
+- Preserve backward compatibility for stored records when changing shared models or schemas.
+- Do not invent or silently rename status values.
+- Keep booking and payment state transitions explicit and validated.
+- Keep queries bounded and authorization-aware.
+- Prevent duplicate submissions and preserve idempotency where required.
+
+## 8. Authentication and authorization
+
+Treat authentication and authorization behavior as security-sensitive.
+
+- Preserve role checks and route protections.
+- Preserve owner/admin-only boundaries where present.
+- Safely handle expired, revoked, disabled, blocked, or missing-profile sessions.
+- Do not weaken Firebase Auth, Firestore Rules, Storage Rules, App Check, internal proxy protections, or role validation merely to make a test pass.
+- Do not expose sensitive authentication data in logs.
+- Do not bypass email/phone verification requirements that are part of the existing workflow.
+
+## 9. Payments and financial logic
+
+Treat PayMongo, payment-session creation, webhooks, down payments, remaining balances, refunds, commissions, VAT, provider payouts, payment transitions, financial snapshots, idempotency, and duplicate-payment prevention as security-sensitive.
+
+- Inspect existing accounting behavior before changing formulas.
+- Do not change working financial/business logic unless a real failing test, reproducible defect, or concrete evidence proves it is wrong.
+- Never treat a browser redirect, success page, return URL, or client callback as proof of payment.
+- Use trusted backend/webhook/Firestore state as the source of truth for payment confirmation.
+- Validate monetary values server-side.
+- Preserve historical financial snapshots.
+- Avoid recomputing trusted historical values from mutable client data.
+- Preserve idempotency keys and duplicate-payment protections.
+- Preserve transaction and concurrency boundaries.
+- Keep payment/refund transitions explicit and auditable.
+- If production behavior is correct but a validation script, regex, PowerShell assertion, static assertion, or test assumption is wrong, fix the validation/test instead.
+- Never weaken security checks solely to make tests pass.
+
+## 10. Other security-sensitive integrations
+
+Treat these as security-sensitive when touched:
+
+- Firebase App Check
+- Firestore Rules
+- Storage Rules
+- provider verification / approval state
+- account recovery
+- Semaphore SMS
+- Cloudinary
+- Google Maps server-side keys/services
+- webhook processing
+- trusted redirect validation
+- rate limiting
+
+For security-sensitive changes:
+
+- fail closed
+- validate trusted values server-side
+- preserve authorization boundaries
+- preserve idempotency
+- preserve transaction boundaries
+- inspect existing tests before changing implementation
+- add or update focused tests for legitimate behavior changes
+
+## 11. Secrets and configuration
+
+Never expose, print, log, hard-code, or commit real secrets, including:
+
+- PayMongo secret keys
+- Semaphore API keys
+- Cloudinary API secrets
+- Google Maps server keys
+- Firebase service-account credentials
+- signing keys / keystores
+- private keys / certificates
+- production credentials
+- secret environment-variable values
+
+- Keep Firebase public client configuration distinct from server secrets.
+- Prefer the secure configuration/secret mechanism already used by the repository.
+- Do not replace secret handling with client-visible configuration.
+- Do not modify `.env` or production secret values unless explicitly requested.
+- Never copy real secret values into tests, examples, documentation, or prompts.
+
+## 12. Production, deployment, and live-data safety
+
+Never perform these unless explicitly requested:
+
+- Firebase deploy
+- Vercel deploy
+- production deployment
+- live Firestore/Storage mass updates
+- destructive live-data operations
+- schema/data backfills
+- bulk deletes
+- production payment actions
+- refund execution
+- production account creation/deletion
+- changing active production aliases/projects
+- seeding/resetting production data
+
+Before any requested deployment:
+
+1. Confirm the intended environment/project.
+2. Inspect the exact diff.
+3. Run relevant validation.
+4. State exactly what will be deployed.
+5. Avoid deploying unrelated Firebase resources.
+
+Do not start emulators unless requested or clearly required by the task.
+
+## 13. UI and UX safety
+
+For customer, provider, and admin UI changes:
+
+- preserve existing navigation and route protection
+- preserve keyboard accessibility and semantic controls
+- preserve responsive behavior
+- avoid overflow at narrow/mobile widths
+- avoid unnecessary visual churn
+- reuse existing FEASTA design-system components and styles where practical
+- do not silently change business behavior while making a UI-only change
+
+For Flutter UI changes, consider large text scaling and small-screen layouts when relevant.
+
+## 14. Validation
+
+Use the narrowest relevant validation first.
+
+### Universal
+
+- Inspect `git diff` for files changed by the current task.
+- Run `git diff --check` when applicable.
+
+### Web
+
+From `apps/web`, when applicable:
+
+- `pnpm exec tsc --noEmit`
+- `pnpm exec eslint .`
+- focused tests for the changed area before broader suites
+
+Run a production build only when the task warrants it or existing validation requires it.
+
+### Firebase Functions
+
+- Run the narrowest relevant function test file or test group first.
+- Use existing package scripts where available.
+- Expand to broader Functions suites only when needed.
+
+### Flutter
+
+When applicable:
+
+- run `dart format` only on changed Dart files
+- run `flutter analyze`
+- run the narrowest appropriate Flutter test target first
+- use broader `flutter test` only when justified
+
+### Validation behavior
+
+- Do not claim a task is fixed until appropriate validation succeeds.
+- Report exact validation commands run.
+- Report failures accurately.
+- Distinguish pre-existing failures from failures caused by the current patch.
+- Do not hide, suppress, or weaken failures merely to make validation appear green.
+- Do not modify unrelated production code to satisfy a faulty static assertion or brittle test.
+
+## 15. Editing workflow
+
+Before editing:
+
+1. Confirm repository, branch, and worktree state.
+2. Inspect the target file.
+3. Inspect related callers, types, contracts, and tests.
+4. Identify the smallest safe patch.
+
+During editing:
+
+- preserve existing code style
+- avoid unrelated formatting churn
+- avoid broad search-and-replace unless necessary
+- do not rewrite whole files when a focused edit is sufficient
+- do not remove tests or comments unless directly required
+- do not modify secrets or environment values unless explicitly requested
+
+After editing:
+
+1. Show exactly which files changed.
+2. Inspect the diff.
+3. Run the narrowest relevant validation.
+4. Summarize the result.
+5. Do not stage, commit, push, deploy, or switch branches unless explicitly requested.
+
+## 16. Inspection-only requests
+
+When the user asks only to inspect, review, trace, explain, or diagnose:
+
+- do not modify files
+- do not install packages
+- do not update dependencies
+- do not stage
+- do not commit
+- do not push
+- do not deploy
+- do not run destructive commands
+
+Report findings and wait for the next instruction.
+
+## 17. Reporting
+
+After a coding task, report:
+
+- exact files changed
+- concise reason for each change
+- exact validation performed
+- whether validation passed or failed
+- pre-existing failures separately
+- remaining risks or unresolved dependencies
+- whether anything was staged, committed, pushed, or deployed
+
+Never state that something is fixed if appropriate validation was not actually run or did not pass.

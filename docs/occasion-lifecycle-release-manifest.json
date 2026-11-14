@@ -1,0 +1,1509 @@
+{
+    "schemaVersion":  1,
+    "project":  "feasta-catering-system",
+    "region":  "asia-southeast1",
+    "auditDate":  "2026-10-28",
+    "baseCommit":  "710a181507fba43b9f9ab2b16e3317304418d820",
+    "dirtyWorktree":  true,
+    "approvedReleaseCommit":  null,
+    "deployedArtifactDigest":  null,
+    "releaseAuthorized":  false,
+    "functions":  [
+                      {
+                          "name":  "activateAdminOccasion",
+                          "entryModule":  "functions/src/admin/occasion-lifecycle-actions.ts",
+                          "dependencies":  [
+                                               "functions/src/admin/occasion-activation-readiness.ts",
+                                               "functions/src/admin/occasion-lifecycle-actions.ts",
+                                               "functions/src/admin/occasion-lifecycle-atomic.ts",
+                                               "functions/src/admin/occasion-lifecycle-release-evidence.ts",
+                                               "functions/src/packages/occasion-suggestion-v2-core.ts",
+                                               "functions/src/packages/occasion-transition-inventory-scan.ts",
+                                               "functions/src/packages/occasion-v2-validation.ts",
+                                               "functions/src/packages/occasion-withdrawal-batch.ts",
+                                               "functions/src/packages/v2-validation.ts",
+                                               "functions/src/shared/account-state.ts",
+                                               "functions/src/shared/auth.ts",
+                                               "functions/src/shared/authorization.ts",
+                                               "functions/src/shared/constants.ts",
+                                               "functions/src/shared/firestore.ts",
+                                               "functions/src/shared/function-options.ts",
+                                               "functions/src/shared/logger.ts",
+                                               "functions/src/shared/rate-limit.ts",
+                                               "functions/src/shared/security-events.ts",
+                                               "functions/src/shared/service-category-code.ts",
+                                               "functions/src/shared/timestamps.ts"
+                                           ],
+                          "observedDeployment":  {
+                                                     "id":  "activateAdminOccasion",
+                                                     "deployed":  false
+                                                 }
+                      },
+                      {
+                          "name":  "deactivateAdminOccasion",
+                          "entryModule":  "functions/src/admin/occasion-lifecycle-actions.ts",
+                          "dependencies":  [
+                                               "functions/src/admin/occasion-activation-readiness.ts",
+                                               "functions/src/admin/occasion-lifecycle-actions.ts",
+                                               "functions/src/admin/occasion-lifecycle-atomic.ts",
+                                               "functions/src/admin/occasion-lifecycle-release-evidence.ts",
+                                               "functions/src/packages/occasion-suggestion-v2-core.ts",
+                                               "functions/src/packages/occasion-transition-inventory-scan.ts",
+                                               "functions/src/packages/occasion-v2-validation.ts",
+                                               "functions/src/packages/occasion-withdrawal-batch.ts",
+                                               "functions/src/packages/v2-validation.ts",
+                                               "functions/src/shared/account-state.ts",
+                                               "functions/src/shared/auth.ts",
+                                               "functions/src/shared/authorization.ts",
+                                               "functions/src/shared/constants.ts",
+                                               "functions/src/shared/firestore.ts",
+                                               "functions/src/shared/function-options.ts",
+                                               "functions/src/shared/logger.ts",
+                                               "functions/src/shared/rate-limit.ts",
+                                               "functions/src/shared/security-events.ts",
+                                               "functions/src/shared/service-category-code.ts",
+                                               "functions/src/shared/timestamps.ts"
+                                           ],
+                          "observedDeployment":  {
+                                                     "id":  "deactivateAdminOccasion",
+                                                     "deployed":  false
+                                                 }
+                      },
+                      {
+                          "name":  "inspectAdminOccasionAtomicReadiness",
+                          "entryModule":  "functions/src/admin/occasion-lifecycle-actions.ts",
+                          "dependencies":  [
+                                               "functions/src/admin/occasion-activation-readiness.ts",
+                                               "functions/src/admin/occasion-lifecycle-actions.ts",
+                                               "functions/src/admin/occasion-lifecycle-atomic.ts",
+                                               "functions/src/admin/occasion-lifecycle-release-evidence.ts",
+                                               "functions/src/packages/occasion-suggestion-v2-core.ts",
+                                               "functions/src/packages/occasion-transition-inventory-scan.ts",
+                                               "functions/src/packages/occasion-v2-validation.ts",
+                                               "functions/src/packages/occasion-withdrawal-batch.ts",
+                                               "functions/src/packages/v2-validation.ts",
+                                               "functions/src/shared/account-state.ts",
+                                               "functions/src/shared/auth.ts",
+                                               "functions/src/shared/authorization.ts",
+                                               "functions/src/shared/constants.ts",
+                                               "functions/src/shared/firestore.ts",
+                                               "functions/src/shared/function-options.ts",
+                                               "functions/src/shared/logger.ts",
+                                               "functions/src/shared/rate-limit.ts",
+                                               "functions/src/shared/security-events.ts",
+                                               "functions/src/shared/service-category-code.ts",
+                                               "functions/src/shared/timestamps.ts"
+                                           ],
+                          "observedDeployment":  {
+                                                     "id":  "inspectAdminOccasionAtomicReadiness",
+                                                     "deployed":  false
+                                                 }
+                      },
+                      {
+                          "name":  "checkAdminOccasionActivationReadiness",
+                          "entryModule":  "functions/src/admin/occasion-activation-readiness.ts",
+                          "dependencies":  [
+                                               "functions/src/admin/occasion-activation-readiness.ts",
+                                               "functions/src/admin/occasion-lifecycle-release-evidence.ts",
+                                               "functions/src/packages/occasion-suggestion-v2-core.ts",
+                                               "functions/src/packages/occasion-v2-validation.ts",
+                                               "functions/src/packages/v2-validation.ts",
+                                               "functions/src/shared/account-state.ts",
+                                               "functions/src/shared/auth.ts",
+                                               "functions/src/shared/authorization.ts",
+                                               "functions/src/shared/constants.ts",
+                                               "functions/src/shared/firestore.ts",
+                                               "functions/src/shared/function-options.ts",
+                                               "functions/src/shared/logger.ts",
+                                               "functions/src/shared/rate-limit.ts",
+                                               "functions/src/shared/security-events.ts",
+                                               "functions/src/shared/service-category-code.ts",
+                                               "functions/src/shared/timestamps.ts"
+                                           ],
+                          "observedDeployment":  {
+                                                     "id":  "checkAdminOccasionActivationReadiness",
+                                                     "deployed":  true,
+                                                     "generation":  "1793024246383613",
+                                                     "downloadStatus":  200,
+                                                     "releaseSha":  null,
+                                                     "sha256":  "58743a47f787f9d303a27c16e6a432b37bb094cb4dac5c39c1915611a5ea5529"
+                                                 }
+                      },
+                      {
+                          "name":  "checkAdminOccasionDeactivationReadiness",
+                          "entryModule":  "functions/src/admin/occasion-activation-readiness.ts",
+                          "dependencies":  [
+                                               "functions/src/admin/occasion-activation-readiness.ts",
+                                               "functions/src/admin/occasion-lifecycle-release-evidence.ts",
+                                               "functions/src/packages/occasion-suggestion-v2-core.ts",
+                                               "functions/src/packages/occasion-v2-validation.ts",
+                                               "functions/src/packages/v2-validation.ts",
+                                               "functions/src/shared/account-state.ts",
+                                               "functions/src/shared/auth.ts",
+                                               "functions/src/shared/authorization.ts",
+                                               "functions/src/shared/constants.ts",
+                                               "functions/src/shared/firestore.ts",
+                                               "functions/src/shared/function-options.ts",
+                                               "functions/src/shared/logger.ts",
+                                               "functions/src/shared/rate-limit.ts",
+                                               "functions/src/shared/security-events.ts",
+                                               "functions/src/shared/service-category-code.ts",
+                                               "functions/src/shared/timestamps.ts"
+                                           ],
+                          "observedDeployment":  {
+                                                     "id":  "checkAdminOccasionDeactivationReadiness",
+                                                     "deployed":  false
+                                                 }
+                      },
+                      {
+                          "name":  "submitBookingRequest",
+                          "entryModule":  "functions/src/bookings/submit-booking-request.ts",
+                          "dependencies":  [
+                                               "functions/src/bookings/booking-authorization.ts",
+                                               "functions/src/bookings/booking-contract.ts",
+                                               "functions/src/bookings/booking-package-offer.ts",
+                                               "functions/src/bookings/booking-payment-agreement.ts",
+                                               "functions/src/bookings/booking-payment-eligibility-policy.ts",
+                                               "functions/src/bookings/booking-policy-v3.ts",
+                                               "functions/src/bookings/booking-refund-policy.ts",
+                                               "functions/src/bookings/canonical-booking-payment-policy.ts",
+                                               "functions/src/bookings/load-booking-payment-policy.ts",
+                                               "functions/src/bookings/service-booking-policy.ts",
+                                               "functions/src/bookings/submit-booking-request.ts",
+                                               "functions/src/packages/legacy-occasion-publication-guard.ts",
+                                               "functions/src/packages/occasion-publication-generation.ts",
+                                               "functions/src/packages/package-domain.ts",
+                                               "functions/src/packages/package-payment-policy.ts",
+                                               "functions/src/payments/canonical-balance-timing.ts",
+                                               "functions/src/payments/initial-payment-deadline.ts",
+                                               "functions/src/payments/initial-payment-eligibility.ts",
+                                               "functions/src/payments/initial-payment-rollout.ts",
+                                               "functions/src/payments/package-payment-terms.ts",
+                                               "functions/src/payments/payment-obligation.ts",
+                                               "functions/src/payments/remaining-balance-domain.ts",
+                                               "functions/src/provider-availability/validate-provider-availability.ts",
+                                               "functions/src/refund-policies/refund-policy-domain.ts",
+                                               "functions/src/shared/account-state.ts",
+                                               "functions/src/shared/audit.ts",
+                                               "functions/src/shared/auth.ts",
+                                               "functions/src/shared/authorization.ts",
+                                               "functions/src/shared/cloudinary.ts",
+                                               "functions/src/shared/constants.ts",
+                                               "functions/src/shared/firestore.ts",
+                                               "functions/src/shared/function-options.ts",
+                                               "functions/src/shared/logger.ts",
+                                               "functions/src/shared/notifications.ts",
+                                               "functions/src/shared/rate-limit.ts",
+                                               "functions/src/shared/security-events.ts",
+                                               "functions/src/shared/service-category-code.ts",
+                                               "functions/src/shared/service-category-policy.ts",
+                                               "functions/src/shared/timestamps.ts"
+                                           ],
+                          "observedDeployment":  {
+                                                     "id":  "submitBookingRequest",
+                                                     "deployed":  true,
+                                                     "generation":  "1792829620245570",
+                                                     "downloadStatus":  200,
+                                                     "releaseSha":  null,
+                                                     "sha256":  "abdc74bfb0ee03edc47125806a2ac26a17c7c718ca32b58f4894b630ac6702fb"
+                                                 }
+                      },
+                      {
+                          "name":  "getBookingPaymentAgreementDisclosures",
+                          "entryModule":  "functions/src/bookings/submit-booking-request.ts",
+                          "dependencies":  [
+                                               "functions/src/bookings/booking-authorization.ts",
+                                               "functions/src/bookings/booking-contract.ts",
+                                               "functions/src/bookings/booking-package-offer.ts",
+                                               "functions/src/bookings/booking-payment-agreement.ts",
+                                               "functions/src/bookings/booking-payment-eligibility-policy.ts",
+                                               "functions/src/bookings/booking-policy-v3.ts",
+                                               "functions/src/bookings/booking-refund-policy.ts",
+                                               "functions/src/bookings/canonical-booking-payment-policy.ts",
+                                               "functions/src/bookings/load-booking-payment-policy.ts",
+                                               "functions/src/bookings/service-booking-policy.ts",
+                                               "functions/src/bookings/submit-booking-request.ts",
+                                               "functions/src/packages/legacy-occasion-publication-guard.ts",
+                                               "functions/src/packages/occasion-publication-generation.ts",
+                                               "functions/src/packages/package-domain.ts",
+                                               "functions/src/packages/package-payment-policy.ts",
+                                               "functions/src/payments/canonical-balance-timing.ts",
+                                               "functions/src/payments/initial-payment-deadline.ts",
+                                               "functions/src/payments/initial-payment-eligibility.ts",
+                                               "functions/src/payments/initial-payment-rollout.ts",
+                                               "functions/src/payments/package-payment-terms.ts",
+                                               "functions/src/payments/payment-obligation.ts",
+                                               "functions/src/payments/remaining-balance-domain.ts",
+                                               "functions/src/provider-availability/validate-provider-availability.ts",
+                                               "functions/src/refund-policies/refund-policy-domain.ts",
+                                               "functions/src/shared/account-state.ts",
+                                               "functions/src/shared/audit.ts",
+                                               "functions/src/shared/auth.ts",
+                                               "functions/src/shared/authorization.ts",
+                                               "functions/src/shared/cloudinary.ts",
+                                               "functions/src/shared/constants.ts",
+                                               "functions/src/shared/firestore.ts",
+                                               "functions/src/shared/function-options.ts",
+                                               "functions/src/shared/logger.ts",
+                                               "functions/src/shared/notifications.ts",
+                                               "functions/src/shared/rate-limit.ts",
+                                               "functions/src/shared/security-events.ts",
+                                               "functions/src/shared/service-category-code.ts",
+                                               "functions/src/shared/service-category-policy.ts",
+                                               "functions/src/shared/timestamps.ts"
+                                           ],
+                          "observedDeployment":  {
+                                                     "id":  "getBookingPaymentAgreementDisclosures",
+                                                     "deployed":  true,
+                                                     "generation":  "1791506689133738",
+                                                     "downloadStatus":  200,
+                                                     "releaseSha":  null,
+                                                     "sha256":  "cbd9d8dcc26fe02bc796670bb1e51795ea98f7b4da2f19ec20eaae779575e6e6"
+                                                 }
+                      },
+                      {
+                          "name":  "publishProviderPackage",
+                          "entryModule":  "functions/src/packages/publish-provider-package.ts",
+                          "dependencies":  [
+                                               "functions/src/bookings/booking-policy-v3.ts",
+                                               "functions/src/packages/legacy-occasion-publication-guard.ts",
+                                               "functions/src/packages/occasion-publication-generation.ts",
+                                               "functions/src/packages/package-domain.ts",
+                                               "functions/src/packages/package-payment-policy.ts",
+                                               "functions/src/packages/publish-provider-package.ts",
+                                               "functions/src/payments/canonical-balance-timing.ts",
+                                               "functions/src/payments/remaining-balance-domain.ts",
+                                               "functions/src/shared/account-state.ts",
+                                               "functions/src/shared/auth.ts",
+                                               "functions/src/shared/authorization.ts",
+                                               "functions/src/shared/cloudinary.ts",
+                                               "functions/src/shared/constants.ts",
+                                               "functions/src/shared/firestore.ts",
+                                               "functions/src/shared/function-options.ts",
+                                               "functions/src/shared/logger.ts",
+                                               "functions/src/shared/rate-limit.ts",
+                                               "functions/src/shared/security-events.ts",
+                                               "functions/src/shared/service-category-code.ts",
+                                               "functions/src/shared/service-category-policy.ts",
+                                               "functions/src/shared/timestamps.ts"
+                                           ],
+                          "observedDeployment":  {
+                                                     "id":  "publishProviderPackage",
+                                                     "deployed":  true,
+                                                     "generation":  "1791506691867930",
+                                                     "downloadStatus":  200,
+                                                     "releaseSha":  null,
+                                                     "sha256":  "cbd9d8dcc26fe02bc796670bb1e51795ea98f7b4da2f19ec20eaae779575e6e6"
+                                                 }
+                      },
+                      {
+                          "name":  "publishProviderService",
+                          "entryModule":  "functions/src/providers/provider-service-management.ts",
+                          "dependencies":  [
+                                               "functions/src/packages/occasion-publication-generation.ts",
+                                               "functions/src/providers/provider-service-management.ts",
+                                               "functions/src/shared/account-state.ts",
+                                               "functions/src/shared/audit.ts",
+                                               "functions/src/shared/auth.ts",
+                                               "functions/src/shared/authorization.ts",
+                                               "functions/src/shared/cloudinary.ts",
+                                               "functions/src/shared/constants.ts",
+                                               "functions/src/shared/firestore.ts",
+                                               "functions/src/shared/function-options.ts",
+                                               "functions/src/shared/logger.ts",
+                                               "functions/src/shared/rate-limit.ts",
+                                               "functions/src/shared/security-events.ts",
+                                               "functions/src/shared/service-category-code.ts",
+                                               "functions/src/shared/service-category-policy.ts",
+                                               "functions/src/shared/timestamps.ts"
+                                           ],
+                          "observedDeployment":  {
+                                                     "id":  "publishProviderService",
+                                                     "deployed":  true,
+                                                     "generation":  "1791506690867933",
+                                                     "downloadStatus":  200,
+                                                     "releaseSha":  null,
+                                                     "sha256":  "cbd9d8dcc26fe02bc796670bb1e51795ea98f7b4da2f19ec20eaae779575e6e6"
+                                                 }
+                      },
+                      {
+                          "name":  "registerProvider",
+                          "entryModule":  "functions/src/providers/register-provider.ts",
+                          "dependencies":  [
+                                               "functions/src/packages/setup-gallery-v2-authority.ts",
+                                               "functions/src/providers/register-provider.ts",
+                                               "functions/src/shared/account-state.ts",
+                                               "functions/src/shared/agreement-summary.ts",
+                                               "functions/src/shared/agreement-types.ts",
+                                               "functions/src/shared/agreement-version-order.ts",
+                                               "functions/src/shared/agreement-versions.ts",
+                                               "functions/src/shared/audit.ts",
+                                               "functions/src/shared/auth.ts",
+                                               "functions/src/shared/authorization.ts",
+                                               "functions/src/shared/cloudinary.ts",
+                                               "functions/src/shared/constants.ts",
+                                               "functions/src/shared/document-catalog-policy.ts",
+                                               "functions/src/shared/document-catalog.ts",
+                                               "functions/src/shared/firestore.ts",
+                                               "functions/src/shared/function-options.ts",
+                                               "functions/src/shared/idempotency.ts",
+                                               "functions/src/shared/logger.ts",
+                                               "functions/src/shared/phone-identity.ts",
+                                               "functions/src/shared/provider-agreement-acceptance.ts",
+                                               "functions/src/shared/provider-eligibility-revision.ts",
+                                               "functions/src/shared/provider-identity-prerequisites.ts",
+                                               "functions/src/shared/rate-limit.ts",
+                                               "functions/src/shared/security-events.ts",
+                                               "functions/src/shared/service-category-code.ts",
+                                               "functions/src/shared/service-category-policy.ts",
+                                               "functions/src/shared/timestamps.ts",
+                                               "functions/src/shared/validation.ts",
+                                               "functions/src/shared/verification-history.ts"
+                                           ],
+                          "observedDeployment":  {
+                                                     "id":  "registerProvider",
+                                                     "deployed":  true,
+                                                     "generation":  "1791506690397610",
+                                                     "downloadStatus":  200,
+                                                     "releaseSha":  null,
+                                                     "sha256":  "cbd9d8dcc26fe02bc796670bb1e51795ea98f7b4da2f19ec20eaae779575e6e6"
+                                                 }
+                      },
+                      {
+                          "name":  "saveProviderOnboardingDraft",
+                          "entryModule":  "functions/src/providers/save-provider-onboarding-draft.ts",
+                          "dependencies":  [
+                                               "functions/src/packages/setup-gallery-v2-authority.ts",
+                                               "functions/src/providers/save-provider-onboarding-draft.ts",
+                                               "functions/src/shared/account-state.ts",
+                                               "functions/src/shared/agreement-summary.ts",
+                                               "functions/src/shared/agreement-types.ts",
+                                               "functions/src/shared/agreement-version-order.ts",
+                                               "functions/src/shared/agreement-versions.ts",
+                                               "functions/src/shared/audit.ts",
+                                               "functions/src/shared/auth.ts",
+                                               "functions/src/shared/authorization.ts",
+                                               "functions/src/shared/cloudinary.ts",
+                                               "functions/src/shared/constants.ts",
+                                               "functions/src/shared/document-catalog-policy.ts",
+                                               "functions/src/shared/document-catalog.ts",
+                                               "functions/src/shared/firestore.ts",
+                                               "functions/src/shared/function-options.ts",
+                                               "functions/src/shared/logger.ts",
+                                               "functions/src/shared/phone-identity.ts",
+                                               "functions/src/shared/provider-agreement-acceptance.ts",
+                                               "functions/src/shared/provider-eligibility-revision.ts",
+                                               "functions/src/shared/provider-identity-prerequisites.ts",
+                                               "functions/src/shared/rate-limit.ts",
+                                               "functions/src/shared/security-events.ts",
+                                               "functions/src/shared/service-category-code.ts",
+                                               "functions/src/shared/service-category-policy.ts",
+                                               "functions/src/shared/timestamps.ts",
+                                               "functions/src/shared/validation.ts"
+                                           ],
+                          "observedDeployment":  {
+                                                     "id":  "saveProviderOnboardingDraft",
+                                                     "deployed":  true,
+                                                     "generation":  "1791506690535878",
+                                                     "downloadStatus":  200,
+                                                     "releaseSha":  null,
+                                                     "sha256":  "cbd9d8dcc26fe02bc796670bb1e51795ea98f7b4da2f19ec20eaae779575e6e6"
+                                                 }
+                      },
+                      {
+                          "name":  "submitProviderVerification",
+                          "entryModule":  "functions/src/verification/submit-provider-verification.ts",
+                          "dependencies":  [
+                                               "functions/src/packages/setup-gallery-v2-authority.ts",
+                                               "functions/src/shared/account-state.ts",
+                                               "functions/src/shared/agreement-summary.ts",
+                                               "functions/src/shared/agreement-types.ts",
+                                               "functions/src/shared/agreement-version-order.ts",
+                                               "functions/src/shared/agreement-versions.ts",
+                                               "functions/src/shared/audit.ts",
+                                               "functions/src/shared/auth.ts",
+                                               "functions/src/shared/authorization.ts",
+                                               "functions/src/shared/constants.ts",
+                                               "functions/src/shared/document-catalog-policy.ts",
+                                               "functions/src/shared/document-catalog.ts",
+                                               "functions/src/shared/firestore.ts",
+                                               "functions/src/shared/function-options.ts",
+                                               "functions/src/shared/idempotency.ts",
+                                               "functions/src/shared/logger.ts",
+                                               "functions/src/shared/notifications.ts",
+                                               "functions/src/shared/phone-identity.ts",
+                                               "functions/src/shared/provider-agreement-acceptance.ts",
+                                               "functions/src/shared/provider-eligibility-revision.ts",
+                                               "functions/src/shared/provider-identity-prerequisites.ts",
+                                               "functions/src/shared/rate-limit.ts",
+                                               "functions/src/shared/security-events.ts",
+                                               "functions/src/shared/service-category-code.ts",
+                                               "functions/src/shared/service-category-policy.ts",
+                                               "functions/src/shared/timestamps.ts",
+                                               "functions/src/shared/validation.ts",
+                                               "functions/src/shared/verification-history.ts",
+                                               "functions/src/verification/submit-provider-verification.ts"
+                                           ],
+                          "observedDeployment":  {
+                                                     "id":  "submitProviderVerification",
+                                                     "deployed":  true,
+                                                     "generation":  "1791506690619745",
+                                                     "downloadStatus":  200,
+                                                     "releaseSha":  null,
+                                                     "sha256":  "cbd9d8dcc26fe02bc796670bb1e51795ea98f7b4da2f19ec20eaae779575e6e6"
+                                                 }
+                      },
+                      {
+                          "name":  "reviewProviderVerification",
+                          "entryModule":  "functions/src/verification/review-provider-verification.ts",
+                          "dependencies":  [
+                                               "functions/src/packages/setup-gallery-v2-authority.ts",
+                                               "functions/src/shared/account-state.ts",
+                                               "functions/src/shared/agreement-summary.ts",
+                                               "functions/src/shared/agreement-types.ts",
+                                               "functions/src/shared/agreement-version-order.ts",
+                                               "functions/src/shared/agreement-versions.ts",
+                                               "functions/src/shared/audit.ts",
+                                               "functions/src/shared/auth.ts",
+                                               "functions/src/shared/authorization.ts",
+                                               "functions/src/shared/constants.ts",
+                                               "functions/src/shared/document-catalog-policy.ts",
+                                               "functions/src/shared/document-catalog.ts",
+                                               "functions/src/shared/firestore.ts",
+                                               "functions/src/shared/function-options.ts",
+                                               "functions/src/shared/idempotency.ts",
+                                               "functions/src/shared/logger.ts",
+                                               "functions/src/shared/notifications.ts",
+                                               "functions/src/shared/phone-identity.ts",
+                                               "functions/src/shared/provider-agreement-acceptance.ts",
+                                               "functions/src/shared/provider-eligibility-revision.ts",
+                                               "functions/src/shared/provider-identity-prerequisites.ts",
+                                               "functions/src/shared/rate-limit.ts",
+                                               "functions/src/shared/security-events.ts",
+                                               "functions/src/shared/service-category-code.ts",
+                                               "functions/src/shared/timestamps.ts",
+                                               "functions/src/shared/validation.ts",
+                                               "functions/src/shared/verification-history.ts",
+                                               "functions/src/verification/review-provider-verification.ts"
+                                           ],
+                          "observedDeployment":  {
+                                                     "id":  "reviewProviderVerification",
+                                                     "deployed":  true,
+                                                     "generation":  "1791506709141891",
+                                                     "downloadStatus":  200,
+                                                     "releaseSha":  null,
+                                                     "sha256":  "cbd9d8dcc26fe02bc796670bb1e51795ea98f7b4da2f19ec20eaae779575e6e6"
+                                                 }
+                      },
+                      {
+                          "name":  "deactivateProviderAccount",
+                          "entryModule":  "functions/src/auth/manage-role-account.ts",
+                          "dependencies":  [
+                                               "functions/src/auth/manage-role-account.ts",
+                                               "functions/src/packages/setup-gallery-v2-authority.ts",
+                                               "functions/src/shared/account-state.ts",
+                                               "functions/src/shared/audit.ts",
+                                               "functions/src/shared/auth.ts",
+                                               "functions/src/shared/authorization.ts",
+                                               "functions/src/shared/constants.ts",
+                                               "functions/src/shared/firestore.ts",
+                                               "functions/src/shared/function-options.ts",
+                                               "functions/src/shared/logger.ts",
+                                               "functions/src/shared/provider-eligibility-revision.ts",
+                                               "functions/src/shared/rate-limit.ts",
+                                               "functions/src/shared/recent-auth.ts",
+                                               "functions/src/shared/security-events.ts",
+                                               "functions/src/shared/service-category-code.ts",
+                                               "functions/src/shared/timestamps.ts",
+                                               "functions/src/shared/validation.ts"
+                                           ],
+                          "observedDeployment":  {
+                                                     "id":  "deactivateProviderAccount",
+                                                     "deployed":  true,
+                                                     "generation":  "1791506690382191",
+                                                     "downloadStatus":  200,
+                                                     "releaseSha":  null,
+                                                     "sha256":  "cbd9d8dcc26fe02bc796670bb1e51795ea98f7b4da2f19ec20eaae779575e6e6"
+                                                 }
+                      },
+                      {
+                          "name":  "listApprovedOccasions",
+                          "entryModule":  "functions/src/packages/list-approved-occasions-v2.ts",
+                          "dependencies":  [
+                                               "functions/src/packages/list-approved-occasions-v2.ts",
+                                               "functions/src/packages/provider-package-v2-policy-read.ts",
+                                               "functions/src/packages/provider-package-v2-public-occasion-contract.ts",
+                                               "functions/src/shared/constants.ts",
+                                               "functions/src/shared/firestore.ts",
+                                               "functions/src/shared/function-options.ts",
+                                               "functions/src/shared/logger.ts",
+                                               "functions/src/shared/rate-limit.ts",
+                                               "functions/src/shared/security-events.ts",
+                                               "functions/src/shared/service-category-code.ts",
+                                               "functions/src/shared/timestamps.ts"
+                                           ],
+                          "observedDeployment":  {
+                                                     "id":  "listApprovedOccasions",
+                                                     "deployed":  false
+                                                 }
+                      },
+                      {
+                          "name":  "updateProviderBusinessProfile",
+                          "entryModule":  "functions/src/providers/update-provider-business-profile.ts",
+                          "dependencies":  [
+                                               "functions/src/packages/setup-gallery-v2-authority.ts",
+                                               "functions/src/providers/provider-business-profile-domain.ts",
+                                               "functions/src/providers/update-provider-business-profile.ts",
+                                               "functions/src/shared/account-state.ts",
+                                               "functions/src/shared/audit.ts",
+                                               "functions/src/shared/auth.ts",
+                                               "functions/src/shared/authorization.ts",
+                                               "functions/src/shared/cloudinary.ts",
+                                               "functions/src/shared/constants.ts",
+                                               "functions/src/shared/firestore.ts",
+                                               "functions/src/shared/function-options.ts",
+                                               "functions/src/shared/logger.ts",
+                                               "functions/src/shared/provider-eligibility-revision.ts",
+                                               "functions/src/shared/rate-limit.ts",
+                                               "functions/src/shared/security-events.ts",
+                                               "functions/src/shared/service-category-code.ts",
+                                               "functions/src/shared/timestamps.ts",
+                                               "functions/src/shared/validation.ts"
+                                           ],
+                          "observedDeployment":  {
+                                                     "id":  "updateProviderBusinessProfile",
+                                                     "deployed":  true,
+                                                     "generation":  null,
+                                                     "downloadStatus":  null,
+                                                     "releaseSha":  null,
+                                                     "sha256":  null
+                                                 }
+                      }
+                  ],
+    "sourceGraph":  {
+                        "functions/src/admin/occasion-lifecycle-actions.ts":  {
+                                                                                  "sha256":  "492087147d9462e1fee8543a999fab57c0322454a25d99784243a7e8c16e9ba1",
+                                                                                  "localDependencies":  [
+                                                                                                            "functions/src/admin/occasion-activation-readiness.ts",
+                                                                                                            "functions/src/admin/occasion-lifecycle-atomic.ts",
+                                                                                                            "functions/src/packages/occasion-suggestion-v2-core.ts",
+                                                                                                            "functions/src/packages/occasion-transition-inventory-scan.ts",
+                                                                                                            "functions/src/packages/occasion-v2-validation.ts",
+                                                                                                            "functions/src/packages/v2-validation.ts",
+                                                                                                            "functions/src/shared/firestore.ts",
+                                                                                                            "functions/src/shared/function-options.ts"
+                                                                                                        ],
+                                                                                  "externalImports":  [
+                                                                                                          "firebase-admin/firestore",
+                                                                                                          "firebase-functions/v2/https"
+                                                                                                      ]
+                                                                              },
+                        "functions/src/admin/occasion-activation-readiness.ts":  {
+                                                                                     "sha256":  "fa715ab72877dc6651ec2de21d036eddbaaff884266302faaa10dc9262b2fb00",
+                                                                                     "localDependencies":  [
+                                                                                                               "functions/src/admin/occasion-lifecycle-release-evidence.ts",
+                                                                                                               "functions/src/packages/occasion-suggestion-v2-core.ts",
+                                                                                                               "functions/src/packages/occasion-v2-validation.ts",
+                                                                                                               "functions/src/packages/v2-validation.ts",
+                                                                                                               "functions/src/shared/account-state.ts",
+                                                                                                               "functions/src/shared/auth.ts",
+                                                                                                               "functions/src/shared/authorization.ts",
+                                                                                                               "functions/src/shared/firestore.ts",
+                                                                                                               "functions/src/shared/function-options.ts",
+                                                                                                               "functions/src/shared/rate-limit.ts",
+                                                                                                               "functions/src/shared/service-category-code.ts"
+                                                                                                           ],
+                                                                                     "externalImports":  [
+                                                                                                             "firebase-functions/v2/https"
+                                                                                                         ]
+                                                                                 },
+                        "functions/src/admin/occasion-lifecycle-release-evidence.ts":  {
+                                                                                           "sha256":  "92baa17ebe1a3924683558974bc0448d7b5540327ddca946bd0e72a41d9b1ce0",
+                                                                                           "localDependencies":  [
+
+                                                                                                                 ],
+                                                                                           "externalImports":  [
+
+                                                                                                               ]
+                                                                                       },
+                        "functions/src/packages/occasion-suggestion-v2-core.ts":  {
+                                                                                      "sha256":  "5f2a3c6af89eef7d812c4816d904323b3b90cbb8bdb2df37a8c02d1472b2fda9",
+                                                                                      "localDependencies":  [
+                                                                                                                "functions/src/packages/v2-validation.ts"
+                                                                                                            ],
+                                                                                      "externalImports":  [
+                                                                                                              "firebase-functions/v2/https",
+                                                                                                              "node:crypto"
+                                                                                                          ]
+                                                                                  },
+                        "functions/src/packages/v2-validation.ts":  {
+                                                                        "sha256":  "45cf669caa80f1355ada2f20b3f1abbc24aaac6d620b39c82824f3403b20dd62",
+                                                                        "localDependencies":  [
+
+                                                                                              ],
+                                                                        "externalImports":  [
+                                                                                                "firebase-functions/v2/https"
+                                                                                            ]
+                                                                    },
+                        "functions/src/packages/occasion-v2-validation.ts":  {
+                                                                                 "sha256":  "2b371451cb6fc52907e46d592f0d781b10488db706f34ae3a3c3dc558c1fcf08",
+                                                                                 "localDependencies":  [
+                                                                                                           "functions/src/packages/v2-validation.ts"
+                                                                                                       ],
+                                                                                 "externalImports":  [
+                                                                                                         "@feasta/shared-types/provider-package-v2"
+                                                                                                     ]
+                                                                             },
+                        "functions/src/shared/account-state.ts":  {
+                                                                      "sha256":  "e78da85dde5336e67a6c3e0e4c3491efe95a2326c9733f5f65291a4062f433f5",
+                                                                      "localDependencies":  [
+                                                                                                "functions/src/shared/constants.ts"
+                                                                                            ],
+                                                                      "externalImports":  [
+
+                                                                                          ]
+                                                                  },
+                        "functions/src/shared/constants.ts":  {
+                                                                  "sha256":  "1e9bcd373b6ed7c3badc149038a672b9e73c7e88d7dcd2e4bf5a7cc2f1cc9b81",
+                                                                  "localDependencies":  [
+                                                                                            "functions/src/shared/service-category-code.ts"
+                                                                                        ],
+                                                                  "externalImports":  [
+                                                                                          "@feasta/shared-types/documents"
+                                                                                      ]
+                                                              },
+                        "functions/src/shared/service-category-code.ts":  {
+                                                                              "sha256":  "c2b0d497724ed14c63d92470961b9c268e3de68fbc2d629a0c2af5ed08fbac1f",
+                                                                              "localDependencies":  [
+
+                                                                                                    ],
+                                                                              "externalImports":  [
+
+                                                                                                  ]
+                                                                          },
+                        "functions/src/shared/auth.ts":  {
+                                                             "sha256":  "6dfdf47c3d2d579152e7723ec859f78bdc8be45b54a5c462746f550809de40f8",
+                                                             "localDependencies":  [
+                                                                                       "functions/src/shared/security-events.ts"
+                                                                                   ],
+                                                             "externalImports":  [
+                                                                                     "firebase-functions/v2/https"
+                                                                                 ]
+                                                         },
+                        "functions/src/shared/security-events.ts":  {
+                                                                        "sha256":  "b1c4f6af099e1013c0a527d0e3e83cf5efdb9458d651bdbda73ae599384bc5f4",
+                                                                        "localDependencies":  [
+                                                                                                  "functions/src/shared/logger.ts"
+                                                                                              ],
+                                                                        "externalImports":  [
+                                                                                                "firebase-functions/v2/https",
+                                                                                                "node:crypto"
+                                                                                            ]
+                                                                    },
+                        "functions/src/shared/logger.ts":  {
+                                                               "sha256":  "33737a0b46fce1e7ab75666da87ae6a2c25bed4523232bdcad6e5bea4d24688b",
+                                                               "localDependencies":  [
+
+                                                                                     ],
+                                                               "externalImports":  [
+                                                                                       "firebase-functions"
+                                                                                   ]
+                                                           },
+                        "functions/src/shared/authorization.ts":  {
+                                                                      "sha256":  "4020d39019d88bb230312818d914c60a7ec33c5053107377f1a40087d3138ef8",
+                                                                      "localDependencies":  [
+                                                                                                "functions/src/shared/account-state.ts",
+                                                                                                "functions/src/shared/constants.ts",
+                                                                                                "functions/src/shared/firestore.ts",
+                                                                                                "functions/src/shared/security-events.ts"
+                                                                                            ],
+                                                                      "externalImports":  [
+                                                                                              "firebase-admin/auth",
+                                                                                              "firebase-functions/v2/https"
+                                                                                          ]
+                                                                  },
+                        "functions/src/shared/firestore.ts":  {
+                                                                  "sha256":  "1de3a2aa806ac6d3f0f5280c1e32f3ebb43866a46f959e21ef29624f38425d24",
+                                                                  "localDependencies":  [
+
+                                                                                        ],
+                                                                  "externalImports":  [
+                                                                                          "firebase-admin/firestore"
+                                                                                      ]
+                                                              },
+                        "functions/src/shared/function-options.ts":  {
+                                                                         "sha256":  "f3a865d79cbfdf34af1085300168235b5c025eacd5ed13c980ee4d0ea540bc2d",
+                                                                         "localDependencies":  [
+                                                                                                   "functions/src/shared/constants.ts"
+                                                                                               ],
+                                                                         "externalImports":  [
+
+                                                                                             ]
+                                                                     },
+                        "functions/src/shared/rate-limit.ts":  {
+                                                                   "sha256":  "1b85d0ddc6ccb5ae22d9a6ac45e2053375d0a1d816a8d57b7b617a66d1e29fd6",
+                                                                   "localDependencies":  [
+                                                                                             "functions/src/shared/firestore.ts",
+                                                                                             "functions/src/shared/security-events.ts",
+                                                                                             "functions/src/shared/timestamps.ts"
+                                                                                         ],
+                                                                   "externalImports":  [
+                                                                                           "firebase-admin/firestore",
+                                                                                           "firebase-functions/v2/https",
+                                                                                           "node:crypto"
+                                                                                       ]
+                                                               },
+                        "functions/src/shared/timestamps.ts":  {
+                                                                   "sha256":  "35d8129bc90162c00fdddc6ad1b9af561a4551846e5c5850f2ed3197842e31f3",
+                                                                   "localDependencies":  [
+
+                                                                                         ],
+                                                                   "externalImports":  [
+                                                                                           "firebase-admin/firestore"
+                                                                                       ]
+                                                               },
+                        "functions/src/admin/occasion-lifecycle-atomic.ts":  {
+                                                                                 "sha256":  "d6ad7386dbf561a27bb5a214cd0e7f57771f1741581a846c6dcf371a9b9891eb",
+                                                                                 "localDependencies":  [
+                                                                                                           "functions/src/packages/occasion-transition-inventory-scan.ts",
+                                                                                                           "functions/src/packages/occasion-withdrawal-batch.ts"
+                                                                                                       ],
+                                                                                 "externalImports":  [
+                                                                                                         "firebase-admin/firestore",
+                                                                                                         "node:crypto"
+                                                                                                     ]
+                                                                             },
+                        "functions/src/packages/occasion-transition-inventory-scan.ts":  {
+                                                                                             "sha256":  "200114d7789f8975bf01a623bb7293f3211cebfa5fa30009913ba80c5d72b9e0",
+                                                                                             "localDependencies":  [
+
+                                                                                                                   ],
+                                                                                             "externalImports":  [
+
+                                                                                                                 ]
+                                                                                         },
+                        "functions/src/packages/occasion-withdrawal-batch.ts":  {
+                                                                                    "sha256":  "ac51e8c0a5c3766ccd4aa8cf12ab22f920b5f3fe71e9b7194215e4cd0dd18415",
+                                                                                    "localDependencies":  [
+
+                                                                                                          ],
+                                                                                    "externalImports":  [
+                                                                                                            "firebase-admin/firestore",
+                                                                                                            "node:crypto"
+                                                                                                        ]
+                                                                                },
+                        "functions/src/bookings/submit-booking-request.ts":  {
+                                                                                 "sha256":  "344cbafc27abd18e742a312083eaa1576808a727b01f3b0f18b5902dcd9b2063",
+                                                                                 "localDependencies":  [
+                                                                                                           "functions/src/bookings/booking-authorization.ts",
+                                                                                                           "functions/src/bookings/booking-contract.ts",
+                                                                                                           "functions/src/bookings/booking-package-offer.ts",
+                                                                                                           "functions/src/bookings/booking-payment-agreement.ts",
+                                                                                                           "functions/src/bookings/booking-policy-v3.ts",
+                                                                                                           "functions/src/bookings/booking-refund-policy.ts",
+                                                                                                           "functions/src/bookings/canonical-booking-payment-policy.ts",
+                                                                                                           "functions/src/bookings/load-booking-payment-policy.ts",
+                                                                                                           "functions/src/packages/legacy-occasion-publication-guard.ts",
+                                                                                                           "functions/src/packages/occasion-publication-generation.ts",
+                                                                                                           "functions/src/payments/initial-payment-eligibility.ts",
+                                                                                                           "functions/src/payments/initial-payment-rollout.ts",
+                                                                                                           "functions/src/payments/package-payment-terms.ts",
+                                                                                                           "functions/src/provider-availability/validate-provider-availability.ts",
+                                                                                                           "functions/src/shared/audit.ts",
+                                                                                                           "functions/src/shared/auth.ts",
+                                                                                                           "functions/src/shared/authorization.ts",
+                                                                                                           "functions/src/shared/constants.ts",
+                                                                                                           "functions/src/shared/firestore.ts",
+                                                                                                           "functions/src/shared/function-options.ts",
+                                                                                                           "functions/src/shared/logger.ts",
+                                                                                                           "functions/src/shared/notifications.ts",
+                                                                                                           "functions/src/shared/rate-limit.ts",
+                                                                                                           "functions/src/shared/security-events.ts",
+                                                                                                           "functions/src/shared/service-category-code.ts",
+                                                                                                           "functions/src/shared/timestamps.ts"
+                                                                                                       ],
+                                                                                 "externalImports":  [
+                                                                                                         "firebase-admin/auth",
+                                                                                                         "firebase-admin/firestore",
+                                                                                                         "firebase-functions/v2/https",
+                                                                                                         "node:crypto"
+                                                                                                     ]
+                                                                             },
+                        "functions/src/bookings/booking-authorization.ts":  {
+                                                                                "sha256":  "727d655989817f602f988b0db3b008dfbb75cca4d5738ad063fce95a869c43a9",
+                                                                                "localDependencies":  [
+
+                                                                                                      ],
+                                                                                "externalImports":  [
+                                                                                                        "firebase-functions/v2/https"
+                                                                                                    ]
+                                                                            },
+                        "functions/src/bookings/booking-contract.ts":  {
+                                                                           "sha256":  "2de264b6725f1932bcf43b6fcfabd7316f40e7d66b17e39a89bba2f78a53a014",
+                                                                           "localDependencies":  [
+                                                                                                     "functions/src/shared/constants.ts"
+                                                                                                 ],
+                                                                           "externalImports":  [
+
+                                                                                               ]
+                                                                       },
+                        "functions/src/bookings/booking-package-offer.ts":  {
+                                                                                "sha256":  "fbb0a1f496fb6cbe20b6edbb6068e7427f573db6bdb79ec8c126cd97fdced9ce",
+                                                                                "localDependencies":  [
+                                                                                                          "functions/src/packages/package-domain.ts"
+                                                                                                      ],
+                                                                                "externalImports":  [
+                                                                                                        "firebase-functions/v2/https"
+                                                                                                    ]
+                                                                            },
+                        "functions/src/packages/package-domain.ts":  {
+                                                                         "sha256":  "a8399493e055515e7f06be4efbc63e1bf1ca3b103b81328447712e7de96db93b",
+                                                                         "localDependencies":  [
+                                                                                                   "functions/src/packages/package-payment-policy.ts",
+                                                                                                   "functions/src/payments/canonical-balance-timing.ts",
+                                                                                                   "functions/src/shared/cloudinary.ts",
+                                                                                                   "functions/src/shared/constants.ts",
+                                                                                                   "functions/src/shared/service-category-code.ts"
+                                                                                               ],
+                                                                         "externalImports":  [
+                                                                                                 "firebase-admin/firestore",
+                                                                                                 "firebase-functions/v2/https"
+                                                                                             ]
+                                                                     },
+                        "functions/src/packages/package-payment-policy.ts":  {
+                                                                                 "sha256":  "bc7b3c6d4e09c91953fe8df89aafe22d9b6278ab736acf8c97eecf7f9f28dddd",
+                                                                                 "localDependencies":  [
+
+                                                                                                       ],
+                                                                                 "externalImports":  [
+                                                                                                         "firebase-admin/firestore"
+                                                                                                     ]
+                                                                             },
+                        "functions/src/payments/canonical-balance-timing.ts":  {
+                                                                                   "sha256":  "e08abd687ae93495422abb8723143b2f3078cd8e4f25cdd94ea4217f08a9ed9d",
+                                                                                   "localDependencies":  [
+                                                                                                             "functions/src/bookings/booking-policy-v3.ts",
+                                                                                                             "functions/src/payments/remaining-balance-domain.ts"
+                                                                                                         ],
+                                                                                   "externalImports":  [
+
+                                                                                                       ]
+                                                                               },
+                        "functions/src/bookings/booking-policy-v3.ts":  {
+                                                                            "sha256":  "b4c09a77edfd6db7909ad44ad0873357ea563ff326818bb78364bad809171227",
+                                                                            "localDependencies":  [
+
+                                                                                                  ],
+                                                                            "externalImports":  [
+
+                                                                                                ]
+                                                                        },
+                        "functions/src/payments/remaining-balance-domain.ts":  {
+                                                                                   "sha256":  "b050d5a3bf2d92b2a57c2cf715ea3cd4c396bb057052f720ad4d2016af53728c",
+                                                                                   "localDependencies":  [
+
+                                                                                                         ],
+                                                                                   "externalImports":  [
+
+                                                                                                       ]
+                                                                               },
+                        "functions/src/shared/cloudinary.ts":  {
+                                                                   "sha256":  "43ff8c8e1fc3d29cf9c0238763afb9741a06d1f94963daab3b43b256c2675819",
+                                                                   "localDependencies":  [
+
+                                                                                         ],
+                                                                   "externalImports":  [
+                                                                                           "cloudinary",
+                                                                                           "firebase-functions/params",
+                                                                                           "firebase-functions/v2/https"
+                                                                                       ]
+                                                               },
+                        "functions/src/bookings/booking-payment-agreement.ts":  {
+                                                                                    "sha256":  "c1e779faab53db6246fbcd2ab860efa8e82472c7493278d2760059358b3255fd",
+                                                                                    "localDependencies":  [
+                                                                                                              "functions/src/bookings/booking-policy-v3.ts"
+                                                                                                          ],
+                                                                                    "externalImports":  [
+                                                                                                            "firebase-functions/v2/https",
+                                                                                                            "node:crypto"
+                                                                                                        ]
+                                                                                },
+                        "functions/src/bookings/booking-refund-policy.ts":  {
+                                                                                "sha256":  "062590d8d5005400f85b8ff112dc7c19ada93bd91b877fbee5baf3692fafc25e",
+                                                                                "localDependencies":  [
+                                                                                                          "functions/src/bookings/booking-policy-v3.ts",
+                                                                                                          "functions/src/refund-policies/refund-policy-domain.ts"
+                                                                                                      ],
+                                                                                "externalImports":  [
+                                                                                                        "firebase-admin/firestore",
+                                                                                                        "firebase-functions/v2/https"
+                                                                                                    ]
+                                                                            },
+                        "functions/src/refund-policies/refund-policy-domain.ts":  {
+                                                                                      "sha256":  "7c61514758e94e8f1d6c88c9bad11483ea9856f783b709190af7644dd85f26d6",
+                                                                                      "localDependencies":  [
+
+                                                                                                            ],
+                                                                                      "externalImports":  [
+                                                                                                              "firebase-admin/firestore",
+                                                                                                              "firebase-functions/v2/https"
+                                                                                                          ]
+                                                                                  },
+                        "functions/src/bookings/canonical-booking-payment-policy.ts":  {
+                                                                                           "sha256":  "71f21ff580499cc8466a83ff3d6c983f70a9e14ae3b62a6902e22764b23946be",
+                                                                                           "localDependencies":  [
+                                                                                                                     "functions/src/payments/canonical-balance-timing.ts",
+                                                                                                                     "functions/src/payments/package-payment-terms.ts"
+                                                                                                                 ],
+                                                                                           "externalImports":  [
+                                                                                                                   "firebase-functions/v2/https"
+                                                                                                               ]
+                                                                                       },
+                        "functions/src/payments/package-payment-terms.ts":  {
+                                                                                "sha256":  "644ee478427f9eecbb25ba79c15b9c24cc05ac6bd26fe4dad60d646aab8741bd",
+                                                                                "localDependencies":  [
+                                                                                                          "functions/src/payments/canonical-balance-timing.ts"
+                                                                                                      ],
+                                                                                "externalImports":  [
+                                                                                                        "firebase-functions/v2/https"
+                                                                                                    ]
+                                                                            },
+                        "functions/src/bookings/load-booking-payment-policy.ts":  {
+                                                                                      "sha256":  "4b7488640e182e3e19029b1868f7e5498332d251602dfe7d0dbdb4e733c0f4cd",
+                                                                                      "localDependencies":  [
+                                                                                                                "functions/src/bookings/booking-payment-eligibility-policy.ts",
+                                                                                                                "functions/src/shared/firestore.ts",
+                                                                                                                "functions/src/shared/service-category-policy.ts"
+                                                                                                            ],
+                                                                                      "externalImports":  [
+
+                                                                                                          ]
+                                                                                  },
+                        "functions/src/bookings/booking-payment-eligibility-policy.ts":  {
+                                                                                             "sha256":  "d05660661e2d3c1bfed059f77dd31c0607fc383bcc479047e690ebf42ba3754d",
+                                                                                             "localDependencies":  [
+                                                                                                                       "functions/src/bookings/service-booking-policy.ts"
+                                                                                                                   ],
+                                                                                             "externalImports":  [
+                                                                                                                     "firebase-functions/v2/https"
+                                                                                                                 ]
+                                                                                         },
+                        "functions/src/bookings/service-booking-policy.ts":  {
+                                                                                 "sha256":  "3ffa81ed4aaddc8168f80bc74f6ab88febacc17723e78f2fd64ce4360b24ae28",
+                                                                                 "localDependencies":  [
+                                                                                                           "functions/src/payments/canonical-balance-timing.ts"
+                                                                                                       ],
+                                                                                 "externalImports":  [
+                                                                                                         "firebase-functions/v2/https",
+                                                                                                         "node:crypto"
+                                                                                                     ]
+                                                                             },
+                        "functions/src/shared/service-category-policy.ts":  {
+                                                                                "sha256":  "c645b1396e80a1febf5d26a27e96a199328415a342c097b7ef51e99bc6577a8b",
+                                                                                "localDependencies":  [
+                                                                                                          "functions/src/shared/constants.ts",
+                                                                                                          "functions/src/shared/firestore.ts",
+                                                                                                          "functions/src/shared/service-category-code.ts"
+                                                                                                      ],
+                                                                                "externalImports":  [
+                                                                                                        "firebase-functions/v2/https"
+                                                                                                    ]
+                                                                            },
+                        "functions/src/packages/legacy-occasion-publication-guard.ts":  {
+                                                                                            "sha256":  "7685b722a1a63e4d895e25495ff77f455a037a3e19edf4a7ed704fb3ec651113",
+                                                                                            "localDependencies":  [
+
+                                                                                                                  ],
+                                                                                            "externalImports":  [
+
+                                                                                                                ]
+                                                                                        },
+                        "functions/src/packages/occasion-publication-generation.ts":  {
+                                                                                          "sha256":  "b1cb93a88f698f25afa3b2edb0b2d1d77d04429684e5b7a6baa883f2f1f1db62",
+                                                                                          "localDependencies":  [
+
+                                                                                                                ],
+                                                                                          "externalImports":  [
+
+                                                                                                              ]
+                                                                                      },
+                        "functions/src/payments/initial-payment-eligibility.ts":  {
+                                                                                      "sha256":  "7612cca6cf7ce03c6a5925e6f21fe76b0746da4b054fe82c9d89c137449ef488",
+                                                                                      "localDependencies":  [
+                                                                                                                "functions/src/bookings/booking-payment-eligibility-policy.ts",
+                                                                                                                "functions/src/payments/canonical-balance-timing.ts",
+                                                                                                                "functions/src/payments/package-payment-terms.ts",
+                                                                                                                "functions/src/payments/payment-obligation.ts"
+                                                                                                            ],
+                                                                                      "externalImports":  [
+                                                                                                              "firebase-functions/v2/https"
+                                                                                                          ]
+                                                                                  },
+                        "functions/src/payments/payment-obligation.ts":  {
+                                                                             "sha256":  "fc2fe67fff9dfbb6de394a5db128345ab59ad2f1291f088162d9528bb7a8a549",
+                                                                             "localDependencies":  [
+
+                                                                                                   ],
+                                                                             "externalImports":  [
+                                                                                                     "firebase-functions/v2/https",
+                                                                                                     "node:crypto"
+                                                                                                 ]
+                                                                         },
+                        "functions/src/payments/initial-payment-rollout.ts":  {
+                                                                                  "sha256":  "44ffb0a0b9c174045be33cdb8684733622ee2e14f0615e1824cc78c86e9dc264",
+                                                                                  "localDependencies":  [
+                                                                                                            "functions/src/shared/firestore.ts"
+                                                                                                        ],
+                                                                                  "externalImports":  [
+                                                                                                          "firebase-admin/firestore"
+                                                                                                      ]
+                                                                              },
+                        "functions/src/provider-availability/validate-provider-availability.ts":  {
+                                                                                                      "sha256":  "eb7ad0b8ad9de5b41a06c9d3d7dce458cdd637a10f97af0bfd8734c415ebfa31",
+                                                                                                      "localDependencies":  [
+                                                                                                                                "functions/src/payments/initial-payment-deadline.ts",
+                                                                                                                                "functions/src/shared/constants.ts",
+                                                                                                                                "functions/src/shared/service-category-code.ts"
+                                                                                                                            ],
+                                                                                                      "externalImports":  [
+
+                                                                                                                          ]
+                                                                                                  },
+                        "functions/src/payments/initial-payment-deadline.ts":  {
+                                                                                   "sha256":  "71f75b641e0b54ae4091d58ecb18169d27b8080be08ce59dc2940cf23a5ea8b7",
+                                                                                   "localDependencies":  [
+                                                                                                             "functions/src/payments/canonical-balance-timing.ts"
+                                                                                                         ],
+                                                                                   "externalImports":  [
+                                                                                                           "firebase-admin/firestore"
+                                                                                                       ]
+                                                                               },
+                        "functions/src/shared/audit.ts":  {
+                                                              "sha256":  "dc865fc9d3f012c06497f69323bb6df788a0f6db85e196dff0e71b964c22241d",
+                                                              "localDependencies":  [
+                                                                                        "functions/src/shared/firestore.ts",
+                                                                                        "functions/src/shared/timestamps.ts"
+                                                                                    ],
+                                                              "externalImports":  [
+                                                                                      "firebase-admin/firestore"
+                                                                                  ]
+                                                          },
+                        "functions/src/shared/notifications.ts":  {
+                                                                      "sha256":  "c94cd58921a0348a877890bbc4ba9a8b1aee2c277f3c3583ffbe4f916d802cec",
+                                                                      "localDependencies":  [
+                                                                                                "functions/src/shared/firestore.ts",
+                                                                                                "functions/src/shared/timestamps.ts"
+                                                                                            ],
+                                                                      "externalImports":  [
+                                                                                              "firebase-admin/firestore"
+                                                                                          ]
+                                                                  },
+                        "functions/src/packages/publish-provider-package.ts":  {
+                                                                                   "sha256":  "559449c14166346c2c3366ca40dc29884789cf12bbe10a20c7567ba2af032329",
+                                                                                   "localDependencies":  [
+                                                                                                             "functions/src/packages/legacy-occasion-publication-guard.ts",
+                                                                                                             "functions/src/packages/occasion-publication-generation.ts",
+                                                                                                             "functions/src/packages/package-domain.ts",
+                                                                                                             "functions/src/shared/auth.ts",
+                                                                                                             "functions/src/shared/authorization.ts",
+                                                                                                             "functions/src/shared/constants.ts",
+                                                                                                             "functions/src/shared/firestore.ts",
+                                                                                                             "functions/src/shared/function-options.ts",
+                                                                                                             "functions/src/shared/rate-limit.ts",
+                                                                                                             "functions/src/shared/service-category-policy.ts",
+                                                                                                             "functions/src/shared/timestamps.ts"
+                                                                                                         ],
+                                                                                   "externalImports":  [
+                                                                                                           "firebase-functions/v2/https"
+                                                                                                       ]
+                                                                               },
+                        "functions/src/providers/provider-service-management.ts":  {
+                                                                                       "sha256":  "979301cc6070c399afcf3ae42120bc4601324ad19f36e750049c95a7bc3b9df7",
+                                                                                       "localDependencies":  [
+                                                                                                                 "functions/src/packages/occasion-publication-generation.ts",
+                                                                                                                 "functions/src/shared/audit.ts",
+                                                                                                                 "functions/src/shared/auth.ts",
+                                                                                                                 "functions/src/shared/authorization.ts",
+                                                                                                                 "functions/src/shared/cloudinary.ts",
+                                                                                                                 "functions/src/shared/constants.ts",
+                                                                                                                 "functions/src/shared/firestore.ts",
+                                                                                                                 "functions/src/shared/function-options.ts",
+                                                                                                                 "functions/src/shared/rate-limit.ts",
+                                                                                                                 "functions/src/shared/service-category-policy.ts",
+                                                                                                                 "functions/src/shared/timestamps.ts"
+                                                                                                             ],
+                                                                                       "externalImports":  [
+                                                                                                               "firebase-functions/v2/https"
+                                                                                                           ]
+                                                                                   },
+                        "functions/src/providers/register-provider.ts":  {
+                                                                             "sha256":  "7bdb1012224fcfee6b64705a36bc61eb15796dfd5dc990d1378e7c167e9c65ba",
+                                                                             "localDependencies":  [
+                                                                                                       "functions/src/shared/audit.ts",
+                                                                                                       "functions/src/shared/auth.ts",
+                                                                                                       "functions/src/shared/authorization.ts",
+                                                                                                       "functions/src/shared/cloudinary.ts",
+                                                                                                       "functions/src/shared/constants.ts",
+                                                                                                       "functions/src/shared/document-catalog.ts",
+                                                                                                       "functions/src/shared/firestore.ts",
+                                                                                                       "functions/src/shared/function-options.ts",
+                                                                                                       "functions/src/shared/idempotency.ts",
+                                                                                                       "functions/src/shared/logger.ts",
+                                                                                                       "functions/src/shared/provider-agreement-acceptance.ts",
+                                                                                                       "functions/src/shared/provider-eligibility-revision.ts",
+                                                                                                       "functions/src/shared/provider-identity-prerequisites.ts",
+                                                                                                       "functions/src/shared/rate-limit.ts",
+                                                                                                       "functions/src/shared/service-category-policy.ts",
+                                                                                                       "functions/src/shared/timestamps.ts",
+                                                                                                       "functions/src/shared/validation.ts",
+                                                                                                       "functions/src/shared/verification-history.ts"
+                                                                                                   ],
+                                                                             "externalImports":  [
+                                                                                                     "firebase-admin/auth",
+                                                                                                     "firebase-functions/v2/https"
+                                                                                                 ]
+                                                                         },
+                        "functions/src/shared/document-catalog.ts":  {
+                                                                         "sha256":  "00496bbfa8d707d87d65973a61d4457a6381ee2fda58942fb355ac957e5e7f2f",
+                                                                         "localDependencies":  [
+                                                                                                   "functions/src/shared/agreement-types.ts",
+                                                                                                   "functions/src/shared/document-catalog-policy.ts",
+                                                                                                   "functions/src/shared/firestore.ts",
+                                                                                                   "functions/src/shared/provider-agreement-acceptance.ts",
+                                                                                                   "functions/src/shared/timestamps.ts"
+                                                                                               ],
+                                                                         "externalImports":  [
+                                                                                                 "firebase-admin/firestore"
+                                                                                             ]
+                                                                     },
+                        "functions/src/shared/agreement-types.ts":  {
+                                                                        "sha256":  "b992575ed9d24e897f7989ae82bbc28feb37011a7d3cca7f4cba02e6b71218e9",
+                                                                        "localDependencies":  [
+
+                                                                                              ],
+                                                                        "externalImports":  [
+                                                                                                "@feasta/shared-types/documents/agreement-types"
+                                                                                            ]
+                                                                    },
+                        "functions/src/shared/document-catalog-policy.ts":  {
+                                                                                "sha256":  "cde76b28bab4b14a3176c8074c502d2bf14dc8d8fa36073cc695ec423228e1e2",
+                                                                                "localDependencies":  [
+
+                                                                                                      ],
+                                                                                "externalImports":  [
+                                                                                                        "@feasta/shared-types/documents"
+                                                                                                    ]
+                                                                            },
+                        "functions/src/shared/provider-agreement-acceptance.ts":  {
+                                                                                      "sha256":  "40111b6bbede9837cd4d5ec9ea07480ff00f1c977e69ef95642fc83a8b58dbca",
+                                                                                      "localDependencies":  [
+                                                                                                                "functions/src/shared/agreement-types.ts",
+                                                                                                                "functions/src/shared/agreement-versions.ts",
+                                                                                                                "functions/src/shared/document-catalog-policy.ts"
+                                                                                                            ],
+                                                                                      "externalImports":  [
+
+                                                                                                          ]
+                                                                                  },
+                        "functions/src/shared/agreement-versions.ts":  {
+                                                                           "sha256":  "c925d19f2aabdb1d17ad51ac738db3b9bfb1708e9dd4dc46ef5cb0b12474a27f",
+                                                                           "localDependencies":  [
+                                                                                                     "functions/src/shared/agreement-summary.ts",
+                                                                                                     "functions/src/shared/agreement-version-order.ts"
+                                                                                                 ],
+                                                                           "externalImports":  [
+                                                                                                   "firebase-functions/v2/https"
+                                                                                               ]
+                                                                       },
+                        "functions/src/shared/agreement-summary.ts":  {
+                                                                          "sha256":  "80099bb5568dad5b20937b2f46ba616bae424e30b6ac64ef676f490fce145373",
+                                                                          "localDependencies":  [
+
+                                                                                                ],
+                                                                          "externalImports":  [
+                                                                                                  "@feasta/shared-types/documents/agreement-summary"
+                                                                                              ]
+                                                                      },
+                        "functions/src/shared/agreement-version-order.ts":  {
+                                                                                "sha256":  "effd5d8ac5091e5d6f6a49d114a0fe9dccae3699a1786437c828e5fe7035e2e9",
+                                                                                "localDependencies":  [
+
+                                                                                                      ],
+                                                                                "externalImports":  [
+                                                                                                        "@feasta/shared-types/documents/agreement-version-order"
+                                                                                                    ]
+                                                                            },
+                        "functions/src/shared/idempotency.ts":  {
+                                                                    "sha256":  "4471140305c2bd8139e63ba6032319efdb2d03597d357013a897a2e59e519cd3",
+                                                                    "localDependencies":  [
+                                                                                              "functions/src/shared/firestore.ts",
+                                                                                              "functions/src/shared/security-events.ts",
+                                                                                              "functions/src/shared/timestamps.ts"
+                                                                                          ],
+                                                                    "externalImports":  [
+                                                                                            "firebase-admin/firestore",
+                                                                                            "firebase-functions/v2/https",
+                                                                                            "node:crypto"
+                                                                                        ]
+                                                                },
+                        "functions/src/shared/provider-eligibility-revision.ts":  {
+                                                                                      "sha256":  "45721746834f23009b025c9b3290d966b66f1ac395b0422089e7286c09930a6f",
+                                                                                      "localDependencies":  [
+                                                                                                                "functions/src/packages/setup-gallery-v2-authority.ts"
+                                                                                                            ],
+                                                                                      "externalImports":  [
+                                                                                                              "firebase-admin/firestore",
+                                                                                                              "node:util"
+                                                                                                          ]
+                                                                                  },
+                        "functions/src/packages/setup-gallery-v2-authority.ts":  {
+                                                                                     "sha256":  "64a884f6522c2671dde02d254f74ac1f2564e00e566bf70eb9baaf3661a59da0",
+                                                                                     "localDependencies":  [
+
+                                                                                                           ],
+                                                                                     "externalImports":  [
+
+                                                                                                         ]
+                                                                                 },
+                        "functions/src/shared/provider-identity-prerequisites.ts":  {
+                                                                                        "sha256":  "56adfbc482957cf709877a3368f88608408da129b926a75122e58319154a14f2",
+                                                                                        "localDependencies":  [
+                                                                                                                  "functions/src/shared/phone-identity.ts",
+                                                                                                                  "functions/src/shared/validation.ts"
+                                                                                                              ],
+                                                                                        "externalImports":  [
+                                                                                                                "firebase-admin/auth",
+                                                                                                                "firebase-functions/v2/https"
+                                                                                                            ]
+                                                                                    },
+                        "functions/src/shared/phone-identity.ts":  {
+                                                                       "sha256":  "05a20a3ea6eec6f453398daf320636b3088c265af9f7eb41a57dccd9bcb03e3b",
+                                                                       "localDependencies":  [
+                                                                                                 "functions/src/shared/validation.ts"
+                                                                                             ],
+                                                                       "externalImports":  [
+                                                                                               "firebase-admin/auth",
+                                                                                               "firebase-admin/firestore",
+                                                                                               "firebase-functions/v2/https"
+                                                                                           ]
+                                                                   },
+                        "functions/src/shared/validation.ts":  {
+                                                                   "sha256":  "e684e6043c39941bf8f14a1c25d6e4640cf5fe367c266fecb7188a92475d3128",
+                                                                   "localDependencies":  [
+
+                                                                                         ],
+                                                                   "externalImports":  [
+                                                                                           "firebase-functions/v2/https"
+                                                                                       ]
+                                                               },
+                        "functions/src/shared/verification-history.ts":  {
+                                                                             "sha256":  "07506c6c6b9a8c2e981dee85c4e302508e55405a183b60c41361dc59dd9eda3d",
+                                                                             "localDependencies":  [
+                                                                                                       "functions/src/shared/firestore.ts",
+                                                                                                       "functions/src/shared/timestamps.ts"
+                                                                                                   ],
+                                                                             "externalImports":  [
+                                                                                                     "firebase-admin/firestore"
+                                                                                                 ]
+                                                                         },
+                        "functions/src/providers/save-provider-onboarding-draft.ts":  {
+                                                                                          "sha256":  "fcf6f74bf4f855f59ad7ef280dbfdaf5fe90e00432c2cae2f3ec38d0edf17b61",
+                                                                                          "localDependencies":  [
+                                                                                                                    "functions/src/shared/audit.ts",
+                                                                                                                    "functions/src/shared/auth.ts",
+                                                                                                                    "functions/src/shared/authorization.ts",
+                                                                                                                    "functions/src/shared/cloudinary.ts",
+                                                                                                                    "functions/src/shared/constants.ts",
+                                                                                                                    "functions/src/shared/document-catalog.ts",
+                                                                                                                    "functions/src/shared/firestore.ts",
+                                                                                                                    "functions/src/shared/function-options.ts",
+                                                                                                                    "functions/src/shared/provider-agreement-acceptance.ts",
+                                                                                                                    "functions/src/shared/provider-eligibility-revision.ts",
+                                                                                                                    "functions/src/shared/provider-identity-prerequisites.ts",
+                                                                                                                    "functions/src/shared/rate-limit.ts",
+                                                                                                                    "functions/src/shared/service-category-policy.ts",
+                                                                                                                    "functions/src/shared/timestamps.ts",
+                                                                                                                    "functions/src/shared/validation.ts"
+                                                                                                                ],
+                                                                                          "externalImports":  [
+                                                                                                                  "firebase-admin/auth",
+                                                                                                                  "firebase-admin/firestore",
+                                                                                                                  "firebase-functions/v2/https"
+                                                                                                              ]
+                                                                                      },
+                        "functions/src/verification/submit-provider-verification.ts":  {
+                                                                                           "sha256":  "07a76cb40ee9aeec486b06fc6f3189efa897fbcb4224925c57f97475ae5d1b51",
+                                                                                           "localDependencies":  [
+                                                                                                                     "functions/src/shared/audit.ts",
+                                                                                                                     "functions/src/shared/auth.ts",
+                                                                                                                     "functions/src/shared/authorization.ts",
+                                                                                                                     "functions/src/shared/constants.ts",
+                                                                                                                     "functions/src/shared/document-catalog.ts",
+                                                                                                                     "functions/src/shared/firestore.ts",
+                                                                                                                     "functions/src/shared/function-options.ts",
+                                                                                                                     "functions/src/shared/idempotency.ts",
+                                                                                                                     "functions/src/shared/logger.ts",
+                                                                                                                     "functions/src/shared/notifications.ts",
+                                                                                                                     "functions/src/shared/provider-eligibility-revision.ts",
+                                                                                                                     "functions/src/shared/provider-identity-prerequisites.ts",
+                                                                                                                     "functions/src/shared/rate-limit.ts",
+                                                                                                                     "functions/src/shared/security-events.ts",
+                                                                                                                     "functions/src/shared/service-category-code.ts",
+                                                                                                                     "functions/src/shared/service-category-policy.ts",
+                                                                                                                     "functions/src/shared/timestamps.ts",
+                                                                                                                     "functions/src/shared/validation.ts",
+                                                                                                                     "functions/src/shared/verification-history.ts"
+                                                                                                                 ],
+                                                                                           "externalImports":  [
+                                                                                                                   "firebase-admin/auth",
+                                                                                                                   "firebase-admin/storage",
+                                                                                                                   "firebase-functions/v2/https"
+                                                                                                               ]
+                                                                                       },
+                        "functions/src/verification/review-provider-verification.ts":  {
+                                                                                           "sha256":  "fbf1f0446c6a14b272b9f5e52690b7c58e7764c067d78d71567f3885e4390fa1",
+                                                                                           "localDependencies":  [
+                                                                                                                     "functions/src/shared/audit.ts",
+                                                                                                                     "functions/src/shared/auth.ts",
+                                                                                                                     "functions/src/shared/authorization.ts",
+                                                                                                                     "functions/src/shared/constants.ts",
+                                                                                                                     "functions/src/shared/document-catalog.ts",
+                                                                                                                     "functions/src/shared/firestore.ts",
+                                                                                                                     "functions/src/shared/function-options.ts",
+                                                                                                                     "functions/src/shared/idempotency.ts",
+                                                                                                                     "functions/src/shared/logger.ts",
+                                                                                                                     "functions/src/shared/notifications.ts",
+                                                                                                                     "functions/src/shared/provider-eligibility-revision.ts",
+                                                                                                                     "functions/src/shared/provider-identity-prerequisites.ts",
+                                                                                                                     "functions/src/shared/rate-limit.ts",
+                                                                                                                     "functions/src/shared/security-events.ts",
+                                                                                                                     "functions/src/shared/timestamps.ts",
+                                                                                                                     "functions/src/shared/validation.ts",
+                                                                                                                     "functions/src/shared/verification-history.ts"
+                                                                                                                 ],
+                                                                                           "externalImports":  [
+                                                                                                                   "@feasta/shared-types/documents",
+                                                                                                                   "firebase-admin/auth",
+                                                                                                                   "firebase-admin/firestore",
+                                                                                                                   "firebase-admin/storage",
+                                                                                                                   "firebase-functions/v2/https"
+                                                                                                               ]
+                                                                                       },
+                        "functions/src/auth/manage-role-account.ts":  {
+                                                                          "sha256":  "023f0b86f79baaaa5202864b7bb45591a9dd5fbc9911e228ec7bbcee5ed39efd",
+                                                                          "localDependencies":  [
+                                                                                                    "functions/src/shared/audit.ts",
+                                                                                                    "functions/src/shared/auth.ts",
+                                                                                                    "functions/src/shared/authorization.ts",
+                                                                                                    "functions/src/shared/constants.ts",
+                                                                                                    "functions/src/shared/firestore.ts",
+                                                                                                    "functions/src/shared/function-options.ts",
+                                                                                                    "functions/src/shared/provider-eligibility-revision.ts",
+                                                                                                    "functions/src/shared/rate-limit.ts",
+                                                                                                    "functions/src/shared/recent-auth.ts",
+                                                                                                    "functions/src/shared/timestamps.ts",
+                                                                                                    "functions/src/shared/validation.ts"
+                                                                                                ],
+                                                                          "externalImports":  [
+                                                                                                  "firebase-admin/auth",
+                                                                                                  "firebase-functions/v2/https"
+                                                                                              ]
+                                                                      },
+                        "functions/src/shared/recent-auth.ts":  {
+                                                                    "sha256":  "b5f5517ee8a7aedb68c2270f4530d205581c369120c1448b4b153d489ab01bfd",
+                                                                    "localDependencies":  [
+
+                                                                                          ],
+                                                                    "externalImports":  [
+                                                                                            "firebase-functions/v2/https"
+                                                                                        ]
+                                                                },
+                        "functions/src/packages/list-approved-occasions-v2.ts":  {
+                                                                                     "sha256":  "eab043489277e45ff4da299ff9c1932d1ddd4ba8f3f67367b9e2df86d7c84c5f",
+                                                                                     "localDependencies":  [
+                                                                                                               "functions/src/packages/provider-package-v2-policy-read.ts",
+                                                                                                               "functions/src/packages/provider-package-v2-public-occasion-contract.ts",
+                                                                                                               "functions/src/shared/firestore.ts",
+                                                                                                               "functions/src/shared/function-options.ts",
+                                                                                                               "functions/src/shared/rate-limit.ts"
+                                                                                                           ],
+                                                                                     "externalImports":  [
+                                                                                                             "firebase-admin/firestore",
+                                                                                                             "firebase-functions/params",
+                                                                                                             "firebase-functions/v2/https"
+                                                                                                         ]
+                                                                                 },
+                        "functions/src/packages/provider-package-v2-policy-read.ts":  {
+                                                                                          "sha256":  "579fb1cb4f53ba408001211c92be56cfd4757119a94dd553e2c3dd63ce0d3467",
+                                                                                          "localDependencies":  [
+                                                                                                                    "functions/src/shared/firestore.ts"
+                                                                                                                ],
+                                                                                          "externalImports":  [
+                                                                                                                  "firebase-functions/v2/https"
+                                                                                                              ]
+                                                                                      },
+                        "functions/src/packages/provider-package-v2-public-occasion-contract.ts":  {
+                                                                                                       "sha256":  "bf14847ca682476ac7c90160e097b126f7fcbd35fed3b2811bd631954968c2e1",
+                                                                                                       "localDependencies":  [
+
+                                                                                                                             ],
+                                                                                                       "externalImports":  [
+                                                                                                                               "firebase-functions/v2/https",
+                                                                                                                               "node:crypto"
+                                                                                                                           ]
+                                                                                                   },
+                        "functions/src/providers/provider-business-profile-domain.ts":  {
+                                                                                            "sha256":  "e8228aafd68ba0836b2f28906183c3d109bba9e6e8e1fb7000561da2bb9bd8d3",
+                                                                                            "localDependencies":  [
+                                                                                                                      "functions/src/shared/validation.ts"
+                                                                                                                  ],
+                                                                                            "externalImports":  [
+                                                                                                                    "firebase-functions/v2/https"
+                                                                                                                ]
+                                                                                        },
+                        "functions/src/providers/update-provider-business-profile.ts":  {
+                                                                                            "sha256":  "3231fa7d94cd6db80f0a10f421bc934d1c36714f318061db2d24976b669007ea",
+                                                                                            "localDependencies":  [
+                                                                                                                      "functions/src/providers/provider-business-profile-domain.ts",
+                                                                                                                      "functions/src/shared/audit.ts",
+                                                                                                                      "functions/src/shared/auth.ts",
+                                                                                                                      "functions/src/shared/authorization.ts",
+                                                                                                                      "functions/src/shared/cloudinary.ts",
+                                                                                                                      "functions/src/shared/constants.ts",
+                                                                                                                      "functions/src/shared/firestore.ts",
+                                                                                                                      "functions/src/shared/function-options.ts",
+                                                                                                                      "functions/src/shared/provider-eligibility-revision.ts",
+                                                                                                                      "functions/src/shared/rate-limit.ts",
+                                                                                                                      "functions/src/shared/timestamps.ts"
+                                                                                                                  ],
+                                                                                            "externalImports":  [
+                                                                                                                    "firebase-functions/v2/https"
+                                                                                                                ]
+                                                                                        }
+                    },
+    "buildInputs":  {
+                        "functions/src/index.ts":  "f88fcae2bb78b7d53713283a11d81e046cc97471d8fe392beb004918d227f483",
+                        "functions/package.json":  "24e8b8da38a9b44744764b8675180957543ceccee75479eed970c60fffc2b7a6",
+                        "functions/pnpm-lock.yaml":  "5fe96a95e6df4d57437d33c7412905d269ad221a94d75a4812a2d80611d4d897",
+                        "functions/tsconfig.json":  "4bdb26bb27993c940b3a987b5b01c7259c1454766ed9959ed51b3e3a5236cac7",
+                        "functions/scripts/prepare-shared-runtime.cjs":  "65ed9fc7240e174e134922a3ac7fb38a494de35011bb94a08c975edc4acb4c97",
+                        "functions/vendor/shared-types-manifest.json":  "0bfc5d8b00a6efe357774c31347aeab267674b362083de6b453969fbd7287f98",
+                        "functions/vendor/feasta-shared-types-0.1.0.tgz":  "6ed274513a320488a61628f64533079130a3291a5d15d35d8cb59e9c78eba2f2",
+                        "packages/shared-types/package.json":  "497a83281e001b5304a8506efb438b5313acb85c61167dce43a05b10d3486f68",
+                        "packages/shared-types/tsconfig.json":  "baab992c1a04dcdeab7652535840cbc7b18265010ea8617c4fcecdaac6b01aa3",
+                        "firebase.json":  "88a20faad13291da47a13e9cc0dd26546ce9d678d4fc0bd6553661b232155ec3",
+                        "pnpm-lock.yaml":  "f670572f1b07f2a947850f0c7bea03decdf0e93155233a872946e985c0c8167a",
+                        "packages/shared-types/src/authentication.ts":  "0cfe4569cee1dab50f146b0ba51739fcb2779a391a80ad486cb226372a63b613",
+                        "packages/shared-types/src/booking.ts":  "b07363bd0b82417208108bcacd7d8ef825d7baeb350486cd2bd2c3ba131e81da",
+                        "packages/shared-types/src/cancellation.ts":  "2e7c3b6abc467d16e4d43110e22e469d26c7a951065f619319fa2fcb225d6dfd",
+                        "packages/shared-types/src/collections.ts":  "f78a09f993aa0b9d6581bbef530fa9029d223dbb4165e924cd2938196078264e",
+                        "packages/shared-types/src/enums.ts":  "6ca91f334078ed7f5d79335fb53e88b30c54427a13f7ff6a37cffc866d59808e",
+                        "packages/shared-types/src/index.ts":  "d8366e29db9c089f56ae013e4b8639322f58917e971f056ac1cf9451d394cd1e",
+                        "packages/shared-types/src/payment.ts":  "1e9a6ba760262dd026d114f42fff184f58f27ba02e5bb4f347235f21da1f2ade",
+                        "packages/shared-types/src/provider-registration.ts":  "d1a5760807e2de83f08765ccd27257b975eab7c6acd560e8034c6c17f2ffcb2b",
+                        "packages/shared-types/src/provider-service-area.ts":  "e8e8a011444c030c893313bc995cbb7e9bd3d772f7860d3a563c4c33499d7ba4",
+                        "packages/shared-types/src/provider.ts":  "5a8d5a7d7e5e83ffb4e62929fa73fa81d12dfb3b9498639029fc7ec3f0b1f2bd",
+                        "packages/shared-types/src/refund-policy.ts":  "f23ae804414197359d7f9a6f2ff3079a302d6c47a53ca19077dfb1dae2c7edd7",
+                        "packages/shared-types/src/service-category.ts":  "13ad4332346b9c932c8f55293e7160ed1890d1067d236d36e4a9a2e2ee9d92da"
+                    }
+}
