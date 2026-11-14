@@ -1200,3 +1200,6 @@ export {initializeProviderOccasionCapabilities} from "./packages/provider-occasi
 export {reconcileBookingSubmission} from "./bookings/reconcile-booking-submission.js";
 
 export {listCustomerEventServices} from "./catalog/list-customer-event-services.js";
+export {adjudicateExpiredCustomerBooking, notifyEndedCustomerBookingRestrictions,
+  getAdminCustomerViolations, reverseAdminCustomerViolation,
+  retryAdminCustomerViolationAdjudication} from "./bookings/customer-violation-handlers.js";

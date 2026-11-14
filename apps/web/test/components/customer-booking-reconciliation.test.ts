@@ -38,6 +38,15 @@ beforeEach(() => {
 });
 
 describe.each(["per-pax", "fixed", "custom-menu"] as const)("%s reconciliation compatibility", kind => {
+  it("shows booking restriction reason and Manila expiry without losing recovery safeguards", async () => {
+    const error = new FirebaseError("functions/failed-precondition", "Restricted");
+    Object.assign(error, {details: {reason: "customer_booking_restricted", expiresAt: "2026-11-21T03:00:00Z"}});
+    mocks.submit.mockRejectedValueOnce(error);
+    await expect(submitCustomerBookingRequest(input(kind), options)).rejects.toThrow(/Nov 21, 2026.*Manila/);
+    expect(JSON.parse(localStorage.getItem(key)!).active).toBe("booking-original");
+    await expect(submitCustomerBookingRequest({...input(kind), clientRequestId: "changed-request"}, options)).rejects.toThrow(/Check Previous Request/);
+    expect(mocks.submit).toHaveBeenCalledTimes(1);
+  });
   it("preserves successful payload, both acknowledgments, and prevents duplicate dispatch", async () => {
     const payload = input(kind);
     await expect(submitCustomerBookingRequest(payload, options)).resolves.toEqual(result);

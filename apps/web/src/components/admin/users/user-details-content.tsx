@@ -1,4 +1,5 @@
 "use client";
+import {CustomerViolationsPanel} from "@/components/admin/users/customer-violations-panel";
 import {adminBookingStatusLabel, adminBookingPaymentLabel, adminProviderRequestLabel} from "@/lib/admin/bookings/admin-booking-labels";
 import {accountAccessLabel} from "@/lib/admin/users/admin-account-labels";
 
@@ -713,6 +714,8 @@ function UserDetailsContent({
           </div>
         </div>
       </section>
+
+      {user.role === "customer" && <CustomerViolationsPanel key={user.id} customerId={user.id} />}
 
       <nav
         aria-label="User detail sections"

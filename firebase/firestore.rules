@@ -1619,6 +1619,14 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // Violation adjudication, history and private reversal reasons are server-only.
+    match /customerViolationStates/{customerId} {
+      allow read, write: if false;
+      match /{document=**} {
+        allow read, write: if false;
+      }
+    }
+
     match /{document=**} {
       allow read, write: if false;
     }

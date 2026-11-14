@@ -1,6 +1,7 @@
 // Task 3 work in progress. Deliberately NOT exported from src/index.ts:
 // release still requires end-to-end downstream callable verification.
 import {createHash} from "node:crypto";
+import {assertNoCustomerBookingRestriction} from "./customer-booking-restriction.js";
 import {getAuth} from "firebase-admin/auth";
 import {Timestamp, type Firestore, type Transaction} from "firebase-admin/firestore";
 import {HttpsError, onCall, type CallableRequest} from "firebase-functions/v2/https";
@@ -117,6 +118,7 @@ export async function submitAuthorizedMultiProviderBooking(
   return coordinateMultiProviderSubmission({
     firestore, customerId, clientRequestId: envelope.clientRequestId, submissionFingerprint: fingerprint,
     prepare: async transaction => {
+      await assertNoCustomerBookingRestriction(transaction, firestore, customerId);
       const {prepared, customer, user, rollout} = await authorizeAndPrepare(transaction, firestore, identity, envelope, bookingId, now);
       const common = {
         bookingId, mainEventId: bookingId, customerId,
@@ -166,7 +168,8 @@ export async function submitAuthorizedMultiProviderBooking(
       const total = prepared.financials.totalGrossAmountInCentavos / 100;
       const upfrontTotal = requests.reduce((sum, request) => sum + request.data.downPaymentAmount, 0);
       const booking = {reference: firestore.collection("mainEvents").doc(bookingId), data: {
-        ...first, status: "pending_provider_approval", clientRequestId: envelope.clientRequestId, submissionFingerprint: fingerprint,
+        ...first, customerViolationPolicyVersion: 1,
+        status: "pending_provider_approval", clientRequestId: envelope.clientRequestId, submissionFingerprint: fingerprint,
         bookingCode: `BK-${bookingId.slice(0, 10).toUpperCase()}`, currentProviderId: first.providerId, originalProviderId: first.providerId,
         // Singular package fields remain a display projection of the first
         // assignment; all financial linkage uses packageAssignments instead.

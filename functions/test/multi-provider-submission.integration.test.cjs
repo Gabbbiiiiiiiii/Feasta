@@ -11,6 +11,26 @@ const {submitAuthorizedMultiProviderBooking: submit, submitMultiProviderBookingR
   require("../lib/bookings/submit-multi-provider-booking.js");
 
 const identity = {customerId: "customer_001", emailVerified: true, phoneNumber: "+639171234567"};
+function restrictCustomer(f) {
+  const now = Date.now();
+  f.records["customerViolationStates/customer_001"] = {schemaVersion: 1, revision: 3, pending: [],
+    restriction: {id: "event_cycle_001", startedAtMs: now, untilMs: now + 7 * 86400000,
+      basis: [1, 2, 3].map(n => ({id: `event_cycle_00${n}`, occurredAtMs: now - 1000}))}};
+}
+
+test("booking-only restriction rejects fresh multi-provider intake but preserves successful replay and disclosures", async () => {
+  const f = fixture(); await f.disclose();
+  restrictCustomer(f);
+  await assert.rejects(submit(f.firestore, identity, f.input), e => e.details.reason === "customer_booking_restricted");
+  assert.equal(f.commits.length, 1, "only disclosure transaction committed");
+  await f.disclose();
+  delete f.records["customerViolationStates/customer_001"];
+  const result = await submit(f.firestore, identity, f.input);
+  assert.equal(f.records[`mainEvents/${result.mainEventId}`].customerViolationPolicyVersion, 1);
+  restrictCustomer(f);
+  const replay = await submit(f.firestore, identity, f.input);
+  assert.equal(replay.created, false); assert.equal(replay.mainEventId, result.mainEventId);
+});
 function fixture(count = 2) {
   const records = makeRecords();
   records["users/customer_001"] = {role: "customer", accountStatus: "active", isActive: true,

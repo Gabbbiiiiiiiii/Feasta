@@ -1,3 +1,4 @@
+import {assertNoCustomerBookingRestriction} from "./customer-booking-restriction.js";
 import {readFreelanceServiceDetails, supportsServicePackageDetails} from "@feasta/shared-types/freelance-service-details";
 import {bookingOutcomeId, rejectAcknowledgementInTransaction, assertNoRejectedSubmission} from "./submission-outcome.js";
 import {occasionDependencyEntryPath} from "../admin/occasion-dependency-registry.js";
@@ -575,6 +576,8 @@ async function handleBookingSelection(request: CallableRequest, disclosureOnly: 
           }
 
           const user = userSnapshot.data() ?? {};
+
+          if (!disclosureOnly) await assertNoCustomerBookingRestriction(transaction, db, actor.uid);
 
           assertBookingSubmissionAllowed(
             user,
@@ -1500,6 +1503,7 @@ async function handleBookingSelection(request: CallableRequest, disclosureOnly: 
               bookingId,
               mainEventId: bookingId,
               bookingCode,
+              customerViolationPolicyVersion: 1,
               clientRequestId,
               submissionFingerprint,
 
