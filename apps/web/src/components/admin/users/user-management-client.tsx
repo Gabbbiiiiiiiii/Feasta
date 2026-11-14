@@ -604,7 +604,7 @@ const confirmAccountAction =
     <div className="grid min-w-0 gap-6">
       <PageHeading
         eyebrow="Administration"
-        title="Users"
+        title="User Management"
         description="Monitor and manage customer and provider accounts."
     />
 

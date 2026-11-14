@@ -1,6 +1,7 @@
 import type {
   Metadata,
 } from "next";
+import {CustomerBookingStanding} from "@/components/customer/bookings/customer-booking-standing";
 import {
   notFound,
   redirect,
@@ -121,6 +122,7 @@ export default async function CustomerPackageBookingPage({
 
   return (
     <div className="grid gap-4">
+      <CustomerBookingStanding />
       <EventCustomizationExperience
         key={`${account.uid}:${packageId}:${eventContextQuery}`}
         draftOwner={`customer:${account.uid}`}

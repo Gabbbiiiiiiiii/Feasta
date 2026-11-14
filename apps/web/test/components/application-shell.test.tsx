@@ -333,7 +333,7 @@ describe("ApplicationShell", () => {
     ]);
     expect(within(desktopNav).getAllByRole("link").map((link) => link.textContent)).toEqual([
       "Dashboard",
-      "Users",
+      "User Management",
       "Provider Verification",
       "Bookings",
       "Payments",

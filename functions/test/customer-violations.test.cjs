@@ -2,13 +2,15 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const {initializeApp} = require("firebase-admin/app");
+const {getAuth} = require("firebase-admin/auth");
 const {Timestamp} = require("firebase-admin/firestore");
 initializeApp({projectId: "demo-customer-violations-offline"});
 
 // Optimistic offline Firestore: document/query read conflicts retry the actual
 // production transaction. No credentials, emulator, gateway or live writes.
 let records, hook, retries, sequence = 0;
-const reference = path => ({path, id: path.split("/").at(-1), collection: name => collection(`${path}/${name}`)});
+const reference = path => ({path, id: path.split("/").at(-1),
+  get: async () => snap(reference(path)), collection: name => collection(`${path}/${name}`)});
 const collection = path => query(path);
 function query(path, filters = [], max = Infinity, cursor = null, orders = []) {
   return {path, filters, max, cursor, orders, doc: id => reference(`${path}/${id ?? `auto_${++sequence}`}`),
@@ -61,7 +63,7 @@ const db = {collection, async runTransaction(callback) {
 const modulePath = require.resolve("../lib/shared/firestore.js");
 require.cache[modulePath] = {id: modulePath, filename: modulePath, loaded: true, exports: {db}};
 const {adjudicateCustomerExpiration: adjudicate, endCustomerRestriction, MAX_VIOLATION_EVENT_REQUESTS} = require("../lib/bookings/customer-violation-service.js");
-const {reverseCustomerViolation: reverse, getAdminCustomerViolations, reverseAdminCustomerViolation,
+const {reverseCustomerViolation: reverse, getCustomerBookingStanding, getAdminCustomerViolations, reverseAdminCustomerViolation,
   adjudicateExpiredCustomerBooking, retryAdminCustomerViolationAdjudication} = require("../lib/bookings/customer-violation-handlers.js");
 const {assertNoCustomerBookingRestriction: gate} = require("../lib/bookings/customer-booking-restriction.js");
 const {OBSERVATION_MS: WINDOW, RESTRICTION_MS: WEEK, issueStrike, activeStrikes, readViolationState} = require("../lib/bookings/customer-violation-policy.js");
@@ -102,6 +104,68 @@ function fixture(event = "event_strike_001", count = 1, when = NOW - 1000) {
   });
   return ids;
 }
+
+test("customer standing is self-scoped, minimal, read-only and follows expiry and reversal policy", async () => {
+  seed();
+  records.set(`users/${customerId}`, {role: "customer", accountStatus: "active", isActive: true, isBlocked: false});
+  const auth = getAuth();
+  const original = auth.getUser;
+  auth.getUser = async uid => {
+    assert.equal(uid, customerId);
+    return {uid, disabled: false};
+  };
+  const load = () => getCustomerBookingStanding.run({auth: {uid: customerId, token: {}},
+    data: {customerId: "another_customer"}, rawRequest: {headers: {}}});
+  try {
+    assert.deepEqual(await load(), {activeCount: 0, status: "clear", restrictionExpiresAt: null,
+      serverTime: new Date(NOW).toISOString()});
+    for (let n = 1; n <= 3; n++) {
+      const event = `event_strike_00${n}`; fixture(event); await adjudicate(event);
+      const before = JSON.stringify([...records]);
+      const summary = await load();
+      assert.equal(summary.activeCount, n);
+      assert.equal(summary.status, ["warning", "final_warning", "restricted"][n - 1]);
+      assert.deepEqual(Object.keys(summary).sort(), ["activeCount", "restrictionExpiresAt", "serverTime", "status"]);
+      assert.equal(JSON.stringify([...records]), before);
+    }
+    assert.equal((await load()).restrictionExpiresAt, new Date(NOW + WEEK).toISOString());
+    Date.now = () => NOW + WEEK;
+    assert.equal((await load()).status, "clear");
+    assert.equal((await load()).restrictionExpiresAt, null);
+    Date.now = () => NOW;
+    await reverse("admin_violation", {customerId, strikeId: "event_strike_001", expectedRevision: 3,
+      reason: "Corrected booking attribution"});
+    assert.equal((await load()).status, "clear");
+    records.set(statePath, {schemaVersion: 9});
+    await assert.rejects(load(), {code: "failed-precondition"});
+  } finally {auth.getUser = original;}
+});
+
+test("customer standing rejects unauthenticated callers and enforces customer authorization", async () => {
+  seed();
+  await assert.rejects(getCustomerBookingStanding.run({data: {}, rawRequest: {headers: {}}}), {code: "unauthenticated"});
+  const auth = getAuth();
+  const original = auth.getUser;
+  const transaction = db.runTransaction;
+  // Unauthorized callers must be rejected before any violation-state read.
+  db.runTransaction = async () => {assert.fail("Unauthorized violation-state read");};
+  auth.getUser = async uid => ({uid, disabled: uid === "auth_disabled_customer"});
+  const active = {role: "customer", accountStatus: "active", isActive: true, isBlocked: false};
+  records.set("users/admin_violation", {...active, role: "admin"});
+  records.set("users/provider_violation", {...active, role: "provider"});
+  records.set("users/inactive_customer", {...active, isActive: false});
+  records.set("users/blocked_customer", {...active, isBlocked: true});
+  records.set("users/disabled_customer", {...active, accountStatus: "disabled"});
+  records.set("users/auth_disabled_customer", active);
+  records.set("users/malformed_customer", {role: "customer"});
+  try {
+    for (const uid of ["admin_violation", "provider_violation", "inactive_customer", "blocked_customer",
+      "disabled_customer", "auth_disabled_customer", "missing_customer", "malformed_customer"]) {
+      await assert.rejects(getCustomerBookingStanding.run({auth: {uid, token: {}}, data: {},
+        rawRequest: {headers: {}}}), {code: "permission-denied"});
+    }
+  } finally {auth.getUser = original; db.runTransaction = transaction;}
+});
 
 test("first and second strikes warn; third restricts for exactly seven days and consumes the cycle", async () => {
   seed();

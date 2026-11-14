@@ -54,6 +54,30 @@ function inputRecord(value: unknown): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
+/** Customer-safe summary only. Identity is never taken from caller-supplied data. */
+export const getCustomerBookingStanding = onCall(appCheckCallableOptions, async request => {
+  const actor = requireAuth(request);
+  await requireRole(actor.uid, ["customer"]);
+  return db.runTransaction(async transaction => {
+    const snapshot = await transaction.get(db.collection("customerViolationStates").doc(actor.uid));
+    let state;
+    try { state = readViolationState(snapshot.data()); }
+    catch {
+      throw new HttpsError("failed-precondition",
+        "Booking standing is unavailable. Contact support.");
+    }
+    const now = Date.now();
+    const restricted = !!state.restriction && state.restriction.untilMs > now;
+    return {
+      activeCount: activeStrikes(state, now).length,
+      status: restricted ? "restricted" : activeStrikes(state, now).length === 2 ? "final_warning" :
+        activeStrikes(state, now).length === 1 ? "warning" : "clear",
+      restrictionExpiresAt: restricted ? new Date(state.restriction!.untilMs).toISOString() : null,
+      serverTime: new Date(now).toISOString(),
+    };
+  });
+});
+
 export const getAdminCustomerViolations = onCall(appCheckCallableOptions, async request => {
   const actor = requireAuth(request);
   await requireRole(actor.uid, ["admin"]);

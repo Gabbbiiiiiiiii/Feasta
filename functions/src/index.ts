@@ -1201,5 +1201,5 @@ export {reconcileBookingSubmission} from "./bookings/reconcile-booking-submissio
 
 export {listCustomerEventServices} from "./catalog/list-customer-event-services.js";
 export {adjudicateExpiredCustomerBooking, notifyEndedCustomerBookingRestrictions,
-  getAdminCustomerViolations, reverseAdminCustomerViolation,
+  getCustomerBookingStanding, getAdminCustomerViolations, reverseAdminCustomerViolation,
   retryAdminCustomerViolationAdjudication} from "./bookings/customer-violation-handlers.js";

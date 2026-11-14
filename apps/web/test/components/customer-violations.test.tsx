@@ -18,11 +18,11 @@ beforeEach(() => {vi.clearAllMocks(); mocks.load.mockResolvedValue(fixture()); m
 
 it("shows rolling observation, strikes, booking references and Manila expiry", async () => {
   render(<CustomerViolationsPanel customerId="customer_001" />);
-  expect(await screen.findByText(/3 \/ 3 active strikes/)).toBeInTheDocument();
-  expect(screen.getByText(/Rolling 30-day observation/)).toHaveTextContent("Manila");
-  expect(screen.getByText(/New bookings restricted until/)).toHaveTextContent("Nov 21, 2026");
+  expect(await screen.findByRole("meter")).toHaveAttribute("aria-valuenow", "3");
+  expect(screen.getByText(/Rolling 30-day window/)).toBeInTheDocument();
+  expect(screen.getByText(/Restricted until/)).toHaveTextContent("Nov 21, 2026");
   expect(screen.getByText(/Provider requests:/)).toHaveTextContent("request_002");
-  expect(screen.getByText(/Consumed in restriction cycle/)).toBeInTheDocument();
+  expect(screen.getByText(/Restriction cycle ID/)).toBeInTheDocument();
 });
 
 it("requires a private reason and submits the current revision, then reloads", async () => {
@@ -67,8 +67,8 @@ it("navigates next, previous and first pages using the original cursors", async 
 
 it("identifies newest issuance order and distinguishes occurrence from issuance", async () => {
   render(<CustomerViolationsPanel customerId="customer_001" />);
-  expect(await screen.findByText(/History is ordered by issuance time, newest first/)).toBeInTheDocument();
-  expect(screen.getByText(/^Occurred:/)).toHaveTextContent("Issued:");
+  expect(await screen.findByText(/Newest recorded first/)).toBeInTheDocument();
+  expect(screen.getByText(/^Payment deadline:/)).toHaveTextContent("Recorded:");
 });
 
 it("ignores a stale response after the customer panel unmounts", async () => {
@@ -78,9 +78,9 @@ it("ignores a stale response after the customer panel unmounts", async () => {
   expect(screen.getByRole("button", {name: "Refresh violations"})).toBeDisabled();
   unmount();
   render(<CustomerViolationsPanel customerId="customer_002" />);
-  await screen.findByText(/3 \/ 3 active strikes/);
+  await screen.findByRole("meter");
   resolveInitial({...fixture(), activeCount: 0});
-  await waitFor(() => expect(screen.getByText(/3 \/ 3 active strikes/)).toBeInTheDocument());
+  await waitFor(() => expect(screen.getByRole("meter")).toHaveAttribute("aria-valuenow", "3"));
 });
 
 it("reports concurrent review conflicts and allows refresh", async () => {
@@ -98,4 +98,42 @@ it("does not display empty or failed history as a clean account", async () => {
   render(<CustomerViolationsPanel customerId="customer_001" />);
   expect(await screen.findByRole("alert")).toHaveTextContent("Could not load violations");
   expect(screen.queryByText(/No active booking restriction/)).not.toBeInTheDocument();
+});
+
+it.each([[0, "clear", "Good booking standing"], [1, "warning", "Booking warning"], [2, "final_warning", "Final booking warning"]] as const)("shows %i active strikes with the policy standing", async (activeCount, status, label) => {
+  mocks.load.mockResolvedValue({...fixture(), activeCount, status, restrictionExpiresAt: null, records: []});
+  render(<CustomerViolationsPanel customerId="customer_001" />);
+  expect(await screen.findByText(label)).toBeInTheDocument();
+  expect(screen.getByRole("heading", {name: "Booking Violations"})).toBeInTheDocument();
+  expect(screen.getByRole("meter")).toHaveAttribute("aria-valuenow", String(activeCount));
+  expect(screen.getByText("Allowed")).toBeInTheDocument();
+  expect(screen.getByText("No booking violations recorded")).toBeInTheDocument();
+  expect(screen.queryByRole("button", {name: "Reverse incorrect strike"})).not.toBeInTheDocument();
+});
+
+it("shows loading and recovers after a failed load", async () => {
+  mocks.load.mockRejectedValueOnce(new Error("offline"));
+  render(<CustomerViolationsPanel customerId="customer_001" />);
+  expect(screen.getByRole("status")).toHaveTextContent("Loading violation history");
+  expect(screen.queryByText("Allowed")).not.toBeInTheDocument();
+  await screen.findByRole("alert");
+  fireEvent.click(screen.getByRole("button", {name: "Refresh violations"}));
+  expect(await screen.findByText("Booking restriction active")).toBeInTheDocument();
+  expect(screen.getByText("Restricted")).toBeInTheDocument();
+  expect(screen.getByText(/separate from/)).toHaveTextContent("Restrict account access");
+});
+
+it("retains the required reason after a reversal failure and permits retry", async () => {
+  mocks.reverse.mockRejectedValueOnce(new Error("Review unavailable"));
+  render(<CustomerViolationsPanel customerId="customer_001" />);
+  const reason = await screen.findByLabelText("Private reversal reason");
+  fireEvent.change(reason, {target: {value: "    "}});
+  expect(screen.getByRole("button", {name: "Reverse incorrect strike"})).toBeDisabled();
+  fireEvent.change(reason, {target: {value: "Evidence corrected"}});
+  fireEvent.click(screen.getByRole("button", {name: "Reverse incorrect strike"}));
+  expect(await screen.findByRole("alert")).toHaveTextContent("Review unavailable");
+  expect(reason).toHaveValue("Evidence corrected");
+  fireEvent.click(screen.getByRole("button", {name: "Reverse incorrect strike"}));
+  await waitFor(() => expect(mocks.reverse).toHaveBeenCalledTimes(2));
+  await waitFor(() => expect(reason).toHaveValue(""));
 });

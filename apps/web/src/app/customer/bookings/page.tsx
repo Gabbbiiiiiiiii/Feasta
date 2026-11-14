@@ -1,4 +1,5 @@
 import {CustomerBookingExperience} from "@/components/customer/bookings/customer-booking-experience";
+import {CustomerBookingStanding} from "@/components/customer/bookings/customer-booking-standing";
 import {getCustomerBookingPage} from "@/lib/customer/bookings/customer-booking-service";
 
 export default async function CustomerBookingsPage() {
@@ -11,5 +12,10 @@ export default async function CustomerBookingsPage() {
     cursor: null,
   });
 
-  return <CustomerBookingExperience initialPage={initialPage} />;
+  return (
+    <div className="grid min-w-0 gap-4">
+      <CustomerBookingStanding />
+      <CustomerBookingExperience initialPage={initialPage} />
+    </div>
+  );
 }

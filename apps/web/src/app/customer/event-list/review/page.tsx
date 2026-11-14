@@ -1,6 +1,7 @@
 import type {Metadata} from "next";
 
 import {CustomerEventListReview} from "@/components/customer/event-list/customer-event-list-review";
+import {CustomerBookingStanding} from "@/components/customer/bookings/customer-booking-standing";
 
 export const metadata: Metadata = {
   title: {
@@ -11,5 +12,10 @@ export const metadata: Metadata = {
 };
 
 export default function CustomerEventListReviewPage() {
-  return <CustomerEventListReview />;
+  return (
+    <div className="grid min-w-0 gap-4">
+      <CustomerBookingStanding />
+      <CustomerEventListReview />
+    </div>
+  );
 }
