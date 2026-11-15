@@ -62,9 +62,9 @@ export function PackageDetail({
 
   const packageImages = packageRecord.imageUrls?.length ? packageRecord.imageUrls : packageRecord.imageUrl ? [packageRecord.imageUrl] : [];
   const inclusionGroups = [
-    ...(packageRecord.foodChoiceGroups ?? []).map(group => ({label: `${group.title}: choose ${group.selectionCount}`, items: group.options.map(option => option.name)})),
+    ...(packageRecord.foodChoiceGroups ?? []).map(group => ({label: `${group.title}: choose ${group.selectionCount} of ${group.options.length}`, choice: true, items: group.options.map(option => option.name)})),
     {label: "Equipment inclusions", items: packageRecord.equipmentInclusions ?? []},
-    {label: "Food inclusions", items: detail.customization.foods},
+    {label: "Always included", items: detail.customization.foods},
     {label: "Decor inclusions", items: detail.customization.decorations},
     {label: "Furniture inclusions", items: detail.customization.furniture},
     {label: "Service inclusions", items: detail.customization.services},

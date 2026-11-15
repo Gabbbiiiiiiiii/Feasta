@@ -7,10 +7,10 @@ import {Textarea} from "@/components/ui/textarea";
 import {Dialog, DialogTrigger, DialogContent, DialogHeader, DialogTitle, DialogDescription} from "@/components/ui/dialog";
 import {StatusBadge} from "@/components/shared/status-badge";
 import {occasionRequestsAvailable, listOccasionRequests, submitOccasionRequest, validateOccasionRequest, occasionRequestError} from "@/lib/provider/provider-occasion-suggestions";
-export function OccasionRequestDialog() {
+export function OccasionRequestDialog({inline = false}: {inline?: boolean} = {}) {
   const [open, setOpen] = useState(false);
   const [identities] = useState(() => new Map<string, string>());
-  return <Dialog open={open} onOpenChange={setOpen}><DialogTrigger asChild><Button type="button" variant="secondary">Request an Occasion</Button></DialogTrigger>
+  return <Dialog open={open} onOpenChange={setOpen}><DialogTrigger asChild><Button type="button" variant={inline ? "link" : "secondary"} className={inline ? "text-xs underline" : undefined}>Request an Occasion</Button></DialogTrigger>
     <DialogContent><DialogHeader><DialogTitle>Request an occasion</DialogTitle><DialogDescription>Administrator review is required. Approval alone does not make an occasion selectable: catalog activation and provider capability approval are also required.</DialogDescription></DialogHeader>
       {open ? (occasionRequestsAvailable() ? <RequestContent close={() => setOpen(false)} identities={identities} /> : <div className="grid gap-4"><p role="status">Occasion request submission and history are unavailable until backend integration is verified.</p><Button type="button" variant="secondary" onClick={() => setOpen(false)}>Cancel</Button></div>) : null}</DialogContent></Dialog>;
 }

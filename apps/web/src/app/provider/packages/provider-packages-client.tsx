@@ -13,7 +13,9 @@ import {
   PackageOpen,
   Plus,
   RefreshCw,
+  Utensils,
 } from "lucide-react";
+import Link from "next/link";
 import {
   useCallback,
   useEffect,
@@ -371,6 +373,13 @@ export function ProviderPackagesClient({
         title="Packages"
         description="Create and manage the packages customers can discover and book through FEASTA."
         actions={
+          <div className="flex flex-wrap items-center gap-2">
+          <Button asChild variant="secondary">
+            <Link href="/provider/packages/dishes">
+              <Utensils aria-hidden="true" />
+              Dish Library
+            </Link>
+          </Button>
           <DialogTrigger asChild><Button
             ref={newPackageButton}
             type="button"
@@ -385,6 +394,7 @@ export function ProviderPackagesClient({
             <Plus aria-hidden="true" />
             New package
         </Button></DialogTrigger>
+        </div>
         }
       />
 
