@@ -124,7 +124,6 @@ it("starts empty when creating another package after saving a new draft", async 
   fireEvent.change(screen.getByLabelText(/Package name/), {target: {value: "New catering"}});
   fireEvent.change(screen.getByLabelText(/Description/), {target: {value: "Complete catering package"}});
   fireEvent.change(screen.getByLabelText(/Package structure/), {target: {value: "fixed"}});
-  fireEvent.change(screen.getByLabelText(/Package style/), {target: {value: "Buffet Catering"}});
   fireEvent.change(screen.getByLabelText(/Suitable occasions/), {target: {value: "wedding"}});
   fireEvent.click(screen.getByRole("button", {name: "Add selected occasion"}));
   fireEvent.click(screen.getByRole("button", {name: "Next"}));
@@ -343,9 +342,6 @@ it("retains a new draft and its pricing model when an old callable rejects prici
   expect(form.getByLabelText(/Service category/)).toHaveAttribute("readonly");
   fireEvent.change(form.getByLabelText(/Package structure/), {
     target: {value: "fixed"},
-  });
-  fireEvent.change(form.getByLabelText(/Package style/), {
-    target: {value: "Buffet Catering"},
   });
   fireEvent.click(form.getByRole("button", {name: "Next"}));
   expect(form.getByRole("heading", {name: "Step 2: Pricing & capacity"})).toBeVisible();

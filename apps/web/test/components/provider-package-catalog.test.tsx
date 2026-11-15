@@ -116,7 +116,6 @@ describe("provider package modal and media", () => {
     expect(screen.getByRole("heading", {name: "Step 1: Package details"})).toBeVisible();
     expect(screen.getByText("Choose a package structure.")).toBeVisible();
     fireEvent.change(screen.getByLabelText(/Package structure/), {target: {value: "fixed"}});
-    fireEvent.change(screen.getByLabelText(/Package style/), {target: {value: "Buffet Catering"}});
     fireEvent.change(screen.getByLabelText(/Suitable occasions/), {target: {value: "birthday"}});
     fireEvent.click(screen.getByRole("button", {name: "Next"}));
     expect(screen.getByRole("heading", {name: "Step 1: Package details"})).toBeVisible();
@@ -488,7 +487,6 @@ describe("starting price PHP display", () => {
     fireEvent.change(screen.getByLabelText(/Package name/), {target: {value: "Currency package"}});
     fireEvent.change(screen.getByLabelText(/Description/), {target: {value: "Currency display regression package"}});
     fireEvent.change(screen.getByLabelText(/Package structure/), {target: {value: structure}});
-    fireEvent.change(screen.getByLabelText(/Package style/), {target: {value: "Buffet Catering"}});
     fireEvent.change(screen.getByLabelText(/Suitable occasions/), {target: {value: "birthday"}});
     fireEvent.click(screen.getByRole("button", {name: "Add selected occasion"}));
     goToStep(2);

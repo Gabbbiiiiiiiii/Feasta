@@ -3,12 +3,29 @@ import {beforeEach, describe, expect, it, vi} from "vitest";
 import {ProviderPackageForm} from "@/app/provider/packages/provider-package-form";
 import {createProviderPackage, updateProviderPackage} from "@/lib/provider/provider-package-client";
 import {uploadProviderServiceImage} from "@/lib/provider/provider-media-client";
+import {createV2PackageDraft} from "@/lib/provider/provider-package-v2-client";
 vi.mock("@/lib/provider/provider-package-client", () => ({createProviderPackage: vi.fn(), updateProviderPackage: vi.fn()}));
 vi.mock("@/lib/provider/provider-media-client", () => ({uploadProviderServiceImage: vi.fn()}));
+vi.mock("@/lib/provider/provider-package-v2-client", () => ({
+  packageV2Enabled: true,
+  packageV2PublicationEnabled: false,
+  createV2PackageDraft: vi.fn(),
+  updateV2PackageDraft: vi.fn(),
+  completeV2PackageProgress: vi.fn(),
+  hasPendingV2Draft: vi.fn(() => false),
+  retryPendingV2Draft: vi.fn(),
+}));
 const occasionCatalog = {options: [{id: "birthday", label: "Birthday", categoryCodes: ["food_catering", "catering_service"]}, {id: "wedding", label: "Wedding", categoryCodes: ["food_catering", "catering_service"]}], catalogRevision: 4, eligibilityModel: "global_v1" as const, maxSpecificOccasions: 5};
 const props = {occasionCatalog, packageCategoryOptions: [{code: "food_catering", name: "Catering"}], eventTypesSupported: ["birthday"], minGuestsPerEvent: 10, maxGuestsPerEvent: 100, onSaved: vi.fn(), onCancel: vi.fn()};
 const next = () => fireEvent.click(screen.getByRole("button", {name: "Next"}));
-beforeEach(() => vi.clearAllMocks());
+beforeEach(() => {
+  vi.clearAllMocks();
+  vi.mocked(createV2PackageDraft).mockResolvedValue({
+    packageId: "new",
+    packageRevision: 1,
+    status: "draft",
+  } as Awaited<ReturnType<typeof createV2PackageDraft>>);
+});
 
 describe("wizard UX", () => {
   it.each(["per_pax", "per_bundle"] as const)("creates a %s draft only after explicit final save", async (pricingModel) => {
@@ -22,9 +39,6 @@ describe("wizard UX", () => {
     fireEvent.click(screen.getByRole("button", {name: "Add selected occasion"}));
     fireEvent.change(screen.getByLabelText(/Package structure/), {
       target: {value: "fixed"},
-    });
-    fireEvent.change(screen.getByLabelText(/Package style/), {
-      target: {value: "Buffet Catering"},
     });
     next();
     expect(screen.getByRole("heading", {name: "Step 2: Pricing & capacity"})).toBeVisible();
@@ -49,16 +63,27 @@ describe("wizard UX", () => {
     expect(screen.queryByRole("complementary")).not.toBeInTheDocument();
     expect(screen.queryByText(/estimated subtotal|guest count to preview/i)).not.toBeInTheDocument();
     expect(createProviderPackage).not.toHaveBeenCalled();
+    expect(createV2PackageDraft).not.toHaveBeenCalled();
     expect(updateProviderPackage).not.toHaveBeenCalled();
     expect(uploadProviderServiceImage).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", {name: "Create draft package"}));
-    await waitFor(() => expect(createProviderPackage).toHaveBeenCalledTimes(1));
-    expect(createProviderPackage).toHaveBeenCalledWith(expect.objectContaining({eventType: "birthday", serviceCategoryCode: "food_catering", pricingModel}));
-    const payload = vi.mocked(createProviderPackage).mock.calls[0][0];
-    for (const key of ["occasionIds", "occasionNames", "foodChoiceGroups", "equipmentInclusions", "previewGuestCount", "previewTier"]) {
+    fireEvent.click(screen.getByRole("button", {name: "Save Package Draft"}));
+    expect(screen.getByText("Create private package draft?")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", {name: "Create Draft"}));
+    await waitFor(() => expect(createV2PackageDraft).toHaveBeenCalledTimes(1));
+    expect(createProviderPackage).not.toHaveBeenCalled();
+    expect(createV2PackageDraft).toHaveBeenCalledWith(
+      expect.objectContaining({
+        offerStructure: "fixed",
+        serviceCategoryCode: "food_catering",
+        pricingModel,
+        occasionIds: ["birthday"],
+      })
+    );
+    const payload = vi.mocked(createV2PackageDraft).mock.calls[0][0];
+    for (const key of ["previewGuestCount", "previewTier"]) {
       expect(payload).not.toHaveProperty(key);
     }
-    expect(payload.serviceOptions).toEqual({drop_off: {price: 100.25, includedServices: []}});
+    expect(payload.serviceOptions).toMatchObject({drop_off: {price: 100.25, includedServices: []}});
   });
   function openPricingStep() {
     render(<ProviderPackageForm {...props} />);
@@ -72,9 +97,6 @@ describe("wizard UX", () => {
     });
     fireEvent.change(screen.getByLabelText(/Package structure/), {
       target: {value: "fixed"},
-    });
-    fireEvent.change(screen.getByLabelText(/Package style/), {
-      target: {value: "Buffet Catering"},
     });
     next();
     expect(screen.getByRole("heading", {

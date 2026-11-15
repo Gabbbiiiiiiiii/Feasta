@@ -9,8 +9,6 @@ const props={occasionCatalog:{options:[{id:"birthday",label:"Birthday",categoryC
 const chooseClassification=()=>{
  fireEvent.change(screen.getByRole("combobox",{name:/Package structure/}),
   {target:{value:"fixed"}});
- fireEvent.change(screen.getByRole("textbox",{name:/Package style/}),
-  {target:{value:"Grazing Table"}});
 };
 const next=()=>fireEvent.click(screen.getByRole("button",{name:"Next"}));
 afterEach(()=>vi.unstubAllGlobals());

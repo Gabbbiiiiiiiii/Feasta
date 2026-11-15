@@ -12,8 +12,6 @@ const packageValue:ProviderPackage={id:"pkg",providerId:"provider",name:"Caterin
 const chooseClassification=()=>{
  fireEvent.change(screen.getByRole("combobox",{name:/Package structure/}),
   {target:{value:"fixed"}});
- fireEvent.change(screen.getByRole("textbox",{name:/Package style/}),
-  {target:{value:"Grazing Table"}});
 };
 const next=()=>fireEvent.click(screen.getByRole("button",{name:"Next"}));
 const review=()=>{next();next();next();next();};
@@ -180,7 +178,8 @@ it("creates a real multi-occasion Fixed Bundle draft from the new wizard",async(
  expect(screen.getByText("Your package will be saved as a private draft. It will not be published or visible to customers. You can review and edit your package later.")).toBeInTheDocument();
  fireEvent.click(within(screen.getByRole("dialog",{name:"FEASTA Confirmation"})).getByRole("button",{name:"Create Draft"}));
  await waitFor(()=>expect(api.create).toHaveBeenCalledTimes(1));
- expect(api.create.mock.calls[0][0]).toMatchObject({offerStructure:"fixed",packageStyle:"Grazing Table",occasionIds:["birthday","wedding"],pricingModel:"per_bundle",price:100,sharedContractVersion:2});
+ expect(api.create.mock.calls[0][0]).toMatchObject({offerStructure:"fixed",occasionIds:["birthday","wedding"],pricingModel:"per_bundle",price:100,sharedContractVersion:2});
+expect(api.create.mock.calls[0][0]).not.toHaveProperty("packageStyle");
  expect(api.legacy).not.toHaveBeenCalled();
 });
 it("reopens V2 selections and preserves tier extensions with the server revision",async()=>{
@@ -232,13 +231,11 @@ it("blocks missing package classifications at Step 1",()=>{
 
  fireEvent.change(screen.getByRole("combobox",{name:/Package structure/}),
   {target:{value:"fixed"}});
- next();
- expect(screen.getByRole("alert"))
-  .toHaveTextContent("Enter a package style between 2 and 80 characters.");
+ next(); expect(screen.getByRole("heading",{name:"Step 2: Pricing & capacity"})).toBeInTheDocument();
  expect(api.create).not.toHaveBeenCalled();
 });
 
-it("accepts an arbitrary provider-defined package style",()=>{
+it("allows a customizable package without a package style",()=>{
  render(<ProviderPackageForm {...props}/>);
  fireEvent.change(screen.getByLabelText(/Package name/),
   {target:{value:"Specialty catering"}});
@@ -246,8 +243,6 @@ it("accepts an arbitrary provider-defined package style",()=>{
   {target:{value:"Complete specialty catering description."}});
  fireEvent.change(screen.getByRole("combobox",{name:/Package structure/}),
   {target:{value:"customizable"}});
- fireEvent.change(screen.getByRole("textbox",{name:/Package style/}),
-  {target:{value:"Custom Grazing Experience"}});
  fireEvent.change(screen.getByRole("combobox",{name:/Suitable occasions/}),
   {target:{value:"birthday"}});
  fireEvent.click(screen.getByRole("button",{name:"Add selected occasion"}));
@@ -260,8 +255,7 @@ it("restores stored package classifications for editing",()=>{
  render(<ProviderPackageForm {...props} initialPackage={packageValue}/>);
  expect(screen.getByRole("combobox",{name:/Package structure/}))
   .toHaveValue("fixed");
- expect(screen.getByRole("textbox",{name:/Package style/}))
-  .toHaveValue("Buffet Catering");
+ expect(screen.queryByRole("textbox",{name:/Package style/})).not.toBeInTheDocument();
 });
 it("locks uncertain saves and retries the recorded request",async()=>{
  api.pending.mockReturnValue(true);api.retry.mockResolvedValue({packageId:"new",packageRevision:1,status:"draft"});

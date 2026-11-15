@@ -37,7 +37,6 @@ describe("package occasion chips", () => {
     fireEvent.change(screen.getByLabelText(/Package name/), {target: {value: "New catering"}});
     fireEvent.change(screen.getByLabelText(/Description/), {target: {value: "Complete catering package"}});
     fireEvent.change(screen.getByLabelText(/Package structure/), {target: {value: "fixed"}});
-    fireEvent.change(screen.getByLabelText(/Package style/), {target: {value: "Buffet Catering"}});
     next();
     expect(screen.getByRole("alert")).toHaveTextContent("Add one occasion supported by your business");
     fireEvent.change(selector(), {target: {value: "wedding"}});
@@ -184,7 +183,7 @@ it.each(["per_pax", "per_bundle"] as const)("reopens and edits a %s draft withou
   expect(screen.getByLabelText(/Drop-Off Catering price/)).toHaveValue("100.25");
   expect(screen.getByLabelText(/Buffet Setup price/)).toHaveValue("225.75");
   for (let index = 0; index < 3; index++) next();
-  expect(screen.getByRole("note")).toHaveTextContent("Draft only");
+  expect(screen.getByRole("note")).toHaveTextContent("Saving keeps this package as a private draft.");
   fireEvent.click(screen.getByRole("button", {name: "Save changes"}));
   await waitFor(() => expect(updateProviderPackage).toHaveBeenCalledOnce());
   expect(updateProviderPackage).toHaveBeenCalledWith(existing.id, expect.objectContaining({

@@ -21,7 +21,6 @@ describe("package layout refinement", () => {
     fireEvent.change(screen.getByLabelText(/Suitable occasions/), {target: {value: "birthday"}});
     fireEvent.click(screen.getByRole("button", {name: "Add selected occasion"}));
     fireEvent.change(screen.getByRole("combobox", {name: /Package structure/}), {target: {value: "fixed"}});
-    fireEvent.change(screen.getByRole("textbox", {name: /Package style/}), {target: {value: "Buffet Catering"}});
     fireEvent.click(screen.getByRole("button", {name: "Next"}));
     expect(screen.getByRole("region", {name: "Guest capacity"})).toBeVisible();
     expect(screen.getByRole("region", {name: "Payment and starting price"})).toBeVisible();

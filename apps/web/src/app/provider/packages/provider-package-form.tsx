@@ -129,7 +129,7 @@ export function ProviderPackageForm({
   );
   const usesV2 = initialPackage ? Boolean(initialPackage.v2) :
     packageV2Enabled || offerStructure === "fixed" || offerStructure === "customizable";
-  const [packageStyle, setPackageStyle] = useState(
+  const [packageStyle] = useState(
     initialEditorProgress?.progress.packageStyle ??
       initialPackage?.packageStyle ?? initialPackage?.v2?.packageStyle ?? "",
   );
@@ -493,11 +493,11 @@ export function ProviderPackageForm({
 
     const style = packageStyle.trim();
 
-    if ([...style].length < 2 || [...style].length > 80) {
-      return "Enter a package style between 2 and 80 characters.";
+    if (style && ([...style].length < 2 || [...style].length > 80)) {
+      return "Package style must contain 2 to 80 characters when provided.";
     }
 
-    if (/[\p{Cc}\p{Cf}\p{Cs}\p{Zl}\p{Zp}\p{Default_Ignorable_Code_Point}]/u.test(style)) {
+    if (style && /[\p{Cc}\p{Cf}\p{Cs}\p{Zl}\p{Zp}\p{Default_Ignorable_Code_Point}]/u.test(style)) {
       return "Remove unsupported characters from the package style.";
     }
 
@@ -907,7 +907,7 @@ export function ProviderPackageForm({
 
       </div>
 
-        <div className="grid min-w-0 gap-4 sm:grid-cols-2">
+        <div className="min-w-0">
             <FormField label="Package structure" required>
               <Select
                 value={offerStructure}
@@ -915,7 +915,7 @@ export function ProviderPackageForm({
                   setOfferStructure(event.target.value as PackageStructure)
                 }
               >
-                <option value="">Choose package structure</option>
+                <option value="" disabled hidden>Choose package structure</option>
                 <option value="fixed">Fixed Package</option>
                 <option value="customizable">Customizable Package</option>
                 {/* Keep restored records readable without offering this structure for creation. */}
@@ -926,20 +926,6 @@ export function ProviderPackageForm({
               <p className="mt-1 text-xs leading-5 text-muted-foreground">
                 Classifies this offer. Customer checkout follows
                 existing supported booking rules.
-              </p>
-            </FormField>
-
-            <FormField label="Package style" required>
-              <Input
-                value={packageStyle}
-                onChange={(event) => setPackageStyle(event.target.value)}
-                maxLength={80}
-                autoComplete="off"
-                placeholder="e.g., Grazing Table, Bilao, Packed Meals"
-              />
-              <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                Enter your own catering style.
-                There is no predefined style list.
               </p>
             </FormField>
         </div>
