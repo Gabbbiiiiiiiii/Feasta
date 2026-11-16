@@ -5,6 +5,7 @@ import type {ProviderPaymentFilter} from "@/lib/provider/payments/provider-payme
 import {ProviderPaymentsClient} from "./provider-payments-client";
 import Link from "next/link";
 import {Button} from "@/components/ui/button";
+import {readPaymentDemoEvidence} from "@/lib/payments/payment-demo-evidence-server";
 
 type ProviderPaymentsPageProps = {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
@@ -55,6 +56,7 @@ export default async function ProviderPaymentsPage({
       initialFilters={initialFilters}
       initialPage={initialPage}
       initialFinance={initialFinance}
+      demoEvidence={await readPaymentDemoEvidence()}
     />
     </div>
   );

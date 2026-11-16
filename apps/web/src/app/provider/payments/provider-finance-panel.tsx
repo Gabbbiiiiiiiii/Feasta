@@ -117,6 +117,95 @@ export function ProviderFinancePanel({
   return (
     <div className="grid min-w-0 gap-6">
       <section
+        className="grid gap-4"
+        aria-labelledby="provider-earnings-heading"
+      >
+        <div>
+          <h2
+            id="provider-earnings-heading"
+            className="text-xl font-bold"
+          >
+            Your earnings
+          </h2>
+
+          <p className="mt-1 text-sm text-muted-foreground">
+            Earnings are calculated from customer payments after FEASTA commission
+            and applicable withholding. Provider VAT remains part of the provider
+            service gross and is not deducted again here.
+          </p>
+        </div>
+
+        <div className="flex justify-end">
+          <Button
+            asChild
+            variant="secondary"
+            size="compact"
+          >
+            <Link href="/provider/payments/statements">
+              <FileText
+                aria-hidden="true"
+                className="size-4"
+              />
+              View earnings statement
+            </Link>
+          </Button>
+        </div>
+
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <SummaryCard
+            label="Pending earnings"
+            value={formatCentavos(
+              finance.earningSummary
+                .pendingAmountInCentavos,
+            )}
+            trend={{
+              label:
+                "Waiting for payout eligibility",
+              direction: "neutral",
+            }}
+            icon={
+              <Clock3 className="size-5" />
+            }
+          />
+
+          <SummaryCard
+            label="Available earnings"
+            value={formatCentavos(
+              finance.earningSummary
+                .availableAmountInCentavos,
+            )}
+            trend={{
+              label:
+                "Eligible earnings; transfer not confirmed",
+              direction: "neutral",
+            }}
+            icon={
+              <CircleDollarSign className="size-5" />
+            }
+          />
+
+          <SummaryCard
+            label="Paid out"
+            value={formatCentavos(
+              finance.settlementSummary
+                .paidOutAmountInCentavos,
+            )}
+            trend={{
+              label:
+                "Confirmed payout transfers",
+              direction: "neutral",
+            }}
+            icon={
+              <BadgeCheck className="size-5" />
+            }
+          />
+
+
+        </div>
+        <p className="text-sm">Reversed by refunds: <strong>{formatCentavos(finance.earningSummary.reversedAmountInCentavos)}</strong></p>
+      </section>
+
+      <section
         className="rounded-card border border-border bg-card p-5 shadow-card"
         aria-labelledby="payout-account-heading"
       >
@@ -136,8 +225,8 @@ export function ProviderFinancePanel({
             </div>
 
             <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-              Finish setting up your PayMongo payout account before accepting new paid
-              bookings. Connecting an account does not mean payouts are available yet.
+              Provider earnings and transfers are tracked separately. Account activation,
+              provider linking and transfer verification must be complete before payouts can be sent.
             </p>
           </div>
 
@@ -155,7 +244,7 @@ export function ProviderFinancePanel({
           </summary>
           <dl className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
           <FinanceDetail
-            label="Account setup"
+            label="Provider onboarding"
             value={formatLabel(
               payout.setupStatus,
             )}
@@ -195,12 +284,10 @@ export function ProviderFinancePanel({
           />
 
           <FinanceDetail
-            label="Account verification"
+            label="PayMongo provider link"
             value={
               payout.relationshipStatus
-                ? formatLabel(
-                  payout.relationshipStatus,
-                )
+                ? payout.relationshipStatus === "enabled" ? "Verified link" : payout.relationshipStatus === "disabled" ? "Link disabled" : "Not verified"
                 : "Not verified"
             }
           />
@@ -220,8 +307,12 @@ export function ProviderFinancePanel({
             className="mt-4 rounded-md border border-warning/20 bg-warning/5 p-3 text-sm text-muted-foreground"
             role="status"
           >
-            Payout transfers are currently unavailable. Available earnings have
-            not yet been transferred to your account.
+            <strong className="block text-foreground">Earnings can be eligible while transfers are unavailable.</strong>
+            {!payout.payoutReady ? "Complete provider payout onboarding and account checks."
+              : payout.relationshipStatus !== "enabled"
+                ? "Your PayMongo provider link is not verified. Contact FEASTA to confirm the platform’s Linked Accounts eligibility and complete provider linking."
+                : "Your payout transfer setup still needs verification. Contact FEASTA before expecting a transfer."}
+            {" "}Refreshing checks account status; it does not create a provider link or send money.
           </p>
         ) : null}
 
@@ -306,105 +397,17 @@ export function ProviderFinancePanel({
         </div>
       </section>
 
-      <section
-        className="grid gap-4"
-        aria-labelledby="provider-earnings-heading"
-      >
-        <div>
-          <h2
-            id="provider-earnings-heading"
-            className="text-xl font-bold"
-          >
-            Your earnings
-          </h2>
-
-          <p className="mt-1 text-sm text-muted-foreground">
-            Earnings are calculated from customer payments after FEASTA commission
-            and applicable withholding. Provider VAT remains part of the provider
-            service gross and is not deducted again here.
-          </p>
-        </div>
-
-        <div className="flex justify-end">
-          <Button
-            asChild
-            variant="secondary"
-            size="compact"
-          >
-            <Link href="/provider/payments/statements">
-              <FileText
-                aria-hidden="true"
-                className="size-4"
-              />
-              View earnings statement
-            </Link>
-          </Button>
-        </div>
-
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          <SummaryCard
-            label="Pending earnings"
-            value={formatCentavos(
-              finance.earningSummary
-                .pendingAmountInCentavos,
-            )}
-            trend={{
-              label:
-                "Not yet available for payout",
-              direction: "neutral",
-            }}
-            icon={
-              <Clock3 className="size-5" />
-            }
-          />
-
-          <SummaryCard
-            label="Available earnings"
-            value={formatCentavos(
-              finance.earningSummary
-                .availableAmountInCentavos,
-            )}
-            trend={{
-              label:
-                "Eligible for payout; not transferred",
-              direction: "neutral",
-            }}
-            icon={
-              <CircleDollarSign className="size-5" />
-            }
-          />
-
-          <SummaryCard
-            label="Paid out"
-            value={formatCentavos(
-              finance.settlementSummary
-                .paidOutAmountInCentavos,
-            )}
-            trend={{
-              label:
-                "Confirmed payout transfers",
-              direction: "neutral",
-            }}
-            icon={
-              <BadgeCheck className="size-5" />
-            }
-          />
-
-
-        </div>
-        <p className="text-sm">Reversed by refunds: <strong>{formatCentavos(finance.earningSummary.reversedAmountInCentavos)}</strong></p>
-      </section>
-
       {(finance.disbursements?.length ?? 0) > 0 ? (
         <section className="grid gap-3" aria-labelledby="provider-payouts-heading">
           <h2 id="provider-payouts-heading" className="text-xl font-bold">Payout updates</h2>
           {finance.disbursements?.map(payout => (
             <article key={payout.id} className="rounded-card border border-border bg-card p-4">
               <p className="font-semibold">{({scheduled: "Scheduled", held: "On hold",
-                ready: "Ready for payout", reserved: "Processing", processing: "On the way",
-                paid: "Paid", failed: "Failed / delayed", reconciliation_required: "Under financial review",
+                ready: finance.payoutAccount.settlementTransportReady ? "Eligible for transfer" : "Eligible — payout setup incomplete", reserved: "Transfer reserved", processing: "Transfer processing",
+                paid: "Transfer confirmed", failed: "Transfer failed", reconciliation_required: "Under financial review",
                 cancelled: "Cancelled"} as Record<string, string>)[payout.status] ?? "Under financial review"}</p>
               {payout.amountInCentavos !== null ? <p>{formatCentavos(payout.amountInCentavos)}</p> : null}
+              {payout.status === "ready" ? <p className="mt-1 text-sm font-medium text-primary-strong">Eligible earnings. This is not a completed transfer.</p> : null}
               {payout.eligibleAt ? <p className="text-sm text-muted-foreground">Expected payout eligibility: {new Intl.DateTimeFormat("en-PH", {
                 timeZone: "Asia/Manila", month: "short", day: "numeric", year: "numeric",
               }).format(new Date(payout.eligibleAt))}</p> : null}
@@ -548,7 +551,7 @@ function PayoutReadyIndicator({
           aria-hidden="true"
           className="size-4"
         />
-        Account connected - payouts unavailable
+        Provider link / transfer setup incomplete
       </span>
     );
   }

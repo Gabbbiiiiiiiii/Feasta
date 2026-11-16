@@ -156,9 +156,9 @@ describe("provider payout activation form", () => {
     await user.click(screen.getByRole("button", {name: "Refresh status"}));
 
     expect(await screen.findByText(
-      "Account connected - payouts unavailable",
+      "Provider link / transfer setup incomplete",
     )).toBeVisible();
-    expect(screen.getByText(/Payout transfers are currently unavailable/u)).toBeVisible();
+    expect(screen.getByText(/Earnings can be eligible while transfers are unavailable/u)).toBeVisible();
     await user.click(screen.getByText("View payout setup details"));
     expect(screen.getByText("Ready")).toBeVisible();
     expect(screen.queryByText("Payout setup required")).not.toBeInTheDocument();
@@ -167,6 +167,19 @@ describe("provider payout activation form", () => {
 
 
 describe("compact provider finance overview", () => {
+  it("shows earnings before setup and does not present eligible amounts as completed transfers", () => {
+    render(<ProviderFinancePanel initialFinance={{...finance,
+      payoutAccount: {...finance.payoutAccount, payoutReady: true, relationshipStatus: "unknown"},
+      disbursements: [{id: "payout", status: "ready", amountInCentavos: 90000, eligibleAt: null, trigger: "completed_booking"}],
+    }} />);
+    const earnings = screen.getByRole("heading", {name: "Your earnings"});
+    const account = screen.getByRole("heading", {name: "Payout account"});
+    expect(earnings.compareDocumentPosition(account) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByText("Eligible — payout setup incomplete")).toBeVisible();
+    expect(screen.getByText("Eligible earnings. This is not a completed transfer.")).toBeVisible();
+    expect(screen.getByText(/Your PayMongo provider link is not verified/)).toBeVisible();
+    expect(screen.queryByText("Ready for payout")).toBeNull();
+  });
   it("keeps earnings, settlement totals, reversals and warnings distinct", async () => {
     render(<ProviderFinancePanel initialFinance={{...finance,
       payoutAccount: {...finance.payoutAccount, payoutReady: true},
@@ -183,7 +196,7 @@ describe("compact provider finance overview", () => {
     expect(screen.getByText(/Reversed by refunds:/)).toHaveTextContent("44.00");
     expect(screen.getByText(/Reserved \/ processing:/)).toHaveTextContent("77.00");
     expect(screen.getByText("Settlement review required")).toBeVisible();
-    expect(screen.getByText("Account connected - payouts unavailable")).toBeVisible();
+    expect(screen.getByText("Provider link / transfer setup incomplete")).toBeVisible();
     expect(screen.queryByRole("heading", {name: "Earnings activity"})).not.toBeInTheDocument();
     expect(screen.queryByRole("table")).not.toBeInTheDocument();
   });

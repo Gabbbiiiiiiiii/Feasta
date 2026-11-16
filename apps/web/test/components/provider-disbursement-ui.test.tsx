@@ -13,7 +13,7 @@ function finance(trigger="completed_booking"):ProviderFinanceOverview {return {
  disbursements:[{id:"hidden-gateway-id",status:"ready",amountInCentavos:900000,eligibleAt:"2026-10-14T02:00:00Z",trigger}]};}
 it("shows banking-day eligibility without promising an exact transfer time",()=>{
  render(<ProviderFinancePanel initialFinance={finance()}/>);
- expect(screen.getByText("Ready for payout")).toBeVisible();expect(screen.getByText(/Expected payout eligibility: Oct 14, 2026/)).toBeVisible();
+ expect(screen.getByText("Eligible — payout setup incomplete")).toBeVisible();expect(screen.getByText(/Expected payout eligibility: Oct 14, 2026/)).toBeVisible();
  expect(screen.getByText(/third banking day after completion/)).toBeVisible();expect(screen.getByText(/Actual transfer timing depends/)).toBeVisible();
  expect(screen.queryByText("hidden-gateway-id")).not.toBeInTheDocument();
 });

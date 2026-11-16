@@ -32,11 +32,14 @@ import {
 } from "./actions";
 import {ProviderFinancePanel} from "./provider-finance-panel";
 import {ProviderPaymentDetailDrawer} from "./provider-payment-detail-drawer";
+import {PaymentFlowOverview} from "@/components/shared/payment-flow-overview";
+import type {PaymentDemoEvidence} from "@/lib/payments/payment-demo-evidence";
 
 type ProviderPaymentsClientProps = {
   initialPage: ProviderPaymentPage;
   initialFilters: ProviderPaymentFilters;
   initialFinance?: ProviderFinanceOverview;
+  demoEvidence?: PaymentDemoEvidence | null;
 };
 
 const EMPTY_PROVIDER_FINANCE: ProviderFinanceOverview = {
@@ -92,6 +95,7 @@ export function ProviderPaymentsClient({
   initialPage,
   initialFilters,
   initialFinance = EMPTY_PROVIDER_FINANCE,
+  demoEvidence,
 }: ProviderPaymentsClientProps) {
 
   const [page, setPage] = useState(initialPage);
@@ -220,6 +224,7 @@ export function ProviderPaymentsClient({
         description="Track customer payments, manage your earnings, and check payout status."
       />
 
+      <PaymentFlowOverview evidence={demoEvidence} />
       <ProviderFinancePanel
         initialFinance={initialFinance}
       />
