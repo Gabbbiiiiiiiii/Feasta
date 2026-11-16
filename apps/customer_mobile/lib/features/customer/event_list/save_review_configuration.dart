@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../shared/models/booking_agreement.dart' show agreementMoney;
 import '../../../core/helpers/booking_preparation.dart';
 import '../../../shared/models/booking_contract.dart' show bookingTime;
 import '../../../shared/models/customer_event_list.dart';
@@ -135,6 +136,7 @@ class SaveReviewConfiguration extends StatefulWidget {
     required this.isAuthorized,
     this.submitting = false,
     this.editingIdentity,
+    this.onSaved,
     super.key,
   });
   final ProviderModel provider;
@@ -143,6 +145,7 @@ class SaveReviewConfiguration extends StatefulWidget {
   final bool Function() isAuthorized;
   final bool submitting;
   final EventListIdentity? editingIdentity;
+  final VoidCallback? onSaved;
   @override
   State<SaveReviewConfiguration> createState() =>
       _SaveReviewConfigurationState();
@@ -164,7 +167,8 @@ class _SaveReviewConfigurationState extends State<SaveReviewConfiguration> {
       EventListIdentity.package(widget.provider.id, widget.package.id).key;
   bool get _exists =>
       _controller?.list?.entries.any((e) => e.identity.key == _key) ?? false;
-  bool get _duplicate => widget.editingIdentity == null && _exists;
+  bool get _duplicate =>
+      widget.onSaved == null && widget.editingIdentity == null && _exists;
 
   Future<void> _load() async {
     if (_loading || !_current || _session?.customerUid == null) return;
@@ -231,7 +235,9 @@ class _SaveReviewConfigurationState extends State<SaveReviewConfiguration> {
       final result = await _controller!.saveConfiguration(
         entry,
         expectedRevision: _revision!,
-        editingIdentity: widget.editingIdentity,
+        editingIdentity:
+            widget.editingIdentity ??
+            (widget.onSaved != null && _exists ? entry.identity : null),
         isCurrent: () => _current,
       );
       if (!_current) return;
@@ -244,6 +250,15 @@ class _SaveReviewConfigurationState extends State<SaveReviewConfiguration> {
             ? 'Your Event List changed. Return to Event List and reopen this configuration.'
             : eventListMessage(result);
       });
+      if (_saved) {
+        if (widget.onSaved != null) {
+          widget.onSaved!.call();
+        } else if (mounted &&
+            widget.editingIdentity == null &&
+            ModalRoute.of(context)?.isCurrent == true) {
+          await _showSavedSheet(entry);
+        }
+      }
     } on FormatException catch (error) {
       if (_current) {
         setState(
@@ -260,6 +275,131 @@ class _SaveReviewConfigurationState extends State<SaveReviewConfiguration> {
       }
     } finally {
       if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _showSavedSheet(CustomerEventListEntry entry) async {
+    final navigator = Navigator.of(context);
+    final price = entry.configuration?.estimatedTotal;
+    final guests = widget.data.guestCount;
+    final details = [
+      if (price != null) agreementMoney((price * 100).round()),
+      '$guests guests',
+    ].join(' • ');
+    final viewList = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (sheetContext) {
+        final theme = Theme.of(sheetContext);
+        final colors = theme.colorScheme;
+        return SafeArea(
+          top: false,
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Align(
+                  alignment: AlignmentDirectional.centerEnd,
+                  child: IconButton(
+                    tooltip: 'Close',
+                    onPressed: () => Navigator.pop(sheetContext),
+                    icon: const Icon(Icons.close),
+                  ),
+                ),
+                Icon(
+                  Icons.check_circle_outline,
+                  size: 56,
+                  color: colors.primary,
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  'Saved to your Event List!',
+                  textAlign: TextAlign.center,
+                  style: theme.textTheme.headlineSmall,
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  '${entry.packageName} has been saved. You can combine it with other services in your Event List.',
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 16),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: colors.surface,
+                    border: Border.all(color: colors.outlineVariant),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: Row(
+                    children: [
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(10),
+                        child: entry.imageUrl == null
+                            ? const SizedBox.square(
+                                dimension: 64,
+                                child: Icon(Icons.restaurant),
+                              )
+                            : Image.network(
+                                entry.imageUrl!,
+                                width: 64,
+                                height: 64,
+                                fit: BoxFit.cover,
+                                errorBuilder: (_, _, _) =>
+                                    const SizedBox.square(
+                                      dimension: 64,
+                                      child: Icon(Icons.restaurant),
+                                    ),
+                              ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              entry.packageName,
+                              style: theme.textTheme.titleSmall,
+                            ),
+                            Text(details),
+                            Text(
+                              'Catering Service',
+                              style: theme.textTheme.labelMedium,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 20),
+                FilledButton(
+                  onPressed: () => Navigator.pop(sheetContext, false),
+                  child: const Text('Browse other services →'),
+                ),
+                const SizedBox(height: 8),
+                OutlinedButton(
+                  onPressed: () => Navigator.pop(sheetContext, true),
+                  child: const Text('Go to Event List'),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+    if (!_current || viewList == null) return;
+    if (viewList) {
+      await navigator.push<void>(
+        MaterialPageRoute(builder: (_) => const CustomerEventListScreen()),
+      );
+    } else {
+      await returnToCustomerRoot(navigator);
     }
   }
 
@@ -310,12 +450,18 @@ class _SaveReviewConfigurationState extends State<SaveReviewConfiguration> {
                     ? 'Adding...'
                     : _saved || _duplicate
                     ? 'Already in Event List'
+                    : widget.onSaved != null
+                    ? 'Save & Go Back'
                     : widget.editingIdentity != null
                     ? 'Update Event List'
                     : 'Add to Event List',
               ),
             ),
-            if (ready && !_removed && !_stale && widget.editingIdentity == null)
+            if (widget.onSaved == null &&
+                ready &&
+                !_removed &&
+                !_stale &&
+                widget.editingIdentity == null)
               Padding(
                 padding: const EdgeInsets.only(top: 6),
                 child: Wrap(

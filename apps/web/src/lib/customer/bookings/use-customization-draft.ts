@@ -28,29 +28,14 @@ export function useCustomizationDraft({
   restore: (value: CustomizationDraft) => void;
   explicitSource?: () => Promise<CustomizationDraft>;
 }) {
-  const key = customizationDraftKey(
-    owner,
-    providerId,
-    packageId,
-    context,
-  );
-
-  const guestKey = customizationDraftKey(
-    "guest",
-    providerId,
-    packageId,
-    context,
-  );
+  // Event List edits retain their separate source and storage scope.
+  const key = customizationDraftKey(owner, providerId, packageId, explicitSource ? context : "");
+  const guestKey = customizationDraftKey("guest", providerId, packageId);
 
   const [freshKey, setFreshKey] = useState<string | null>(null);
 
   const [status, setStatus] =
     useState("Preparing draft...");
-
-  const [choices, setChoices] =
-    useState<ReturnType<typeof listCustomizationDrafts>>(
-      [],
-    );
 
   const [isReady, setIsReady] =
     useState(false);
@@ -101,7 +86,6 @@ export function useCustomizationDraft({
           const signature = JSON.stringify(customizationDraftEditSignature(selected));
           lastSaved.current = signature;
           setSavedSignature(signature);
-          setChoices([]);
           setStatus("Event List configuration restored. Review current options and prices.");
           ready.current = true;
           setIsReady(true);
@@ -168,23 +152,20 @@ export function useCustomizationDraft({
           }
         }
 
-        const own =
-          readCustomizationDraft(
-            localStorage,
-            key,
-          );
+        const packageDrafts = (draftOwner: string) =>
+          listCustomizationDrafts(localStorage, draftOwner, providerId, packageId)
+            .filter(({key: candidate}) => !decodeURIComponent(candidate.split(":").at(-1) ?? "").startsWith("event-list:"));
+        const owned = packageDrafts(owner);
+        const guestDrafts = owner === "guest" ? [] : packageDrafts("guest");
+        const select = (drafts: typeof owned, canonical: string, draftOwner: string) =>
+          drafts.find((draft) => draft.key === canonical) ??
+          drafts.find((draft) => draft.value.submission) ??
+          drafts.find((draft) => draft.key === customizationDraftKey(draftOwner, providerId, packageId, context)) ??
+          drafts[0];
+        const selected = select(owned, key, owner) ?? select(guestDrafts, guestKey, "guest");
+        const saved = selected?.value;
 
-        const guest =
-          owner !== "guest"
-            ? readCustomizationDraft(
-                localStorage,
-                guestKey,
-              )
-            : null;
-
-        const saved = own ?? guest;
-
-        if (saved) {
+        if (selected && saved) {
           submission.current =
             saved.submission;
           restoredSubmissionId.current = saved.submission?.clientRequestId;
@@ -206,16 +187,14 @@ export function useCustomizationDraft({
             restoredSignature,
           );
 
-          if (!own && guest) {
-            saveCustomizationDraft(
-              localStorage,
-              key,
-              guest,
-            );
-
-            localStorage.removeItem(
-              guestKey,
-            );
+          if (selected.key !== key) {
+            saveCustomizationDraft(localStorage, key, saved);
+          }
+          for (const draft of owned) {
+            if (draft.key !== key) localStorage.removeItem(draft.key);
+          }
+          if (selected.key.startsWith(guestKey) && selected.key !== key) {
+            for (const draft of guestDrafts) localStorage.removeItem(draft.key);
           }
 
           setStatus(
@@ -231,61 +210,6 @@ export function useCustomizationDraft({
 
           setSavedSignature(
             initialSignature,
-          );
-
-          const alternatives =
-            listCustomizationDrafts(
-              localStorage,
-              owner,
-              providerId,
-              packageId,
-            );
-
-          const guestAlternatives =
-            owner !== "guest"
-              ? listCustomizationDrafts(
-                  localStorage,
-                  "guest",
-                  providerId,
-                  packageId,
-                )
-              : [];
-
-          const ownPrefix =
-            customizationDraftKey(
-              owner,
-              providerId,
-              packageId,
-            );
-
-          const guestPrefix =
-            customizationDraftKey(
-              "guest",
-              providerId,
-              packageId,
-            );
-
-          const unclaimed =
-            guestAlternatives.filter(
-              (item) =>
-                !alternatives.some(
-                  (ownDraft) =>
-                    ownDraft.key ===
-                    ownPrefix +
-                      item.key.slice(
-                        guestPrefix.length,
-                      ),
-                ),
-            );
-
-          setChoices(
-            [
-              ...alternatives,
-              ...unclaimed,
-            ].filter(
-              (item) =>
-                item.key !== key,
-            ),
           );
 
           setStatus(
@@ -382,6 +306,7 @@ export function useCustomizationDraft({
   }, [
     key,
     guestKey,
+    context,
     owner,
     providerId,
     packageId,
@@ -579,96 +504,6 @@ export function useCustomizationDraft({
       .clientRequestId;
   }
 
-  function resume(
-    choice: (typeof choices)[number],
-  ) {
-    setFreshKey(null);
-    const guestPrefix =
-      customizationDraftKey(
-        "guest",
-        providerId,
-        packageId,
-      );
-
-    activeKey.current =
-      owner !== "guest" &&
-      choice.key.startsWith(
-        guestPrefix,
-      )
-        ? customizationDraftKey(
-            owner,
-            providerId,
-            packageId,
-          ) +
-          choice.key.slice(
-            guestPrefix.length,
-          )
-        : choice.key;
-
-    let current = choice.value;
-
-    try {
-      /*
-       * Re-read at activation. Another tab may
-       * have saved a newer owned draft.
-       */
-      current =
-        readCustomizationDraft(
-          localStorage,
-          activeKey.current,
-        ) ??
-        readCustomizationDraft(
-          localStorage,
-          choice.key,
-        ) ??
-        choice.value;
-
-      saveCustomizationDraft(
-        localStorage,
-        activeKey.current,
-        current,
-      );
-
-      if (
-        activeKey.current !==
-        choice.key
-      ) {
-        localStorage.removeItem(
-          choice.key,
-        );
-      }
-
-      const signature =
-        JSON.stringify(
-          customizationDraftEditSignature(
-            current,
-          ),
-        );
-
-      lastSaved.current =
-        signature;
-
-      setSavedSignature(signature);
-
-      setStatus(
-        "Draft restored. Review your selections and current availability.",
-      );
-    } catch {
-      setStatus(
-        "Draft restored, but this device could not save it.",
-      );
-    }
-
-    restoreRef.current(current);
-    latest.current = current;
-
-    submission.current =
-      current.submission;
-    restoredSubmissionId.current = current.submission?.clientRequestId;
-
-    setChoices([]);
-  }
-
   const isDirty =
     isReady &&
     currentSignature !==
@@ -689,7 +524,5 @@ export function useCustomizationDraft({
     clear,
     submissionId,
     previousSubmissionId: () => restoredSubmissionId.current,
-    choices,
-    resume,
   };
 }

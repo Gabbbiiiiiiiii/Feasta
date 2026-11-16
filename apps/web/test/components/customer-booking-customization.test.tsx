@@ -43,6 +43,7 @@ vi.mock("@/lib/customer/bookings/customer-provider-availability-client", () => (
 vi.mock("@/lib/customer/bookings/customer-booking-submission-client", () => ({
   submitCustomerBookingRequest: mocks.submitBooking,
   reconcileCustomerBookingSubmission: mocks.reconcile,
+  hasPreviousBookingRequest: () => localStorage.getItem("test:previous-request") === "yes",
   bookingSubmissionRequiresRefundPolicyRefresh: () => false,
 }));
 
@@ -537,6 +538,20 @@ describe("booking offer selection UI", () => {
 });
 
 describe("customer booking customization flow", () => {
+  it("prefills the selected event address and guest count from the event plan", async () => {
+    render(<EventCustomizationExperience planningOnly detail={detailFixture()} eventServices={[]}
+      initialEventContext={{eventDate: "2099-11-19", eventTime: "13:30", eventEndTime: "18:30", guestCount: 50, serviceType: "all"}}
+      initialPlanningContext={{eventVenue: {
+        label: "Event Hall", address: "123 Venue Street", city: "Ormoc City", province: "Leyte",
+        placeId: "venue-1", latitude: 11, longitude: 124.6,
+      }}} />);
+    expect(await screen.findByText(/Filled from your event plan/)).toBeVisible();
+    expect(screen.getByLabelText(/^Event location/)).toHaveValue("Ormoc City, Leyte");
+    expect(screen.getByLabelText(/^Complete event address/)).toHaveValue("123 Venue Street");
+    fireEvent.change(screen.getByLabelText(/^Complete event address/), {target: {value: "Updated venue address"}});
+    expect(screen.getByLabelText(/^Complete event address/)).toHaveValue("Updated venue address");
+  });
+
   it.each(["Event location", "Complete event address"])("confirms and persists a map address, then invalidates the pin on manual %s edits", async (label) => {
     render(<EventCustomizationExperience planningOnly initialEventContext={null} detail={detailFixture()} eventServices={[]} />);
     await screen.findByText("Changes save automatically");
@@ -589,6 +604,7 @@ describe("customer booking customization flow", () => {
   });
 
   it.each(["confirmed_created", "confirmed_rejected", "unresolved"])("checks a previous package request: %s", async outcome => {
+    localStorage.setItem("test:previous-request", "yes");
     mocks.reconcile.mockResolvedValue({outcome, booking: {bookingId: "booking_existing", mainEventId: "booking_existing", providerRequestIds: ["request_existing"], created: false}});
     render(<EventCustomizationExperience draftOwner="customer:customer-a" detail={detailFixture()} eventServices={[]} />);
     const check = await screen.findByRole("button", {name: "Check Previous Request"});
@@ -606,6 +622,7 @@ describe("customer booking customization flow", () => {
 
   it("requires current acknowledgments again after a confirmed package rejection", async () => {
     const user = userEvent.setup();
+    localStorage.setItem("test:previous-request", "yes");
     mocks.reconcile.mockResolvedValue({outcome: "confirmed_rejected"});
     render(<EventCustomizationExperience draftOwner="customer:customer-a" detail={detailFixture()} eventServices={[]} />);
     await fillEventDetails();
@@ -686,7 +703,7 @@ describe("customer booking customization flow", () => {
     expect(screen.getByLabelText(/^Complete event address/)).toHaveValue("Grand Ballroom, Ormoc City");
     expect(summary).toHaveTextContent("September 20, 2026");
     expect(summary).toHaveTextContent("100");
-    await user.click(screen.getByRole("button", {name: "Back to package"}));
+    await user.click(screen.getByRole("button", {name: "Back to package details"}));
     expect(screen.getByRole("dialog")).toBeVisible();
     await user.click(screen.getByRole("button", {name: "Continue editing"}));
     expect(screen.getByLabelText(/^Special requests/)).toHaveValue("Vegetarian meals");
@@ -1351,7 +1368,7 @@ describe("Review Booking Event List save", () => {
       themeInspiration: {notes: "Rustic lights", referenceSetupId: "setup-one"},
     });
     render(<EventCustomizationExperience detail={detail} eventServices={[service]}
-      planningOnly={planningOnly} draftOwner={owner} />);
+      planningOnly={planningOnly} draftOwner={owner} bestFitReturnHref="/customer/providers?budgetMax=50000" />);
     await screen.findByText(/Draft restored/);
     if (!planningOnly) await screen.findByText("Maria's Catering is available");
     fireEvent.click(screen.getByRole("button", {name: "Continue"}));
@@ -1363,6 +1380,9 @@ describe("Review Booking Event List save", () => {
     const save = await review(guest);
     fireEvent.click(save); fireEvent.click(save);
     await screen.findByText(/Saved to Event List\. Configured/);
+    fireEvent.click(screen.getByRole("button", {name: "Back to Best Fit"}));
+    expect(screen.getByRole("dialog", {name: "Back to Best Fit Recommendations?"})).toBeVisible();
+    fireEvent.click(screen.getByRole("button", {name: "Save & Go Back"}));
     expect(save).toBeDisabled();
     const saved = readCustomerEventList()[0] as CustomerPackageEventListItem;
     expect(saved.configuration).toMatchObject({event: {specialRequest: "No peanuts", guestCount: 100},

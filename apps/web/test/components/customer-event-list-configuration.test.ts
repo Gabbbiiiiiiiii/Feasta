@@ -3,7 +3,7 @@ vi.mock("firebase/auth", () => ({onAuthStateChanged: () => () => {}}));
 import {beforeEach, expect, it, vi} from "vitest";
 import {
   addCustomerEventListItem, customerEventListReadiness, normalizeConfiguration,
-  readCustomerEventList, CUSTOMER_EVENT_LIST_STORAGE_KEY,
+  eventListItemPrice, removeCustomerEventListService, readCustomerEventList, CUSTOMER_EVENT_LIST_STORAGE_KEY,
   type CustomerEventListConfiguration, type CustomerPackageEventListItem,
 } from "@/lib/customer/event-list/customer-event-list";
 
@@ -70,4 +70,13 @@ it("rejects malformed configuration without replacing a saved snapshot", () => {
     addCustomerEventListItem({...item, configuration: config});
     expect(window.localStorage.getItem(CUSTOMER_EVENT_LIST_STORAGE_KEY + ":uid:test-customer")).toBe(original);
   }
+});
+
+it("uses the configured price instead of the listing price, including after removing an extra", () => {
+  addCustomerEventListItem({...item, price: 450, configuration: {...configuration(), estimatedTotal: 33000}});
+  expect(eventListItemPrice(readCustomerEventList()[0])).toBe(32500);
+  removeCustomerEventListService(item.packageId, "music");
+  const saved = readCustomerEventList()[0] as CustomerPackageEventListItem;
+  expect(saved.configuration?.estimatedTotal).toBe(32500);
+  expect(eventListItemPrice(saved)).toBe(32500);
 });

@@ -581,6 +581,7 @@ class FeastaRepository {
         name: raw['name'] as String,
         description: raw['description'] as String? ?? '',
         category: raw['category'] as String? ?? '',
+        pricingType: raw['pricingType'] is String ? raw['pricingType'] as String : null,
         price: (raw['price'] as num?)?.toDouble() ?? double.nan,
         imageUrl: raw['imageUrl'] as String?,
         bookingLeadTimeDays: raw['bookingLeadTimeDays'] as int?,
@@ -593,6 +594,9 @@ class FeastaRepository {
       );
     }).toList();
   }
+
+  Future<List<AddonModel>> bestFitEventServices(String providerId) =>
+      _loadEventServiceCatalog(providerId);
 
   Stream<List<AddonModel>> eventServiceCatalog(
     String providerId, {

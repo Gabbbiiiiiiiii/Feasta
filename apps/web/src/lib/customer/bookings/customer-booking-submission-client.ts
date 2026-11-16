@@ -208,6 +208,27 @@ function assertSubmissionOwner(uid: string) {
   }
 }
 
+function readSubmissionJournal(key: string): SubmissionJournal {
+  const stored = localStorage.getItem(key);
+  const journal: SubmissionJournal = stored ? JSON.parse(stored) : {active: null, outcomes: {}, completed: {}};
+  if (!journal || (journal.active !== null && !validId(journal.active)) ||
+      !journal.outcomes || typeof journal.outcomes !== "object" || Array.isArray(journal.outcomes) ||
+      !journal.completed || typeof journal.completed !== "object" || Array.isArray(journal.completed)) {
+    throw new Error("Saved booking evidence cannot be read safely. Contact support before submitting.");
+  }
+  return journal;
+}
+
+export function hasPreviousBookingRequest(customerId: string, restoredRequestId?: string): boolean {
+  try {
+    const journal = readSubmissionJournal(`feasta:booking-submission:v1:${customerId}`);
+    return Boolean(journal.active || (restoredRequestId && validId(restoredRequestId) &&
+      (journal.completed[restoredRequestId] || !journal.outcomes[restoredRequestId])));
+  } catch {
+    return false;
+  }
+}
+
 async function withSubmissionLock<T>(
   expectedCustomerId: string | undefined,
   run: (uid: string, journal: SubmissionJournal, save: () => void) => Promise<T>,
@@ -220,13 +241,7 @@ async function withSubmissionLock<T>(
     if (!lock) throw new Error("A booking operation is already in progress. Check Previous Request when it finishes.");
     assertSubmissionOwner(expectedCustomerId);
     const key = `feasta:booking-submission:v1:${expectedCustomerId}`;
-    const stored = localStorage.getItem(key);
-    const journal: SubmissionJournal = stored ? JSON.parse(stored) : {active: null, outcomes: {}, completed: {}};
-    if (!journal || (journal.active !== null && !validId(journal.active)) ||
-        !journal.outcomes || typeof journal.outcomes !== "object" || Array.isArray(journal.outcomes) ||
-        !journal.completed || typeof journal.completed !== "object" || Array.isArray(journal.completed)) {
-      throw new Error("Saved booking evidence cannot be read safely. Contact support before submitting.");
-    }
+    const journal = readSubmissionJournal(key);
     return run(expectedCustomerId, journal, () => {
       assertSubmissionOwner(expectedCustomerId);
       localStorage.setItem(key, JSON.stringify(journal));

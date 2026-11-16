@@ -70,6 +70,9 @@ class _CustomerSearchScreenState extends State<CustomerSearchScreen>
   late final Stream<List<ProviderModel>> _discoveryProviders;
   late final Future<Map<String, String>> _serviceCategoryNames;
 
+  Timer? _searchDebounce;
+  String _appliedKeyword = '';
+
   final TextEditingController _searchController = TextEditingController();
 
   final TextEditingController _locationController = TextEditingController();
@@ -173,7 +176,7 @@ class _CustomerSearchScreenState extends State<CustomerSearchScreen>
 
   bool get _hasActiveSearch {
     return _selectedCategoryCode != null ||
-        _searchController.text.trim().isNotEmpty ||
+        _appliedKeyword.isNotEmpty ||
         _selectedEventType != 'All' ||
         _locationController.text.trim().isNotEmpty ||
         _minBudgetController.text.trim().isNotEmpty ||
@@ -249,6 +252,7 @@ class _CustomerSearchScreenState extends State<CustomerSearchScreen>
     _loadOccasions();
 
     final initialQuery = widget.initialQuery.trim();
+    _appliedKeyword = initialQuery;
 
     if (initialQuery.isNotEmpty) {
       _searchController.text = initialQuery;
@@ -289,6 +293,7 @@ class _CustomerSearchScreenState extends State<CustomerSearchScreen>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _searchDebounce?.cancel();
     _searchController.dispose();
     _locationController.dispose();
     _minBudgetController.dispose();
@@ -307,9 +312,26 @@ class _CustomerSearchScreenState extends State<CustomerSearchScreen>
     setState(() {});
   }
 
+  void _queueKeyword(String value) {
+    _searchDebounce?.cancel();
+    if (value.trim().isEmpty) {
+      _commitKeyword(value);
+      return;
+    }
+    _searchDebounce = Timer(
+      const Duration(milliseconds: 400),
+      () => _commitKeyword(value),
+    );
+  }
+
+  void _commitKeyword(String value) {
+    _searchDebounce?.cancel();
+    if (mounted) setState(() => _appliedKeyword = value.trim());
+  }
+
   void _clearSearch() {
     _searchController.clear();
-    _refreshSearch();
+    _commitKeyword('');
   }
 
   void _clearFilters() {
@@ -333,7 +355,9 @@ class _CustomerSearchScreenState extends State<CustomerSearchScreen>
   }
 
   void _clearEverything() {
+    _searchDebounce?.cancel();
     setState(() {
+      _appliedKeyword = '';
       _searchController.clear();
       _locationController.clear();
       _minBudgetController.clear();
@@ -371,7 +395,9 @@ class _CustomerSearchScreenState extends State<CustomerSearchScreen>
   }
 
   void _applySearchValue(String value) {
+    _searchDebounce?.cancel();
     setState(() {
+      _appliedKeyword = value.trim();
       _searchController.text = value;
 
       _searchController.selection = TextSelection.collapsed(
@@ -516,7 +542,7 @@ class _CustomerSearchScreenState extends State<CustomerSearchScreen>
                           style: TextStyle(
                             fontSize: 22,
                             fontWeight: FontWeight.bold,
-                            color: Color(0xFF0F4C3A),
+                            color: AppColors.primary,
                           ),
                         ),
                         const SizedBox(height: 8),
@@ -737,10 +763,9 @@ class _CustomerSearchScreenState extends State<CustomerSearchScreen>
                   focusNode: _searchFocusNode,
                   autofocus: false,
                   textInputAction: TextInputAction.search,
-                  onChanged: (_) {
-                    _refreshSearch();
-                  },
+                  onChanged: _queueKeyword,
                   onSubmitted: (value) {
+                    _commitKeyword(value);
                     _saveRecentSearch(value);
                     FocusScope.of(context).unfocus();
                   },
@@ -760,8 +785,12 @@ class _CustomerSearchScreenState extends State<CustomerSearchScreen>
                     suffixIcon: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        if (_searchController.text.isNotEmpty)
-                          IconButton(
+                        ValueListenableBuilder<TextEditingValue>(
+                          valueListenable: _searchController,
+                          builder: (context, value, child) => value.text.isEmpty
+                              ? const SizedBox.shrink()
+                              : child!,
+                          child: IconButton(
                             tooltip: 'Clear search',
                             onPressed: _clearSearch,
                             icon: const Icon(
@@ -769,6 +798,7 @@ class _CustomerSearchScreenState extends State<CustomerSearchScreen>
                               color: AppColors.secondaryTextAccessible,
                             ),
                           ),
+                        ),
                         _FilterButton(
                           activeCount: _activeFilterCount,
                           isOpen: _showFilters,
@@ -822,7 +852,7 @@ class _CustomerSearchScreenState extends State<CustomerSearchScreen>
                           ? _SearchResultsList(
                               availabilityContext: _availabilityContext,
                               providersStream: _discoveryProviders,
-                              searchController: _searchController,
+                              keyword: _appliedKeyword,
                               categoryCode: _selectedCategoryCode,
                               selectedEventType: _selectedEventType,
                               locationController: _locationController,
@@ -1158,7 +1188,7 @@ class _SearchResultsList extends StatelessWidget {
   const _SearchResultsList({
     this.availabilityContext,
     required this.providersStream,
-    required this.searchController,
+    required this.keyword,
     required this.categoryCode,
     required this.selectedEventType,
     required this.locationController,
@@ -1174,7 +1204,7 @@ class _SearchResultsList extends StatelessWidget {
   final MarketplaceEventContext? availabilityContext;
   final Stream<List<ProviderModel>> providersStream;
 
-  final TextEditingController searchController;
+  final String keyword;
   final String? categoryCode;
   final String selectedEventType;
   final TextEditingController locationController;
@@ -1218,7 +1248,8 @@ class _SearchResultsList extends StatelessWidget {
             .where(
               (provider) => matchesProviderDiscovery(
                 provider,
-                keyword: searchController.text,
+                keyword: keyword,
+                categoryNames: categoryNames,
                 categoryCode: categoryCode,
                 eventType: selectedEventType,
                 location: locationController.text,
@@ -1255,7 +1286,6 @@ class _SearchResultsList extends StatelessWidget {
             })
             .toList();
 
-        final keyword = searchController.text.trim();
         final originalOrder = {
           for (var index = 0; index < providers.length; index++)
             providers[index]: index,
@@ -1293,9 +1323,7 @@ class _SearchResultsList extends StatelessWidget {
 
         if (availabilityContext != null) {
           return _AvailabilityResults(
-            key: ValueKey(
-              '${availabilityContext!.key}/${providers.map((p) => p.provider.id).join(',')}',
-            ),
+            key: ValueKey(availabilityContext!.key),
             event: availabilityContext!,
             providers: providers.map((entry) => entry.provider).toList(),
             categoryNames: categoryNames,
@@ -1738,7 +1766,9 @@ class _AvailabilityResults extends StatefulWidget {
 }
 
 class _AvailabilityResultsState extends State<_AvailabilityResults> {
-  late Future<List<MarketplaceAvailability>> _check;
+  late Future<Map<String, MarketplaceAvailability>> _check;
+  int _accountGeneration = 0;
+  List<ProviderModel> _displayedProviders = const [];
   StreamSubscription<User?>? _account;
   String? _uid;
   @override
@@ -1750,6 +1780,8 @@ class _AvailabilityResultsState extends State<_AvailabilityResults> {
       if (mounted && user?.uid != _uid) {
         setState(() {
           _uid = user?.uid;
+          _accountGeneration++;
+          _displayedProviders = const [];
           _check = _load();
         });
       }
@@ -1762,27 +1794,38 @@ class _AvailabilityResultsState extends State<_AvailabilityResults> {
     super.dispose();
   }
 
-  Future<List<MarketplaceAvailability>> _load() => checkMarketplaceAvailability(
-    widget.providers.map((p) => p.id).toList(),
-    widget.event,
-  );
+  @override
+  void didUpdateWidget(covariant _AvailabilityResults oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final previousIds = oldWidget.providers
+        .map((provider) => provider.id)
+        .toSet();
+    if (previousIds.length != widget.providers.length ||
+        widget.providers.any(
+          (provider) => !previousIds.contains(provider.id),
+        )) {
+      _check = _load();
+    }
+  }
+
+  Future<Map<String, MarketplaceAvailability>> _load() async {
+    final availability = await checkMarketplaceAvailability(
+      widget.providers.map((provider) => provider.id).toList(),
+      widget.event,
+    );
+    return {for (final item in availability) item.providerId: item};
+  }
+
   @override
   Widget build(
     BuildContext context,
-  ) => FutureBuilder<List<MarketplaceAvailability>>(
+  ) => FutureBuilder<Map<String, MarketplaceAvailability>>(
+    key: ValueKey(_accountGeneration),
     future: _check,
     builder: (context, snapshot) {
-      if (snapshot.connectionState != ConnectionState.done) {
-        return const Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              CircularProgressIndicator(),
-              SizedBox(height: 16),
-              Text('Checking provider availability…'),
-            ],
-          ),
-        );
+      final checking = snapshot.connectionState != ConnectionState.done;
+      if (!checking && snapshot.hasData) {
+        _displayedProviders = widget.providers;
       }
       if (snapshot.hasError) {
         return FeastaEmptyState(
@@ -1794,24 +1837,38 @@ class _AvailabilityResultsState extends State<_AvailabilityResults> {
           onAction: () => setState(() => _check = _load()),
         );
       }
-      final results = {
-        for (final item in snapshot.data!) item.providerId: item,
-      };
-      final providers = [...widget.providers]
-        ..sort(
-          (a, b) => (results[b.id]!.available ? 1 : 0).compareTo(
-            results[a.id]!.available ? 1 : 0,
-          ),
-        );
+      final results =
+          snapshot.data ?? const <String, MarketplaceAvailability>{};
+      final providers =
+          [
+            ...(checking && _displayedProviders.isNotEmpty
+                ? _displayedProviders
+                : widget.providers),
+          ]..sort(
+            (a, b) => (results[b.id]?.available == true ? 1 : 0).compareTo(
+              results[a.id]?.available == true ? 1 : 0,
+            ),
+          );
       return ListView(
         padding: const EdgeInsets.fromLTRB(20, 0, 20, 100),
         keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
         children: [
+          SizedBox(
+            height: 2,
+            child: checking
+                ? const LinearProgressIndicator(
+                    semanticsLabel: 'Checking provider availability',
+                  )
+                : null,
+          ),
+          const SizedBox(height: 8),
           Text(
-            '${results.values.where((r) => r.available).length} available providers',
+            checking && results.isEmpty
+                ? 'Checking provider availability'
+                : '${results.values.where((r) => r.available).length} available providers',
             style: const TextStyle(
               fontWeight: FontWeight.bold,
-              color: Color(0xFF0F4C3A),
+              color: AppColors.primary,
             ),
           ),
           const SizedBox(height: 8),
@@ -1827,26 +1884,17 @@ class _AvailabilityResultsState extends State<_AvailabilityResults> {
             itemCount: providers.length,
             itemBuilder: (context, index) {
               final provider = providers[index];
-              return Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  SearchProviderCard(
-                    provider: provider,
-                    categoryNames: widget.categoryNames,
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.all(8),
-                    child: Text(
-                      results[provider.id]!.message,
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: results[provider.id]!.available
-                            ? AppColors.success
-                            : AppColors.error,
-                      ),
-                    ),
-                  ),
-                ],
+              final availability = results[provider.id];
+              return ProviderGridCard(
+                key: ValueKey(provider.id),
+                provider: provider,
+                categoryNames: widget.categoryNames,
+                availabilityLabel:
+                    availability?.message ??
+                    (checking
+                        ? 'Checking availability'
+                        : 'Availability unconfirmed'),
+                available: availability?.available,
               );
             },
           ),

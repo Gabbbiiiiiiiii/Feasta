@@ -399,6 +399,7 @@ class PackageModel {
   final int? balanceDueHoursBeforeEvent;
   final List<String> imageUrls;
   final String? pricingModel;
+  final String? serviceCategoryCode;
   final String? occasionScope;
   final List<String> occasionMatchIds;
   final List<String> equipmentInclusions;
@@ -441,6 +442,7 @@ class PackageModel {
     this.balanceDueHoursBeforeEvent,
     this.imageUrls = const [],
     this.pricingModel,
+    this.serviceCategoryCode,
     this.occasionScope,
     this.occasionMatchIds = const [],
     this.equipmentInclusions = const [],
@@ -494,6 +496,7 @@ class PackageModel {
           : data['balanceDueDaysBeforeEvent'] as int?,
       balanceDueHoursBeforeEvent: data['balanceDueHoursBeforeEvent'] as int?,
       imageUrls: List.unmodifiable(imageUrls.isNotEmpty ? imageUrls : [if (image.isNotEmpty) image]),
+      serviceCategoryCode: data['serviceCategoryCode'] is String ? data['serviceCategoryCode'] as String : null,
       pricingModel: ['per_pax', 'per_bundle'].contains(data['pricingModel'])
           ? data['pricingModel'] as String : null, occasionScope: data['occasionScope'] as String?,
       occasionMatchIds: stringListFromValue(data['occasionMatchIds']),
@@ -722,6 +725,7 @@ class AddonModel {
   final String name;
   final String description;
   final String category;
+  final String? pricingType;
   final double price;
   final String? imageUrl;
   final bool isAvailable;
@@ -736,6 +740,7 @@ class AddonModel {
     required this.name,
     required this.description,
     required this.category,
+    this.pricingType,
     required this.price,
     this.imageUrl,
     required this.isAvailable,
@@ -753,6 +758,7 @@ class AddonModel {
       name: data['name'] ?? '',
       description: data['description'] ?? '',
       category: data['category'] ?? '',
+      pricingType: data['pricingType'] is String ? data['pricingType'] as String : null,
       price: data['price'] is num
           ? (data['price'] as num).toDouble()
           : double.tryParse(data['price']?.toString() ?? '') ?? double.nan,

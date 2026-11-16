@@ -12,8 +12,7 @@ function Harness({owner = "guest", packageId = "package"}) {
   const saved = useCustomizationDraft({owner, providerId: "provider", packageId, context: "", value, restore: setValue});
   return <><input aria-label="Notes" value={value.event.specialRequest} onChange={(event) => setValue({...value, event: {...value.event, specialRequest: event.target.value}})} />
     <p>{saved.status}</p><button onClick={saved.clear}>Submitted successfully</button>
-    <button onClick={async () => setRequestId(await saved.submissionId(JSON.stringify(value.event), () => `booking-${crypto.randomUUID()}`))}>Prepare submission</button><output>{requestId}</output>
-    {saved.choices.map((choice) => <button key={choice.key} onClick={() => saved.resume(choice)}>Continue {choice.value.event.eventDate}</button>)}</>;
+    <button onClick={async () => setRequestId(await saved.submissionId(JSON.stringify(value.event), () => `booking-${crypto.randomUUID()}`))}>Prepare submission</button><output>{requestId}</output></>;
 }
 beforeEach(() => { localStorage.clear(); vi.useFakeTimers(); });
 afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); });
@@ -72,12 +71,11 @@ it("makes only the bounded public planning route accessible without opening subm
   expect(isPublicMarketplacePath("/customer/packages/../plan")).toBe(false);
 });
 
-it("offers another saved planning context when returning without its query", () => {
+it("automatically restores a saved draft when returning without its query", () => {
   saveCustomizationDraft(localStorage, customizationDraftKey("guest", "provider", "package", "dated-context"), {
     ...initial, event: {...initial.event, eventDate: "2026-09-20", specialRequest: "Original event"},
   });
   render(<Harness />); tick();
-  fireEvent.click(screen.getByText("Continue 2026-09-20"));
   expect(screen.getByLabelText("Notes")).toHaveValue("Original event"); tick(400);
   expect(localStorage.length).toBe(1);
 });
@@ -127,15 +125,13 @@ it("preserves only the authenticated customer's older local namespace", () => {
   expect(localStorage.length).toBe(1);
 });
 
-it("never offers an older guest alternative over a matching owned context", () => {
+it("restores the owned draft before a guest draft", () => {
   for (const [owner, note] of [["guest", "Old guest"], ["customer:A", "New owned"]]) {
     saveCustomizationDraft(localStorage, customizationDraftKey(owner, "provider", "package", "context"), {
       ...initial, event: {...initial.event, eventDate: "2026-09-20", specialRequest: note},
     });
   }
   render(<Harness owner="customer:A" />); tick();
-  expect(screen.getAllByRole("button", {name: /^Continue/})).toHaveLength(1);
-  fireEvent.click(screen.getByText("Continue 2026-09-20"));
   expect(screen.getByLabelText("Notes")).toHaveValue("New owned");
 });
 

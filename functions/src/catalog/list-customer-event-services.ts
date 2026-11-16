@@ -7,7 +7,7 @@ const FIRESTORE_COLLECTIONS = {addons: "addons", providers: "providers", users: 
 type RecordData = Readonly<Record<string, unknown>>;
 type PublicEventService = {
  id: string; providerId: string; providerName: string; name: string;
- description: string | null; category: string | null; price: number | null;
+ description: string | null; category: string | null; price: number | null; pricingType: string | null;
  imageUrl: string | null; source: string; bookingLeadTimeDays: number | null;
 };
 type PublicEventServicePage = {services: PublicEventService[]};
@@ -239,6 +239,8 @@ export async function loadPublicEventServices(
               candidate.data.category,
               80,
             ),
+          pricingType: ["fixed", "per_guest", "per_hour", "per_unit", "custom_quote"]
+            .find((type) => type === candidate.data.pricingType) ?? null,
           price:
             safeMoney(
               candidate.data.price,

@@ -14,6 +14,7 @@ import {
   useEffect,
   useRef,
   useState,
+  useTransition,
   type FormEvent,
   type ReactNode,
 } from "react";
@@ -29,6 +30,8 @@ import {
   MAX_EVENT_GUESTS,
   manilaDateValue,
   parseCustomerPlanningContext,
+  MIN_PLANNING_BUDGET,
+  MAX_PLANNING_BUDGET,
 } from "@/lib/customer/planning/event-planning-context";
 import type {ServiceCategoryOption} from "@/lib/service-categories/service-category-types";
 import type {ActiveOccasionOption} from "@/lib/customer/planning/active-occasion-options-service";
@@ -165,6 +168,7 @@ export function EventFinder({
   const dateInput = useRef<HTMLInputElement>(null);
   const formRef = useRef<HTMLFormElement>(null);
 
+  const [searchPending, startSearchTransition] = useTransition();
   const live = useLiveSearch(search, (value) => {
     if (category === "none") return;
     const next = new URLSearchParams(query);
@@ -200,15 +204,11 @@ export function EventFinder({
 
     next.delete("cursor");
 
-    router.replace(
-      providerDiscoveryHref(
-        parseProviderDiscoveryFilters(
-          Object.fromEntries(next),
-        ),
-      ),
-      {scroll: false},
-    );
-  });
+    const href = providerDiscoveryHref(parseProviderDiscoveryFilters(Object.fromEntries(next)));
+    const currentHref = providerDiscoveryHref(parseProviderDiscoveryFilters(Object.fromEntries(new URLSearchParams(query))));
+    if (href === currentHref) return;
+    startSearchTransition(() => router.replace(href, {scroll: false}));
+  }, undefined, 400);
 
   useEffect(() => {
     if (dateInput.current) {
@@ -224,7 +224,11 @@ export function EventFinder({
     const maximum = data.get("budgetMax");
     const maximumInput = event.currentTarget.elements.namedItem("budgetMax") as HTMLInputElement;
     maximumInput.setCustomValidity(
-      minimum && maximum && Number(maximum) < Number(minimum)
+      [minimum, maximum].some((value) => value && Number(value) < MIN_PLANNING_BUDGET)
+        ? "Amount entered is lower than the allowed budget."
+        : [minimum, maximum].some((value) => value && Number(value) > MAX_PLANNING_BUDGET)
+        ? "Enter a budget of ₱1,000,000 or less."
+        : minimum && maximum && Number(maximum) < Number(minimum)
         ? "Maximum budget must be at least the starting budget."
         : "",
     );
@@ -450,7 +454,7 @@ export function EventFinder({
       <FinderSection
         number={4}
         title="Budget range"
-        description="Set an estimated spending range for your planning."
+        description="Enter your preferred range from ₱1,000 to ₱1,000,000. Best Fit uses your maximum as the spending limit. For example, you might plan around ₱65,500 for a 100-guest birthday with catering, photography, and videography."
         icon={<Wallet className="size-5" />}
       >
         <div className="grid min-w-0 gap-3 sm:grid-cols-2">
@@ -459,16 +463,16 @@ export function EventFinder({
               htmlFor="event-finder-budget-min"
               className="mb-2 block text-xs font-bold text-feasta-text-secondary"
             >
-              Starting budget (â‚±)
+              Starting budget (&#8369;)
             </label>
 
             <input
               id="event-finder-budget-min"
               type="number"
-              min={0}
+              min={MIN_PLANNING_BUDGET}
               name="budgetMin"
               defaultValue={planning?.budgetMin ?? ""}
-              max={100000000}
+              max={MAX_PLANNING_BUDGET}
               step={1}
               placeholder="Minimum amount"
               className="h-11 min-h-11 w-full min-w-0 rounded-xl border border-feasta-border-soft bg-feasta-canvas px-3 py-2 text-sm font-medium text-primary-strong placeholder:text-feasta-text-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20"
@@ -480,18 +484,18 @@ export function EventFinder({
               htmlFor="event-finder-budget-max"
               className="mb-2 block text-xs font-bold text-feasta-text-secondary"
             >
-              Maximum budget (â‚±)
+              Maximum budget (&#8369;)
             </label>
 
             <input
               id="event-finder-budget-max"
               type="number"
-              min={0}
+              min={MIN_PLANNING_BUDGET}
               name="budgetMax"
               defaultValue={planning?.budgetMax ?? ""}
-              max={100000000}
+              max={MAX_PLANNING_BUDGET}
               step={1}
-              placeholder="No upper limit"
+              placeholder="Maximum amount"
               className="h-11 min-h-11 w-full min-w-0 rounded-xl border border-feasta-border-soft bg-feasta-canvas px-3 py-2 text-sm font-medium text-primary-strong placeholder:text-feasta-text-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20"
             />
           </div>
@@ -600,6 +604,7 @@ export function EventFinder({
                   }
                 : undefined
             }
+            pending={searchPending}
             id="event-finder-search"
             name="q"
             minLength={1}

@@ -35,7 +35,8 @@ import {
   PUBLIC_PACKAGE_MARKETPLACE_PATH,
 } from "@/lib/customer/providers/provider-route-policy";
 import {
-  customerEventContextQuery,
+  customerBookingPlanningQuery,
+  type CustomerPlanningContext,
   type CustomerEventContext,
 } from "@/lib/customer/planning/event-planning-context";
 import {
@@ -46,10 +47,14 @@ import {
 export function PackageDetail({
   detail,
   eventContext = null,
+  planningContext = null,
+  bestFitReturnHref,
   serviceCategoryOptions = [],
 }: {
   detail: PublicPackageDetail;
   eventContext?: CustomerEventContext | null;
+  planningContext?: CustomerPlanningContext | null;
+  bestFitReturnHref?: string;
   serviceCategoryOptions?: readonly ServiceCategoryOption[];
 }) {
   const {
@@ -83,7 +88,9 @@ export function PackageDetail({
   const bookingPath = `/customer/packages/${encodeURIComponent(
     packageRecord.id,
   )}/book`;
-  const eventContextQuery = customerEventContextQuery(eventContext);
+  const bookingQuery = new URLSearchParams(customerBookingPlanningQuery(eventContext, planningContext));
+  if (bestFitReturnHref) bookingQuery.set("returnTo", bestFitReturnHref);
+  const eventContextQuery = bookingQuery.toString();
   const bookingHref = eventContextQuery
     ? `${bookingPath}?${eventContextQuery}`
     : bookingPath;
@@ -95,7 +102,7 @@ export function PackageDetail({
          ================================================================ */}
 
       <Link
-        href={PUBLIC_PACKAGE_MARKETPLACE_PATH}
+        href={bestFitReturnHref ?? PUBLIC_PACKAGE_MARKETPLACE_PATH}
         className={[
           "group inline-flex min-h-11 w-fit items-center gap-2",
           "rounded-full px-1",
@@ -111,7 +118,7 @@ export function PackageDetail({
           className="size-4 transition-transform duration-normal group-hover:-translate-x-0.5 motion-reduce:transform-none"
         />
 
-        Back to packages
+        {bestFitReturnHref ? "Back to Best Fit" : "Back to packages"}
       </Link>
 
       {/* ================================================================

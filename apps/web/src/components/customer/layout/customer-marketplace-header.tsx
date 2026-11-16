@@ -199,10 +199,14 @@ function MarketplaceSectionNavigation({
   const parameters = useSearchParams();
   const query = parameters.toString();
 
-  // URL changes reset the disclosure and form defaults together.
+  const formParameters = new URLSearchParams(query);
+  formParameters.delete("q");
+  formParameters.delete("cursor");
+  formParameters.sort();
+  // Keyword and pagination updates keep the open finder and its draft mounted.
   return (
     <MarketplaceNavigationContent
-      key={pathname + "?" + query}
+      key={pathname + "?" + formParameters.toString()}
       pathname={pathname}
       query={query}
       serviceCategoryOptions={serviceCategoryOptions}
@@ -239,6 +243,20 @@ function MarketplaceNavigationContent({
       window.removeEventListener("feasta:open-event-finder", openFromSummary);
     };
   }, []);
+  const [savedBestFitHref, setSavedBestFitHref] = useState<string | null>(null);
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    void import("@/lib/firebase/client").then(async ({auth}) => {
+      await auth.authStateReady();
+      const uid = auth.currentUser?.uid;
+      if (!uid || cancelled) return;
+      const href = sessionStorage.getItem(`feasta:best-fit:latest:${uid}`);
+      if (href?.startsWith("/customer/providers?")) setSavedBestFitHref(href);
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [open]);
+
   const searchButton = useRef<HTMLButtonElement>(null);
   const items = [
     {label: "Event Services", href: PUBLIC_PROVIDER_MARKETPLACE_PATH},
@@ -246,6 +264,7 @@ function MarketplaceNavigationContent({
   ] as const;
 
   function close() {
+    setSavedBestFitHref(null);
     setOpen(false);
     searchButton.current?.focus();
   }
@@ -323,8 +342,13 @@ function MarketplaceNavigationContent({
       >
         <div className="min-h-0 overflow-hidden">
           <div className="mx-auto max-h-[calc(100dvh-9rem)] max-w-6xl overflow-y-auto overscroll-contain px-1 pb-4 pt-2">
+            {savedBestFitHref && <Link href={savedBestFitHref} onClick={close}
+              className="mb-3 inline-flex min-h-11 items-center rounded-full border border-border px-4 text-sm font-semibold text-primary-strong">
+              Resume Best Fit
+            </Link>}
             <EventFinder
-              query={query}
+              key={savedBestFitHref ?? "current"}
+              query={new URLSearchParams(query).has("budgetMax") ? query : savedBestFitHref?.split("?")[1] ?? query}
               onFind={close}
               serviceCategoryOptions={serviceCategoryOptions}
               occasionOptions={occasionOptions}

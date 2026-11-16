@@ -11,9 +11,11 @@ import {
 export function AddToEventListButton({
   item,
   className = "",
+  label = "Add to List",
 }: {
   item: CustomerPackageEventListItem;
   className?: string;
+  label?: string;
 }) {
   const {items, addItem} = useCustomerEventList();
   const added = items.some(
@@ -43,7 +45,7 @@ export function AddToEventListButton({
       ) : (
         <Plus aria-hidden="true" className="size-4" />
       )}
-      {added ? "Added to List" : "Add to List"}
+      {added ? "Added to List" : label}
     </button>
   );
 }

@@ -1,7 +1,15 @@
-﻿import {normalizeProviderServiceArea} from "@feasta/shared-types";
+import {normalizeProviderServiceArea} from "@feasta/shared-types";
 
 import type {CustomerProviderAvailability} from "@/lib/customer/bookings/customer-provider-availability-client";
 import type {ProviderDiscoveryFilters, PublicProvider} from "./provider-types";
+
+function normalizeBestFitArea(value: string, province?: string) {
+  const combined = [value, province].filter(Boolean).join(", ");
+  const direct = normalizeProviderServiceArea(value, province);
+  if (direct || !/,\s*Eastern Visayas\s*$/iu.test(combined)) return direct;
+  const city = normalizeProviderServiceArea(combined.replace(/,\s*Eastern Visayas\s*$/iu, ""));
+  return city?.province === "Leyte" ? city : null;
+}
 
 export type FitEvidence = "match" | "unknown" | "mismatch" | "not-requested";
 export type ProviderBestFit = {
@@ -32,7 +40,7 @@ export function rankProviderBestFits(
   const occasion = filters.planningContext?.eventType;
   const guests = filters.eventContext?.guestCount ?? filters.planningContext?.guestCount;
   const venue = filters.planningContext?.eventVenue;
-  const area = venue ? normalizeProviderServiceArea(venue.city, venue.province) : null;
+  const area = venue ? normalizeBestFitArea(venue.city, venue.province) : null;
   const points = (state: FitEvidence) => state === "match" ? 2 : state === "mismatch" ? 0 : 1;
   const seen = new Set<string>();
   return providers.filter((provider) => {
@@ -59,7 +67,7 @@ export function rankProviderBestFits(
       : (validMin && guests < minimum) || (validMax && guests > maximum) ? "mismatch"
       : validMin && validMax ? "match" : "unknown";
     const documentedAreas = provider.serviceAreas.flatMap((value) => {
-      const documented = normalizeProviderServiceArea(value);
+      const documented = normalizeBestFitArea(value);
       return documented ? [documented.key] : [];
     });
     const areaEvidence: FitEvidence = !venue ? "not-requested"

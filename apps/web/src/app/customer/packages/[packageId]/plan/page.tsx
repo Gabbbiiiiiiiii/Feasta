@@ -1,10 +1,12 @@
+import {normalizeCateringPackageServiceTier} from "@/lib/catering/catering-service-tier";
+import {parseProviderDirectoryReturnHref} from "@/lib/customer/providers/provider-query";
 import {notFound, redirect} from "next/navigation";
 import {EventCustomizationExperience} from "@/components/customer/bookings/event-customization-experience";
 import {getOptionalAccountContext} from "@/lib/auth/session";
 import {getPublicPackageDetail} from "@/lib/customer/discovery/package-detail-service";
 import {getPublicEventServices} from "@/lib/customer/discovery/event-service-discovery-service";
 import {readPublishedProviderSetups} from "@/lib/provider/provider-setup-gallery-service";
-import {customerEventContextQuery, parseCustomerEventContext} from "@/lib/customer/planning/event-planning-context";
+import {customerBookingPlanningQuery, parseCustomerPlanningContext, parseCustomerEventContext} from "@/lib/customer/planning/event-planning-context";
 
 export default async function CustomerPackagePlanPage({params, searchParams}: {
   params: Promise<{packageId: string}>;
@@ -12,9 +14,14 @@ export default async function CustomerPackagePlanPage({params, searchParams}: {
 }) {
   const [{packageId}, query, account] = await Promise.all([params, searchParams, getOptionalAccountContext()]);
   const context = parseCustomerEventContext(query);
-  const contextQuery = customerEventContextQuery(context);
+  const planningContext = parseCustomerPlanningContext(query);
+  const contextQuery = customerBookingPlanningQuery(context, planningContext);
   const editProvider = typeof query.eventListProvider === "string" && /^[A-Za-z0-9_-]{1,128}$/u.test(query.eventListProvider) ? query.eventListProvider : undefined;
   const routingQuery = new URLSearchParams(contextQuery);
+  const bestFitReturnHref = query.returnTo ? parseProviderDirectoryReturnHref(query.returnTo) : undefined;
+  if (bestFitReturnHref) routingQuery.set("returnTo", bestFitReturnHref);
+  const initialServiceTier = bestFitReturnHref ? normalizeCateringPackageServiceTier(query.serviceTier) : null;
+  if (initialServiceTier) routingQuery.set("serviceTier", initialServiceTier);
   if (editProvider) routingQuery.set("eventListProvider", editProvider);
   if (account?.role === "customer") {
     redirect(`/customer/packages/${encodeURIComponent(packageId)}/book${routingQuery.size ? `?${routingQuery}` : ""}`);
@@ -26,6 +33,6 @@ export default async function CustomerPackagePlanPage({params, searchParams}: {
     readPublishedProviderSetups(detail.provider.id),
   ]);
   return <EventCustomizationExperience key={`${packageId}:${contextQuery}:${editProvider ?? ""}`} detail={detail}
-    eventServices={services.services} initialEventContext={context} draftOwner="guest" planningOnly eventListEditProviderId={editProvider}
+    eventServices={services.services} initialEventContext={context} initialPlanningContext={planningContext} bestFitReturnHref={bestFitReturnHref} initialServiceTier={initialServiceTier} draftOwner="guest" planningOnly eventListEditProviderId={editProvider}
     publishedSetups={publishedSetups} />;
 }

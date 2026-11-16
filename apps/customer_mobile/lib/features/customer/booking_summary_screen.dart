@@ -26,11 +26,12 @@ import '../../shared/models/event_customization_data.dart';
 import '../../shared/models/feasta_models.dart';
 import '../authentication/data/repositories/feasta_repository.dart';
 import 'booking_submitted_screen.dart';
+import 'plan_matching_services_screen.dart';
 import 'booking_details_screen.dart';
 import 'widgets/booking_preparation_price.dart';
 import '../../core/helpers/booking_preparation.dart';
 
-enum BookingReviewEdit { event, package }
+enum BookingReviewEdit { event, package, returnSaved, returnDiscarded }
 
 class BookingSummaryScreen extends StatefulWidget {
   const BookingSummaryScreen({
@@ -43,6 +44,7 @@ class BookingSummaryScreen extends StatefulWidget {
     this.availability,
     this.agreements,
     this.refunds,
+    this.canReturnToBestFit = false,
     super.key,
   });
 
@@ -50,6 +52,7 @@ class BookingSummaryScreen extends StatefulWidget {
   final BookingAgreementController? agreements;
   final BookingRefundPolicyController? refunds;
   final bool preparationOnly;
+  final bool canReturnToBestFit;
   final CustomizationSession? session;
   final BookingAttemptCoordinator? attempts;
   final ProviderModel provider;
@@ -638,6 +641,53 @@ class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
         '${date.day}, ${date.year}';
   }
 
+  Future<void> _returnToBestFit() async {
+    final choice = await showDialog<BookingReviewEdit>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text(
+          'Back to Best Fit Recommendations?',
+          style: AppTypography.sectionTitle,
+        ),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Text(
+                'Save your latest changes as a draft so you can continue where you left off when you return.',
+                style: AppTypography.body,
+              ),
+              const SizedBox(height: 24),
+              FilledButton(
+                onPressed: () =>
+                    Navigator.pop(dialogContext, BookingReviewEdit.returnSaved),
+                child: const Text('Save & Go Back'),
+              ),
+              const SizedBox(height: 8),
+              OutlinedButton(
+                onPressed: () => Navigator.pop(
+                  dialogContext,
+                  BookingReviewEdit.returnDiscarded,
+                ),
+                child: const Text('Discard Changes & Go Back'),
+              ),
+              const SizedBox(height: 8),
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: const Text('Cancel'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (mounted && _authorized && choice != null) {
+      Navigator.pop(context, choice);
+    }
+  }
+
   Future<void> _submitBookingRequest() async {
     if (widget.preparationOnly ||
         _session == null ||
@@ -739,6 +789,7 @@ class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
         'created': result.created,
       });
       if (!mounted || !_canAct) return;
+      if (widget.canReturnToBestFit) PlanMatchingServicesScreen.clearSession();
       Navigator.pushAndRemoveUntil(
         context,
         MaterialPageRoute(
@@ -836,6 +887,17 @@ class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
+          if (widget.canReturnToBestFit)
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                onPressed: isSubmitting || _savingAttempt
+                    ? null
+                    : _returnToBestFit,
+                icon: const Icon(Icons.arrow_back),
+                label: const Text('Back to Best Fit'),
+              ),
+            ),
           const CustomizationProgress(step: 2),
           if (!submissionEnabled)
             SaveReviewConfiguration(

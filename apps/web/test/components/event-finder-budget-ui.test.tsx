@@ -1,4 +1,4 @@
-﻿import {fireEvent, render, screen} from "@testing-library/react";
+import {act, fireEvent, render, screen} from "@testing-library/react";
 import {beforeEach, expect, it, vi} from "vitest";
 import {EventFinder} from "@/components/customer/layout/event-finder";
 import {ProviderEventContextPanel} from "@/components/customer/providers/provider-event-context-panel";
@@ -14,45 +14,63 @@ it("submits independent categories, clears stale single filters and cursor, and 
   fireEvent.click(screen.getByRole("checkbox", {name: "Catering Service"}));
   expect(screen.getByRole("checkbox", {name: "Photography"})).toBeChecked();
   expect(screen.getByRole("checkbox", {name: "Select All"})).not.toBeChecked();
-  fireEvent.change(screen.getByLabelText(/Starting budget/), {target: {value: "1000"}});
+  fireEvent.change(screen.getByLabelText(/Starting budget/), {target: {value: "3000"}});
   fireEvent.change(screen.getByLabelText(/Maximum budget/), {target: {value: "15000"}});
   fireEvent.click(screen.getByRole("button", {name: "Find Services"}));
   const url = new URL(mocks.push.mock.calls[0][0], "https://feasta.test");
-  expect(Object.fromEntries(url.searchParams)).toEqual({categories: "catering_service,photographer", budgetMin: "1000", budgetMax: "15000"});
+  expect(Object.fromEntries(url.searchParams)).toEqual({categories: "catering_service,photographer", budgetMin: "3000", budgetMax: "15000"});
   view.unmount();
   render(<EventFinder query={url.searchParams.toString()} onFind={() => {}} serviceCategoryOptions={TEST_SERVICE_CATEGORY_OPTIONS} />);
   expect(screen.getByRole("checkbox", {name: "Photography"})).toBeChecked();
   expect(screen.getByRole("checkbox", {name: "Catering Service"})).toBeChecked();
-  expect(screen.getByLabelText(/Starting budget/)).toHaveValue(1000);
+  expect(screen.getByLabelText(/Starting budget/)).toHaveValue(3000);
   expect(screen.getByLabelText(/Maximum budget/)).toHaveValue(15000);
 });
 
-it("blocks reversed budget input and permits correction", () => {
+it("blocks budgets below PHP 1000 and permits correction", () => {
   render(<EventFinder query="" onFind={() => {}} serviceCategoryOptions={TEST_SERVICE_CATEGORY_OPTIONS} />);
-  fireEvent.change(screen.getByLabelText(/Starting budget/), {target: {value: "2000"}});
-  fireEvent.change(screen.getByLabelText(/Maximum budget/), {target: {value: "1000"}});
+  fireEvent.change(screen.getByLabelText(/Starting budget/), {target: {value: "3000"}});
+  fireEvent.change(screen.getByLabelText(/Maximum budget/), {target: {value: "999"}});
   fireEvent.submit(screen.getByRole("search", {name: "Event Finder"}));
   expect(mocks.push).not.toHaveBeenCalled();
-  expect((screen.getByLabelText(/Maximum budget/) as HTMLInputElement).validationMessage).toMatch(/Maximum budget/);
+  expect((screen.getByLabelText(/Maximum budget/) as HTMLInputElement).validationMessage).toBe("Amount entered is lower than the allowed budget.");
   fireEvent.input(screen.getByLabelText(/Maximum budget/), {target: {value: "3000"}});
   fireEvent.submit(screen.getByRole("search", {name: "Event Finder"}));
   expect(mocks.push).toHaveBeenCalledOnce();
 });
 
-it.each([[-1, undefined], [Infinity, undefined], [100000001, undefined], [0, 0], [100000000, 100000000]])("validates planning budget %s", (input, expected) => {
+it.each([[-1, undefined], [Infinity, undefined], [1000001, undefined], [0, undefined], [1000, 1000], [1000000, 1000000]])("validates planning budget %s", (input, expected) => {
   const filters = parseProviderDiscoveryFilters({budgetMin: String(input)}, "");
   expect(filters.planningContext?.budgetMin).toBe(expected);
 });
 
 it("displays, edits, and clears budget with event details while preserving category selections", () => {
-  const filters = parseProviderDiscoveryFilters({categories: "photographer,catering_service", budgetMin: "1000", budgetMax: "15000", eventType: "birthday"}, "");
+  const filters = parseProviderDiscoveryFilters({categories: "photographer,catering_service", budgetMin: "3000", budgetMax: "15000", eventType: "birthday"}, "");
   render(<><ProviderEventContextPanel filters={filters} /><EventFinder query={providerDiscoveryHref(filters).split("?")[1]} onFind={() => {}} serviceCategoryOptions={TEST_SERVICE_CATEGORY_OPTIONS} /></>);
-  expect(screen.getByText("Planning budget").parentElement).toHaveTextContent(/1,000.*15,000/);
-  expect(screen.getByLabelText(/Starting budget/)).toHaveValue(1000);
+  expect(screen.getByText("Planning budget").parentElement).toHaveTextContent(/3,000.*15,000/);
+  expect(screen.getByLabelText(/Starting budget/)).toHaveValue(3000);
   fireEvent.change(screen.getByLabelText(/Maximum budget/), {target: {value: "20000"}});
   fireEvent.submit(screen.getByRole("search", {name: "Event Finder"}));
   const updated = parseProviderDiscoveryFilters(Object.fromEntries(new URL(mocks.push.mock.calls[0][0], "https://feasta.test").searchParams), "");
   expect(updated.planningContext?.budgetMax).toBe(20000);
   expect(updated.categories).toEqual(filters.categories);
   expect(screen.getByRole("link", {name: "Clear event details"})).toHaveAttribute("href", providerDiscoveryHref({...filters, planningContext: null, eventContext: null}));
+});
+
+it("waits for a pause before updating the keyword without scrolling", () => {
+  vi.useFakeTimers();
+  try {
+    render(<EventFinder query="" onFind={() => {}} serviceCategoryOptions={TEST_SERVICE_CATEGORY_OPTIONS} />);
+    const search = screen.getByRole("searchbox", {name: "Search providers or services"});
+    fireEvent.change(search, {target: {value: "cat"}});
+    act(() => vi.advanceTimersByTime(250));
+    fireEvent.change(search, {target: {value: "catering"}});
+    act(() => vi.advanceTimersByTime(399));
+    expect(mocks.replace).not.toHaveBeenCalled();
+    act(() => vi.advanceTimersByTime(1));
+    expect(mocks.replace).toHaveBeenCalledExactlyOnceWith("/customer/providers?q=catering", {scroll: false});
+    expect(search).toHaveValue("catering");
+  } finally {
+    vi.useRealTimers();
+  }
 });

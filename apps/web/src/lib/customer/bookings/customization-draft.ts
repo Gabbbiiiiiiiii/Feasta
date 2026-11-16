@@ -97,14 +97,14 @@ export function readCustomizationDraft(storage: Storage, key: string): Customiza
 
 export function listCustomizationDrafts(storage: Storage, owner: string, providerId: string, packageId: string) {
   const prefix = customizationDraftKey(owner, providerId, packageId);
-  const matches: {key: string; value: CustomizationDraft}[] = [];
+  const matches: {key: string; value: CustomizationDraft; savedAt: number}[] = [];
   for (let i = 0; i < storage.length; i++) {
     const key = storage.key(i);
     if (!key?.startsWith(prefix)) continue;
     const value = readCustomizationDraft(storage, key);
-    if (value) matches.push({key, value});
+    if (value) matches.push({key, value, savedAt: JSON.parse(storage.getItem(key) ?? "{}").savedAt});
   }
-  return matches.slice(0, MAX_DRAFTS);
+  return matches.sort((a, b) => b.savedAt - a.savedAt).slice(0, MAX_DRAFTS);
 }
 
 export function saveCustomizationDraft(storage: Storage, key: string, value: CustomizationDraft) {

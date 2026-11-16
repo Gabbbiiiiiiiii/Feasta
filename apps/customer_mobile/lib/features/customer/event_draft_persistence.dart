@@ -1,3 +1,4 @@
+import '../../core/helpers/best_fit_area.dart';
 import '../../shared/models/food_choice_v2.dart';
 import 'dart:async';
 import 'dart:convert';
@@ -253,8 +254,13 @@ class EventDraftPersistence {
           invalid();
         }
       }
-      if (address['fullAddress'] != form['address'] ||
-          address['city'] != form['city']) {
+      final city = normalizeBestFitArea(form['city'] as String);
+      final pinCity = normalizeBestFitArea(
+        address['city'] as String,
+        province: address['province'] as String,
+      );
+      final sameCity = sameMunicipality(city, pinCity);
+      if (address['fullAddress'] != form['address'] || !sameCity) {
         invalid();
       }
       form['eventAddress'] = CustomerAddressModel.fromMap(address);

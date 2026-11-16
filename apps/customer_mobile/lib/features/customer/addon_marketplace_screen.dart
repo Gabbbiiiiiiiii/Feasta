@@ -22,6 +22,7 @@ class AddonMarketplaceScreen extends StatefulWidget {
 
 class _AddonMarketplaceScreenState extends State<AddonMarketplaceScreen> {
   late final FeastaRepository repository;
+  late final Stream<List<AddonModel>> _addons;
 
   late List<Map<String, dynamic>> selectedAddOns;
 
@@ -29,6 +30,7 @@ class _AddonMarketplaceScreenState extends State<AddonMarketplaceScreen> {
   void initState() {
     super.initState();
     repository = widget.repository ?? FeastaRepository();
+    _addons = repository.marketplaceAddons();
     selectedAddOns = List<Map<String, dynamic>>.from(
       widget.selectedExternalAddOns,
     );
@@ -60,9 +62,10 @@ class _AddonMarketplaceScreenState extends State<AddonMarketplaceScreen> {
         ),
       ),
       body: StreamBuilder<List<AddonModel>>(
-        stream: repository.marketplaceAddons(),
+        stream: _addons,
         builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
+          if (snapshot.connectionState == ConnectionState.waiting &&
+              !snapshot.hasData) {
             return const FeastaSkeletonList(
               itemCount: 6,
               padding: EdgeInsets.all(20),
@@ -163,17 +166,18 @@ class _AddonMarketplaceScreenState extends State<AddonMarketplaceScreen> {
                             ),
                           ),
                           const SizedBox(height: 8),
-                          Row(
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 4,
                             children: [
                               Text(
                                 addon.category,
                                 style: const TextStyle(color: Colors.grey),
                               ),
-                              const Spacer(),
                               Text(
                                 FeastaPriceFormatter.format(
                                   addon.price,
-                                  decimalDigits: 0,
+                                  decimalDigits: addon.price % 1 == 0 ? 0 : 2,
                                 ),
                                 style: const TextStyle(
                                   color: primary,

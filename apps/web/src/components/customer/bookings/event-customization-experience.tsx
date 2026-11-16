@@ -1,4 +1,6 @@
 "use client";
+import {clearBestFitSession} from "@/lib/customer/providers/clear-best-fit-session";
+import {feastaToast} from "@/components/feedback/toast";
 import {ServicePortfolioGallery} from "@/components/shared/service-portfolio-gallery";
 import {FreelanceServiceSummary} from "@/components/shared/freelance-service-summary";
 import {sharedEventCandidates, compatibleSharedEvent} from "@/lib/customer/event-list/shared-event-details";
@@ -26,6 +28,9 @@ import {
   Check,
   CircleCheckBig,
   Clock3,
+  Info,
+  History,
+  Plus,
   MapPin,
   Palette,
   ReceiptText,
@@ -68,6 +73,7 @@ import {
   bookingSubmissionRequiresRefundPolicyRefresh,
   submitCustomerBookingRequest,
   reconcileCustomerBookingSubmission,
+  hasPreviousBookingRequest,
   type SubmitPackageBookingRequestInput,
   type SubmitBookingRequestResult,
 } from "@/lib/customer/bookings/customer-booking-submission-client";
@@ -94,7 +100,7 @@ import type {
 import {
   humanizeProviderValue,
 } from "@/lib/customer/providers/provider-catalog";
-import type {CustomerEventContext} from "@/lib/customer/planning/event-planning-context";
+import {customerBookingPlanningQuery, type CustomerEventContext, type CustomerPlanningContext} from "@/lib/customer/planning/event-planning-context";
 
 type EventCustomizationExperienceProps = {
   eventListEditProviderId?: string;
@@ -103,6 +109,9 @@ type EventCustomizationExperienceProps = {
   detail: PublicPackageDetail;
   eventServices: readonly PublicEventService[];
   initialEventContext?: CustomerEventContext | null;
+  initialPlanningContext?: CustomerPlanningContext | null;
+  bestFitReturnHref?: string;
+  initialServiceTier?: CateringPackageServiceTier | null;
   publishedSetups?: readonly ProviderSetup[];
 };
 
@@ -159,6 +168,9 @@ function EventCustomizationExperienceSession({
   detail,
   eventServices,
   initialEventContext = null,
+  initialPlanningContext = null,
+  bestFitReturnHref,
+  initialServiceTier,
   draftOwner = "guest",
   planningOnly = false,
   publishedSetups,
@@ -176,26 +188,37 @@ function EventCustomizationExperienceSession({
   const [sharedDetailsNotice, setSharedDetailsNotice] = useState<string | null>(null);
   const [step, setStep] = useState(1);
   const [eventMapOpen, setEventMapOpen] = useState(false);
-  const [eventMapCoordinates, setEventMapCoordinates] = useState<EventMapCoordinates | null>(null);
+  const [eventMapCoordinates, setEventMapCoordinates] = useState<EventMapCoordinates | null>(() => {
+    const venue = initialPlanningContext?.eventVenue;
+    return venue ? {latitude: venue.latitude, longitude: venue.longitude} : null;
+  });
 
   const router = useRouter();
 
+  const [bestFitLeaveError, setBestFitLeaveError] = useState<string | null>(null);
   const [leaveDialogOpen, setLeaveDialogOpen] =
   useState(false);
 
   const [pendingLeaveHref, setPendingLeaveHref] =
     useState<string | null>(null);
 
+  const plannedOccasion = initialPlanningContext?.eventType;
+  const plannedVenue = initialPlanningContext?.eventVenue;
+  const planningQuery = customerBookingPlanningQuery(initialEventContext, initialPlanningContext);
+  const navigationQuery = new URLSearchParams(planningQuery);
+  if (bestFitReturnHref) navigationQuery.set("returnTo", bestFitReturnHref);
+  const planningSuffix = navigationQuery.size ? `?${navigationQuery}` : "";
   const [draft, setDraft] =
     useState<EventDetailsDraft>({
-      eventType: packageRecord.eventType ?? "",
-      eventDate: initialEventContext?.eventDate ?? "",
+      eventType: plannedOccasion && (packageRecord.occasionMatchIds ?? [packageRecord.eventType]).includes(plannedOccasion)
+        ? plannedOccasion : packageRecord.eventType ?? "",
+      eventDate: initialEventContext?.eventDate ?? initialPlanningContext?.eventDate ?? "",
       eventTime: initialEventContext?.eventTime ?? "",
       eventEndTime: initialEventContext?.eventEndTime ?? "",
-      guestCount: initialEventContext ? String(initialEventContext.guestCount) : "",
+      guestCount: String(initialEventContext?.guestCount ?? initialPlanningContext?.guestCount ?? ""),
       eventLocation:
-        provider.location ?? "",
-      eventAddress: "",
+        (plannedVenue && [plannedVenue.city, plannedVenue.province].filter(Boolean).join(", ")) || provider.location || "",
+      eventAddress: plannedVenue?.address ?? "",
       specialRequest: "",
     });
 
@@ -220,6 +243,7 @@ function EventCustomizationExperienceSession({
   const [eventListFeedback, setEventListFeedback] = useState<{signature: string; message: string; success: boolean} | null>(null);
   useEffect(() => () => {eventListSaveGeneration.current += 1;}, [draftOwner]);
   const [freshAttempt, setFreshAttempt] = useState(false);
+  const [unresolvedRequest, setUnresolvedRequest] = useState(false);
   const [recoveryNotice, setRecoveryNotice] = useState<string | null>(null);
 
 const [
@@ -253,7 +277,7 @@ const submissionIdentityRef =
   const [restoredOptionsNeedReview, setRestoredOptionsNeedReview] = useState(false);
   const [eventListRestoreNotice, setEventListRestoreNotice] = useState<string | null>(null);
   const [restoredContractChanged, setRestoredContractChanged] = useState(false);
-  const [serviceTier, setServiceTier] = useState<CateringPackageServiceTier | null>(null);
+  const [serviceTier, setServiceTier] = useState<CateringPackageServiceTier | null>(initialServiceTier ?? null);
   const [packageThemeId, setPackageThemeId] = useState<string | null>(null);
   const [themeInspiration, setThemeInspiration] = useState<BookingThemeInspiration>(
     emptyBookingThemeInspiration(),
@@ -275,7 +299,7 @@ const submissionIdentityRef =
 
   const savedDraft = useCustomizationDraft({
     owner: draftOwner, providerId: provider.id, packageId: packageRecord.id,
-    context: eventListEditProviderId ? `event-list:${eventListEditProviderId}` : JSON.stringify(initialEventContext),
+    context: eventListEditProviderId ? `event-list:${eventListEditProviderId}` : initialPlanningContext ? planningQuery : JSON.stringify(initialEventContext),
     explicitSource: eventListEditProviderId ? async () => {
       const {auth} = await import("@/lib/firebase/client");
       await auth.authStateReady();
@@ -637,7 +661,7 @@ const submissionIdentityRef =
     setOfferSelectionError(null);
   }
 
-  async function saveConfigurationToEventList() {
+  async function saveConfigurationToEventList({updateExisting = false} = {}) {
     if (!canSaveEventList || eventListRestoreBlocked || restoredOptionsNeedReview) return;
     if (eventListSaveBusy.current || isSubmitting || step !== 3 ||
         (hasSavedConfiguration && eventListFeedback?.success && eventListFeedback.signature === eventListSaveSignature)) return;
@@ -666,7 +690,7 @@ const submissionIdentityRef =
         setEventListRestoreNotice("This saved configuration was deleted or cleared. Return to Event List or browse packages to start again.");
         return;
       }
-      if (!eventListEditProviderId && existing?.type !== "custom_menu" && existing?.configuration) {
+      if (!updateExisting && !eventListEditProviderId && existing?.type !== "custom_menu" && existing?.configuration) {
         feedback("Already in Event List. Open Event List to edit the saved configuration.", true);
         return;
       }
@@ -706,6 +730,7 @@ const submissionIdentityRef =
         imageUrl: packageRecord.imageUrl, packageHref, configuration});
       feedback(saved ? "Saved to Event List. Configured — revalidation required. Nothing is reserved."
         : "Could not verify your Event List in browser storage. Check storage access and retry.", saved);
+      return saved;
     } catch {
       feedback("Could not verify your Event List in browser storage. Check storage access and retry.");
     } finally {
@@ -1016,9 +1041,11 @@ async function checkPreviousRequest() {
       draftOwner.startsWith("customer:") ? draftOwner.slice(9) : undefined,
       savedDraft.previousSubmissionId(),
     );
+    setUnresolvedRequest(result.outcome === "unresolved");
     if (result.outcome === "confirmed_created") {
       setSubmissionResult(result.booking);
       savedDraft.clear();
+      if (bestFitReturnHref && draftOwner.startsWith("customer:")) clearBestFitSession(draftOwner.slice(9));
       navigateToSubmittedBooking(result.booking);
     } else if (result.outcome === "confirmed_rejected") {
       setAcknowledgedPolicyKeys({});
@@ -1178,6 +1205,7 @@ async function handleSubmitBooking() {
 
     setSubmissionResult(result);
     savedDraft.clear();
+      if (bestFitReturnHref && draftOwner.startsWith("customer:")) clearBestFitSession(draftOwner.slice(9));
 
     navigateToSubmittedBooking(result);
   } catch (error) {
@@ -1366,7 +1394,27 @@ async function handleSubmitBooking() {
   setLeaveDialogOpen(true);
 }
 
+function returnToBestFit(href: string) {
+  setPendingLeaveHref(href);
+  setBestFitLeaveError(null);
+  setLeaveDialogOpen(true);
+}
+
+async function saveAndReturnToBestFit(href: string) {
+  setBestFitLeaveError(null);
+  const alreadySaved = hasSavedConfiguration && eventListFeedback?.success &&
+    eventListFeedback.signature === eventListSaveSignature;
+  if (!alreadySaved && !await saveConfigurationToEventList({updateExisting: true})) {
+    setBestFitLeaveError("Your package could not be saved. Review your selections and try again.");
+    return;
+  }
+  feastaToast.success("Package saved to your Event List");
+  cancelLeave();
+  router.push(href);
+}
+
 function cancelLeave() {
+  if (eventListSaveBusy.current) return;
   setLeaveDialogOpen(false);
   setPendingLeaveHref(null);
 }
@@ -1405,6 +1453,7 @@ function discardAndLeave() {
   }
 
   if (!savedDraft.discard()) {
+    if (href === bestFitReturnHref) setBestFitLeaveError("Could not discard this draft. Try again.");
     return;
   }
 
@@ -1416,15 +1465,13 @@ function discardAndLeave() {
 
   return (
     <div className="mx-auto grid w-full max-w-[1240px] min-w-0 gap-4 [overflow-wrap:anywhere] sm:gap-5">
-      {!planningOnly ? <div>
-        <Button type="button" disabled={isSubmitting || !savedDraft.isReady} onClick={checkPreviousRequest}>Check Previous Request</Button>
-        {recoveryNotice ? <p role="status">{recoveryNotice}</p> : null}
-      </div> : null}
       <header className="grid min-w-0 gap-2">
       <button
         type="button"
         onClick={() =>
-          requestLeave(packageHref)
+          bestFitReturnHref
+            ? step === 3 ? returnToBestFit(bestFitReturnHref) : requestLeave(bestFitReturnHref)
+            : requestLeave(packageHref + planningSuffix)
         }
         className={[
           "group inline-flex min-h-11 w-fit items-center gap-2",
@@ -1440,7 +1487,7 @@ function discardAndLeave() {
           className="size-4 transition-transform group-hover:-translate-x-0.5 motion-reduce:transform-none"
         />
 
-        Back to package
+        {bestFitReturnHref ? "Back to Best Fit" : "Back to package details"}
       </button>
         <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="min-w-0">
@@ -1451,19 +1498,11 @@ function discardAndLeave() {
               Add your event details, personalize your package, and review your request.
             </p>
           </div>
-          <p role="status" aria-live="polite" aria-atomic="true"
-            className={[
-              "flex w-fit max-w-full shrink-0 items-start gap-2 rounded-xl px-3 py-2 text-xs leading-5 sm:max-w-72",
-              /unable|could not/i.test(savedDraft.status)
-                ? "bg-warning-subtle text-warning"
-                : "bg-feasta-canvas text-feasta-text-secondary",
-            ].join(" ")}>
-            <span aria-hidden="true" className="mt-1.5 size-1.5 shrink-0 rounded-full bg-current" />
-            {savedDraft.status === "Draft saved" && savedDraft.isDirty
-              ? "Saving draft?"
-              : savedDraft.status}
-          </p>
+
         </div>
+        {step === 1 && initialPlanningContext && !eventListEditProviderId && !hasSavedConfiguration && <p className="text-sm text-muted-foreground">
+          Filled from your event plan. You can update these details before continuing.
+        </p>}
         {savedDraft.isReady && savedDraft.isFresh && canSaveEventList && !eventListEditProviderId && !initialEventContext && !hasSavedConfiguration && !hasMeaningfulChanges && !sharedDetailsDismissed && sharedEventCandidates(eventListItems, provider.id).length > 0 ? <section aria-label="Reuse event details" className="rounded-xl border p-4 space-y-2">
           <p>{sharedEventCandidates(eventListItems, provider.id).length > 1 ? "Saved event details conflict. Choose the event plan to reuse, or enter new details." : "Reuse your saved event details for this provider?"}</p>
           <p className="text-sm">All details stay editable. Check availability for this provider. Unsupported values need your input.</p>
@@ -1492,11 +1531,7 @@ function discardAndLeave() {
           <Button variant="secondary" onClick={() => {sharedDetailsOperation.current += 1; setSharedDetailsDismissed(true);}}>Enter new details</Button>
         </section> : null}
         {sharedDetailsNotice ? <p role="status">{sharedDetailsNotice}</p> : null}
-        {savedDraft.choices.length ? <div className="flex flex-wrap gap-2" aria-label="Saved event plans">
-          {savedDraft.choices.map((choice) => <Button key={choice.key} variant="secondary" onClick={() => savedDraft.resume(choice)}>
-            Continue draft{choice.value.event.eventDate ? ` for ${formatPhilippineDate(choice.value.event.eventDate)}` : " without a date"}
-          </Button>)}
-        </div> : null}
+
         {planningOnly ? <p className="text-xs leading-5 text-muted-foreground">Plan your event here. Sign in to check availability, review refund policies, and submit a booking. Nothing is reserved yet.</p> : null}
       </header>
 
@@ -1564,6 +1599,36 @@ function discardAndLeave() {
           })}
         </ol>
       </nav>
+
+      <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
+          <p role="status" aria-live="polite" aria-atomic="true"
+            className={[
+              "flex w-fit max-w-full shrink-0 items-start gap-2 rounded-xl px-3 py-2 text-xs leading-5 sm:max-w-72",
+              /unable|could not/i.test(savedDraft.status)
+                ? "bg-warning-subtle text-warning"
+                : "bg-feasta-canvas text-feasta-text-secondary",
+            ].join(" ")}>
+            <span aria-hidden="true" className="mt-1.5 size-1.5 shrink-0 rounded-full bg-current" />
+            {savedDraft.status === "Draft saved" && savedDraft.isDirty
+              ? "Saving draft?"
+              : savedDraft.status}
+          </p>
+        {!planningOnly && !submissionResult && savedDraft.isReady &&
+          (unresolvedRequest || (draftOwner.startsWith("customer:") &&
+            hasPreviousBookingRequest(draftOwner.slice(9), savedDraft.previousSubmissionId()))) &&
+          <div className="grid w-full gap-1 sm:w-auto sm:justify-items-end">
+          <Button type="button" variant="secondary" size="compact"
+            className={`rounded-full ${unresolvedRequest ? "border-warning/30 bg-warning-subtle text-warning" : ""}`}
+            disabled={isSubmitting || !savedDraft.isReady} onClick={checkPreviousRequest}>
+            <History aria-hidden="true" className="size-4" />
+            Check Previous Request
+          </Button>
+          {unresolvedRequest && <p className="text-xs text-warning">
+            Didn’t get a confirmation? Check your previous request before trying again.
+          </p>}
+        </div>}
+        {recoveryNotice && <p role="status" className="basis-full text-sm">{recoveryNotice}</p>}
+      </div>
 
       {/* ============================================================
           MAIN LAYOUT
@@ -2119,8 +2184,8 @@ function discardAndLeave() {
                       {service.freelanceDetails ? <FreelanceServiceSummary details={service.freelanceDetails} /> : null}<Button onClick={() => toggleEventService(service.id)}>Remove {service.name}</Button></div>)}
                 <Button type="button" variant="secondary" onClick={() => setStep(2)}>Back</Button>
               <p className="my-3 text-muted-foreground">Sign in and complete account verification to review current availability and each provider&apos;s refund policy. Your selections will be restored.</p>
-              <CustomerAuthLink href={`${packageHref}/book${initialEventContext ? `?${new URLSearchParams(Object.entries(initialEventContext).map(([key, value]) => [key, String(value)]))}` : ""}`}
-                returnTo={`${packageHref}/plan${initialEventContext ? `?${new URLSearchParams(Object.entries(initialEventContext).map(([key, value]) => [key, String(value)]))}` : ""}`} className="font-semibold text-primary underline">Sign in to continue</CustomerAuthLink>
+              <CustomerAuthLink href={`${packageHref}/book${planningSuffix}`}
+                returnTo={`${packageHref}/plan${planningSuffix}`} className="font-semibold text-primary underline">Sign in to continue</CustomerAuthLink>
             </div>
           ) : null}
           {step === 3 && !planningOnly ? (
@@ -2479,7 +2544,9 @@ function discardAndLeave() {
               id="leave-customization-title"
               className="text-xl font-extrabold tracking-[-0.03em] text-foreground"
             >
-              {savedDraft.isDirty
+              {pendingLeaveHref === bestFitReturnHref && step === 3
+                ? "Back to Best Fit Recommendations?"
+                : savedDraft.isDirty
                 ? "Save your event plan before leaving?"
                 : "Leave this customization?"}
             </h2>
@@ -2494,7 +2561,19 @@ function discardAndLeave() {
             </p>
 
             <div className="mt-6 grid gap-3">
-              {savedDraft.isDirty ? (
+              {pendingLeaveHref && pendingLeaveHref === bestFitReturnHref && step === 3 ? (
+                <>
+                  <Button type="button" disabled={savingEventList || !canSaveEventList || eventListRestoreBlocked || restoredOptionsNeedReview}
+                    onClick={() => void saveAndReturnToBestFit(pendingLeaveHref)}>
+                    {savingEventList ? "Saving…" : "Save & Go Back"}
+                  </Button>
+                  <Button type="button" variant="secondary" disabled={savingEventList}
+                    onClick={discardAndLeave}>
+                    Discard Changes & Go Back
+                  </Button>
+                  {bestFitLeaveError && <p role="alert" className="text-sm text-destructive">{bestFitLeaveError}</p>}
+                </>
+              ) : savedDraft.isDirty ? (
                 <>
                   <Button
                     type="button"
@@ -2539,8 +2618,9 @@ function discardAndLeave() {
                 variant="ghost"
                 className="min-h-11 rounded-full"
                 onClick={cancelLeave}
+                disabled={savingEventList}
               >
-                Continue editing
+                {pendingLeaveHref === bestFitReturnHref && step === 3 ? "Cancel" : "Continue editing"}
               </Button>
             </div>
           </div>
@@ -3058,60 +3138,23 @@ function BookingReview({
             ESTIMATE
            ========================================================== */}
 
-        <section className="overflow-hidden rounded-[22px] border border-primary/15 bg-secondary">
-          <div className="p-5 sm:p-6">
-            <p className="text-xs font-extrabold uppercase tracking-[0.13em] text-primary-strong">
-              Booking estimate
-            </p>
+        <section aria-labelledby="booking-estimate-title" className="rounded-[22px] border border-feasta-divider bg-white p-5 sm:p-6">
+          <p className="text-xs font-extrabold uppercase tracking-[0.13em] text-feasta-text-secondary">Booking estimate</p>
+          <h3 id="booking-estimate-title" className="mt-2 text-xl font-extrabold tracking-[-0.03em] text-primary-strong">
+            Review the displayed cost before submission.
+          </h3>
 
-            <h3 className="mt-2 text-xl font-extrabold tracking-[-0.03em] text-foreground">
-              Review the displayed cost
-              before submission.
-            </h3>
-
-            <div className="mt-5 grid gap-3">
-              <EstimateRow
-                label="Estimated service price"
-                value={
-                  displayedServicePrice
-                }
-              />
-
-              <EstimateRow
-                label="Selected FEASTA services"
-                value={
-                  selectedEventServicesSubtotal
-                }
-              />
-
-              <div className="my-1 border-t border-primary/10" />
-
-              <div className="flex items-end justify-between gap-4">
-                <div>
-                  <p className="text-sm font-extrabold text-foreground">
-                    Estimated total
-                  </p>
-
-                  <p className="mt-1 max-w-lg text-xs leading-5 text-feasta-text-secondary">
-                    FEASTA verifies prices, availability, and payment terms when you submit. This action sends a booking request for provider review; it does not confirm the booking or collect payment.
-                  </p>
-                </div>
-
-                <div className="shrink-0 text-right">
-                  {estimatedTotal !==
-                  null ? (
-                    <PriceDisplay
-                      amount={
-                        estimatedTotal
-                      }
-                    />
-                  ) : (
-                    <span className="text-sm font-bold text-feasta-text-secondary">
-                      Not available
-                    </span>
-                  )}
-                </div>
-              </div>
+          <div className="mt-5 grid gap-4">
+            <EstimateRow label="Estimated service price" value={displayedServicePrice}
+              detail={`${packageRecord.name} · ${eventDraft.guestCount} guests`} />
+            <EstimateRow label="Selected FEASTA services" value={selectedEventServicesSubtotal} />
+            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-feasta-divider pt-4">
+              <p className="text-base font-extrabold text-foreground">Estimated total</p>
+              <PriceDisplay amount={estimatedTotal} unknownLabel="Not available" className="[&>span]:text-3xl" />
+            </div>
+            <div className="flex items-start gap-2 rounded-xl bg-secondary p-3 text-sm leading-6 text-feasta-text-secondary">
+              <Info aria-hidden="true" className="mt-1 size-4 shrink-0 text-primary-strong" />
+              <p>FEASTA checks pricing, availability, and payment terms when you submit. Your request goes to the provider for review. No payment is collected now.</p>
             </div>
           </div>
         </section>
@@ -3167,7 +3210,7 @@ function BookingReview({
           ACTIONS
          ============================================================ */}
 
-      <div className="mt-7 flex flex-col-reverse gap-4 border-t border-feasta-divider pt-5 lg:flex-row lg:items-end lg:justify-between">
+      <div className="mt-5 flex flex-col items-start gap-4 lg:flex-row lg:justify-between">
         <Button
           type="button"
           variant="secondary"
@@ -3193,19 +3236,7 @@ function BookingReview({
                 ? "Review and accept every Booking & Payment Agreement to continue."
                 : !everyPolicyAcknowledged
                   ? "Acknowledge every displayed Provider refund policy to continue."
-                  : "Submitting sends your request to the selected Providers. Your booking is not yet confirmed."}
-          </p>
-
-          <p className="text-xs leading-5 text-feasta-text-secondary sm:text-right">
-            Want to add more services? Add this package to your Event List
-            and{" "}
-            <Link
-              href="/customer"
-              className="font-semibold text-primary underline underline-offset-4 hover:text-primary-strong focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
-            >
-              browse more providers
-            </Link>
-            .
+                  : ""}
           </p>
 
           <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center lg:justify-end">
@@ -3217,6 +3248,7 @@ function BookingReview({
               aria-busy={savingEventList}
               className="min-h-12 rounded-full px-5"
             >
+              {!eventListAlreadySaved && !savingEventList && <Plus aria-hidden="true" className="size-4" />}
               {savingEventList ? "Adding..." : eventListAlreadySaved ? "Already in Event List" : "Add to Event List"}
             </Button>
 
@@ -3252,6 +3284,18 @@ function BookingReview({
             ) : null}
           </Button>
           </div>
+
+          <p className="text-xs leading-5 text-feasta-text-secondary sm:text-right">
+            Want to add more services? Add this package to your Event List
+            and{" "}
+            <Link
+              href="/customer"
+              className="font-semibold text-primary underline underline-offset-4 hover:text-primary-strong focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+            >
+              browse more providers
+            </Link>
+            .
+          </p>
 
           {eventListFeedbackMessage ? (
             <p
@@ -3650,15 +3694,18 @@ function ProviderAvailabilityPanel({
 function EstimateRow({
   label,
   value,
+  detail,
 }: {
   label: string;
   value: number | null;
+  detail?: string;
 }) {
   return (
     <div className="flex items-center justify-between gap-4">
-      <span className="text-sm font-semibold text-feasta-text-secondary">
-        {label}
-      </span>
+      <div className="flex min-w-0 flex-wrap items-center gap-2">
+        <span className="text-sm font-semibold text-foreground">{label}</span>
+        {detail && <span className="rounded-full bg-secondary px-2.5 py-1 text-xs text-feasta-text-secondary">{detail}</span>}
+      </div>
 
       {value !== null ? (
         <PriceDisplay

@@ -514,7 +514,7 @@ class _CustomerEventListScreenState extends State<CustomerEventListScreen>
                 child: Text(_customization!.message!),
               ),
           ],
-          TextButton.icon(
+          IconButton(
             onPressed: _busy
                 ? null
                 : () => _run(() {
@@ -522,10 +522,10 @@ class _CustomerEventListScreenState extends State<CustomerEventListScreen>
                     return controller.removePackage(entry.identity);
                   }, expectedSession: session),
             icon: const Icon(
-              Icons.remove_circle_outline,
+              Icons.delete_outline_rounded,
               color: AppColors.mainText,
             ),
-            label: Text('Remove ${entry.packageName}'),
+            tooltip: 'Remove ${entry.packageName} from Event List',
           ),
         ],
       ),

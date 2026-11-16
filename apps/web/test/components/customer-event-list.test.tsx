@@ -262,15 +262,15 @@ describe("customer event list planning UI", () => {
     expect(trigger).toHaveClass("text-primary-strong");
     expect(trigger.querySelector("span")).toHaveTextContent("1");
     fireEvent.click(trigger);
-    expect(screen.getByRole("dialog", {name: "Event List"})).toBeInTheDocument();
+    expect(screen.getByRole("dialog", {name: "Event List (1 item)"})).toBeInTheDocument();
     rerender(<CustomerEventListMenu authenticated={false} />);
     expect(screen.getByRole("button", {name: /Event List unavailable/})).toBeDisabled();
     fireEvent(window, new Event(CUSTOMER_EVENT_LIST_OPEN_EVENT));
     expect(document.getElementById("customer-event-list-panel")).toBeNull();
     rerender(<CustomerEventListMenu authenticated />);
-    expect(screen.queryByRole("dialog", {name: "Event List"})).not.toBeInTheDocument();
+    expect(screen.queryByRole("dialog", {name: "Event List (1 item)"})).not.toBeInTheDocument();
     fireEvent(window, new Event(CUSTOMER_EVENT_LIST_OPEN_EVENT));
-    expect(screen.getByRole("dialog", {name: "Event List"})).toBeInTheDocument();
+    expect(screen.getByRole("dialog", {name: "Event List (1 item)"})).toBeInTheDocument();
   });
 
   it("keeps package details free of Add to List for guests", async () => {
@@ -304,7 +304,7 @@ describe("customer event list planning UI", () => {
   it("disables the guest checklist and protects the review route", () => {
     render(<CustomerMarketplaceHeader authReturnTo="/customer/packages" />);
     expect(screen.getByRole("button", {name: "Event List unavailable. Sign in to use Event List."})).toBeDisabled();
-    expect(screen.queryByRole("dialog", {name: "Event List"})).not.toBeInTheDocument();
+    expect(screen.queryByRole("dialog", {name: "Event List (1 item)"})).not.toBeInTheDocument();
 
     const response = proxy(new NextRequest("https://feasta.test/customer/event-list/review"));
     expect(response.status).toBe(307);

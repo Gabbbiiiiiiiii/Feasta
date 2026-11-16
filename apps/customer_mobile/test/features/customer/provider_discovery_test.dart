@@ -727,6 +727,7 @@ void main() {
       addTearDown(tester.view.resetViewInsets);
       for (final text in ['L', 'Le', 'Ler', 'Lerie']) {
         await tester.enterText(field, text);
+        await tester.pump(const Duration(milliseconds: 400));
         await tester.pumpAndSettle();
         expect(find.text("Lerie's Photo").hitTestable(), findsOneWidget);
         expect(tester.takeException(), isNull);
@@ -905,9 +906,11 @@ void main() {
     expect(find.text('Ana Catering'), findsOneWidget);
     final field = find.byType(TextField).first;
     await tester.enterText(field, 'Missing caterer');
+    await tester.pump(const Duration(milliseconds: 400));
     await tester.pumpAndSettle();
     expect(find.text('No results found'), findsOneWidget);
     await tester.enterText(field, 'Catering');
+    await tester.pump(const Duration(milliseconds: 400));
     await tester.pumpAndSettle();
     expect(find.text('Ana Catering'), findsOneWidget);
     expect(repository.searchCalls, 1);
