@@ -4,6 +4,19 @@ const domain = require("../lib/provider-finance/provider-disbursement-domain.js"
 const settlementDomain = require("../lib/provider-finance/provider-settlement-domain.js");
 const {providerDisbursementTransport} = require("../lib/provider-finance/provider-disbursement-transport.js");
 const {fixture,reserved,evidence} = require("./provider-disbursement-fixtures.cjs");
+
+test("normalized gateway reference preserves the canonical attempt and accounting guards", () => {
+ const r=reserved(), e=evidence(r,"succeeded");
+ e.reference_number=e.reference_number.replace(/^pd_/,"pd-");
+ const before=JSON.stringify(r);
+ assert.equal(domain.aggregateOutcomePlan({...r,evidence:e}).disbursementUpdate.status,"paid");
+ assert.equal(JSON.stringify(r),before);
+ e.amount=1;
+ assert.throws(()=>domain.aggregateOutcomePlan({...r,evidence:e}));
+});
+for(const value of [null,"pd-other","pd_"+"A".repeat(40),"pd-"+"a".repeat(39),"pd--"+"a".repeat(40)]) {
+ test("reject malformed normalized reference "+value,()=>assert.equal(domain.canonicalProviderTransferReference(value),null));
+}
 test("deposit and balance reserve one aggregate external attempt",()=>{
  const f=fixture(), p=domain.aggregateReservationPlan(f);assert.equal(p.externalAttempt.amountInCentavos,900000);
  assert.equal(p.reservations.length,2);assert.equal(p.externalAttempt.constituentPayoutAttemptIds.length,2);

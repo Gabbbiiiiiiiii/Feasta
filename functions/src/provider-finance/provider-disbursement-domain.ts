@@ -85,12 +85,20 @@ export type TransferEvidence = {
   provider_reference_number?: string;
   batch_transfer_id?: string;
 };
+/** PayMongo was observed changing only the pd prefix separator. The digest is never rewritten.
+ * Canonical attempt/document IDs and idempotency keys keep their original underscore. */
+export function canonicalProviderTransferReference(value: unknown): string | null {
+  if (typeof value !== "string" || !/^pd[_-][a-f0-9]{40}$/u.test(value)) return null;
+  return "pd_" + value.slice(3);
+}
 export function assertTransferEvidence(attempt: Data, evidence: TransferEvidence) {
   const destination = attempt.destinationSnapshot as Data;
   const expected = destination?.destinationAccount as Data;
   if (!evidence || !/^tr_[A-Za-z0-9_-]+$/u.test(evidence.id) ||
       !["pending", "succeeded", "failed"].includes(evidence.status) ||
-      evidence.reference_number !== attempt.referenceNumber || evidence.amount !== attempt.amountInCentavos ||
+      canonicalProviderTransferReference(evidence.reference_number) === null ||
+      canonicalProviderTransferReference(evidence.reference_number) !== canonicalProviderTransferReference(attempt.referenceNumber) ||
+      evidence.amount !== attempt.amountInCentavos ||
       evidence.currency !== "PHP" || evidence.livemode !== false || attempt.livemode !== false ||
       (attempt.gatewayResourceId != null && evidence.id !== attempt.gatewayResourceId) ||
       !expected || !evidence.destination_account ||

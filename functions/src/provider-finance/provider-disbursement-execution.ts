@@ -4,7 +4,7 @@ import {db} from "../shared/firestore.js";
 import {serverTimestamp} from "../shared/timestamps.js";
 import {readTrustedProviderRequestPaymentSetInTransaction} from "../payments/provider-request-payment-reader.js";
 import {
-  aggregateReservationPlan, aggregateOutcomePlan, assertTransferEvidence, type TransferEvidence,
+  aggregateReservationPlan, aggregateOutcomePlan, assertTransferEvidence, canonicalProviderTransferReference, type TransferEvidence,
 } from "./provider-disbursement-domain.js";
 import {providerSettlementCapability} from "./provider-settlement-capability.js";
 import {providerDisbursementTransport, type ProviderDisbursementTransport} from "./provider-disbursement-transport.js";
@@ -203,7 +203,9 @@ export async function applyProviderDisbursementEvidence(attemptId: string, evide
       // Duplicate observations must match the persisted terminal evidence.
       const observed = evidence;
       if (!observed || !attempt.gatewayEvidence || observed.status !== attempt.status ||
-          ["id", "status", "reference_number", "amount", "currency", "livemode"].some(
+          canonicalProviderTransferReference(observed.reference_number) !==
+            canonicalProviderTransferReference(attempt.gatewayEvidence.reference_number) ||
+          ["id", "status", "amount", "currency", "livemode"].some(
             key => (observed as unknown as Data)[key] !== attempt.gatewayEvidence[key]) ||
           ["number", "name", "bic"].some(key =>
             (observed.destination_account as unknown as Data)[key] !==

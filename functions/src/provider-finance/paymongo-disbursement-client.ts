@@ -1,6 +1,6 @@
 import {randomUUID} from "node:crypto";
 import {
-  assertTransferEvidence, externalAttemptIdentity, type TransferEvidence,
+  assertTransferEvidence, canonicalProviderTransferReference, externalAttemptIdentity, type TransferEvidence,
 } from "./provider-disbursement-domain.js";
 import {DisbursementSubmissionError} from "./provider-disbursement-errors.js";
 import {parsePayMongoWalletResource} from "./paymongo-wallet-client.js";
@@ -76,12 +76,12 @@ export function normalizePayMongoTransfer(value: unknown): TransferEvidence {
       (resource.livemode !== undefined && resource.livemode !== false) ||
       !Number.isSafeInteger(a.amount) || Number(a.amount) <= 0 || a.currency !== "PHP" ||
       !["pending", "succeeded", "failed"].includes(String(a.status)) ||
-      typeof a.reference_number !== "string" || !/^pd_[a-f0-9]{40}$/u.test(a.reference_number) ||
+      canonicalProviderTransferReference(a.reference_number) === null ||
       !nonempty(destination.number) || !nonempty(destination.name) || !nonempty(destination.bic)) {
     throw invalid();
   }
   const evidence: TransferEvidence = {
-    id, reference_number: a.reference_number, amount: Number(a.amount), currency: "PHP",
+    id, reference_number: String(a.reference_number), amount: Number(a.amount), currency: "PHP",
     livemode: false, status: a.status as TransferEvidence["status"],
     destination_account: {number: destination.number, name: destination.name, bic: destination.bic},
   };
@@ -270,7 +270,8 @@ export function createPayMongoDisbursementClient(options: TestClientOptions) {
           if (typeof row.id !== "string" || !TRANSFER_ID.test(row.id) || seen.has(row.id) ||
               typeof a.reference_number !== "string") throw invalid();
           seen.add(row.id);
-          if (a.reference_number === attempt.referenceNumber) {
+          if (canonicalProviderTransferReference(a.reference_number) !== null &&
+              canonicalProviderTransferReference(a.reference_number) === canonicalProviderTransferReference(attempt.referenceNumber)) {
             if (match) throw new Error("PayMongo test reference lookup is conflicting.");
             match = normalizePayMongoTransfer(row);
             assertTransferEvidence(attempt, match);

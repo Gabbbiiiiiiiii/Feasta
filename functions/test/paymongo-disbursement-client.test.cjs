@@ -198,6 +198,21 @@ for (const shape of ["array", "transfers"]) test("reference lookup supports " + 
 test("zero reference matches returns null", async () => {
   const h = harness({steps: [json({data: []})]}); assert.equal(await h.client.retrieve(h.a), null);
 });
+test("dispatch accepts gateway pd-hyphen conversion without changing idempotency identity", async () => {
+  const a=attempt(), e=evidence(a,"succeeded"); e.reference_number=e.reference_number.replace(/^pd_/,"pd-");
+  const h=harness({a,steps:[json({data:{id:"batch_tr_fixture",transfers:[e]}},201)]});
+  assert.equal((await h.client.dispatch(a)).reference_number,e.reference_number);
+  const post=h.requests.find(r=>r.method==="POST");
+  assert.equal(post.headers["Idempotency-Key"],a.idempotencyKey);
+  assert.equal(JSON.parse(post.body).transfers[0].reference_number,a.referenceNumber);
+});
+test("GET recovery finds normalized reference but rejects collisions across both forms", async () => {
+  const a=attempt(), e=evidence(a,"succeeded");e.reference_number=e.reference_number.replace(/^pd_/,"pd-");
+  const h=harness({a,steps:[json({data:[e],has_more:false})]});
+  assert.deepEqual(await h.client.retrieve(a),e);
+  const duplicate=harness({a,steps:[json({data:[e,{...evidence(a),id:"tr_other"}],has_more:false})]});
+  await assert.rejects(duplicate.client.retrieve(a),/conflicting/);
+});
 test("conflicting reference matches rejected", async () => {
   const a = attempt(), h = harness({a, steps: [json({data: [evidence(a), {...evidence(a), id: "tr_other"}]})]});
   await assert.rejects(h.client.retrieve(a), /conflicting/);
@@ -241,6 +256,12 @@ test("wallet webhook falls back to trusted tr resource ID", async () => {
   delete payload.data.attributes.data.attributes.transfer_id;
   payload.data.attributes.data.id = e.id;
   assert.equal((await process(payload)).applied.e.id, e.id);
+});
+test("normalized webhook reference resolves the original underscore document ID and preserves gateway evidence", async () => {
+  const a=attempt(), e=evidence(a,"succeeded");e.reference_number=e.reference_number.replace(/^pd_/,"pd-");
+  const {applied}=await process(event(e));
+  assert.equal(applied.id,a.externalAttemptId);
+  assert.equal(applied.e.reference_number,e.reference_number);
 });
 for (const type of ["transfer.inward.successful", "transfer.inward.failed"]) test(type + " ignored", async () => {
   const {applied, result} = await process(event(evidence(), type));

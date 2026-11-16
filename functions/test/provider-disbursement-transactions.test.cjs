@@ -48,6 +48,13 @@ test("invalid second settlement aborts transaction without any writes",async()=>
  await assert.rejects(execution.reserveProviderDisbursement("disbursement",h.transport));assert.equal(h.commits,0);
  assert.equal(h.records.get(`providerSettlements/${h.d.sourceSettlementIds[0]}`).status,"ready");
 });
+test("normalized terminal replay never pays earnings twice",async()=>{
+ const h=harness(),a=await execution.reserveProviderDisbursement("disbursement",h.transport),e=evidence({attempt:a},"succeeded");
+ await execution.applyProviderDisbursementEvidence(a.externalAttemptId,e);
+ const before=JSON.stringify([...h.records]);
+ const result=await execution.applyProviderDisbursementEvidence(a.externalAttemptId,{...e,reference_number:e.reference_number.replace(/^pd_/,"pd-")});
+ assert.equal(result.duplicate,true);assert.equal(result.applied,false);assert.equal(JSON.stringify([...h.records]),before);
+});
 test("duplicate reservation creates no second external attempt",async()=>{
  const h=harness();await execution.reserveProviderDisbursement("disbursement",h.transport);
  await assert.rejects(execution.reserveProviderDisbursement("disbursement",h.transport));assert.equal(h.commits,1);
