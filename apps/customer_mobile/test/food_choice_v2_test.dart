@@ -2,6 +2,14 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:feasta/shared/models/food_choice_v2.dart';
 
 void main() {
+  test('accepts more than ten dishes and fifty total options', () {
+    final groups = FoodChoiceGroupV2.parse(List.generate(2, (g) => {
+      'id': 'group_$g', 'title': 'Group $g', 'selectionCount': 1,
+      'options': List.generate(61, (i) => {'id': 'dish_$i', 'name': 'Dish $i'}),
+    }));
+    expect(groups.length, 2);
+    expect(groups.every((group) => group.options.length == 61), isTrue);
+  });
   final rows = [
     {
       'id': 'main',

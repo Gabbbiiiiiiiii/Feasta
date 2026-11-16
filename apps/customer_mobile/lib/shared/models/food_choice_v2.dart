@@ -16,7 +16,6 @@ class FoodChoiceGroupV2 {
       throw const FormatException('Invalid food groups');
     }
     final groups = <FoodChoiceGroupV2>[];
-    var total = 0;
     final id = RegExp(r'^[A-Za-z0-9_-]{1,64}$');
     for (final row in value) {
       if (row is! Map ||
@@ -51,10 +50,7 @@ class FoodChoiceGroupV2 {
         }
         options[option['id'] as String] = option['name'] as String;
       }
-      total += options.length;
       if (options.length < 2 ||
-          options.length > 10 ||
-          total > 50 ||
           (row['selectionCount'] as int) < 1 ||
           (row['selectionCount'] as int) > options.length ||
           groups.any(

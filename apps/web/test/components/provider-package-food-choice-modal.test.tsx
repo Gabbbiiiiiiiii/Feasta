@@ -33,7 +33,7 @@ it("saves four distinct dishes with exactly two selections under the V2 contract
 it("clears obsolete errors on correction and retains V2 name constraints",()=>{
  const change=vi.fn();render(<Editor change={change}/>);click("Add choice group");complete();
  fill("Food option 2","Fish\u200B");click("Save choice group");
- expect(screen.getByRole("alert")).toHaveTextContent("Use 2 to 10 food options per group");
+ expect(screen.getByRole("alert")).toHaveTextContent("Use at least 2 food options per group");
  expect(change).not.toHaveBeenCalled();
  fill("Food option 2","Fish");expect(screen.queryByRole("alert")).not.toBeInTheDocument();
  expect(screen.getByLabelText("Group Name")).toHaveValue("Main dish");
@@ -52,9 +52,10 @@ it("prefills, edits stable IDs, and removes compact cards",()=>{
 it.each([["Group Name","","Enter a group name"],["Maximum Selections","2","must match"],["Food option 2"," chicken ","unique"]])("validates %s",(label,value,message)=>{
  const change=vi.fn();render(<Editor change={change}/>);click("Add choice group");complete();fill(label,value);click("Save choice group");expect(screen.getByRole("alert")).toHaveTextContent(message);expect(change).not.toHaveBeenCalled();
 });
-it("rejects duplicate group names and enforces option limits",()=>{
+it("rejects duplicate group names and permits more than ten options",()=>{
  render(<Editor initial={[group]}/>);click("Add choice group");complete();click("Save choice group");expect(screen.getByRole("alert")).toHaveTextContent("already exists");
- for(let i=0;i<8;i++) click("Add dish option");expect(screen.getByRole("button",{name:"Add dish option"})).toBeDisabled();
+ for(let i=0;i<9;i++) click("Add dish option");expect(screen.getByRole("button",{name:"Add dish option"})).toBeEnabled();
+ expect(screen.getByLabelText("Food option 11")).toBeInTheDocument();
 });
 it.each(["Cancel","Close dialog","Escape"])("confirms dirty cancellation through %s and restores focus",async(action)=>{
  const confirm=vi.fn(()=>false);vi.stubGlobal("confirm",confirm);const change=vi.fn();const user=userEvent.setup();render(<Editor change={change}/>);
@@ -68,9 +69,11 @@ it("cancels cleanly without prompting and traps keyboard focus",async()=>{
  const confirm=vi.fn();vi.stubGlobal("confirm",confirm);const user=userEvent.setup();render(<Editor/>);await user.click(screen.getByRole("button",{name:"Add choice group"}));
  await user.tab({shift:true});expect(screen.getByRole("button",{name:"Close dialog"})).toHaveFocus();await user.tab();expect(screen.getByLabelText("Group Name")).toHaveFocus();click("Cancel");expect(confirm).not.toHaveBeenCalled();
 });
-it("enforces total and group V2 limits",()=>{
+it("permits more than fifty total options while retaining the ten-group limit",()=>{
  const groups=Array.from({length:5},(_,i)=>({...group,id:`g${i}`,title:`Group ${i}`,options:Array.from({length:10},(_,j)=>({id:`o${j}`,name:`Option ${j}`}))}));
- render(<Editor initial={groups}/>);expect(screen.getByRole("button",{name:"Add choice group"})).toBeDisabled();click("Edit choice group 1");expect(screen.getByRole("button",{name:"Add dish option"})).toBeDisabled();
+ const change=vi.fn();render(<Editor initial={groups} change={change}/>);expect(screen.getByRole("button",{name:"Add choice group"})).toBeEnabled();click("Edit choice group 1");expect(screen.getByRole("button",{name:"Add dish option"})).toBeEnabled();
+ click("Add dish option");fill("Food option 11","Extra dish");click("Save choice group");expect(change.mock.calls[0][0][0].options).toHaveLength(11);
+ expect(parseFoodChoiceGroupsV2(change.mock.calls[0][0])).toHaveLength(5);
 });
 
 it.each(["Minimum Selections", "Maximum Selections"])("rejects invalid changes and pastes in %s without changing accepted values", (label)=>{

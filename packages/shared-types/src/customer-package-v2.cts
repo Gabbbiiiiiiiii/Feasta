@@ -34,7 +34,6 @@ export function parseFoodChoiceGroupsV2(value: unknown, allowIncomplete = false)
   if (!Array.isArray(value) || value.length > 10) return invalid();
   const seenGroupIds = new Set<string>();
   const seenTitles = new Set<string>();
-  let totalOptions = 0;
   return value.map((group): FoodChoiceGroupV2 => {
     const row = record(group, ["id", "title", "selectionCount", "options"]);
     if (!stableId(row.id) || seenGroupIds.has(row.id)) return invalid();
@@ -45,10 +44,8 @@ export function parseFoodChoiceGroupsV2(value: unknown, allowIncomplete = false)
       if (seenTitles.has(key)) return invalid();
       seenTitles.add(key);
     }
-    if (!Array.isArray(row.options) || row.options.length > 10 ||
+    if (!Array.isArray(row.options) ||
         (!allowIncomplete && row.options.length < 2)) return invalid();
-    totalOptions += row.options.length;
-    if (totalOptions > 50) return invalid();
     if (typeof row.selectionCount !== "number" || !Number.isSafeInteger(row.selectionCount) || row.selectionCount < 1 ||
         row.selectionCount > 10 ||
         (!allowIncomplete && row.selectionCount > row.options.length)) return invalid();

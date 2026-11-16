@@ -70,3 +70,9 @@ for (const [label, newline] of [['LF', '\n'], ['CRLF', '\r\n']]) {
   assert.equal(eligible(saved,{...context(),approvedCategoryCodes:[]}),false);
  });
 }
+
+test('food groups accept more than ten dishes and fifty total options',async()=>{
+ const {parseFoodChoiceGroupsV2}=await import('../dist/customer-package-v2.cjs');
+ const groups=Array.from({length:2},(_,g)=>({id:'group_'+g,title:'Group '+g,selectionCount:1,options:Array.from({length:61},(_,i)=>({id:'dish_'+i,name:'Dish '+i}))}));
+ assert.deepEqual(parseFoodChoiceGroupsV2(groups),groups);
+});

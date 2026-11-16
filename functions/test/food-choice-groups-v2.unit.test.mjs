@@ -32,3 +32,10 @@ test('multiple groups can require different counts',()=>{
 test('rejects fractional, nonfinite, zero and string counts',()=>{
  for(const count of [0,-1,1.5,NaN,Infinity,'1',null]) {const g=group();g[0].selectionCount=count;invalid(g);}
 });
+
+test('draft accepts three selections from twelve available dishes',()=>{
+ const groups=[{id:'sides',title:'Side Dish',selectionCount:3,options:Array.from({length:12},(_,i)=>({id:'dish_'+i,name:'Dish '+i}))}];
+ assert.deepEqual(parse(groups),groups);
+ const combined=[groups[0],{...groups[0],id:'main',title:'Main Dish',options:Array.from({length:61},(_,i)=>({id:'main_'+i,name:'Main '+i}))}];
+ assert.deepEqual(parse(combined),combined);
+});

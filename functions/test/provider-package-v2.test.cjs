@@ -200,3 +200,9 @@ test("prototype and accessor payloads are not plain JSON request objects", () =>
   fails(() => occasion.parseCapabilityChange(value), "INVALID_CAPABILITY_CHANGE");
   fails(() => occasion.parseCapabilityChange(JSON.parse('{"__proto__":{},"isAdmin":true}')), "INVALID_CAPABILITY_CHANGE");
 });
+
+test('draft offer accepts twelve dishes with exactly three customer selections',()=>{
+ const foodChoiceGroups=[{id:'sides',title:'Side Dish',selectionCount:3,options:Array.from({length:12},(_,i)=>({id:'dish_'+i,name:'Dish '+i}))}];
+ const parsed=offer.parseOfferV2(pricing({pricingModel:'per_bundle',foodChoiceGroups}));
+ assert.deepEqual(parsed.foodChoiceGroups,foodChoiceGroups);
+});

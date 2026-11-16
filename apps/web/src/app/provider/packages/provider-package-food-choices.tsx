@@ -25,7 +25,6 @@ export function ProviderPackageFoodChoices({value, onChange, disabled = false}: 
   const addButton = useRef<HTMLButtonElement>(null);
   const errorRef = useRef<HTMLParagraphElement>(null);
   const otherGroups = value.filter((group) => group.id !== draft?.group.id);
-  const total = otherGroups.reduce((sum, group) => sum + group.options.length, 0);
 
   function open(button: HTMLButtonElement, group?: FoodChoiceGroupV2) {
     const next = {group: group ? {...group, options: group.options.map((option) => ({...option}))} :
@@ -47,9 +46,9 @@ export function ProviderPackageFoodChoices({value, onChange, disabled = false}: 
     setError(null);
   }
   const selectionError = draft?.minimumError || draft?.maximumError || (draft && (!draft.minimum || !draft.maximum ||
-    !isPackageIntegerEdit(draft.minimum, draft.group.options.length) ||
-    !isPackageIntegerEdit(draft.maximum, draft.group.options.length))
-    ? "Selection limits must be whole numbers from 1 to the number of food options."
+    !isPackageIntegerEdit(draft.minimum, Math.min(10, draft.group.options.length)) ||
+    !isPackageIntegerEdit(draft.maximum, Math.min(10, draft.group.options.length)))
+    ? "Selection limits must be whole numbers from 1 to 10, within the available food options."
     : draft && Number(draft.minimum) > Number(draft.maximum)
       ? "Minimum selections must be no greater than maximum selections."
       : draft && draft.minimum !== draft.maximum
@@ -60,14 +59,14 @@ export function ProviderPackageFoodChoices({value, onChange, disabled = false}: 
     const min = Number(minimum), max = Number(maximum);
     let message: string | null = null;
     if (!group.title.trim() || group.options.some((option) => !option.name.trim())) message = "Enter a group name and a name for every food option.";
-    else if (!Number.isSafeInteger(min) || !Number.isSafeInteger(max) || min < 1 || max < min || max > group.options.length) message = "Selection limits must be whole numbers from 1 to the number of food options, with minimum no greater than maximum.";
+    else if (!Number.isSafeInteger(min) || !Number.isSafeInteger(max) || min < 1 || max < min || max > Math.min(10, group.options.length)) message = "Selection limits must be whole numbers from 1 to 10, within the available food options, with minimum no greater than maximum.";
     else if (min !== max) message = "V2 requires an exact selection count. Minimum and maximum selections must match.";
     else if (otherGroups.some((row) => key(row.title) === key(group.title))) message = "A choice group with this name already exists.";
     else if (new Set(group.options.map((option) => key(option.name))).size !== group.options.length) message = "Food options must be unique within this group.";
     const saved = {...group, selectionCount: min};
     const next = value.some((row) => row.id === group.id) ? value.map((row) => row.id === group.id ? saved : row) : [...value, saved];
     if (!message) {
-      try {parseFoodChoiceGroupsV2(next);} catch {message = "Use 2 to 10 food options per group, at most 10 groups and 50 options total. Names must meet V2 length and character limits.";}
+      try {parseFoodChoiceGroupsV2(next);} catch {message = "Use at least 2 food options per group and at most 10 groups. Names must meet V2 length and character limits.";}
     }
     if (message) {
       setError(message);
@@ -83,10 +82,10 @@ export function ProviderPackageFoodChoices({value, onChange, disabled = false}: 
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div><h4 className="font-bold">Customer-selectable food groups</h4>
           <p className="text-sm text-muted-foreground">Example: Main dish — offer 3 dishes, customer chooses exactly 1. Separate from dishes already included.</p></div>
-        <Button ref={addButton} type="button" variant="secondary" disabled={disabled || value.length >= 10 || value.reduce((sum, group) => sum + group.options.length, 0) > 48}
+        <Button ref={addButton} type="button" variant="secondary" disabled={disabled || value.length >= 10}
           onClick={(event) => open(event.currentTarget)}>Add choice group</Button>
       </div>
-      <p className="text-xs text-muted-foreground">Private draft only — customer booking cannot use these choices yet. Up to 10 groups, 10 dishes per group, 50 choices total.</p>
+      <p className="text-xs text-muted-foreground">Private draft only — customer booking cannot use these choices yet. Add any dishes you want to offer in each group. Up to 10 groups.</p>
       {value.map((group, index) => <div key={group.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-muted/20 p-3">
         <div className="min-w-0 flex-1"><h5 className="break-words text-sm font-semibold">{group.title || `Choice group ${index + 1}`}</h5>
           <p className="text-sm text-muted-foreground">Choose exactly {group.selectionCount} from {group.options.length} food options</p>
@@ -107,8 +106,8 @@ export function ProviderPackageFoodChoices({value, onChange, disabled = false}: 
               <label className="grid gap-2 text-sm font-medium">Group Name
                 <Input autoFocus required maxLength={80} disabled={disabled} value={draft.group.title} placeholder="e.g., Main dish" onChange={(event) => updateDraft({...draft, group: {...draft.group, title: event.target.value}})} /></label>
               <div className="grid gap-4 sm:grid-cols-2">
-                <label className="grid gap-2 text-sm font-medium">Minimum Selections<ProviderPackageIntegerInput label="Minimum Selections" maximum={draft.group.options.length} disabled={disabled} value={draft.minimum} onChange={(minimum, minimumError) => updateDraft({...draft, minimum, minimumError})} /></label>
-                <label className="grid gap-2 text-sm font-medium">Maximum Selections<ProviderPackageIntegerInput label="Maximum Selections" maximum={draft.group.options.length} disabled={disabled} value={draft.maximum} onChange={(maximum, maximumError) => updateDraft({...draft, maximum, maximumError})} /></label>
+                <label className="grid gap-2 text-sm font-medium">Minimum Selections<ProviderPackageIntegerInput label="Minimum Selections" maximum={Math.min(10, draft.group.options.length)} disabled={disabled} value={draft.minimum} onChange={(minimum, minimumError) => updateDraft({...draft, minimum, minimumError})} /></label>
+                <label className="grid gap-2 text-sm font-medium">Maximum Selections<ProviderPackageIntegerInput label="Maximum Selections" maximum={Math.min(10, draft.group.options.length)} disabled={disabled} value={draft.maximum} onChange={(maximum, maximumError) => updateDraft({...draft, maximum, maximumError})} /></label>
               </div>
               {selectionError ? <p role="alert" className="text-sm text-destructive">{selectionError}</p> : null}
               <fieldset className="space-y-3"><legend className="text-sm font-semibold">Food Options</legend>
@@ -116,7 +115,7 @@ export function ProviderPackageFoodChoices({value, onChange, disabled = false}: 
                   <label className="grid min-w-0 flex-1 gap-1 text-sm font-medium">Food option {index + 1}<Input required maxLength={120} disabled={disabled} value={option.name} onChange={(event) => updateDraft({...draft, group: {...draft.group, options: draft.group.options.map((row) => row.id === option.id ? {...row, name: event.target.value} : row)}})} /></label>
                   <Button type="button" variant="secondary" disabled={disabled || draft.group.options.length <= 2} aria-label={`Remove food option ${index + 1}`} onClick={() => updateDraft({...draft, group: {...draft.group, options: draft.group.options.filter((row) => row.id !== option.id)}})}>Remove</Button>
                 </div>)}
-                <Button type="button" variant="secondary" disabled={disabled || draft.group.options.length >= 10 || total + draft.group.options.length >= 50} onClick={() => updateDraft({...draft, group: {...draft.group, options: [...draft.group.options, {id: crypto.randomUUID(), name: ""}]}})}>Add dish option</Button>
+                <Button type="button" variant="secondary" disabled={disabled} onClick={() => updateDraft({...draft, group: {...draft.group, options: [...draft.group.options, {id: crypto.randomUUID(), name: ""}]}})}>Add dish option</Button>
               </fieldset>
               {error ? <p ref={errorRef} tabIndex={-1} role="alert" className="text-sm text-destructive">{error}</p> : null}
             </div>
