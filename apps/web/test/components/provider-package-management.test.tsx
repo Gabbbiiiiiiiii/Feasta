@@ -8,6 +8,8 @@ import type {ProviderPackage} from "@/lib/provider/provider-package-client";
 import {createProviderPackage, updateProviderPackage} from "@/lib/provider/provider-package-client";
 import {uploadProviderServiceImage} from "@/lib/provider/provider-media-client";
 
+vi.mock("@/app/provider/packages/dish-library-actions",()=>({loadDishLibrary:async()=>({revision:1,categories:["Chicken","House Drinks"],dishes:[{id:"chicken",name:"Provider chicken dish",category:"Chicken"},{id:"drink",name:"Lemonade",category:"House Drinks"}]})}));
+async function openSavedDishChooser(){fireEvent.click(screen.getByRole("button",{name:"Choose from Dish List"}));return within(await screen.findByRole("dialog",{name:"Dish Library"}));}
 const mocks = vi.hoisted(() => ({createV2: vi.fn(), list: vi.fn(), publish: vi.fn(), archive: vi.fn(), load: vi.fn(), account: vi.fn()}));
 vi.mock("@/lib/provider/provider-package-v2-client", () => ({packageV2Enabled:false,packageV2PublicationEnabled:false,createV2PackageDraft:mocks.createV2,hasPendingV2Draft:()=>false}));
 vi.mock("@/lib/provider/provider-package-client", () => ({listProviderPackages: mocks.list, publishProviderPackage: mocks.publish, archiveProviderPackage: mocks.archive, createProviderPackage: vi.fn(), updateProviderPackage: vi.fn()}));
@@ -156,7 +158,7 @@ it.each(["Cancel", "Close dialog"])("starts empty after %s and confirmed discard
     expect(screen.getByRole("combobox", {name: /Suitable occasions/})).toHaveValue("");
     expect(screen.queryByRole("list", {name: "Selected occasions"})).not.toBeInTheDocument();
     expect(screen.getByRole("button", {name: "Add selected occasion"})).toBeDisabled();
-    expect(screen.getByRole("button", {name: "Fits All Occasions"})).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByRole("checkbox", {name: "Fits All Occasions"})).not.toBeChecked();
     await user.selectOptions(screen.getByRole("combobox", {name: /Suitable occasions/}), "wedding");
     await user.click(screen.getByRole("button", {name: "Add selected occasion"}));
     await user.click(screen.getByRole("button", {name: action}));
@@ -191,13 +193,10 @@ it("guides edits through five steps and preserves categorized dishes", async () 
   fireEvent.click(screen.getByRole("checkbox", {name: /Buffet Setup/}));
   fireEvent.change(screen.getByLabelText(/Buffet Setup price/), {target: {value: "13000.25"}});
   fireEvent.click(screen.getByRole("button", {name: "Next"}));
-  fireEvent.click(screen.getByRole("button", {name: "Add Category"}));
-  fireEvent.change(screen.getByLabelText("Category name"), {target: {value: "House Drinks"}});
-  fireEvent.click(within(screen.getByRole("dialog", {name: "Add Category"})).getByRole("button", {name: "Add Category"}));
-  fireEvent.click(screen.getByRole("button", {name: "Add Dish"}));
-  fireEvent.change(screen.getByLabelText("Category"), {target: {value: "Chicken"}});
-  fireEvent.change(screen.getByLabelText("Dish name"), {target: {value: "Provider chicken dish"}});
-  fireEvent.click(screen.getByRole("button", {name: "Save Dish"}));
+  const picker=await openSavedDishChooser();
+  fireEvent.change(picker.getByRole("searchbox"),{target:{value:"Provider chicken dish"}});
+  fireEvent.click(picker.getByRole("checkbox",{name:"Provider chicken dish"}));
+  fireEvent.click(picker.getByRole("button",{name:"Add 1 selected dish"}));
   fireEvent.click(screen.getByRole("button", {name: "Next"}));
   expect(screen.getByRole("heading", {name: "Step 4: Services & media"})).toBeVisible();
   fireEvent.click(screen.getByRole("button", {name: "Add Theme"}));
@@ -205,10 +204,11 @@ it("guides edits through five steps and preserves categorized dishes", async () 
   fireEvent.change(screen.getByLabelText("Theme description"), {target: {value: "Custom styling"}});
   fireEvent.click(screen.getByRole("button", {name: "Save Theme"}));
   fireEvent.click(screen.getByRole("button", {name: "Back"}));
-  expect(screen.getByRole("button", {name: "Edit dish Provider chicken dish"})).toBeVisible();
-  fireEvent.click(screen.getByRole("button", {name: "Add Dish"}));
-  expect(screen.getByRole("option", {name: "House Drinks"})).toBeInTheDocument();
-  fireEvent.click(screen.getByRole("button", {name: "Cancel"}));
+  fireEvent.click(screen.getByText("Chicken (1)"));
+  expect(screen.getByRole("button",{name:"Remove Provider chicken dish"})).toBeVisible();
+  const reopened=await openSavedDishChooser();
+  expect(reopened.getByRole("button",{name:"House Drinks"})).toBeVisible();
+  fireEvent.click(reopened.getByRole("button",{name:"Close dialog"}));
   fireEvent.click(screen.getByRole("button", {name: "Next"}));
   fireEvent.click(screen.getByRole("button", {name: "Next"}));
   expect(screen.getByRole("region", {name: "Package review"})).toHaveTextContent("Provider chicken dish");
@@ -290,7 +290,7 @@ it("keeps dish and theme dismissal separate from the parent discard confirmation
   fireEvent.click(screen.getByRole("checkbox", {name: /Buffet Setup/}));
   fireEvent.change(screen.getByLabelText(/Buffet Setup price/), {target: {value: "125.75"}});
   fireEvent.click(screen.getByRole("button", {name: "Next"}));
-  await user.click(screen.getByRole("button", {name: "Add Dish"}));
+  await openSavedDishChooser();
   await user.keyboard("{Escape}");
   expect(screen.getByRole("dialog", {name: "Edit package"})).toBeVisible();
   expect(screen.queryByRole("dialog", {name: "Discard package changes?"})).not.toBeInTheDocument();
@@ -550,7 +550,7 @@ it("keeps six packages per page and resets pagination after filtering and sortin
  await user.click(screen.getByRole("button", {name: "Keep editing"}));
  expect(screen.getByLabelText(/Package name/)).toHaveValue("Unfinished package");
  });
- it.each(["Add Dish", "Add Theme"])("keeps %s and its wizard open on backdrop and inside clicks", async (name) => {
+ it.each(["Choose from Dish List", "Add Theme"])("keeps %s and its wizard open on backdrop and inside clicks", async (name) => {
  const user = userEvent.setup(); render(<ProviderPackagesClient {...props} />);
  await user.click(await screen.findByRole("button", {name: `Edit ${base.name}`}));
  fireEvent.click(screen.getByRole("button", {name: "Next"}));
@@ -558,15 +558,16 @@ it("keeps six packages per page and resets pagination after filtering and sortin
  fireEvent.click(screen.getByRole("checkbox", {name: /Buffet Setup/}));
  fireEvent.change(screen.getByLabelText(/Buffet Setup price/), {target: {value: "125.75"}});
  }
- for (let i = 0; i < (name === "Add Dish" ? 1 : 2); i++) fireEvent.click(screen.getByRole("button", {name: "Next"}));
+ for (let i = 0; i < (name === "Choose from Dish List" ? 1 : 2); i++) fireEvent.click(screen.getByRole("button", {name: "Next"}));
  await user.click(screen.getByRole("button", {name}));
- const nested = screen.getByRole("dialog", {name});
+ const dialogName=name==="Choose from Dish List"?"Dish Library":name;
+ const nested = await screen.findByRole("dialog", {name:dialogName});
  const overlays = document.querySelectorAll('[data-state="open"][class*="fixed inset-0"]');
  await user.click(overlays[overlays.length - 1]);
- await user.click(within(nested).getByRole("heading", {name}));
+ await user.click(within(nested).getByRole("heading", {name:dialogName}));
  expect(nested).toBeVisible();
  expect(screen.getByRole("dialog", {name: "Edit package", hidden: true})).toBeInTheDocument();
  expect(screen.queryByRole("dialog", {name: "Discard package changes?"})).not.toBeInTheDocument();
- await user.click(within(nested).getByRole("button", {name: "Cancel"}));
+ await user.click(within(nested).getByRole("button", {name: name==="Choose from Dish List"?"Close dialog":"Cancel"}));
  expect(screen.getByRole("dialog", {name: "Edit package"})).toBeVisible();
  });

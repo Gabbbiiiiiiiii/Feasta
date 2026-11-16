@@ -763,7 +763,7 @@ export function ProviderPackageForm({
         }
       >
       <nav aria-label="Package creation progress" className={dialogLayout ? "shrink-0 border-b border-border px-5 py-3 sm:px-6" : undefined}>
-      <ol className="grid grid-cols-5 gap-2">{steps.map((label, index) => <li key={label} aria-current={step === index ? "step" : undefined} className={step === index ? "rounded-lg bg-primary/10 p-2 text-xs font-bold text-primary-strong" : "rounded-lg bg-muted p-2 text-xs text-muted-foreground"}>{index + 1}<span className="hidden sm:block">{label}</span>
+      <ol className="grid grid-cols-5 gap-2">{steps.map((label, index) => <li key={label} aria-current={step === index ? "step" : undefined} className={step === index ? "rounded-lg bg-primary p-2 text-xs font-bold text-primary-foreground" : "rounded-lg bg-muted p-2 text-xs text-muted-foreground"}>{index + 1}<span className="hidden sm:block">{label}</span>
       </li>)}</ol>
       </nav>
       <div ref={scrollContainer} role={dialogLayout ? "region" : undefined} aria-label={dialogLayout ? "Package details" : undefined} tabIndex={dialogLayout ? 0 : undefined}
@@ -774,21 +774,14 @@ export function ProviderPackageForm({
       }>
       <h3 ref={stepHeading} tabIndex={-1} className="text-lg font-bold focus:outline-none">Step {step + 1}: {steps[step]}</h3>
       <section hidden={step !== 0} className="space-y-4">
-        <div className="rounded-xl border border-border bg-muted/30 p-4">
-          <h4 className="font-semibold">Tell us about your package</h4>
-          <p className="mt-1 text-sm leading-6 text-muted-foreground">
-            Start with a clear package name, choose suitable occasions,
-            and describe what customers can expect.
-            You will set prices, add food, and configure services
-            in the next steps.
-          </p>
-        </div>
       <div className="grid min-w-0 gap-4 sm:grid-cols-2">
         <FormField
           label="Package name"
+          className="relative min-w-0" labelClassName="pr-20"
           error={validationError?.field === "name" ? validationError.message : undefined}
           required
         >
+          <span className="absolute right-0 top-0 text-xs tabular-nums text-muted-foreground">{name.length}/{usesV2 ? 80 : 120}</span>
           <Input
             value={name}
             onChange={(event) =>
@@ -800,59 +793,31 @@ export function ProviderPackageForm({
           />
           <p className="mt-1 text-xs text-muted-foreground">
             Use a name customers can easily recognize.
-            You can add the menu details in Step 3.
           </p>
         </FormField>
 
-        <FormField label="Suitable occasions" required error={occasionError} className="min-w-0">
-          <p className="mb-2 text-xs leading-5 text-muted-foreground">
-            Choose an approved occasion, then click Add.
-            You can add more than one if your business is eligible.
-          </p>
-          <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-start gap-2">
-            <Select ref={occasionSelector} value={occasionToAdd} required={false}
-              onChange={(event) => setOccasionToAdd(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") event.preventDefault();
-              }}>
-              <option value="">Choose an approved occasion</option>
-              {availableEventTypes.map((value) => (
-                <option key={value} value={value} disabled={occasionScope === "specific" && selectedOccasions.includes(value)}>{occasionLabel(value)}{occasionScope === "specific" && selectedOccasions.includes(value) ? " (selected)" : ""}</option>
-              ))}
-            </Select>
-            <Button type="button" variant="secondary" aria-label="Add selected occasion"
-              disabled={!availableEventTypes.some((value) => value === occasionToAdd) || (occasionScope === "specific" && selectedOccasions.includes(occasionToAdd))}
-              onClick={addOccasion}>Add</Button>
-          </div>
-          <Button type="button" variant="secondary" aria-pressed={occasionScope === "all"}
-            disabled={!occasionCatalog || !availableEventTypes.length}
-            onClick={() => { setOccasionScope("all"); setSelectedOccasions([]); setOccasionToAdd(""); setError(null); }}>Fits All Occasions</Button>
-          {occasionScope === "all" ? <ul aria-label="Selected occasions"><li>Fits All Occasions <Button type="button" variant="ghost" aria-label="Remove Fits All Occasions" onClick={() => setOccasionScope("specific")}>Remove</Button></li></ul> : null}
-          <OccasionRequestDialog />
-          <p className="text-xs leading-5 text-muted-foreground">
-            Cannot find the occasion you need? Use Request an Occasion.
-            Requests are reviewed separately and do not grant immediate approval.
-          </p>
-          <p className="text-xs text-muted-foreground">Fits All requires approval for every active occasion applicable to this category. Future catalog changes require server revalidation.</p>
-          {retainingLegacyScope ? <p className="text-sm text-muted-foreground">Approved occasion choices are unavailable. You can save this draft with its existing occasion and category; changing either requires reloading the approved choices.</p> : null}
-          {occasionSaveGate ? <p role="status" className="text-sm text-muted-foreground">{occasionSaveGate}</p> : null}
-          {selectedOccasions.length > 0 ? (
-            <ul aria-label="Selected occasions" className="flex flex-wrap gap-2">
-              {selectedOccasions.map((value) => (
-                <li key={value} className="inline-flex min-h-8 max-w-full items-center gap-1 rounded-full border border-primary/30 bg-primary/10 pl-2.5 text-xs font-semibold text-primary-strong">
-                  <span className="min-w-0 [overflow-wrap:anywhere]">{occasionLabel(value)}{retainingLegacyScope ? " (retained legacy occasion)" : availableEventTypes.some((allowed) => allowed === value) ? "" : " (no longer supported)"}</span>
-                  <Button type="button" variant="ghost" className="h-[30px] min-h-[30px] w-8 min-w-8 shrink-0 self-start rounded-full p-0" aria-label={`Remove ${occasionLabel(value)} occasion`}
-                    onClick={() => {
-                      setSelectedOccasions((current) => current.filter((item) => item !== value));
-                      setError(null);
-                      occasionSelector.current?.focus();
-                    }}><X aria-hidden="true" className="size-3.5" /></Button>
-                </li>
-              ))}
-            </ul>
-          ) : null}
-        </FormField>
-
+        <div className="min-w-0">
+            <FormField label="Package structure" required>
+              <Select
+                value={offerStructure}
+                onChange={(event) =>
+                  setOfferStructure(event.target.value as PackageStructure)
+                }
+              >
+                <option value="" disabled hidden>Choose package structure</option>
+                <option value="fixed">Fixed Package</option>
+                <option value="customizable">Customizable Package</option>
+                {/* Keep restored records readable without offering this structure for creation. */}
+                {offerStructure === "individual" ? (
+                  <option value="individual" disabled>Individual Food Item</option>
+                ) : null}
+              </Select>
+              <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                Classifies this offer. Customer checkout follows
+                existing supported booking rules.
+              </p>
+            </FormField>
+        </div>
       <FormField
         className="min-w-0 sm:col-start-1"
         label="Service category"
@@ -864,12 +829,8 @@ export function ProviderPackageForm({
         }
         required
       >
-        <p className="mb-2 text-xs leading-5 text-muted-foreground">
-          Select the service category your business is authorized to offer.
-          If only one category is approved, it is already selected.
-        </p>
         {packageCategoryOptions.length === 1 && serviceCategoryCode === packageCategoryOptions[0].code ? (
-          <Input readOnly value={packageCategoryOptions[0].name} />
+          <Input readOnly className="bg-muted" value={packageCategoryOptions[0].name} />
         ) : <Select
           value={serviceCategoryCode}
           onChange={(event) =>
@@ -905,35 +866,64 @@ export function ProviderPackageForm({
         ) : null}
       </FormField>
 
-      </div>
+        <FormField label="Suitable occasions" required error={occasionError} className="relative min-w-0" labelClassName="pr-36">
+          <label className="absolute right-0 top-0 flex items-center gap-1.5 text-xs">
+            <input type="checkbox" className="accent-primary" checked={occasionScope === "all"}
+              disabled={!occasionCatalog || !availableEventTypes.length}
+              onChange={(event) => {
+                setOccasionScope(event.target.checked ? "all" : "specific");
+                setSelectedOccasions([]);
+                setOccasionToAdd("");
+                setError(null);
+              }} />
+            Fits All Occasions
+          </label>
+          <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-start gap-2">
+            <Select ref={occasionSelector} value={occasionToAdd} required={false}
+              onChange={(event) => setOccasionToAdd(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") event.preventDefault();
+              }}>
+              <option value="">Choose suitable occasions</option>
+              {availableEventTypes.map((value) => (
+                <option key={value} value={value} disabled={occasionScope === "specific" && selectedOccasions.includes(value)}>{occasionLabel(value)}{occasionScope === "specific" && selectedOccasions.includes(value) ? " (selected)" : ""}</option>
+              ))}
+            </Select>
+            <Button type="button" variant="secondary" aria-label="Add selected occasion"
+              disabled={!availableEventTypes.some((value) => value === occasionToAdd) || (occasionScope === "specific" && selectedOccasions.includes(occasionToAdd))}
+              onClick={addOccasion}>Add</Button>
+          </div>
+          {retainingLegacyScope ? <p className="text-sm text-muted-foreground">Approved occasion choices are unavailable. You can save this draft with its existing occasion and category; changing either requires reloading the approved choices.</p> : null}
+          {occasionSaveGate ? <p role="status" className="text-sm text-muted-foreground">{occasionSaveGate}</p> : null}
+          {selectedOccasions.length > 0 ? (
+            <ul aria-label="Selected occasions" className="flex flex-wrap gap-2">
+              {selectedOccasions.map((value) => (
+                <li key={value} className="inline-flex min-h-8 max-w-full items-center gap-1 rounded-full border border-primary/30 bg-primary/10 pl-2.5 text-xs font-semibold text-primary-strong">
+                  <span className="min-w-0 [overflow-wrap:anywhere]">{occasionLabel(value)}{retainingLegacyScope ? " (retained legacy occasion)" : availableEventTypes.some((allowed) => allowed === value) ? "" : " (no longer supported)"}</span>
+                  <Button type="button" variant="ghost" className="h-[30px] min-h-[30px] w-8 min-w-8 shrink-0 self-start rounded-full p-0" aria-label={`Remove ${occasionLabel(value)} occasion`}
+                    onClick={() => {
+                      setSelectedOccasions((current) => current.filter((item) => item !== value));
+                      setError(null);
+                      occasionSelector.current?.focus();
+                    }}><X aria-hidden="true" className="size-3.5" /></Button>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+          <div className="flex flex-wrap items-baseline gap-1 text-xs text-muted-foreground">
+            <span>Cannot find the occasion?</span>
+            <OccasionRequestDialog inline />
+          </div>
+        </FormField>
 
-        <div className="min-w-0">
-            <FormField label="Package structure" required>
-              <Select
-                value={offerStructure}
-                onChange={(event) =>
-                  setOfferStructure(event.target.value as PackageStructure)
-                }
-              >
-                <option value="" disabled hidden>Choose package structure</option>
-                <option value="fixed">Fixed Package</option>
-                <option value="customizable">Customizable Package</option>
-                {/* Keep restored records readable without offering this structure for creation. */}
-                {offerStructure === "individual" ? (
-                  <option value="individual" disabled>Individual Food Item</option>
-                ) : null}
-              </Select>
-              <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                Classifies this offer. Customer checkout follows
-                existing supported booking rules.
-              </p>
-            </FormField>
-        </div>
+      </div>
       <FormField
         label="Description"
+        className="relative" labelClassName="pr-24"
         error={validationError?.field === "description" ? validationError.message : undefined}
         required
       >
+        <span className="absolute right-0 top-0 text-xs tabular-nums text-muted-foreground">{description.length}/2000</span>
         <Textarea
           value={description}
           onChange={(event) =>
@@ -1100,6 +1090,7 @@ export function ProviderPackageForm({
           <ProviderPackageFoodMenu
             value={foodInclusions}
             onChange={setFoodInclusions}
+            disabled={submitting || progressSaving}
           />
         )}
         {usesV2 && offerStructure !== "individual" ? (

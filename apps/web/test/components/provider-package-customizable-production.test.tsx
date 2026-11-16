@@ -1,6 +1,17 @@
 import {fireEvent,render,screen,waitFor,within} from "@testing-library/react";
 import {afterEach,beforeEach,expect,it,vi} from "vitest";
 import {ProviderPackageForm} from "@/app/provider/packages/provider-package-form";
+vi.mock("@/app/provider/packages/dish-library-actions", () => ({
+ loadDishLibrary: async () => ({
+  revision: 1,
+  dishes: [
+   {id:"chicken", name:"Chicken Afritada", category:"Chicken", parentGroup:"Meat Dishes"},
+   {id:"pork", name:"Pork Menudo", category:"Pork", parentGroup:"Meat Dishes"},
+   {id:"fish", name:"Sweet and Sour Fish", category:"Fish", parentGroup:"Meat Dishes"},
+   {id:"beef", name:"Beef Caldereta", category:"Beef", parentGroup:"Meat Dishes"},
+  ],
+ }),
+}));
 const api=vi.hoisted(()=>({create:vi.fn(),update:vi.fn(),complete:vi.fn(),retry:vi.fn(),pending:vi.fn(()=>false),save:vi.fn(),legacy:vi.fn()}));
 vi.mock("@/lib/provider/provider-package-v2-client",()=>({packageV2Enabled:false,packageV2PublicationEnabled:false,createV2PackageDraft:api.create,updateV2PackageDraft:api.update,completeV2PackageProgress:api.complete,hasPendingV2Draft:api.pending,retryPendingV2Draft:api.retry}));
 vi.mock("@/lib/provider/provider-package-client",()=>({createProviderPackage:api.legacy,updateProviderPackage:api.legacy}));
@@ -29,10 +40,25 @@ it.each(["per_pax", "per_bundle"] as const)("creates customizable %s through V2 
  next();
  fireEvent.click(screen.getByRole("button",{name:"Add choice group"}));
  fireEvent.change(screen.getByLabelText("Group Name"),{target:{value:"Main dish"}});
- fireEvent.change(screen.getByLabelText("Food option 1"),{target:{value:"Chicken Afritada"}});
- fireEvent.change(screen.getByLabelText("Food option 2"),{target:{value:"Pork Menudo"}});
- fireEvent.click(screen.getByRole("button",{name:"Add dish option"}));
- fireEvent.change(screen.getByLabelText("Food option 3"),{target:{value:"Sweet and Sour Fish"}});
+ const choiceDialog = within(screen.getByRole("dialog", {name:"Add Food Choice Group"}));
+ const minimum = choiceDialog.getByLabelText("Minimum Selections");
+ const maximum = choiceDialog.getByLabelText("Maximum Selections");
+ expect(minimum).toHaveAttribute("aria-invalid", "false");
+ fireEvent.change(minimum, {target:{value:"10"}});
+ fireEvent.change(maximum, {target:{value:"10"}});
+ expect(minimum).toHaveValue("10");
+ fireEvent.change(maximum, {target:{value:"11"}});
+ expect(maximum).toHaveValue("10");
+ fireEvent.change(minimum, {target:{value:"1"}});
+ fireEvent.change(maximum, {target:{value:"1"}});
+ fireEvent.click(choiceDialog.getByRole("button", {name:"Choose from Dish List"}));
+ const picker = within(await screen.findByRole("dialog", {name:"Dish Library"}));
+ fireEvent.click(await picker.findByRole("checkbox", {name:"Select all Meat Dishes"}));
+ fireEvent.click(picker.getByRole("checkbox", {name:"Clear Meat Dishes"}));
+ expect(picker.getByRole("checkbox", {name:"Beef Caldereta"})).not.toBeChecked();
+ fireEvent.click(picker.getByRole("checkbox", {name:"Select all Meat Dishes"}));
+ fireEvent.click(picker.getByRole("checkbox", {name:"Beef Caldereta"}));
+ fireEvent.click(picker.getByRole("button", {name:"Add 3 selected dishes"}));
  fireEvent.click(screen.getByRole("button",{name:"Save choice group"}));
  next();next();
  expect(screen.queryByRole("dialog",{name:"FEASTA Confirmation"})).not.toBeInTheDocument();

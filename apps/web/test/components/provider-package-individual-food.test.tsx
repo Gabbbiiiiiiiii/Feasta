@@ -5,6 +5,8 @@ import {
   type IndividualFoodDraftV2,
 } from "@/app/provider/packages/provider-package-individual-food";
 
+vi.mock("@/app/provider/packages/provider-dish-library",()=>({ProviderDishLibrary:({onAdd,disabled}:{onAdd:(rows:unknown[])=>void;disabled?:boolean})=><button disabled={disabled} onClick={()=>onAdd([{id:"dish",name:"Pancit Canton Bilao",category:"Pasta"}])}>Choose from Dish List</button>}));
+
 afterEach(() => vi.unstubAllGlobals());
 
 function empty(): IndividualFoodDraftV2 {
@@ -39,9 +41,7 @@ it("changes the food product name", () => {
     />
   );
 
-  fireEvent.change(screen.getByLabelText("Food product name"), {
-    target: {value: "Pancit Canton Bilao"},
-  });
+  fireEvent.click(screen.getByRole("button",{name:"Choose from Dish List"}));
 
   expect(onChange.mock.calls[0][0]).toEqual({
     id: "individual_item",
@@ -143,7 +143,7 @@ it("disables editing while progress is saving", () => {
     />
   );
 
-  expect(screen.getByLabelText("Food product name")).toBeDisabled();
+  expect(screen.getByRole("button",{name:"Choose from Dish List"})).toBeDisabled();
   expect(screen.getByRole("button", {
     name: "Add serving size",
   })).toBeDisabled();

@@ -26,13 +26,7 @@ describe("package layout refinement", () => {
     expect(screen.getByRole("region", {name: "Payment and starting price"})).toBeVisible();
   });
 
-  it("explains how to start an empty menu and keeps both actions available", () => {
-    render(<ProviderPackageFoodMenu value={[]} onChange={vi.fn()} />);
-    expect(screen.getByRole("heading", {name: "No dishes added"})).toBeVisible();
-    expect(screen.getByText(/Use Add Dish to list/)).toBeVisible();
-    expect(screen.getByRole("button", {name: "Add Dish"})).toBeEnabled();
-    expect(screen.getByRole("button", {name: "Add Category"})).toBeEnabled();
-  });
+  it("starts an empty menu from saved dishes",()=>{render(<ProviderPackageFoodMenu value={[]} onChange={vi.fn()}/>);expect(screen.getByRole("heading",{name:"Included dishes"})).toBeVisible();expect(screen.getByRole("button",{name:"Choose from Dish List"})).toBeEnabled();expect(screen.queryByRole("button",{name:"Add Category"})).not.toBeInTheDocument();});
 
   it("identifies the review cover and empty optional sections", () => {
     render(<ProviderPackageReview name="Birthday" description="Catering" eventType="birthday" serviceCategory="Catering" pricingModel="per_pax" minimumGuests="10" maximumGuests="100" serviceOptions={{}} food={[]} foodChoiceGroups={[]} decor="" furniture="" services="" offerDraft={createProviderPackageOfferDraft()} images={[{id: "cover", title: "", url: "https://example.com/photo.jpg"}]} paymentPolicy="full_payment" depositPercentage="50" />);

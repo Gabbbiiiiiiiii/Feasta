@@ -3,6 +3,9 @@ import {afterEach,beforeEach,expect,it,vi} from "vitest";
 import {ProviderPackageForm} from "@/app/provider/packages/provider-package-form";
 import type {ProviderPackage} from "@/lib/provider/provider-package-client";
 import type {SavedEditorDraft} from "@/lib/provider/provider-package-progress";
+
+vi.mock("@/app/provider/packages/dish-library-actions",()=>({loadDishLibrary:async()=>({revision:1,categories:[],dishes:["Chicken Afritada","Pork Menudo","Sweet and Sour Fish","Fish","Pancit Canton Bilao"].map((name,i)=>({id:String(i),name,category:"Saved Dishes"}))})}));
+async function chooseSavedDishes(names:string[]){const dialog=screen.queryByRole("dialog",{name:/Food Choice Group/});fireEvent.click((dialog?within(dialog):screen).getByRole("button",{name:"Choose from Dish List"}));const picker=within(await screen.findByRole("dialog",{name:"Dish Library"}));for(const name of names){fireEvent.change(picker.getByRole("searchbox"),{target:{value:name}});fireEvent.click(picker.getByRole("checkbox",{name}));}fireEvent.click(picker.getByRole("button",{name:`Add ${names.length} selected ${names.length===1?"dish":"dishes"}`}));}
 const api=vi.hoisted(()=>({create:vi.fn(),update:vi.fn(),complete:vi.fn(),retry:vi.fn(),pending:vi.fn(()=>false),save:vi.fn(),legacy:vi.fn()}));
 vi.mock("@/lib/provider/provider-package-v2-client",()=>({packageV2Enabled:true,packageV2PublicationEnabled:false,createV2PackageDraft:api.create,updateV2PackageDraft:api.update,completeV2PackageProgress:api.complete,hasPendingV2Draft:api.pending,retryPendingV2Draft:api.retry}));
 vi.mock("@/lib/provider/provider-package-client",()=>({createProviderPackage:api.legacy,updateProviderPackage:api.legacy}));
@@ -343,10 +346,7 @@ it("creates a private V2 draft with customer-selectable food groups, without mod
  next();
  fireEvent.click(screen.getByRole("button",{name:"Add choice group"}));
  fireEvent.change(screen.getByLabelText("Group Name"),{target:{value:"Main dish"}});
- fireEvent.change(screen.getByLabelText("Food option 1"),{target:{value:"Chicken Afritada"}});
- fireEvent.change(screen.getByLabelText("Food option 2"),{target:{value:"Pork Menudo"}});
- fireEvent.click(screen.getByRole("button",{name:"Add dish option"}));
- fireEvent.change(screen.getByLabelText("Food option 3"),{target:{value:"Sweet and Sour Fish"}});
+ await chooseSavedDishes(["Chicken Afritada","Pork Menudo","Sweet and Sour Fish"]);
  fireEvent.click(screen.getByRole("button",{name:"Save choice group"}));
  next();next();
  fireEvent.click(screen.getByRole("button",{name:"Save Package Draft"}));
@@ -374,7 +374,7 @@ it("resumes incomplete persisted groups without changing draft persistence",asyn
  render(<ProviderPackageForm {...props} onProgressExit={exit} initialEditorProgress={{editorSchemaVersion:2,editorDraftId:"editor",providerId:"provider",packageId:null,basePackageRevision:null,state:"incomplete",revision:1,currentStep:2,completedPackageId:null,completedPackageRevision:null,createdAt:"now",updatedAt:"now",progress}}/>);
  fireEvent.click(screen.getByRole("button",{name:"Edit choice group 1"}));
  expect(screen.getByLabelText("Group Name")).toHaveValue("Main dish");
- expect(screen.getByLabelText("Food option 1")).toHaveValue("");
+ expect(screen.getByRole("button",{name:"Remove food option 1"})).toBeInTheDocument();
  fireEvent.click(screen.getByRole("button",{name:"Save choice group"}));
  expect(screen.getByRole("alert")).toHaveTextContent("Enter a group name");
  expect(api.update).not.toHaveBeenCalled();
@@ -392,8 +392,9 @@ it("reopens and updates existing private food-choice groups",async()=>{
  next();next();
  fireEvent.click(screen.getByRole("button",{name:"Edit choice group 1"}));
  expect(screen.getByLabelText("Group Name")).toHaveValue("Main dish");
- expect(screen.getByLabelText("Food option 2")).toHaveValue("Pork");
- fireEvent.change(screen.getByLabelText("Food option 2"),{target:{value:"Fish"}});
+ expect(within(screen.getByRole("dialog",{name:"Edit Food Choice Group"})).getByText("Pork")).toBeVisible();
+ fireEvent.click(screen.getByRole("button",{name:"Remove food option 2"}));
+ await chooseSavedDishes(["Fish"]);
  fireEvent.click(screen.getByRole("button",{name:"Save choice group"}));
  next();next();fireEvent.click(screen.getByRole("button",{name:"Save changes"}));
  fireEvent.click(within(screen.getByRole("dialog",{name:"FEASTA Confirmation"})).getByRole("button",{name:"Save changes"}));
@@ -445,11 +446,8 @@ it("saves and restores unfinished individual food serving options", async () => 
     />
   );
 
-  expect(screen.getByLabelText("Food product name")).toHaveValue("");
-
-  fireEvent.change(screen.getByLabelText("Food product name"), {
-    target: {value: "Pancit Canton Bilao"},
-  });
+  expect(screen.getByText("Food product: Choose a dish")).toBeVisible();
+  await chooseSavedDishes(["Pancit Canton Bilao"]);
 
   fireEvent.click(screen.getByRole("button", {
     name: "Save Progress & Exit",
@@ -501,8 +499,7 @@ it("saves and restores unfinished individual food serving options", async () => 
     />
   );
 
-  expect(screen.getByLabelText("Food product name"))
-    .toHaveValue("Pancit Canton Bilao");
+  expect(screen.getByText("Food product: Pancit Canton Bilao")).toBeVisible();
 
   fireEvent.click(screen.getByRole("button", {name: "Edit serving option 1"}));
 

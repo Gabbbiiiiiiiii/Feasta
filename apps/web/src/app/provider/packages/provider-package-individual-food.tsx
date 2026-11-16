@@ -1,4 +1,5 @@
 "use client";
+import {ProviderDishLibrary} from "./provider-dish-library";
 import {usePackageConfirmation} from "./use-package-confirmation";
 
 /**
@@ -118,19 +119,11 @@ export function ProviderPackageIndividualFood({
         </p>
       </div>
 
-      <label className="grid gap-2 text-sm font-medium">
-        Food product name
-        <input
-          className="h-11 rounded-lg border border-input bg-background px-3 text-foreground"
-          value={value.name}
-          placeholder="e.g. Pancit Canton Bilao"
-          maxLength={120}
-          disabled={disabled}
-          onChange={(event) =>
-            onChange({...value, name: event.target.value})
-          }
-        />
-      </label>
+      <p className="text-sm font-medium">Food product: {value.name || "Choose a dish"}</p>
+      <ProviderDishLibrary disabled={disabled} onAdd={(dishes) => {
+        if (dishes.length !== 1) return "Choose one dish for this food product.";
+        onChange({...value, name: dishes[0].name});
+      }} />
 
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h4 className="text-sm font-semibold">

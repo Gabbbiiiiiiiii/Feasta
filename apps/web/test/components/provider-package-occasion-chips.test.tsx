@@ -30,9 +30,9 @@ describe("package occasion chips", () => {
   it("starts empty and requires an explicit Add before continuing", () => {
     render(<ProviderPackageForm {...props} />);
     expect(selector()).toHaveValue("");
-    expect(within(selector()).getByRole("option", {name: "Choose an approved occasion"})).toHaveProperty("selected", true);
+    expect(within(selector()).getByRole("option", {name: "Choose suitable occasions"})).toHaveProperty("selected", true);
     expect(screen.queryByRole("list", {name: "Selected occasions"})).not.toBeInTheDocument();
-    expect(screen.getByRole("button", {name: "Fits All Occasions"})).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByRole("checkbox", {name: "Fits All Occasions"})).not.toBeChecked();
     expect(screen.getByRole("button", {name: "Add selected occasion"})).toBeDisabled();
     fireEvent.change(screen.getByLabelText(/Package name/), {target: {value: "New catering"}});
     fireEvent.change(screen.getByLabelText(/Description/), {target: {value: "Complete catering package"}});
@@ -122,7 +122,7 @@ describe("package occasion chips", () => {
     fireEvent.keyDown(selector(), {key: "Enter"});
     expect(screen.queryByRole("button", {name: "Remove Unknown occasion"})).not.toBeInTheDocument();
     expect(screen.getByRole("button", {name: "Request an Occasion"})).toBeVisible();
-    expect(screen.getByRole("button", {name: "Fits All Occasions"})).toBeVisible();
+    expect(screen.getByRole("checkbox", {name: "Fits All Occasions"})).toBeVisible();
     expect(screen.queryByRole("dialog", {name: "Request an occasion"})).not.toBeInTheDocument();
     expect(within(selector()).queryByRole("option", {name: /Fits All/})).not.toBeInTheDocument();
   });
@@ -198,7 +198,7 @@ it.each(["per_pax", "per_bundle"] as const)("reopens and edits a %s draft withou
 it("makes Fits All exclusive, preserves it across steps, and blocks upload and save", () => {
   const {container} = render(<ProviderPackageForm {...props} initialPackage={existing} />);
   add("birthday");
-  fireEvent.click(screen.getByRole("button", {name: "Fits All Occasions"}));
+  fireEvent.click(screen.getByRole("checkbox", {name: "Fits All Occasions"}));
   expect(screen.queryByRole("button", {name: "Remove Wedding occasion"})).not.toBeInTheDocument();
   expect(screen.queryByRole("button", {name: "Remove Birthday occasion"})).not.toBeInTheDocument();
   for (let i = 0; i < 4; i++) next();
@@ -207,9 +207,9 @@ it("makes Fits All exclusive, preserves it across steps, and blocks upload and s
   expect(updateProviderPackage).not.toHaveBeenCalled();
   expect(uploadProviderServiceImage).not.toHaveBeenCalled();
   for (let i = 0; i < 4; i++) fireEvent.click(screen.getByRole("button", {name: "Back"}));
-  expect(screen.getByRole("button", {name: "Fits All Occasions"})).toHaveAttribute("aria-pressed", "true");
+  expect(screen.getByRole("checkbox", {name: "Fits All Occasions"})).toBeChecked();
   add("birthday");
-  expect(screen.getByRole("button", {name: "Fits All Occasions"})).toHaveAttribute("aria-pressed", "false");
+  expect(screen.getByRole("checkbox", {name: "Fits All Occasions"})).not.toBeChecked();
   expect(screen.queryByRole("button", {name: "Remove Fits All Occasions"})).not.toBeInTheDocument();
   expect(screen.getByRole("button", {name: "Remove Birthday occasion"})).toBeVisible();
 });
@@ -219,7 +219,7 @@ it("saves an unchanged legacy scope without canonical V2 configuration and retai
   expect(screen.getByText("Wedding (retained legacy occasion)")).toBeVisible();
   expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   expect(within(selector()).getAllByRole("option")).toHaveLength(1);
-  expect(screen.getByRole("button", {name: "Fits All Occasions"})).toBeDisabled();
+  expect(screen.getByRole("checkbox", {name: "Fits All Occasions"})).toBeDisabled();
   fireEvent.change(screen.getByLabelText(/Package name/), {target: {value: "Updated legacy draft"}});
   for (let i = 0; i < 4; i++) next();
   fireEvent.click(screen.getByRole("button", {name: "Save changes"}));
