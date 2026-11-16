@@ -15,7 +15,7 @@ import {FormField} from "@/components/forms/form-field";
 import {PasswordInput} from "@/components/forms/password-input";
 import {Button} from "@/components/ui/button";
 import {Input} from "@/components/ui/input";
-import {customerAuthenticationError} from "@/lib/auth/error-messages";
+import {providerSignInError} from "@/lib/auth/error-messages";
 import {signInProvider} from "@/lib/auth/provider-client";
 
 const providerBenefits = [
@@ -67,7 +67,7 @@ export default function ProviderLoginPage() {
       router.replace(result.destination);
       router.refresh();
     } catch (caught) {
-      setError(customerAuthenticationError(caught));
+      setError(providerSignInError(caught));
     } finally {
       submitting.current = false;
       setLoading(false);

@@ -1,5 +1,15 @@
 import {authenticationGatePresentation} from "@feasta/shared-types";
 
+export function providerSignInError(error: unknown): string {
+  const code = typeof error === "object" && error !== null && "code" in error
+    ? String(error.code)
+    : "";
+  if (["auth/invalid-credential", "auth/invalid-login-credentials", "auth/wrong-password", "auth/user-not-found"].includes(code)) {
+    return "The email address or password is incorrect.";
+  }
+  return customerAuthenticationError(error);
+}
+
 export function customerAuthenticationError(error: unknown): string {
   const reason = typeof error === "object" && error !== null && "reason" in error
     ? String(error.reason)

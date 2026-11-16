@@ -947,6 +947,25 @@ describe("provider authentication and onboarding", () => {
     await waitFor(() => expect(mocks.replace).toHaveBeenCalledWith("/provider"));
   });
 
+  it.each([
+    ["auth/invalid-credential", "The email address or password is incorrect."],
+    ["auth/invalid-login-credentials", "The email address or password is incorrect."],
+    ["auth/wrong-password", "The email address or password is incorrect."],
+    ["auth/user-not-found", "The email address or password is incorrect."],
+    ["auth/network-request-failed", "Check your internet connection and try again."],
+    ["auth/too-many-requests", "Too many attempts. Please wait before trying again."],
+  ])("shows the correct provider login message for %s", async (code, message) => {
+    mocks.signIn.mockRejectedValueOnce({code});
+    render(<ProviderLoginPage />);
+    fireEvent.change(screen.getByRole("textbox", {name: /email address/i}), {target: {value: "provider@example.test"}});
+    fireEvent.change(screen.getByLabelText(/^Password/), {target: {value: "IncorrectPassword!"}});
+    fireEvent.click(screen.getByRole("button", {name: /^log in$/i}));
+    expect(await screen.findByRole("alert")).toHaveTextContent(message);
+    expect(screen.queryByText("We could not complete that request. Please try again.")).toBeNull();
+    expect(mocks.replace).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", {name: /^log in$/i})).toBeEnabled();
+  });
+
   it("renders the provider portal login hierarchy with scoped controls", () => {
     const {container} = render(<ProviderLoginPage />);
     expect(screen.getAllByRole("heading", {level: 1})).toHaveLength(1);
