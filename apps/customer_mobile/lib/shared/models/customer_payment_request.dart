@@ -37,6 +37,69 @@ class CustomerPaymentOption {
   double get amount => amountInCentavos / 100;
 }
 
+class CustomerBookingVat {
+  const CustomerBookingVat({
+    required this.taxType,
+    required this.includedVatInCentavos,
+  });
+
+  final String taxType;
+  final int includedVatInCentavos;
+}
+
+/// Display-only projection of the frozen provider-request tax evidence.
+/// Null means the evidence is unavailable or inconsistent.
+CustomerBookingVat? customerBookingVatFromRequest(
+  Map<String, dynamic> request,
+) {
+  final snapshot = _map(request['financialSnapshot']);
+  if (snapshot == null ||
+      snapshot['schemaVersion'] != 1 ||
+      snapshot['currency'] != 'PHP' ||
+      snapshot['providerTaxVerificationStatus'] != 'verified') {
+    return null;
+  }
+
+  final taxType = snapshot['providerTaxType'];
+  if (taxType != 'vat_registered' && taxType != 'non_vat') {
+    return null;
+  }
+
+  final gross = _centavos(snapshot['grossAmountInCentavos']);
+  final rawAmount = request['amount'];
+
+  if (gross == null ||
+      gross <= 0 ||
+      rawAmount is! num ||
+      !rawAmount.isFinite ||
+      rawAmount <= 0 ||
+      ((rawAmount.toDouble() * 100) - gross).abs() > 0.000001) {
+    return null;
+  }
+
+  if (taxType == 'non_vat') {
+    return const CustomerBookingVat(
+      taxType: 'non_vat',
+      includedVatInCentavos: 0,
+    );
+  }
+
+  // FEASTA's frozen 12% VAT-inclusive component policy.
+  // BigInt preserves exact half-up centavo rounding.
+  final included =
+      (BigInt.from(gross) * BigInt.from(1200) + BigInt.from(5600)) ~/
+      BigInt.from(11200);
+
+  if (included > BigInt.from(9007199254740991)) {
+    return null;
+  }
+
+  return CustomerBookingVat(
+    taxType: 'vat_registered',
+    includedVatInCentavos: included.toInt(),
+  );
+}
+
 class CustomerProviderPaymentRequest {
   const CustomerProviderPaymentRequest({
     required this.id,
@@ -54,6 +117,7 @@ class CustomerProviderPaymentRequest {
     this.remainingBalanceGraceEndsAt,
     required this.checkoutOptions,
     this.initialPaymentDeadline,
+    this.serviceVat,
   });
 
   final String id;
@@ -71,6 +135,7 @@ class CustomerProviderPaymentRequest {
   final DateTime? remainingBalanceGraceEndsAt;
   final List<CustomerPaymentOption> checkoutOptions;
   final InitialPaymentDeadline? initialPaymentDeadline;
+  final CustomerBookingVat? serviceVat;
 
   bool get canStartCheckout => checkoutOptions.isNotEmpty;
 
@@ -105,6 +170,7 @@ class CustomerProviderPaymentRequest {
         data['remainingBalanceGraceEndsAt'],
       ),
       initialPaymentDeadline: InitialPaymentDeadline.fromRecord(data),
+      serviceVat: customerBookingVatFromRequest(data),
       checkoutOptions: _checkoutOptions(
         data,
         providerRequestId: document.id,

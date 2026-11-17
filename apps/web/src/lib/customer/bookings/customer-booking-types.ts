@@ -37,6 +37,7 @@ export type CustomerRemainingBalanceStatus =
   | "paid"
   | "cancelled";
 export type CustomerBookingProviderRequest = {
+  serviceVat?: import("./customer-booking-service-vat").CustomerBookingServiceVat;
   lifecycle?: import("@/lib/presentation/booking-lifecycle").LifecycleEvidence;
   bookingPolicy?: import("@/lib/payments/booking-policy-v3-presentation").BookingPolicyPresentation | null;
   checkoutOptions: CustomerBookingPaymentOption[];

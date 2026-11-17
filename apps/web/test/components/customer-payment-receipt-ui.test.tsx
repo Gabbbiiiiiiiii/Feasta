@@ -99,3 +99,71 @@ it("prints using the browser print workflow", () => {
 
   print.mockRestore();
 });
+
+it("displays payment-specific included VAT and its refund reversal", () => {
+  render(
+    <CustomerPaymentReceiptView
+      receipt={{
+        ...receipt,
+        serviceVat: {
+          status: "available",
+          taxType: "vat_registered",
+          includedInPaymentInCentavos: 53571,
+          reversedInCentavos: 16071,
+          netIncludedInCentavos: 37500,
+        },
+      }}
+    />,
+  );
+
+  const section = screen.getByRole("region", {
+    name: "Service VAT breakdown",
+  });
+
+  expect(section).toHaveTextContent("Included service VAT");
+  expect(section).toHaveTextContent("₱535.71");
+  expect(section).toHaveTextContent("₱160.71");
+  expect(section).toHaveTextContent("₱375.00");
+  expect(section).toHaveTextContent("not an additional charge");
+  expect(section).not.toHaveTextContent(/FEASTA VAT on commission/i);
+});
+
+it("shows Non-VAT without adding a VAT charge", () => {
+  render(
+    <CustomerPaymentReceiptView
+      receipt={{
+        ...receipt,
+        serviceVat: {
+          status: "available",
+          taxType: "non_vat",
+          includedInPaymentInCentavos: 0,
+          reversedInCentavos: 0,
+          netIncludedInCentavos: 0,
+        },
+      }}
+    />,
+  );
+
+  expect(
+    screen.getByText(/Non-VAT service. No provider VAT is included/i),
+  ).toBeVisible();
+
+  expect(screen.queryByText("Included service VAT")).not.toBeInTheDocument();
+});
+
+it("does not invent VAT when financial evidence is unavailable", () => {
+  render(
+    <CustomerPaymentReceiptView
+      receipt={{
+        ...receipt,
+        serviceVat: {status: "unavailable"},
+      }}
+    />,
+  );
+
+  expect(
+    screen.getByText("VAT breakdown unavailable for this payment."),
+  ).toBeVisible();
+
+  expect(screen.queryByText("Included service VAT")).not.toBeInTheDocument();
+});

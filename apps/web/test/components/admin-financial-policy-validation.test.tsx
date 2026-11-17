@@ -56,7 +56,7 @@ describe(
     );
 
     it(
-      "accepts VAT Registered simulation with a positive VAT rate",
+      "accepts VAT Registered with a positive VAT rate",
       () => {
         expect(
           validateAdminFinancialPolicyUpdate(
@@ -93,7 +93,7 @@ describe(
     );
 
     it(
-      "rejects zero VAT rate when VAT simulation is enabled",
+      "rejects zero VAT rate when VAT is enabled",
       () => {
         expect(() =>
           validateAdminFinancialPolicyUpdate(

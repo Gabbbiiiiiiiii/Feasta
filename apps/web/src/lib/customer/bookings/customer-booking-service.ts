@@ -1,6 +1,7 @@
 import {projectInitialPaymentDeadline} from "./customer-booking-initial-payment-deadline";
 import {lifecycleEvidence, linkedLifecycleEvidence} from "@/lib/presentation/booking-lifecycle";
 import "server-only";
+import {customerBookingServiceVat} from "./customer-booking-service-vat";
 import {bookingPolicyV3Presentation} from "@/lib/payments/booking-policy-v3-presentation";
 import {hasBookingSettlement, projectBookingPayment} from "@/lib/payments/booking-payment-projection";
 import {customerBookingCheckoutOptions} from "./customer-booking-checkout-options";
@@ -654,6 +655,7 @@ function mapProviderRequestDocument(
     packageName: nullableString(data.packageName),
     services: normalizeServices(data.services),
     amount: finiteNumber(data.amount),
+    serviceVat: customerBookingServiceVat(data),
     downPaymentAmount: finiteNumber(data.downPaymentAmount),
     downPaymentPercentage: finiteNumber(data.downPaymentPercentage),
     remainingBalance: finiteNumber(data.remainingBalance),

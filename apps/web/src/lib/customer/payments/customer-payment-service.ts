@@ -1,4 +1,5 @@
 import "server-only";
+import {customerServiceVat} from "./customer-service-vat";
 import {customerBookingCheckoutOptions} from "../bookings/customer-booking-checkout-options";
 
 import {
@@ -315,6 +316,14 @@ export async function getCustomerPaymentReceipt(
     amountPaidInCentavos -
     refundedAmountInCentavos;
 
+  const serviceVat = customerServiceVat(
+    payment,
+    providerRequest,
+    paymentId,
+    amountPaidInCentavos,
+    refundedAmountInCentavos,
+  );
+
   const services =
     returnServiceSummary(
       providerRequest.services,
@@ -323,6 +332,8 @@ export async function getCustomerPaymentReceipt(
   return {
     documentKind:
       "payment_receipt",
+
+    serviceVat,
 
     paymentId,
 

@@ -157,7 +157,7 @@ export function validateAdminFinancialPolicyUpdate(
     platformVatRateBps === 0
   ) {
     throw new Error(
-      "VAT rate must be greater than 0 when VAT Registered simulation is enabled.",
+      "VAT rate must be greater than 0 when VAT Registered is enabled.",
     );
   }
 

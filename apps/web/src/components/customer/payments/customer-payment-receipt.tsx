@@ -110,6 +110,44 @@ export function CustomerPaymentReceiptView({
           />
         </section>
 
+        <section
+          aria-label="Service VAT breakdown"
+          className="border-b border-feasta-border-soft px-5 py-5 sm:px-8 print:px-0 print:py-3"
+        >
+          <h2 className="text-base font-black text-foreground sm:text-lg">
+            Service VAT information
+          </h2>
+          {receipt.serviceVat?.status === "available" ? (
+            receipt.serviceVat.taxType === "vat_registered" ? (
+              <div className="mt-3 grid gap-2 text-sm">
+                <div className="flex justify-between gap-4">
+                  <span>Included service VAT</span>
+                  <strong>{formatServiceVat(receipt.serviceVat.includedInPaymentInCentavos)}</strong>
+                </div>
+                <div className="flex justify-between gap-4">
+                  <span>Included VAT reversed after refund</span>
+                  <strong>{formatServiceVat(receipt.serviceVat.reversedInCentavos)}</strong>
+                </div>
+                <div className="flex justify-between gap-4 border-t border-feasta-border-soft pt-2">
+                  <span>Net included service VAT</span>
+                  <strong>{formatServiceVat(receipt.serviceVat.netIncludedInCentavos)}</strong>
+                </div>
+                <p className="text-xs text-feasta-text-tertiary">
+                  VAT is already included in this payment. It is not an additional charge.
+                </p>
+              </div>
+            ) : (
+              <p className="mt-2 text-sm text-feasta-text-secondary">
+                Non-VAT service. No provider VAT is included in this payment.
+              </p>
+            )
+          ) : (
+            <p className="mt-2 text-sm text-feasta-text-secondary">
+              VAT breakdown unavailable for this payment.
+            </p>
+          )}
+        </section>
+
         <section className="grid gap-6 px-5 pb-6 pt-2 sm:grid-cols-2 sm:gap-8 sm:px-8 print:grid-cols-2 print:gap-5 print:px-0 print:pb-3">
           <div className="min-w-0">
             <h2 className="flex items-center gap-2 text-base font-black text-foreground sm:text-lg">
@@ -270,4 +308,12 @@ function formatReceiptDate(value: string | null): string {
     timeStyle: "short",
     timeZone: "Asia/Manila",
   }).format(date);
+}
+
+
+function formatServiceVat(amountInCentavos: number): string {
+  return new Intl.NumberFormat("en-PH", {
+    style: "currency",
+    currency: "PHP",
+  }).format(amountInCentavos / 100);
 }

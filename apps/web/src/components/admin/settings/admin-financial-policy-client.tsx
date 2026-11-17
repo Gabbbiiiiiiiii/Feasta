@@ -232,7 +232,7 @@ function AdminFinancialPolicyClient({
       vatRateBps === 0
     ) {
       setError(
-        "VAT rate must be greater than 0 when VAT Registered simulation is enabled.",
+        "VAT rate must be greater than 0 when VAT Registered is enabled.",
       );
       return;
     }
@@ -388,8 +388,7 @@ function AdminFinancialPolicyClient({
 
             <p className="mt-1 max-w-3xl text-sm leading-6 text-muted-foreground">
               Configure FEASTA&apos;s
-              commission, platform-tax
-              simulation, Provider deposit
+              commission, platform-tax settings, Provider deposit
               limits, and remaining-balance
               deadline limits. Financial
               policy changes share one
@@ -425,13 +424,13 @@ function AdminFinancialPolicyClient({
 
         <div className="text-sm leading-6">
           <p className="font-semibold text-foreground">
-            Capstone tax simulation
+            Platform Tax Configuration
           </p>
 
           <p className="text-muted-foreground">
             Selecting VAT Registered
             configures FEASTA&apos;s
-            platform-fee VAT simulation
+            platform-fee VAT configuration
             only. It does not claim that
             FEASTA is currently registered
             as a VAT taxpayer with the BIR.
@@ -537,7 +536,7 @@ function AdminFinancialPolicyClient({
               </option>
 
               <option value="vat_registered">
-                VAT Registered — Capstone Simulation
+                VAT Registered
               </option>
             </select>
 
@@ -583,10 +582,9 @@ function AdminFinancialPolicyClient({
               id="financial-policy-vat-rate-help"
               className="text-sm leading-5 text-muted-foreground"
             >
-              The stored demonstration
-              default is 12%. It becomes
+              The configured default is 12%. It becomes
               financially active only when
-              VAT Registered simulation is
+              VAT Registered is
               selected.
             </span>
           </div>
@@ -678,7 +676,7 @@ function AdminFinancialPolicyClient({
                 value={
                   platformTaxStatus ===
                   "vat_registered"
-                    ? "VAT Registered simulation"
+                    ? "VAT Registered"
                     : "Non-VAT"
                 }
               />

@@ -1766,3 +1766,68 @@ it("humanizes booking event and included-service labels without mutating identif
   expect(result.details.booking.eventType).toBe("birthday");
   expect(result.details.providerRequests[0].services[0].category).toBe("catering_package");
 });
+
+describe("Customer booking service VAT disclosure", () => {
+  it("shows frozen included VAT without changing the service total", () => {
+    const result = detailResult();
+    result.details.providerRequests = [
+      providerRequestFixture({
+        amount: 20000,
+        serviceVat: {
+          status: "available",
+          taxType: "vat_registered",
+          includedInPriceInCentavos: 214286,
+        },
+      }),
+    ];
+
+    render(<CustomerBookingDetailPage result={result} />);
+
+    const vat = screen.getByRole("region", {
+      name: "Service VAT information",
+    });
+
+    expect(within(vat).getByText("Included provider VAT (12%)")).toBeVisible();
+    expect(within(vat).getByText(/2,142\.86/)).toBeVisible();
+    expect(within(vat).getByText(/No additional charge/)).toBeVisible();
+    expect(result.details.providerRequests[0].amount).toBe(20000);
+  });
+
+  it("shows verified Non-VAT service without inventing VAT", () => {
+    const result = detailResult();
+    result.details.providerRequests = [
+      providerRequestFixture({
+        serviceVat: {
+          status: "available",
+          taxType: "non_vat",
+          includedInPriceInCentavos: 0,
+        },
+      }),
+    ];
+
+    render(<CustomerBookingDetailPage result={result} />);
+
+    const vat = screen.getByRole("region", {
+      name: "Service VAT information",
+    });
+
+    expect(within(vat).getByText(/Non-VAT service/)).toBeVisible();
+    expect(within(vat).queryByText(/Included provider VAT/)).not.toBeInTheDocument();
+  });
+
+  it("does not invent VAT for unavailable booking evidence", () => {
+    const result = detailResult();
+    result.details.providerRequests = [
+      providerRequestFixture({
+        serviceVat: {status: "unavailable"},
+      }),
+    ];
+
+    render(<CustomerBookingDetailPage result={result} />);
+
+    expect(
+      screen.getByText("VAT breakdown unavailable for this booking."),
+    ).toBeVisible();
+    expect(screen.queryByText("Included provider VAT (12%)")).not.toBeInTheDocument();
+  });
+});

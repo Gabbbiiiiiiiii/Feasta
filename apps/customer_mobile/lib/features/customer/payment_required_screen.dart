@@ -508,6 +508,37 @@ class _ProviderPaymentCard extends StatelessWidget {
             value: _humanize(request.paymentStatus),
           ),
 
+          const SizedBox(height: AppSpacing.sm),
+
+          if (request.serviceVat == null)
+            Text(
+              'VAT breakdown unavailable for this booking.',
+              style: AppTypography.bodySmall.copyWith(
+                color: AppColors.secondaryTextAccessible,
+              ),
+            )
+          else if (request.serviceVat!.taxType == 'vat_registered') ...[
+            _DetailRow(
+              label: 'Included provider VAT (12%)',
+              value: _peso(request.serviceVat!.includedVatInCentavos / 100),
+            ),
+            const SizedBox(height: AppSpacing.xxs),
+            Text(
+              'VAT is already included in the service price. '
+              'No additional charge.',
+              style: AppTypography.bodySmall.copyWith(
+                color: AppColors.secondaryTextAccessible,
+              ),
+            ),
+          ] else
+            Text(
+              'Non-VAT service. No provider VAT is added to the '
+              'service price.',
+              style: AppTypography.bodySmall.copyWith(
+                color: AppColors.secondaryTextAccessible,
+              ),
+            ),
+
           if (request.checkoutOptions.isNotEmpty) ...[
             const SizedBox(height: AppSpacing.lg),
 

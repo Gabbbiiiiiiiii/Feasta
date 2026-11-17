@@ -197,12 +197,19 @@ it("shows business fee totals without technical evidence or invented net revenue
   expect(screen.getByText("FEASTA Revenue").parentElement).toHaveTextContent("₱75.00");
   expect(screen.getByText("FEASTA fees before refunds").parentElement).toHaveTextContent("₱100.00");
   expect(screen.getByText("Customer payments after refunds").parentElement).toHaveTextContent("₱750.00");
+  expect(screen.getByText("Provider VAT accrued").parentElement).toHaveTextContent("100.00");
+  expect(screen.getByText("Provider VAT reversed").parentElement).toHaveTextContent("25.00");
+  expect(screen.getByText("Provider VAT net").parentElement).toHaveTextContent("75.00");
+  expect(screen.getByText("FEASTA VAT accrued").parentElement).toHaveTextContent("12.00");
+  expect(screen.getByText("FEASTA VAT reversed").parentElement).toHaveTextContent("3.00");
+  expect(screen.getByText("FEASTA VAT net").parentElement).toHaveTextContent("9.00");
   expect(container.textContent).not.toMatch(/gateway|immutable|canonical|net platform revenue/i);
 });
 
-it("hides zero tax cards and keeps record issues understandable", () => {
+it("displays zero VAT amounts and keeps record issues understandable", () => {
   render(<AdminFinancialReportSummary report={{...financial, ledger: {...financial.ledger, platformVatAccruedInCentavos: 0, platformVatReversedInCentavos: 0, malformedRecordCount: 1}}} fallbackExplanation="" />);
-  expect(screen.queryByText("Tax on FEASTA fees")).not.toBeInTheDocument();
+  expect(screen.getByText("FEASTA VAT accrued").parentElement).toHaveTextContent("0.00");
+  expect(screen.getByText("FEASTA VAT reversed").parentElement).toHaveTextContent("0.00");
   expect(screen.getByRole("status")).toHaveTextContent("1 payment records need review");
 });
 

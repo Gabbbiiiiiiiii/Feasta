@@ -89,6 +89,7 @@ export type CustomerPaymentReceiptStatus =
   | "refunded";
 
 export type CustomerPaymentReceipt = {
+  serviceVat?: import("./customer-service-vat").CustomerServiceVat;
   documentKind:
     "payment_receipt";
 

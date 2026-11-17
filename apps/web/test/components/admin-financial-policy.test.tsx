@@ -267,10 +267,11 @@ describe(
         );
 
         expect(
-          screen.getByText(
-            "VAT Registered simulation",
+          screen.getByRole(
+            "combobox",
+            {name: "FEASTA tax status"},
           ),
-        ).toBeInTheDocument();
+        ).toHaveValue("vat_registered");
       },
     );
 

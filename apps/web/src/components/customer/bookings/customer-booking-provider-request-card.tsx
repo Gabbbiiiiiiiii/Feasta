@@ -141,6 +141,32 @@ function CustomerBookingProviderRequestCard({
         <FinancialMetric label="Total service price" value={formatCurrency(request.amount)} />
         {checkoutPresentation.currentAmount !== null ? <FinancialMetric label={checkoutPresentation.dueLabel} value={formatCurrency(checkoutPresentation.currentAmount)} /> : null}
       </dl>
+      <section
+        aria-label="Service VAT information"
+        className="rounded-xl border border-border bg-muted/20 p-3 text-sm"
+      >
+        {request.serviceVat?.status === "available" ? (
+          request.serviceVat.taxType === "vat_registered" ? (
+            <div className="grid gap-1">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="font-medium">Included provider VAT (12%)</span>
+                <strong>{formatCurrency(request.serviceVat.includedInPriceInCentavos / 100)}</strong>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                VAT is already included in the total service price. No additional charge.
+              </p>
+            </div>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              Non-VAT service. No provider VAT is added to the listed service price.
+            </p>
+          )
+        ) : (
+          <p className="text-xs text-muted-foreground">
+            VAT breakdown unavailable for this booking.
+          </p>
+        )}
+      </section>
       {request.lifecycle?.initialPaymentExpired && request.status === "expired" ? (
         <div role="status" className="grid gap-2 rounded-xl border border-border p-3.5 text-sm">
           <p className="font-bold">Payment expired — Submit a new booking request</p>

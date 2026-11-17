@@ -11,7 +11,7 @@ export function AdminFinancialReportSummary({report}: {
     </section>;
   }
   const ledger = report.ledger;
-  const hasVat = ledger.platformVatAccruedInCentavos !== 0 || ledger.platformVatReversedInCentavos !== 0;
+
   const issues = ledger.malformedRecordCount + report.providerEarnings.malformedRecordCount + report.settlementPayouts.malformedRecordCount + report.gatewayFees.invalidCount;
   return <section aria-labelledby="financial-report-heading" className="grid gap-4">
     <div>
@@ -29,10 +29,20 @@ export function AdminFinancialReportSummary({report}: {
       <FinancialCard label="Provider reservation compensation" amount={ledger.providerReservationCompInCentavos ?? 0} />
     </div>
     <p className="text-xs text-muted-foreground">FEASTA Revenue is before payment processing costs.</p>
-    {hasVat ? <div className="grid gap-4 sm:grid-cols-2">
-      <FinancialCard label="Tax on FEASTA fees" amount={ledger.platformVatAccruedInCentavos} />
-      <FinancialCard label="Refunded tax on FEASTA fees" amount={ledger.platformVatReversedInCentavos} />
-    </div> : null}
+    <div className="grid gap-2">
+      <h3 className="text-lg font-bold">VAT breakdown</h3>
+      <p className="text-xs text-muted-foreground">
+        Provider VAT and FEASTA VAT are reported separately. These amounts reflect recorded financial movements, not additional customer charges.
+      </p>
+    </div>
+    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+      <FinancialCard label="Provider VAT accrued" amount={ledger.providerVatAccruedInCentavos} />
+      <FinancialCard label="Provider VAT reversed" amount={ledger.providerVatReversedInCentavos} />
+      <FinancialCard label="Provider VAT net" amount={ledger.providerVatNetMovementInCentavos} />
+      <FinancialCard label="FEASTA VAT accrued" amount={ledger.platformVatAccruedInCentavos} />
+      <FinancialCard label="FEASTA VAT reversed" amount={ledger.platformVatReversedInCentavos} />
+      <FinancialCard label="FEASTA VAT net" amount={ledger.platformVatNetMovementInCentavos} />
+    </div>
     <div className="grid gap-4 sm:grid-cols-2">
       <FinancialCard label="Provider earnings pending" amount={report.providerEarnings.pendingAmountInCentavos} />
       <FinancialCard label="Provider earnings available" amount={report.providerEarnings.availableAmountInCentavos} />
