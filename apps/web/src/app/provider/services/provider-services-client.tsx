@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import type {
   ServiceCategoryCode,
@@ -314,7 +314,7 @@ export function ProviderServicesClient({
             </DialogDescription>
           </DialogHeader>
 
-          <ProviderServiceForm
+          <ProviderServiceForm existingServices={services}
             isFreelancer={isFreelancer}
             inDialog
             onSubmittingChange={setCreating}
@@ -347,7 +347,7 @@ export function ProviderServicesClient({
             </p>
           </div>
 
-          <ProviderServiceForm
+          <ProviderServiceForm existingServices={services}
             isFreelancer={isFreelancer}
             key={editingService.id}
             serviceCategories={

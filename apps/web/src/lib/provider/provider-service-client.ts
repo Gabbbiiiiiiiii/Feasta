@@ -1,4 +1,6 @@
 "use client";
+import {offerNameError, offerDescriptionError, serviceGuestLimitsError} from "./provider-offer-policy";
+import {isServicePriceAmount, servicePriceError} from "./provider-service-price";
 
 import {
   collection,
@@ -45,6 +47,8 @@ export type ProviderServiceInput = {
   category: ServiceCategoryCode;
   pricingType: AddonPricingType;
   price: number | null;
+  minimumGuests?: number | null;
+  maximumGuests?: number | null;
   imageUrl: string;
   imagePublicId: string;
 };
@@ -62,6 +66,8 @@ export type ProviderService = {
   category: ServiceCategoryCode;
   pricingType: AddonPricingType;
   price: number | null;
+  minimumGuests?: number | null;
+  maximumGuests?: number | null;
 
   imageUrl: string;
   imagePublicId: string;
@@ -220,7 +226,11 @@ function normalizeServiceInput(
       input.category,
     );
 
+  const invalid=offerNameError(input.name) || offerDescriptionError(input.description) ||
+    serviceGuestLimitsError(pricingType,input.minimumGuests,input.maximumGuests);
+  if (invalid) throw new WebAuthenticationError(invalid,"validation");
   return {
+    ...(pricingType==="per_guest"?{minimumGuests:input.minimumGuests,maximumGuests:input.maximumGuests}:{}),
     ...(input.expectedRevision !== undefined ? {expectedRevision: input.expectedRevision} : {}),
     ...(input.portfolio ? {portfolio: input.portfolio} : {}),
     ...(input.freelanceDetails !== undefined ? {freelanceDetails: input.freelanceDetails} : {}),
@@ -228,13 +238,13 @@ function normalizeServiceInput(
       requireText(
         input.name,
         "name",
-        160,
+        80,
       ),
 
     description:
       normalizeOptionalText(
         input.description,
-        1000,
+        500,
       ),
 
     category,
@@ -286,6 +296,8 @@ function parseProviderService(
         "name",
       ),
 
+    minimumGuests: typeof data.minimumGuests==="number"?data.minimumGuests:null,
+    maximumGuests: typeof data.maximumGuests==="number"?data.maximumGuests:null,
     description:
       optionalString(
         data.description,
@@ -415,13 +427,10 @@ function normalizePrice(
   }
 
   if (
-    typeof value !== "number" ||
-    !Number.isFinite(value) ||
-    value < 0 ||
-    value > 100_000_000
+    !isServicePriceAmount(value,pricingType)
   ) {
     throw new WebAuthenticationError(
-      "The service price is invalid.",
+      servicePriceError(pricingType),
       "validation",
     );
   }
@@ -548,7 +557,6 @@ function normalizeOptionalText(
 
   return value
     .trim()
-    .replace(/\s+/gu, " ")
     .slice(
       0,
       maximumLength,

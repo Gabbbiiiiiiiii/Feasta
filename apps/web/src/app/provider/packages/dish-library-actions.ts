@@ -79,6 +79,19 @@ export async function saveDishLibrary(revision: number, input: LibraryDish[], sa
     const previous = new Map<string, LibraryDish>(
       ((snapshot.get("dishes") ?? []) as LibraryDish[]).map((dish) => [dish.id, dish]),
     );
+    const existingCategories = new Set([
+      ...((snapshot.get("categories") ?? []) as string[]).map(categoryKey),
+      ...Array.from(previous.values(), (dish) => categoryKey(dish.category)),
+    ]);
+    const submittedCategories = new Set([
+      ...categoryNames.map(categoryKey),
+      ...dishes.map((dish) => categoryKey(dish.category)),
+    ]);
+    for (const key of submittedCategories) {
+      if (!existingCategories.has(key) && !Object.hasOwn(parentGroups, key) && !categories.has(key)) {
+        throw new Error("Assign a Parent Group before saving a new category.");
+      }
+    }
     for (const dish of dishes) {
       if (dish.parentGroup) continue;
       const existing = previous.get(dish.id);
