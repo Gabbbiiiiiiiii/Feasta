@@ -91,7 +91,6 @@ export function CustomerViolationsPanel({customerId}: {customerId: string}) {
           <p className="break-all text-xs">Provider requests: {record.providerRequestIds.join(", ")}</p>
           <p>{record.reason === "no_attempt_original_deadline_elapsed" ? "Payment deadline passed without a payment attempt" : record.reason}</p>
           <p>Payment deadline: {format(record.occurredAt)} · Recorded: {format(record.issuedAt)} (Manila)</p>
-          {record.consumedCycleId && <p className="break-all text-xs">Restriction cycle ID: {record.consumedCycleId}</p>}
           {record.restrictionStartedAt && <p>Restriction cycle: {format(record.restrictionStartedAt)} – {format(record.restrictionExpiresAt ?? null)} (Manila)</p>}
           {record.reversedAt ? <p>Reversed {format(record.reversedAt)} by {record.reversedBy}. Private audit reason: {record.reversalReason}</p> :
             <form className="grid gap-2" onSubmit={e => {e.preventDefault(); void reverse(record.id);}}>

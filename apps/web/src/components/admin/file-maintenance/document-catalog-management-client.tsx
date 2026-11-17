@@ -953,7 +953,6 @@ export function BusinessDocumentManagement({
       cell: (documentType) => (
         <div className="min-w-0">
           <p className="break-words font-bold">{documentType.name}</p>
-          <p className="mt-1 break-all text-xs text-muted-foreground">{documentType.code}</p>
         </div>
       ),
     },

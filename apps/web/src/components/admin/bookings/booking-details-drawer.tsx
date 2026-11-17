@@ -305,10 +305,6 @@ function BookingDetailsDrawer({
           </h2>
 
           <dl className="grid gap-2 text-sm">
-            <RecordItem
-              label="Booking ID"
-              value={booking.id}
-            />
 
             <RecordItem
               label="Created"
@@ -483,10 +479,6 @@ function PaymentCard({
       </div>
 
       <dl className="grid gap-2 border-t border-border pt-3 text-sm">
-        <RecordItem
-          label="Payment ID"
-          value={payment.id}
-        />
 
         <RecordItem
           label="Created"

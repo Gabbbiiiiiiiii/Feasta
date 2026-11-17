@@ -77,7 +77,6 @@ export default async function AdminAuditLogPage({
         <details className="mt-6 rounded-lg border border-border p-4">
           <summary className="cursor-pointer font-semibold">Support references</summary>
           <dl className="mt-4 grid gap-4 sm:grid-cols-2">
-            <AuditField label="Activity reference" value={auditLog.id} />
             <AuditField label="User reference" value={auditLog.actorId} />
             <AuditField
               label="Affected record"

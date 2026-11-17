@@ -51,7 +51,6 @@ export function ProviderReviewDetailDrawer({
       ) : review ? (
         <div className="grid gap-6">
           <DrawerSection title="Review">
-            <DetailRow label="Review ID" value={review.id} />
             <DetailRow label="Customer" value={review.customerDisplayName} />
             <div className="rounded-lg border border-border p-3">
               <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">

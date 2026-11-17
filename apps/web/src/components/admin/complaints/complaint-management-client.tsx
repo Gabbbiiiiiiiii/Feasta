@@ -1040,12 +1040,6 @@ function ComplaintDetails({
         ]}
       />
 
-      {complaint.bookingId || complaint.providerRequestId ? (
-        <DetailSection title="Related booking" rows={[
-          ["Booking ID", complaint.bookingId || "Unavailable"],
-          ["Provider request ID", complaint.providerRequestId || "Event-level report"],
-        ]} />
-      ) : null}
 
       {complaint.providerId ? (
         <DetailSection
@@ -1056,10 +1050,6 @@ function ComplaintDetails({
               complaint.providerName ||
                 "Unnamed provider",
             ],
-            [
-              "Provider ID",
-              complaint.providerId,
-            ],
           ]}
         />
       ) : null}
@@ -1067,10 +1057,6 @@ function ComplaintDetails({
       <DetailSection
         title="Case information"
         rows={[
-          [
-            "Complaint ID",
-            complaint.id,
-          ],
           [
             "Submitted",
             formatDate(

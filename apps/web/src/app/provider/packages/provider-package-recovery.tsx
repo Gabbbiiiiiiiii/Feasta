@@ -53,7 +53,6 @@ export function ProviderPackageRecovery({packageId, onRecovered}: {
         <DialogTitle>Review Fixed package recovery</DialogTitle>
         <DialogDescription>Compare all saved details with the proposed contract. Recovery keeps the same package ID and leaves it as a private Draft. Publishing is a separate action.</DialogDescription>
       </DialogHeader>
-      <p className="break-all text-sm">Package ID: {packageId}</p>
       <p className="text-sm text-muted-foreground">Image ownership and current business eligibility will be checked again when you confirm. The saved creation details stay unchanged; the last-updated time will reflect recovery.</p>
       {busy ? <p role="status">Checking recovery…</p> : null}
       {recovered ? <p role="status">Recovery confirmed. The original package remains a private Draft. Close this review and reopen the package to check its saved details.</p> : null}

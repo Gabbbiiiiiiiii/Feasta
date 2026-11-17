@@ -9,7 +9,6 @@ import {
   CalendarDays,
   CheckCircle2,
   Clock3,
-  Copy,
   Download,
   ExternalLink,
   FileText,
@@ -599,9 +598,6 @@ function UserDetailsContent({
       : []),
   ];
 
-  const copyUserId = async () => {
-    await navigator.clipboard.writeText(user.id);
-  };
 
   return (
     <div className="grid gap-5">
@@ -689,29 +685,7 @@ function UserDetailsContent({
             </span>
           </p>
 
-          <div className="flex items-center gap-2">
-            <ShieldCheck
-              aria-hidden="true"
-              className="size-4 shrink-0 text-violet-500"
-            />
 
-            <span className="truncate">
-              User ID: {user.id.slice(0, 12)}…
-            </span>
-
-            <button
-              type="button"
-              onClick={copyUserId}
-              title="Copy complete user ID"
-              aria-label="Copy complete user ID"
-              className="grid size-7 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
-            >
-              <Copy
-                aria-hidden="true"
-                className="size-3.5"
-              />
-            </button>
-          </div>
         </div>
       </section>
 
