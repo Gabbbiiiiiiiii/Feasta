@@ -33,7 +33,7 @@ import {packageV2Enabled, createV2PackageDraft, updateV2PackageDraft,
   completeV2PackageProgress, hasPendingV2Draft, retryPendingV2Draft} from "@/lib/provider/provider-package-v2-client";
 import type {CreateProviderPackageV2Request, FoodChoiceGroupV2} from "@feasta/shared-types/provider-package-v2";
 import {parseFoodChoiceGroupsV2} from "@/lib/provider/food-choice-groups-v2";
-import {ProviderPackageFoodChoices} from "./provider-package-food-choices";
+import {ProviderPackageParentGroupRules} from "./provider-package-food-choices";
 import {
   ProviderPackageIndividualFood,
   type IndividualFoodDraftV2,
@@ -376,8 +376,8 @@ export function ProviderPackageForm({
       ? "Individual Food Item requires serving-size, quantity, and pricing contracts before saving."
       : offerStructure === "customizable" && !usesV2
         ? "This draft has no saved V2 contract. Keep its details for reviewed recovery; the current editor cannot convert it in place or safely save customer food selections."
-        : offerStructure === "customizable" && foodChoiceGroups.length === 0
-          ? "Add at least one customer-selectable food group for this customizable package."
+        : (offerStructure === "customizable" || (offerStructure === "fixed" && !initialPackage)) && foodChoiceGroups.length === 0 && (offerStructure === "customizable" || foodInclusions.length === 0)
+          ? "Add at least one Parent Group rule."
           : null;
 
   const foodError = (!usesV2 && foodChoiceGroups.length ? "Return to Customizable Package to save the food-choice groups, or remove them before changing structure." : null) || foodStructureError || foodInclusionsError(foodInclusions) || (usesV2 ? (() => {
@@ -1146,15 +1146,15 @@ export function ProviderPackageForm({
               disabled={submitting || progressSaving}
             />
           </div>
-        ) : (
+        ) : (!usesV2 || foodInclusions.length > 0) ? (
           <ProviderPackageFoodMenu
             value={foodInclusions}
             onChange={setFoodInclusions}
             disabled={submitting || progressSaving}
           />
-        )}
+        ) : null}
         {usesV2 && offerStructure !== "individual" ? (
-          <ProviderPackageFoodChoices
+          <ProviderPackageParentGroupRules
             value={foodChoiceGroups}
             onChange={setFoodChoiceGroups}
             disabled={submitting || progressSaving}

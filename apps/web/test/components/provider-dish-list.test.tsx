@@ -5,15 +5,17 @@ import {loadDishLibrary, saveDishLibrary} from "@/app/provider/packages/dish-lib
 
 vi.mock("@/app/provider/packages/dish-library-actions", () => ({loadDishLibrary: vi.fn(), saveDishLibrary: vi.fn()}));
 
-it("saves an empty category and selects it in the open dish form", async () => {
+it("saves an empty category before opening the dish form", async () => {
   vi.mocked(saveDishLibrary).mockResolvedValue({revision: 1, dishes: [], categories: ["House Desserts"], parentGroups: {"house desserts": "Dessert"}});
   render(<ProviderDishLibrary initialLibrary={{revision: 0, dishes: [], categories: []}} />);
-  fireEvent.click(screen.getByRole("button", {name: "Add dish"}));
-  fireEvent.click(screen.getByRole("button", {name: "Add a category"}));
+  fireEvent.click(screen.getByRole("button", {name: "Add category"}));
   fireEvent.change(screen.getByLabelText("Category name"), {target: {value: "House Desserts"}});
   fireEvent.change(screen.getByLabelText("Parent Group"), {target: {value: "Dessert"}});
   fireEvent.click(screen.getByRole("button", {name: "Save category"}));
-  await waitFor(() => expect(screen.getByRole("combobox", {name: "Category Name"})).toHaveValue("House Desserts"));
+  await screen.findByText("No dishes in this category yet.");
+  fireEvent.click(screen.getByRole("button", {name: "Add dish"}));
+  fireEvent.change(screen.getByRole("combobox", {name: "Category Name"}), {target: {value: "House Desserts"}});
+  expect(screen.getByText("Parent Group: Dessert")).toBeVisible();
   expect(screen.getByRole("option", {name: "House Desserts"})).toBeInTheDocument();
   expect(saveDishLibrary).toHaveBeenCalledWith(0, [], ["House Desserts"], {"house desserts": "Dessert"});
   expect(screen.getByText("No dishes in this category yet.")).toBeVisible();
@@ -75,4 +77,23 @@ it("keeps the category and parent group when saving and adding another dish", as
   expect(screen.getByText("Parent Group: Meat Dishes")).toBeVisible();
   expect(screen.getByLabelText("Dish Name")).toHaveValue("");
   expect(screen.getByLabelText("Dish Name")).toHaveFocus();
+});
+
+it("assigns an ungrouped category without losing the pending dish name", async () => {
+  const existing = {id: "1", name: "Pancit", category: "Noodles", parentGroup: ""};
+  vi.mocked(saveDishLibrary).mockResolvedValueOnce({
+    revision: 1, categories: ["Noodles"], parentGroups: {noodles: "Main Dish"},
+    dishes: [{...existing, parentGroup: "Main Dish"}],
+  });
+  render(<ProviderDishLibrary initialLibrary={{revision: 0, dishes: [existing], categories: ["Noodles"]}} />);
+  fireEvent.click(screen.getByRole("button", {name: "Add dish"}));
+  fireEvent.change(screen.getByLabelText("Dish Name"), {target: {value: "Bihon"}});
+  fireEvent.change(screen.getByRole("combobox", {name: "Category Name"}), {target: {value: "Noodles"}});
+  expect(screen.getByRole("button", {name: "Save dish"})).toBeDisabled();
+  fireEvent.change(screen.getByRole("combobox", {name: "Parent Group"}), {target: {value: "Main Dish"}});
+  fireEvent.click(screen.getByRole("button", {name: "Assign to category"}));
+  expect(await screen.findByText("Parent Group: Main Dish")).toBeVisible();
+  expect(saveDishLibrary).toHaveBeenCalledWith(0, [{...existing, parentGroup: "Main Dish"}], ["Noodles"], {noodles: "Main Dish"});
+  expect(screen.getByLabelText("Dish Name")).toHaveValue("Bihon");
+  expect(screen.getByRole("button", {name: "Save dish"})).toBeEnabled();
 });

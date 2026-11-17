@@ -42,7 +42,7 @@ export function parseFoodChoiceGroupsV2(value: unknown, allowIncomplete = false)
       seenTitles.add(key);
     }
     if (!Array.isArray(row.options) ||
-        (!allowIncomplete && row.options.length < 2)) return invalid();
+        (!allowIncomplete && row.options.length < 1)) return invalid();
     if (typeof row.selectionCount !== "number" || !Number.isSafeInteger(row.selectionCount) || row.selectionCount < 1 ||
         row.selectionCount > 10 ||
         (!allowIncomplete && row.selectionCount > row.options.length)) return invalid();

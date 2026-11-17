@@ -50,7 +50,7 @@ class FoodChoiceGroupV2 {
         }
         options[option['id'] as String] = option['name'] as String;
       }
-      if (options.length < 2 ||
+      if (options.isEmpty ||
           (row['selectionCount'] as int) < 1 ||
           (row['selectionCount'] as int) > options.length ||
           groups.any(
