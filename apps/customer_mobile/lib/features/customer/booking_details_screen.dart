@@ -22,6 +22,7 @@ import 'recovery_offers_screen.dart';
 import 'review_screen.dart';
 import 'booking_complaint_action.dart';
 import 'independent_booking_display.dart';
+import 'customer_cancellation_dialog.dart';
 
 class BookingDetailsScreen extends StatelessWidget {
   const BookingDetailsScreen({
@@ -1416,62 +1417,89 @@ class ActionButtons extends StatelessWidget {
   final BookingModel booking;
 
   Future<void> _cancelBooking(BuildContext context) async {
-    final reasonController = TextEditingController();
-
-    final reason = await showDialog<String>(
-      context: context,
-      builder: (dialogContext) {
-        return _ReasonDialog(
-          title: 'Cancel Booking',
-          message: 'Tell the provider why you need to cancel this booking.',
-          controller: reasonController,
-          confirmLabel: 'Submit Cancellation',
-        );
-      },
-    );
-
-    reasonController.dispose();
-
-    if (reason == null || reason.trim().isEmpty) {
-      return;
-    }
-
     try {
-      await FeastaRepository().cancelOrRequestBookingCancellation(
+      // Validates the complete linked request set against the
+      // authenticated customer and the canonical main event.
+      final requests = await FeastaRepository().customerPaymentRequests(
         booking: booking,
-        reason: reason.trim(),
       );
 
-      if (!context.mounted) {
-        return;
-      }
+      if (!context.mounted) return;
 
-      final isPaidBooking =
-          booking.status == BookingStatus.confirmed ||
-          booking.paymentStatus == PaymentStatus.partiallyPaid ||
-          booking.paymentStatus == PaymentStatus.paid;
-
-      ScaffoldMessenger.of(context)
-        ..hideCurrentSnackBar()
-        ..showSnackBar(
-          SnackBar(
+      if (requests.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
             content: Text(
-              isPaidBooking
-                  ? 'Cancellation request submitted to provider.'
-                  : 'Booking cancelled successfully.',
+              'Cancellation options are unavailable because no '
+              'provider service could be verified. Contact FEASTA support.',
             ),
           ),
         );
-    } catch (error) {
-      if (!context.mounted) {
         return;
       }
+
+      CustomerProviderPaymentRequest? selected;
+
+      if (requests.length == 1) {
+        selected = requests.single;
+      } else {
+        final selectedId = await showDialog<String>(
+          context: context,
+          builder: (dialogContext) => SimpleDialog(
+            title: const Text('Choose a provider service'),
+            children: [
+              for (final request in requests)
+                SimpleDialogOption(
+                  onPressed: () => Navigator.of(dialogContext).pop(request.id),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          request.providerBusinessName,
+                          style: const TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                        Text(request.packageName),
+                      ],
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        );
+
+        if (!context.mounted || selectedId == null) return;
+
+        for (final request in requests) {
+          if (request.id == selectedId) {
+            selected = request;
+            break;
+          }
+        }
+      }
+
+      if (selected == null) return;
+
+      await showDialog<void>(
+        context: context,
+        builder: (_) => CustomerCancellationDialog(
+          providerRequestId: selected!.id,
+          providerName: selected.providerBusinessName,
+          serviceName: selected.packageName,
+        ),
+      );
+    } catch (_) {
+      if (!context.mounted) return;
 
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
         ..showSnackBar(
-          SnackBar(
-            content: Text(error.toString().replaceAll('Exception: ', '')),
+          const SnackBar(
+            content: Text(
+              'Provider cancellation information could not be verified. '
+              'Refresh this booking or contact FEASTA support.',
+            ),
           ),
         );
     }
@@ -1530,13 +1558,9 @@ class ActionButtons extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final canCancel =
-        (booking.status == BookingStatus.pending ||
-            BookingStatus.isWaitingForPayment(booking.status) ||
-            booking.status == BookingStatus.confirmed) &&
-        booking.cancellationStatus != 'requested' &&
-        booking.recoveryStatus != BookingRecoveryStatus.open &&
-        booking.recoveryStatus != BookingRecoveryStatus.offerReceived;
+    // Server eligibility is checked when cancellation options are opened.
+    // Do not hide status/history merely because a booking is terminal.
+    final hasCancellationRequests = booking.providerRequestIds.isNotEmpty;
 
     final hasRecovery =
         booking.recoveryStatus == BookingRecoveryStatus.open ||
@@ -1622,10 +1646,10 @@ class ActionButtons extends StatelessWidget {
           ),
         ],
 
-        if (canCancel) ...[
+        if (hasCancellationRequests) ...[
           const SizedBox(height: AppSpacing.sm),
           _DangerOutlineButton(
-            label: 'Cancel Booking',
+            label: 'Cancellation options',
             icon: Icons.event_busy_outlined,
             onPressed: () {
               _cancelBooking(context);

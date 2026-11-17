@@ -7,6 +7,7 @@ import '../../shared/models/independent_booking.dart';
 import '../authentication/data/repositories/customer_provider_requests_source.dart';
 import 'booking_lifecycle_presentation.dart';
 import 'payment_required_screen.dart';
+import 'customer_cancellation_dialog.dart';
 
 String _label(String value) => value
     .split('_')
@@ -216,6 +217,19 @@ class _IndependentBookingDetailsState extends State<IndependentBookingDetails> {
                             const Text(
                               'Current settlement balance unavailable',
                             ),
+                          const SizedBox(height: 12),
+                          OutlinedButton.icon(
+                            icon: const Icon(Icons.event_busy_outlined),
+                            label: const Text('Cancellation options'),
+                            onPressed: () => showDialog<void>(
+                              context: context,
+                              builder: (_) => CustomerCancellationDialog(
+                                providerRequestId: request.assignment.requestId,
+                                providerName: request.providerName,
+                                serviceName: request.serviceName,
+                              ),
+                            ),
+                          ),
                         ],
                       ),
                     ),
