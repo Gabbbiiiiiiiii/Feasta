@@ -109,13 +109,15 @@ export function ProviderPackageFoodChoices({value, onChange, disabled = false}: 
           {draft ? <>
             <div className="min-h-0 space-y-4 overflow-y-auto p-6">
               <label className="grid gap-2 text-sm font-medium">Group Name
-                <Input autoFocus required maxLength={80} disabled={disabled} value={draft.group.title} placeholder="e.g., Main dish" onChange={(event) => updateDraft({...draft, group: {...draft.group, title: event.target.value}})} /></label>
+                <Input autoFocus required maxLength={80} disabled={disabled || draft.group.options.some((option) => option.name.trim())} value={draft.group.title} placeholder="e.g., Main dish" onChange={(event) => updateDraft({...draft, group: {...draft.group, title: event.target.value}})} /></label>
               <div className="grid gap-4 sm:grid-cols-2">
                 <label className="grid gap-2 text-sm font-medium">Minimum Selections<ProviderPackageIntegerInput label="Minimum Selections" maximum={10} disabled={disabled} value={draft.minimum} onChange={(minimum, minimumError) => updateDraft({...draft, minimum, minimumError})} /></label>
                 <label className="grid gap-2 text-sm font-medium">Maximum Selections<ProviderPackageIntegerInput label="Maximum Selections" maximum={10} disabled={disabled} value={draft.maximum} onChange={(maximum, maximumError) => updateDraft({...draft, maximum, maximumError})} /></label>
               </div>
               {selectionError ? <p role="alert" className="text-sm text-destructive">{selectionError}</p> : null}
-              <ProviderDishLibrary disabled={disabled}
+              <p className="text-xs text-muted-foreground">Use a Parent Group from your Dish List as the group name to select matching dishes. Remove the selected dishes before changing the group name.</p>
+              <ProviderDishLibrary disabled={disabled || !draft.group.title.trim()}
+                parentGroup={draft.group.title}
                 destination={draft.group.title.trim() ? `Choice group · ${draft.group.title.trim()}` : "Customer choice group"}
                 onAdd={(dishes) => {
                 const options = draft.group.options.filter((option) => option.name.trim());

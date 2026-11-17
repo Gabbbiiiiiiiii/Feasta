@@ -214,6 +214,7 @@ export function ProviderServiceForm({
 
   const showPackageDetails = supportsServicePackageDetails(isFreelancer ? "individual" : undefined, category);
   const media = category === "photographer" || category === "videographer";
+  const simplePackage = media && showPackageDetails && !editing;
   const freelancePreview = showPackageDetails ? readFreelanceServiceDetails(freelanceDetails) : null;
 
   const parsedPrice =
@@ -509,6 +510,86 @@ export function ProviderServiceForm({
       onSubmittingChange?.(false);
     }
   }
+  const portfolioFields = (
+    <section aria-labelledby={fieldId + "-portfolio"} className="grid gap-3 rounded-lg border border-border p-4">
+        <h3 id={fieldId + "-portfolio"} className="font-semibold">Show Your Work</h3>
+        <p className="text-sm text-muted-foreground">Upload photos of your previous events so customers can see your work.</p>
+        {isFreelancer ? <ServicePortfolioFields photos={photos} coverAssetId={coverAssetId} disabled={submitting}
+          onChange={(next, cover) => {setPhotos(next); setCoverAssetId(cover);}} /> : null}
+        {portfolioProgress ? <p role="status" className="text-sm">{portfolioProgress}</p> : null}
+        {!usePortfolio ? <details open={!isFreelancer || Boolean(serviceImage || selectedImageFile)}>
+          <summary className="cursor-pointer text-sm font-semibold">
+            {isFreelancer ? "Use one photo instead of a gallery" : "Manage cover photo"}
+          </summary>
+          <div className="mt-3">
+            <FormField label="Cover photo" id={`${fieldId}-image`}>
+              <div className="grid gap-3">
+                {imagePreviewUrl || serviceImage ? (
+                  <div className="overflow-hidden rounded-lg border border-border">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={
+                        imagePreviewUrl ??
+                        serviceImage?.url ??
+                        ""
+                      }
+                      alt=""
+                      className="h-48 w-full object-cover"
+                    />
+                  </div>
+                ) : (
+                  <div className="flex h-40 items-center justify-center rounded-lg border border-dashed border-border bg-muted/30 px-6 text-center">
+                    <p className="text-sm text-muted-foreground">
+                      Choose the photo customers will see first on your listing.
+                    </p>
+                  </div>
+                )}
+
+                <div className="flex flex-wrap gap-2">
+                  <label className="inline-flex h-10 cursor-pointer items-center justify-center rounded-md border border-input bg-background px-4 text-sm font-medium hover:bg-accent hover:text-accent-foreground">
+                    {selectedImageFile ||
+                      serviceImage
+                        ? "Replace image"
+                        : "Upload image"}
+
+                    <input
+                      id={`${fieldId}-image`}
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp"
+                      className="sr-only"
+                      disabled={
+                        submitting ||
+                        uploadingImage
+                      }
+                      onChange={handleImageChange}
+                    />
+                  </label>
+
+                  {imagePreviewUrl || serviceImage ? (
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      disabled={
+                        submitting ||
+                        uploadingImage
+                      }
+                      onClick={handleRemoveImage}
+                    >
+                      Remove
+                    </Button>
+                  ) : null}
+                </div>
+
+                <p className="text-xs text-muted-foreground">
+                  JPEG, PNG, or WebP. Maximum 5 MB.
+                </p>
+              </div>
+            </FormField>
+          </div>
+        </details> : null}
+      </section>
+  );
+
   return (
     <form
       onSubmit={handleSubmit}
@@ -516,10 +597,10 @@ export function ProviderServiceForm({
       aria-busy={submitting || uploadingImage}
     >
       <div className={inDialog ? "grid min-h-0 flex-1 grid-cols-1 gap-6 overflow-y-auto overscroll-contain p-6" : "grid gap-6"}>
-      {showPackageDetails ? <div><h3 className="font-semibold">About Your Service</h3><p className="mt-1 text-sm text-muted-foreground">{media ? "Add your service details, what's included, and how customers will receive their photos or videos." : "Add your service details, what's included, and how customers will receive your work."}</p></div> : null}
+      {showPackageDetails && !simplePackage ? <div><h3 className="font-semibold">About Your Service</h3><p className="mt-1 text-sm text-muted-foreground">{media ? "Add your service details, what's included, and how customers will receive their photos or videos." : "Add your service details, what's included, and how customers will receive your work."}</p></div> : null}
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         <FormField
-          label="Service name"
+          label={simplePackage ? "Package name" : "Service name"}
           error={fieldError("name")}
           required
         >
@@ -537,7 +618,7 @@ export function ProviderServiceForm({
         </FormField>
 
         <FormField
-          label="Service category"
+          label={simplePackage ? "Package type" : "Service category"}
           error={fieldError("category")}
           id={`${fieldId}-category`}
           required
@@ -656,7 +737,7 @@ export function ProviderServiceForm({
 
       <FormField
         error={fieldError("description")}
-        label={showPackageDetails ? "Short description" : "Description"}
+        label={simplePackage ? "About this package (optional)" : showPackageDetails ? "Short description" : "Description"}
         description="Tell customers what makes your service special."
       >
         <Textarea
@@ -667,91 +748,18 @@ export function ProviderServiceForm({
             )
           }
           maxLength={1000}
-          rows={5}
+          rows={simplePackage ? 2 : 5}
         />
       </FormField>
 
-      {showPackageDetails ? <FreelanceServiceFields category={category} value={freelanceDetails} onChange={setFreelanceDetails} /> : null}
+      {showPackageDetails ? <FreelanceServiceFields simplePackage={simplePackage} category={category} value={freelanceDetails} onChange={setFreelanceDetails} /> : null}
 
-      <section aria-labelledby={fieldId + "-portfolio"} className="grid gap-3 rounded-lg border border-border p-4">
-        <h3 id={fieldId + "-portfolio"} className="font-semibold">Show Your Work</h3>
-        <p className="text-sm text-muted-foreground">Upload photos of your previous events so customers can see your work.</p>
-        {isFreelancer ? <ServicePortfolioFields photos={photos} coverAssetId={coverAssetId} disabled={submitting}
-          onChange={(next, cover) => {setPhotos(next); setCoverAssetId(cover);}} /> : null}
-        {portfolioProgress ? <p role="status" className="text-sm">{portfolioProgress}</p> : null}
-        {!usePortfolio ? <details open={!isFreelancer || Boolean(serviceImage || selectedImageFile)}>
-          <summary className="cursor-pointer text-sm font-semibold">
-            {isFreelancer ? "Use one photo instead of a gallery" : "Manage cover photo"}
-          </summary>
-          <div className="mt-3">
-            <FormField label="Cover photo" id={`${fieldId}-image`}>
-              <div className="grid gap-3">
-                {imagePreviewUrl || serviceImage ? (
-                  <div className="overflow-hidden rounded-lg border border-border">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={
-                        imagePreviewUrl ??
-                        serviceImage?.url ??
-                        ""
-                      }
-                      alt=""
-                      className="h-48 w-full object-cover"
-                    />
-                  </div>
-                ) : (
-                  <div className="flex h-40 items-center justify-center rounded-lg border border-dashed border-border bg-muted/30 px-6 text-center">
-                    <p className="text-sm text-muted-foreground">
-                      Choose the photo customers will see first on your listing.
-                    </p>
-                  </div>
-                )}
+      {simplePackage ? <details className="rounded-lg border border-border p-4">
+        <summary className="cursor-pointer font-semibold">Portfolio photos (optional)</summary>
+        {portfolioFields}
+      </details> : portfolioFields}
 
-                <div className="flex flex-wrap gap-2">
-                  <label className="inline-flex h-10 cursor-pointer items-center justify-center rounded-md border border-input bg-background px-4 text-sm font-medium hover:bg-accent hover:text-accent-foreground">
-                    {selectedImageFile ||
-                      serviceImage
-                        ? "Replace image"
-                        : "Upload image"}
-
-                    <input
-                      id={`${fieldId}-image`}
-                      type="file"
-                      accept="image/jpeg,image/png,image/webp"
-                      className="sr-only"
-                      disabled={
-                        submitting ||
-                        uploadingImage
-                      }
-                      onChange={handleImageChange}
-                    />
-                  </label>
-
-                  {imagePreviewUrl || serviceImage ? (
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      disabled={
-                        submitting ||
-                        uploadingImage
-                      }
-                      onClick={handleRemoveImage}
-                    >
-                      Remove
-                    </Button>
-                  ) : null}
-                </div>
-
-                <p className="text-xs text-muted-foreground">
-                  JPEG, PNG, or WebP. Maximum 5 MB.
-                </p>
-              </div>
-            </FormField>
-          </div>
-        </details> : null}
-      </section>
-
-      {freelancePreview ? <section className="rounded-lg border border-border p-4">
+      {freelancePreview && !simplePackage ? <section className="rounded-lg border border-border p-4">
         <h3 className="font-semibold">Customer preview</h3>
         {name.trim() ? <p className="mt-2 font-medium">{name.trim()}</p> : null}
         <p className="text-sm text-muted-foreground">

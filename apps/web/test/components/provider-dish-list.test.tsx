@@ -6,15 +6,16 @@ import {loadDishLibrary, saveDishLibrary} from "@/app/provider/packages/dish-lib
 vi.mock("@/app/provider/packages/dish-library-actions", () => ({loadDishLibrary: vi.fn(), saveDishLibrary: vi.fn()}));
 
 it("saves an empty category and selects it in the open dish form", async () => {
-  vi.mocked(saveDishLibrary).mockResolvedValue({revision: 1, dishes: [], categories: ["House Desserts"]});
+  vi.mocked(saveDishLibrary).mockResolvedValue({revision: 1, dishes: [], categories: ["House Desserts"], parentGroups: {"house desserts": "Dessert"}});
   render(<ProviderDishLibrary initialLibrary={{revision: 0, dishes: [], categories: []}} />);
   fireEvent.click(screen.getByRole("button", {name: "Add dish"}));
   fireEvent.click(screen.getByRole("button", {name: "Add a category"}));
   fireEvent.change(screen.getByLabelText("Category name"), {target: {value: "House Desserts"}});
+  fireEvent.change(screen.getByLabelText("Parent Group"), {target: {value: "Dessert"}});
   fireEvent.click(screen.getByRole("button", {name: "Save category"}));
   await waitFor(() => expect(screen.getByRole("combobox", {name: "Category Name"})).toHaveValue("House Desserts"));
   expect(screen.getByRole("option", {name: "House Desserts"})).toBeInTheDocument();
-  expect(saveDishLibrary).toHaveBeenCalledWith(0, [], ["House Desserts"]);
+  expect(saveDishLibrary).toHaveBeenCalledWith(0, [], ["House Desserts"], {"house desserts": "Dessert"});
   expect(screen.getByText("No dishes in this category yet.")).toBeVisible();
 });
 
@@ -38,9 +39,9 @@ it("filters saved dishes by parent group and search text", () => {
 it("keeps picks across search and review when the destination rejects a batch", async () => {
   vi.mocked(loadDishLibrary).mockResolvedValue({
     revision: 1, categories: [], dishes: [
-      {id: "1", category: "Beef", name: "Beef Steak"},
-      {id: "2", category: "Beef", name: "Beef Kare-Kare"},
-      {id: "3", category: "Rice", name: "Plain Rice"},
+      {id: "1", category: "Beef", parentGroup: "Main Dish", name: "Beef Steak"},
+      {id: "2", category: "Beef", parentGroup: "Main Dish", name: "Beef Kare-Kare"},
+      {id: "3", category: "Rice", name: "Plain Rice", parentGroup: "Side Dish"},
     ],
   });
   const onAdd = vi.fn(() => "Choose fewer dishes.");
@@ -60,19 +61,18 @@ it("keeps picks across search and review when the destination rejects a batch", 
 });
 
 it("keeps the category and parent group when saving and adding another dish", async () => {
-  vi.mocked(saveDishLibrary).mockImplementation(async (revision, dishes, categories) => ({
-    revision: revision + 1, dishes: dishes.map((dish) => ({...dish, parentGroup: dish.parentGroup ?? ""})), categories,
+  vi.mocked(saveDishLibrary).mockImplementation(async (revision, dishes, categories, parentGroups = {}) => ({
+    revision: revision + 1, dishes: dishes.map((dish) => ({...dish, parentGroup: dish.parentGroup ?? ""})), categories, parentGroups,
   }));
-  render(<ProviderDishLibrary initialLibrary={{revision: 0, dishes: [], categories: ["Chicken Dishes"]}} />);
+  render(<ProviderDishLibrary initialLibrary={{revision: 0, dishes: [], categories: ["Chicken Dishes"], parentGroups: {"chicken dishes": "Meat Dishes"}}} />);
   fireEvent.click(screen.getByRole("button", {name: "Add dish"}));
   fireEvent.change(screen.getByRole("combobox", {name: "Category Name"}), {target: {value: "Chicken Dishes"}});
-  fireEvent.change(screen.getByLabelText("Parent Group (optional)"), {target: {value: "Meat Dishes"}});
   fireEvent.change(screen.getByLabelText("Dish Name"), {target: {value: "Chicken Adobo"}});
   fireEvent.click(screen.getByRole("button", {name: "Save & Add Another"}));
-  await waitFor(() => expect(saveDishLibrary).toHaveBeenCalledWith(0, [expect.objectContaining({name: "Chicken Adobo"})], ["Chicken Dishes"]));
+  await waitFor(() => expect(saveDishLibrary).toHaveBeenCalledWith(0, [expect.objectContaining({name: "Chicken Adobo"})], ["Chicken Dishes"], {"chicken dishes": "Meat Dishes"}));
   await waitFor(() => expect(screen.getByLabelText("Dish Name")).toHaveValue(""));
   expect(screen.getByRole("combobox", {name: "Category Name"})).toHaveValue("Chicken Dishes");
-  expect(screen.getByLabelText("Parent Group (optional)")).toHaveValue("Meat Dishes");
+  expect(screen.getByText("Parent Group: Meat Dishes")).toBeVisible();
   expect(screen.getByLabelText("Dish Name")).toHaveValue("");
   expect(screen.getByLabelText("Dish Name")).toHaveFocus();
 });

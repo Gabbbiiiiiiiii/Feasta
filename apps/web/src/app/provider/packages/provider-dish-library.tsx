@@ -17,17 +17,19 @@ type Props = {
   disabled?: boolean;
   destination?: string;
   limitLabel?: string;
+  parentGroup?: string;
 };
 
 function categoryRows(library: Library, includeEmpty: boolean) {
+  const parentGroupFor = (name: string) => Object.hasOwn(library.parentGroups ?? {}, categoryKey(name)) ? library.parentGroups?.[categoryKey(name)] ?? "" : "";
   const categories = new Map<string, {name: string; group: string; dishes: LibraryDish[]}>();
   for (const name of includeEmpty ? library.categories : []) {
-    categories.set(categoryKey(name), {name, group: "", dishes: []});
+    categories.set(categoryKey(name), {name, group: parentGroupFor(name), dishes: []});
   }
   for (const dish of library.dishes) {
     const key = categoryKey(dish.category);
     const row = categories.get(key) ?? {name: dish.category, group: "", dishes: []};
-    row.group = dish.parentGroup ?? "";
+    row.group = dish.parentGroup?.trim() || row.group;
     row.dishes.push(dish);
     categories.set(key, row);
   }
@@ -38,7 +40,7 @@ export function ProviderDishLibrary({initialLibrary, ...props}: Props) {
   return initialLibrary ? <DishList initialLibrary={initialLibrary} /> : <DishPicker {...props} />;
 }
 
-function DishPicker({onAdd, disabled, destination = "Food product", limitLabel}: Props) {
+function DishPicker({onAdd, disabled, destination = "Food product", limitLabel, parentGroup}: Props) {
   const [library, setLibrary] = useState<Library | null>(null);
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState("");
@@ -82,7 +84,10 @@ function DishPicker({onAdd, disabled, destination = "Food product", limitLabel}:
     setLoading(true);
     setError("");
     try {
-      setLibrary(await loadDishLibrary());
+      const loaded = await loadDishLibrary();
+      setLibrary({...loaded, dishes: loaded.dishes.filter((dish) =>
+        dish.parentGroup?.trim() && (parentGroup === undefined ||
+          categoryKey(dish.parentGroup) === categoryKey(parentGroup))) });
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "The Dish Library could not be loaded.");
     } finally {
@@ -118,7 +123,7 @@ function DishPicker({onAdd, disabled, destination = "Food product", limitLabel}:
           onClick={() => {setFilter(name); setReview(false);}}>{name}</Button>)}
       </div>
       <div className="max-h-64 space-y-2 overflow-y-auto overscroll-contain">
-        {!library.dishes.length && <p className="text-sm">No saved dishes yet. <Link className="underline"
+        {!library.dishes.length && <p className="text-sm">{parentGroup === undefined ? "No dishes with a Parent Group yet." : "No dishes match this Parent Group."} <Link className="underline"
           href="/provider/packages/dishes" target="_blank" rel="noopener noreferrer">Open Dish List</Link></p>}
         {library.dishes.length > 0 && !matches.length && <p className="text-sm text-muted-foreground">
           {review ? "No dishes selected." : "No matching dishes."}
@@ -129,7 +134,7 @@ function DishPicker({onAdd, disabled, destination = "Food product", limitLabel}:
           const groupChecked = groupDishes.every((dish) => selected.has(dish.id));
           return <section key={group} className="space-y-1.5">
             <div className="flex flex-wrap items-center justify-between gap-2 px-1 py-1">
-              <h5 className="text-xs font-semibold uppercase text-muted-foreground">{group || "Categories"}</h5>
+              <h5 className="text-xs font-semibold uppercase text-muted-foreground">{group || "Assign parent group"}</h5>
               {group && <label className="inline-flex items-center gap-1.5 text-xs">
                 <input type="checkbox" className="accent-primary" checked={groupChecked} disabled={disabled}
                   aria-label={`${groupChecked ? "Clear" : "Select all"} ${group}`}
@@ -186,7 +191,7 @@ function DishPicker({onAdd, disabled, destination = "Food product", limitLabel}:
 function DishList({initialLibrary}: {initialLibrary: Library}) {
   const [library, setLibrary] = useState(initialLibrary);
   const [draft, setDraft] = useState<LibraryDish | null>(null);
-  const [categoryDraft, setCategoryDraft] = useState<{original: string; name: string} | null>(null);
+  const [categoryDraft, setCategoryDraft] = useState<{original: string; name: string; parentGroup: string} | null>(null);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("");
   const [busy, setBusy] = useState(false);
@@ -194,6 +199,8 @@ function DishList({initialLibrary}: {initialLibrary: Library}) {
   const rows = categoryRows(library, true);
   const groups = [...new Set(rows.map((row) => row.group).filter(Boolean))];
   const filters = [...new Set([...groups, ...rows.map((row) => row.name)])];
+  const groupOptions = [...new Map([...groups, "Main Dish", "Side Dish", "Dessert"].reverse().map((group) => [categoryKey(group), group])).values()];
+  const [notice, setNotice] = useState("");
   const active = filters.includes(filter) ? filter : "";
   const query = categoryKey(search);
   const visible = rows.flatMap((row) => {
@@ -203,11 +210,12 @@ function DishList({initialLibrary}: {initialLibrary: Library}) {
     return dishes.length ? [{...row, dishes}] : [];
   });
 
-  async function save(dishes: LibraryDish[], categories: string[], complete: () => void = () => {}) {
+  async function save(dishes: LibraryDish[], categories: string[], complete: () => void = () => {}, parentGroups = library.parentGroups ?? {}) {
     setBusy(true);
+    setNotice("");
     setError("");
     try {
-      setLibrary(await saveDishLibrary(library.revision, dishes, categories));
+      setLibrary(await saveDishLibrary(library.revision, dishes, categories, parentGroups));
       complete();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "The Dish Library could not be updated.");
@@ -217,9 +225,8 @@ function DishList({initialLibrary}: {initialLibrary: Library}) {
   }
 
   function saveDish(addAnother: boolean) {
-    if (!draft || busy || !draft.name.trim() || !draft.category) return;
-    const dishes = library.dishes.filter((dish) => dish.id !== draft.id).map((dish) =>
-      categoryKey(dish.category) === categoryKey(draft.category) ? {...dish, parentGroup: draft.parentGroup} : dish);
+    if (!draft || busy || !draft.name.trim() || !draft.category || !draft.parentGroup?.trim()) return;
+    const dishes = library.dishes.filter((dish) => dish.id !== draft.id);
     void save([...dishes, draft], library.categories, () => {
       setDraft(addAnother ? {...draft, id: crypto.randomUUID(), name: ""} : null);
     });
@@ -236,7 +243,7 @@ function DishList({initialLibrary}: {initialLibrary: Library}) {
           <p className="text-sm text-muted-foreground">Manage the dishes, categories, and parent groups available for your packages.</p></div>
         <div className="flex flex-wrap gap-2">
           <Button type="button" variant="secondary" disabled={busy || Boolean(categoryDraft)}
-            onClick={() => setCategoryDraft({original: "", name: ""})}><Plus size={16} aria-hidden="true" /> Add category</Button>
+            onClick={() => setCategoryDraft({original: "", name: "", parentGroup: ""})}><Plus size={16} aria-hidden="true" /> Add category</Button>
           <Button type="button" disabled={busy} onClick={() => setDraft({id: crypto.randomUUID(), name: "", category: ""})}>
             <Plus size={16} aria-hidden="true" /> Add dish
           </Button>
@@ -252,28 +259,27 @@ function DishList({initialLibrary}: {initialLibrary: Library}) {
           <DialogDescription>Set the category and name for this dish.</DialogDescription>
         </DialogHeader>
         {draft && <div className="space-y-3">
-          <label className="block">Parent Group (optional)<Input value={draft.parentGroup ?? ""} list="dish-library-groups"
-            disabled={busy} maxLength={120} onChange={(event) => setDraft({...draft, parentGroup: event.target.value})} /></label>
-          <datalist id="dish-library-groups">{groups.map((group) => <option key={group} value={group} />)}</datalist>
-          <p className="text-sm text-muted-foreground">This group applies to every dish in {draft.category || "the selected category"}.</p>
           <label className="block">Category Name<Select value={draft.category} disabled={busy} onChange={(event) => {
             const category = event.target.value;
-            const previous = rows.find((row) => row.name === draft.category)?.group ?? "";
             const next = rows.find((row) => row.name === category)?.group ?? "";
-            setDraft({...draft, category, parentGroup: (draft.parentGroup ?? "") === previous ? next : draft.parentGroup});
+            setDraft({...draft, category, parentGroup: next});
           }}>
             <option value="" disabled>Select a category</option>
             {rows.map(({name}) => <option key={name} value={name}>{name}</option>)}
           </Select></label>
+          {draft.category && <p className="text-sm text-muted-foreground">
+            {draft.parentGroup ? `Parent Group: ${draft.parentGroup}` : "Assign a Parent Group in Edit category before saving this dish."}
+          </p>}
           <Button type="button" variant="link" disabled={busy}
-            onClick={() => {setError(""); setCategoryDraft({original: "", name: ""});}}>Add a category</Button>
+            onClick={() => {setError(""); setCategoryDraft({original: "", name: "", parentGroup: ""});}}>Add a category</Button>
           <label className="block">Dish Name<Input key={draft.id} autoFocus value={draft.name} maxLength={120} disabled={busy}
             onChange={(event) => setDraft({...draft, name: event.target.value})} /></label>
-          {error && !categoryDraft && <p role="alert" className="text-sm text-destructive">{error}</p>}
+          {notice && <p role="status" className="text-sm text-primary-strong">{notice}</p>}
+    {error && !categoryDraft && <p role="alert" className="text-sm text-destructive">{error}</p>}
           <DialogFooter className="flex-wrap gap-2">
-            <Button type="button" disabled={busy || !draft.name.trim() || !draft.category}
+            <Button type="button" disabled={busy || !draft.name.trim() || !draft.category || !draft.parentGroup?.trim()}
               onClick={() => saveDish(false)}>Save dish</Button>
-            {!editingDish && <Button type="button" variant="secondary" disabled={busy || !draft.name.trim() || !draft.category}
+            {!editingDish && <Button type="button" variant="secondary" disabled={busy || !draft.name.trim() || !draft.category || !draft.parentGroup?.trim()}
               onClick={() => saveDish(true)}>Save &amp; Add Another</Button>}
             <Button type="button" variant="ghost" disabled={busy} onClick={() => {setDraft(null); setError("");}}>Cancel</Button>
           </DialogFooter>
@@ -290,33 +296,46 @@ function DishList({initialLibrary}: {initialLibrary: Library}) {
         </DialogHeader>
         {categoryDraft && <form className="space-y-4" onSubmit={(event) => {
           event.preventDefault();
-          if (busy || !categoryDraft.name.trim()) return;
+          if (busy || !categoryDraft.name.trim() || !categoryDraft.parentGroup) return;
           const name = categoryDraft.name.trim();
+          const parentGroup = categoryDraft.parentGroup;
           const matches = (category: string) => categoryKey(category) === categoryKey(categoryDraft.original);
           const invalid = categoryNameError(name);
           if (invalid || rows.some((row) => !matches(row.name) && categoryKey(row.name) === categoryKey(name))) {
             setError(invalid ?? "That category already exists.");
             return;
           }
-          void save(library.dishes.map((dish) => matches(dish.category) ? {...dish, category: name} : dish),
+          const parentGroups = {...library.parentGroups};
+          delete parentGroups[categoryKey(categoryDraft.original)];
+          const count = library.dishes.filter((dish) => matches(dish.category)).length;
+          void save(library.dishes.map((dish) => matches(dish.category) ? {...dish, category: name, parentGroup} : dish),
             [...library.categories.filter((category) => !matches(category)), name], () => {
               setCategoryDraft(null);
               setSearch("");
               setFilter("");
-              setDraft((current) => current && (!categoryDraft.original || matches(current.category)) ? {...current, category: name} : current);
-            });
+              setDraft((current) => current && (!categoryDraft.original || matches(current.category)) ? {...current, category: name, parentGroup} : current);
+              setNotice(count ? `${count} ${count === 1 ? "dish" : "dishes"} assigned to ${parentGroup}.` : `Category assigned to ${parentGroup}.`);
+            }, {...parentGroups, [categoryKey(name)]: parentGroup});
         }}>
           <label className="block">Category name<Input autoFocus maxLength={120} value={categoryDraft.name} disabled={busy}
             onChange={(event) => setCategoryDraft({...categoryDraft, name: event.target.value})} /></label>
+          <label className="block">Parent Group
+            <Select required disabled={busy} value={categoryDraft.parentGroup}
+              onChange={(event) => setCategoryDraft({...categoryDraft, parentGroup: event.target.value})}>
+              <option value="" disabled>Select a parent group</option>
+              {groupOptions.map((group) => <option key={group} value={group}>{group}</option>)}
+            </Select>
+          </label>
           {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
           <DialogFooter>
             <Button type="button" variant="secondary" disabled={busy}
               onClick={() => {setCategoryDraft(null); setError("");}}>Cancel category</Button>
-            <Button type="submit" loading={busy} disabled={!categoryDraft.name.trim()}>Save category</Button>
+            <Button type="submit" loading={busy} disabled={!categoryDraft.name.trim() || !categoryDraft.parentGroup}>Save category</Button>
           </DialogFooter>
         </form>}
       </DialogContent>
     </Dialog>
+    {notice && <p role="status" className="text-sm text-primary-strong">{notice}</p>}
     {error && !categoryDraft && !draft && <p role="alert" className="text-sm text-destructive">{error}</p>}
     <div className="space-y-5 rounded-2xl border border-border bg-card p-4 shadow-sm sm:p-5">
       <div className="flex flex-wrap items-center gap-3">
@@ -335,7 +354,7 @@ function DishList({initialLibrary}: {initialLibrary: Library}) {
         {rows.length ? "No dishes or categories match your search." : "No saved dishes yet."}
       </p>}
       {[...new Set(visible.map((row) => row.group))].map((group) => <section key={group} className="space-y-3">
-        <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{group || "Categories"}</h2>
+        <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{group || "Assign parent group"}</h2>
         {visible.filter((row) => row.group === group).map(({name, dishes}) => <section key={name} className="overflow-hidden rounded-xl border border-border">
           <div className="flex flex-wrap items-center justify-between gap-2 bg-muted/40 px-3 py-2">
             <h3 className="flex items-center gap-2 text-sm font-semibold">{name}
@@ -343,7 +362,7 @@ function DishList({initialLibrary}: {initialLibrary: Library}) {
             </h3>
             <div className="flex gap-1">
               <Button type="button" variant="ghost" size="icon" disabled={busy || Boolean(categoryDraft)}
-                aria-label={`Edit category ${name}`} onClick={() => setCategoryDraft({original: name, name})}><Pencil size={16} aria-hidden="true" /></Button>
+                aria-label={`Edit category ${name}`} onClick={() => setCategoryDraft({original: name, name, parentGroup: group})}><Pencil size={16} aria-hidden="true" /></Button>
               <Button type="button" variant="ghost" size="icon" disabled={busy} className="text-destructive"
                 aria-label={`Delete category ${name}`} onClick={() => {
                   if (!window.confirm(`Delete ${name} and all its dishes from your Dish List?`)) return;
@@ -360,7 +379,7 @@ function DishList({initialLibrary}: {initialLibrary: Library}) {
             <span className="min-w-0 break-words text-sm">{dish.name}</span>
             <div className="flex gap-2">
               <Button type="button" size="compact" disabled={busy} aria-label={`Edit ${dish.name}`}
-                onClick={() => setDraft({...dish, category: name})}>Edit</Button>
+                onClick={() => setDraft({...dish, category: name, parentGroup: group})}>Edit</Button>
               <Button type="button" variant="destructive" size="compact" disabled={busy} aria-label={`Delete ${dish.name}`} onClick={() => {
                 if (window.confirm(`Delete ${dish.name} from your Dish List?`)) {
                   void save(library.dishes.filter((row) => row.id !== dish.id), library.categories,

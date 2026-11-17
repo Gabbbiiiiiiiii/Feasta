@@ -4,7 +4,10 @@ import {ProviderPackageIntegerInput, isPackageIntegerEdit} from "./provider-pack
 import {usePackageConfirmation} from "./use-package-confirmation";
 
 import {
+  useEffect,
+  useImperativeHandle,
   useMemo,
+  type Ref,
   useRef,
   useState,
 } from "react";
@@ -65,7 +68,19 @@ import {
 
 type PackageStructure = "" | "fixed" | "customizable" | "individual";
 
+export type ProviderPackageEditor = {
+  hasUnsavedChanges: () => boolean;
+  saveDraftAndExit: () => Promise<void>;
+};
+
+export type LocalPackageProgress = Pick<SavedEditorDraft, "progress" | "currentStep"> & {
+  syncedDraft?: SavedEditorDraft | null;
+};
+
 type ProviderPackageFormProps = {
+  localDraftKey?: string;
+  localProgress?: LocalPackageProgress | null;
+  editorRef?: Ref<ProviderPackageEditor>;
   occasionCatalog?: PackageOccasionOptions | null;
   dialogLayout?: boolean;
   providerServiceType?: string;
@@ -92,6 +107,9 @@ type ProviderPackageFormProps = {
 };
 
 export function ProviderPackageForm({
+  localDraftKey,
+  localProgress,
+  editorRef,
   dialogLayout = false,
   providerServiceType = "catering",
   serviceCategories = [],
@@ -103,7 +121,7 @@ export function ProviderPackageForm({
 
   paymentPolicyBounds = DEFAULT_PROVIDER_PACKAGE_PAYMENT_POLICY_BOUNDS,
   initialPackage,
-  initialEditorProgress,
+  initialEditorProgress: serverProgress,
   onProgressSaved,
   onProgressExit,
   onSaved,
@@ -111,10 +129,11 @@ export function ProviderPackageForm({
   onSubmittingChange,
 }: ProviderPackageFormProps) {
   const {confirm, confirmationDialog} = usePackageConfirmation();
+  const initialEditorProgress = localProgress ?? serverProgress;
   const [pendingV2, setPendingV2] = useState(() => hasPendingV2Draft());
   const [draftSaved, setDraftSaved] = useState(false);
   const [step, setStep] = useState(initialEditorProgress?.currentStep ?? 0);
-  const [savedProgress, setSavedProgress] = useState<SavedEditorDraft | null>(initialEditorProgress ?? null);
+  const [savedProgress, setSavedProgress] = useState<SavedEditorDraft | null>(serverProgress ?? localProgress?.syncedDraft ?? null);
   const [progressSaving, setProgressSaving] = useState(false);
   const [progressError, setProgressError] = useState<string | null>(null);
   // Preserve the same request ID on an ambiguous network failure, so retries
@@ -391,7 +410,7 @@ export function ProviderPackageForm({
       }
 
       if (
-        description.trim().length < 10 ||
+        (description.trim().length > 0 && description.trim().length < 10) ||
         description.trim().length > 2000
       ) {
         return {field: "description", message: "Description must be between 10 and 2000 characters."};
@@ -504,44 +523,70 @@ export function ProviderPackageForm({
     return null;
   }
 
-  async function persistProgress(): Promise<SavedEditorDraft> {
-      const tiers: NonNullable<EditorProgress["tiers"]> = {};
-      for (const tier of ["drop_off", "buffet_setup", "full_service"] as const) {
-        const value = offerDraft.serviceOptions[tier];
-        tiers[tier] = {
-          enabled: value.enabled,
-          priceText: value.price,
-          includedServices: parseInclusions(value.includedServicesText),
-          ...tierExtraInclusions(value),
-        };
-      }
-      const progress: EditorProgress = {
-        name, description, serviceCategoryCode,
-        ...(offerStructure ? {offerStructure} : {}),
-        ...(packageStyle.trim() ?
-          {packageStyle: packageStyle.trim()} : {}),
-        occasion: {occasionSchemaVersion: 2, occasionScope,
-          occasionIds: occasionScope === "all" ? [] : selectedOccasions},
-        pricingModel, minimumGuestsText: minimumGuests, maximumGuestsText: maximumGuests,
-        tiers, foodInclusions, ...(usesV2 || foodChoiceGroups.length ? {foodChoiceGroups} : {}),
-        ...(usesV2 && offerStructure === "individual" ?
-          {individualFoodDraft} : {}),
-        serviceInclusions: parseInclusions(serviceInclusionsText),
-        decorInclusions: parseInclusions(decorInclusionsText),
-        furnitureInclusions: parseInclusions(furnitureInclusionsText),
-        equipmentInclusions: initialEditorProgress?.progress.equipmentInclusions ?? [],
-        themes: offerDraft.themeOptions.map((theme) => ({
-          editorThemeId: theme.id, name: theme.name,
-          description: theme.description, assetIds: [],
-        })),
-        marketingAssetIds: [], paymentPolicy,
-        depositPercentageText: depositPercentage,
+  function editorProgress(): EditorProgress {
+    const tiers: NonNullable<EditorProgress["tiers"]> = {};
+    for (const tier of ["drop_off", "buffet_setup", "full_service"] as const) {
+      const value = offerDraft.serviceOptions[tier];
+      tiers[tier] = {
+        enabled: value.enabled,
+        priceText: value.price,
+        includedServices: parseInclusions(value.includedServicesText),
+        ...tierExtraInclusions(value),
       };
+    }
+    return {
+      name, description, serviceCategoryCode,
+      ...(offerStructure ? {offerStructure} : {}),
+      ...(packageStyle.trim() ?
+        {packageStyle: packageStyle.trim()} : {}),
+      occasion: {occasionSchemaVersion: 2, occasionScope,
+        occasionIds: occasionScope === "all" ? [] : selectedOccasions},
+      pricingModel, minimumGuestsText: minimumGuests, maximumGuestsText: maximumGuests,
+      tiers, foodInclusions, ...(usesV2 || foodChoiceGroups.length ? {foodChoiceGroups} : {}),
+      ...(usesV2 && offerStructure === "individual" ?
+        {individualFoodDraft} : {}),
+      serviceInclusions: parseInclusions(serviceInclusionsText),
+      decorInclusions: parseInclusions(decorInclusionsText),
+      furnitureInclusions: parseInclusions(furnitureInclusionsText),
+      equipmentInclusions: initialEditorProgress?.progress.equipmentInclusions ?? [],
+      themes: offerDraft.themeOptions.map((theme) => ({
+        editorThemeId: theme.id, name: theme.name,
+        description: theme.description, assetIds: [],
+      })),
+      marketingAssetIds: [], paymentPolicy,
+      depositPercentageText: depositPercentage,
+    };
+  }
+
+  function editorSnapshot() {
+    return JSON.stringify([editorProgress(), offerDraft, images]);
+  }
+
+  const [initialSnapshot] = useState(editorSnapshot);
+  const [savedOnDevice, setSavedOnDevice] = useState(Boolean(localProgress));
+  const localSnapshot = localDraftKey ? JSON.stringify({progress: editorProgress(), currentStep: step, syncedDraft: savedProgress}) : null;
+  const hasChanges = editorSnapshot() !== initialSnapshot;
+
+  useEffect(() => {
+    if (!localDraftKey || !localSnapshot || (!hasChanges && !localProgress)) return;
+    try {
+      localStorage.setItem(localDraftKey, localSnapshot);
+      setSavedOnDevice(true);
+    } catch {
+      setSavedOnDevice(false);
+    }
+  }, [localDraftKey, localSnapshot, hasChanges, localProgress]);
+  useImperativeHandle(editorRef, () => ({
+    hasUnsavedChanges: () => hasChanges || Boolean(localProgress),
+    saveDraftAndExit: handleSaveProgress,
+  }));
+
+  async function persistProgress(): Promise<SavedEditorDraft> {
       const input = {
         editorDraftId: savedProgress?.editorDraftId ?? null,
         expectedRevision: savedProgress?.revision ?? 0,
         currentStep: step as 0 | 1 | 2 | 3 | 4,
-        progress,
+        progress: editorProgress(),
       };
       const signature = JSON.stringify(input);
       if (pendingProgress.current?.signature !== signature) {
@@ -556,14 +601,29 @@ export function ProviderPackageForm({
       return saved;
   }
 
-  async function handleSaveProgress(): Promise<void> {
-    if (editing || submitting || progressSaving) return;
+  const savingProgress = useRef(false);
+
+  useEffect(() => {
+    if (!localDraftKey || !packageEditorProgressEnabled) return;
+    function syncOnReconnect() {
+      if ((hasChanges || localProgress) && !images.length &&
+          !offerDraft.themeOptions.some((theme) => theme.images.length)) {
+        void handleSaveProgress(false);
+      }
+    }
+    window.addEventListener("online", syncOnReconnect);
+    return () => window.removeEventListener("online", syncOnReconnect);
+  });
+
+  async function handleSaveProgress(exit = true): Promise<void> {
+    if (editing || submitting || savingProgress.current) return;
     // The current server deliberately rejects unverified or unattached media.
     // Do not create a misleading "saved" acknowledgement for media not recoverable.
     if (images.length > 0 || offerDraft.themeOptions.some((theme) => theme.images.length > 0)) {
-      setProgressError("Save Progress & Exit cannot preserve selected package or theme images yet. Remove these image selections before saving unfinished progress, or use a supported package-save flow when your package is ready.");
+      setProgressError("Save Draft & Exit cannot preserve selected package or theme images yet. Remove these image selections before saving unfinished progress, or use a supported package-save flow when your package is ready.");
       return;
     }
+    savingProgress.current = true;
     setProgressSaving(true);
     onSubmittingChange?.(true);
     setProgressError(null);
@@ -574,10 +634,11 @@ export function ProviderPackageForm({
     } catch (caught) {
       setProgressError(packageProgressError(caught));
     } finally {
+      savingProgress.current = false;
       setProgressSaving(false);
       onSubmittingChange?.(false);
     }
-    if (saved) onProgressExit?.();
+    if (saved && exit) onProgressExit?.();
   }
 
   async function handleSavePackageDraft() {
@@ -918,10 +979,9 @@ export function ProviderPackageForm({
 
       </div>
       <FormField
-        label="Description"
+        label="Description (optional)"
         className="relative" labelClassName="pr-24"
         error={validationError?.field === "description" ? validationError.message : undefined}
-        required
       >
         <span className="absolute right-0 top-0 text-xs tabular-nums text-muted-foreground">{description.length}/2000</span>
         <Textarea
@@ -1110,7 +1170,7 @@ export function ProviderPackageForm({
         <CatalogImageUploader images={images} onChange={setImages} disabled={submitting} />
         <p className="text-xs text-muted-foreground">
           Images selected here remain in this editing session until a
-          supported package save uploads them. Save Progress &amp; Exit
+          supported package save uploads them. Save Draft &amp; Exit
           does not preserve package or theme images yet.
           Remove image selections before saving unfinished progress.
         </p>
@@ -1162,6 +1222,9 @@ export function ProviderPackageForm({
       </div>
       <div className={dialogLayout ? "grid shrink-0 gap-3 border-t border-border bg-card px-5 py-4 sm:px-6" : "grid gap-3"}>
       {step === 4 && (validationError || depositError || foodError) ? <p role="alert" className="text-sm text-destructive">{validationError?.message || depositError || foodError}</p> : null}
+      {savedOnDevice ? <p role="status" className="text-xs text-muted-foreground">
+        Package details saved on this device. Reopen New package to continue. Selected images need to be added again after a reload.
+      </p> : null}
       {savedProgress ? <p role="status" className="text-xs text-muted-foreground">Private progress saved (revision {savedProgress.revision}). This is not a package draft or publication.</p> : null}
       {progressError ? <p role="alert" className="text-sm text-destructive">{progressError}</p> : null}
       {error && !(step === 0 && error === occasionError) ? (
@@ -1179,7 +1242,7 @@ export function ProviderPackageForm({
         <Button
           type="button"
           variant="secondary"
-          disabled={submitting}
+          disabled={submitting || progressSaving}
           onClick={onCancel}
         >
           Cancel
@@ -1187,12 +1250,12 @@ export function ProviderPackageForm({
 
         {!editing && packageEditorProgressEnabled ? <Button type="button" variant="secondary"
           disabled={submitting || progressSaving} onClick={() => void handleSaveProgress()}>
-          {progressSaving ? "Saving progress..." : onProgressExit ? "Save Progress & Exit" :
-            savedProgress ? "Update saved progress" : "Save progress"}
+          {progressSaving ? "Saving draft..." : onProgressExit ? "Save Draft & Exit" :
+            "Save Draft"}
         </Button> : null}
         </div>
         <div className="min-w-0 text-center">
-          {usesV2 ? <p className="mx-auto max-w-prose text-xs leading-5 text-muted-foreground">Save Progress keeps unfinished editor state. Save Package Draft creates a private package; it does not publish.</p> : null}
+          {usesV2 ? <p className="mx-auto max-w-prose text-xs leading-5 text-muted-foreground">Save Draft & Exit keeps your place in the wizard. Save Package Draft creates a private package for review.</p> : null}
         </div>
         <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_minmax(0,2fr)] items-center gap-3 [&>button]:w-full [&>button]:min-w-0">
         {step > 0 ? <Button type="button" variant="secondary" onClick={() => goToStep(step - 1)}>Back</Button> : <span aria-hidden="true" />}

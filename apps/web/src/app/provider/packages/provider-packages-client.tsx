@@ -47,6 +47,8 @@ import {
 } from "@/lib/provider/provider-package-client";
 import {
   ProviderPackageForm,
+  type ProviderPackageEditor,
+  type LocalPackageProgress,
 } from "./provider-package-form";
 import {
   DEFAULT_PROVIDER_PACKAGE_PAYMENT_POLICY_BOUNDS,
@@ -131,6 +133,30 @@ export function ProviderPackagesClient({
   const [savedProgressList, setSavedProgressList] = useState<SavedEditorDraft[]>([]);
   const [savedProgressError, setSavedProgressError] = useState<string | null>(null);
   const [progressListBusy, setProgressListBusy] = useState(false);
+  const localDraftKey = `feasta:package-progress:v1:${providerId}`;
+  const [localProgress, setLocalProgress] = useState<LocalPackageProgress | null>(null);
+
+  function openNewPackage() {
+    setEditingPackage(null);
+    setResumeProgress(null);
+    let draft: LocalPackageProgress | null = null;
+    try {
+      const raw = localStorage.getItem(localDraftKey);
+      const candidate = raw ? JSON.parse(raw) : null;
+      if (candidate?.progress && Number.isInteger(candidate.currentStep) &&
+          candidate.currentStep >= 0 && candidate.currentStep <= 4) draft = candidate;
+    } catch {
+      // The editor remains usable when browser storage is unavailable.
+    }
+    setLocalProgress(draft);
+    setCreateOpen(true);
+  }
+
+  function clearLocalPackageDraft() {
+    try { localStorage.removeItem(localDraftKey); } catch {}
+    setLocalProgress(null);
+  }
+
   const [resumeProgress, setResumeProgress] = useState<SavedEditorDraft | null>(null);
 
   const refreshSavedProgress = useCallback(async () => {
@@ -193,10 +219,23 @@ export function ProviderPackagesClient({
     }
   }
   const saveBusy = useRef(false);
+  const packageEditor = useRef<ProviderPackageEditor>(null);
+  const canSaveOnClose = !editingPackage && packageEditorProgressEnabled;
+
+  function closePackageEditor() {
+    if (!editingPackage && !resumeProgress) clearLocalPackageDraft();
+    setDiscardOpen(false);
+    setCreateOpen(false);
+    setResumeProgress(null);
+  }
   const discardOpener = useRef<HTMLElement | null>(null);
 
   function requestEditorClose() {
     if (saveBusy.current || discardOpen) return;
+    if (packageEditor.current && !packageEditor.current.hasUnsavedChanges()) {
+      closePackageEditor();
+      return;
+    }
     discardOpener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     setDiscardOpen(true);
   }
@@ -386,9 +425,7 @@ export function ProviderPackagesClient({
             disabled={loading}
             onClick={(event) => {
               packageOpener.current = event.currentTarget;
-              setEditingPackage(null);
-              setResumeProgress(null);
-              setCreateOpen(true);
+              openNewPackage();
             }}
             >
             <Plus aria-hidden="true" />
@@ -410,18 +447,17 @@ export function ProviderPackagesClient({
         onInteractOutside={(event) => event.preventDefault()}>
         <DialogHeader className="shrink-0 border-b border-border px-5 py-4 pr-16 sm:pl-6">
           <DialogTitle>{editingPackage ? "Edit package" : "Create package"}</DialogTitle>
-          <DialogDescription>{editingPackage ? "Update your draft package. Changes take effect when you save." : "Save a draft to review before publishing. Closing asks you to confirm discarding unsaved changes."}</DialogDescription>
+          <DialogDescription>{editingPackage ? "Update your draft package. Changes take effect when you save." : packageEditorProgressEnabled ? "Use Save Draft & Exit to finish later. You can resume from Saved package progress." : "Save a draft to review before publishing. Closing asks you to confirm discarding unsaved changes."}</DialogDescription>
         </DialogHeader>
         <ProviderPackageForm
+          editorRef={packageEditor}
+          localDraftKey={!editingPackage && !resumeProgress ? localDraftKey : undefined}
+          localProgress={!editingPackage && !resumeProgress ? localProgress : null}
           key={editingPackage?.id ?? resumeProgress?.editorDraftId ?? "create"}
           initialPackage={editingPackage ?? undefined}
           initialEditorProgress={resumeProgress}
           onProgressSaved={() => { void refreshSavedProgress(); }}
-          onProgressExit={() => {
-             setDiscardOpen(false);
-             setCreateOpen(false);
-             setResumeProgress(null);
-           }}
+          onProgressExit={closePackageEditor}
           dialogLayout
           providerServiceType={providerServiceType}
           serviceCategories={serviceCategories}
@@ -433,24 +469,31 @@ export function ProviderPackagesClient({
           paymentPolicyBounds={paymentPolicyBounds}
           onSubmittingChange={(busy) => { saveBusy.current = busy; setFormBusy(busy); }}
           onCancel={requestEditorClose}
-          onSaved={async () => { await loadPackages(); if (packageEditorProgressEnabled) await refreshSavedProgress(); setDiscardOpen(false); setCreateOpen(false); setResumeProgress(null); }}
+          onSaved={async () => { await loadPackages(); if (packageEditorProgressEnabled) await refreshSavedProgress(); closePackageEditor(); }}
         />
         <ConfirmationDialog open={discardOpen} onOpenChange={(open) => {
           if (!saveBusy.current) setDiscardOpen(open);
-        }} title="Discard package changes?"
-          description="Your unsaved package details, pricing, dishes, themes, and images will be lost if you close this editor."
-          confirmLabel="Discard changes" cancelLabel="Keep editing" destructive
-          loading={formBusy} confirmDisabled={formBusy} stopEscapePropagation
-          contentClassName="z-[70]" overlayClassName="z-[60]"
+        }} title={canSaveOnClose ? "Save this package as a draft?" : "Discard package changes?"}
+          description={canSaveOnClose ? "Save your progress and finish this package later." : "Your unsaved package details, pricing, dishes, themes, and images will be lost if you close this editor."}
+          confirmLabel={canSaveOnClose ? "Save Draft & Exit" : "Discard changes"}
+          cancelLabel="Keep editing"
+          destructive={!canSaveOnClose}
+          loading={formBusy} confirmDisabled={formBusy} loadingLabel={canSaveOnClose ? "Saving draft…" : "Discarding…"} stopEscapePropagation
+          stackedActions
+          onDiscard={canSaveOnClose ? closePackageEditor : undefined}
+          contentClassName="z-[70] max-w-md" overlayClassName="z-[60] backdrop-blur-sm"
           onCloseAutoFocus={(event) => {
             event.preventDefault();
             const target = discardOpener.current;
             (target?.isConnected ? target : packageOpener.current?.isConnected ? packageOpener.current : newPackageButton.current)?.focus();
           }} onConfirm={() => {
             if (saveBusy.current) return;
+            if (!canSaveOnClose) {
+              closePackageEditor();
+              return;
+            }
             setDiscardOpen(false);
-            setCreateOpen(false);
-            setResumeProgress(null);
+            return packageEditor.current?.saveDraftAndExit();
           }} />
       </DialogContent>
 
@@ -622,7 +665,7 @@ export function ProviderPackagesClient({
             <h2 className="text-lg font-bold">{packages.length ? "No packages match your filters." : "No packages yet"}</h2>
             {packages.length ? <Button variant="secondary" onClick={clearFilters}>Clear filters</Button> : <>
               <p className="max-w-md text-sm text-muted-foreground">Create your first package so customers can discover and book your services.</p>
-              <Button onClick={(event) => { packageOpener.current = event.currentTarget; setEditingPackage(null); setResumeProgress(null); setCreateOpen(true); }}>Create package</Button>
+              <Button onClick={(event) => { packageOpener.current = event.currentTarget; openNewPackage(); }}>Create package</Button>
             </>}
           </div>}
           {totalPackagePages > 1 ? (

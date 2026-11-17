@@ -42,7 +42,7 @@ it.each([0, 1, 2, 3, 4] as const)("shares stable footer regions on step %s", (st
  expect(footer.parentElement).toHaveClass("shrink-0", "border-t");
  expect(screen.getByRole("region", {name:"Package details"})).not.toContainElement(footer);
  expect(helper).toHaveClass("min-w-0", "text-center");
- expect(within(helper as HTMLElement).getByText(/Save Progress keeps unfinished editor state/)).toHaveClass("text-xs", "leading-5", "text-muted-foreground");
+ expect(within(helper as HTMLElement).getByText(/Save Draft & Exit keeps your place in the wizard/)).toHaveClass("text-xs", "leading-5", "text-muted-foreground");
  expect(actions).toHaveClass("grid", "grid-cols-[minmax(0,1fr)_minmax(0,2fr)]", "gap-3");
  fireEvent.click(within(left as HTMLElement).getByRole("button", {name:"Cancel"}));
  expect(props.onCancel).toHaveBeenCalledTimes(1);
@@ -92,7 +92,7 @@ it("retains individual progress on the classification step and saves without con
  const select = screen.getByRole("combobox", {name: /Package structure/});
  expect(select).toHaveValue("individual");
  expect(within(select).getByRole("option", {name: "Individual Food Item"})).toBeDisabled();
- fireEvent.click(screen.getByRole("button", {name: "Save Progress & Exit"}));
+ fireEvent.click(screen.getByRole("button", {name: "Save Draft & Exit"}));
  await waitFor(() => expect(api.save).toHaveBeenCalledTimes(1));
  expect(api.save.mock.calls[0][0].progress.offerStructure).toBe("individual");
 });
@@ -319,14 +319,14 @@ it("exits only after a confirmed progress save",async()=>{
  const exit=vi.fn();const result={editorDraftId:"resume",revision:1};
  api.save.mockResolvedValue(result);
  render(<ProviderPackageForm {...props} onProgressExit={exit}/>);
- fireEvent.click(screen.getByRole("button",{name:"Save Progress & Exit"}));
+ fireEvent.click(screen.getByRole("button",{name:"Save Draft & Exit"}));
  await waitFor(()=>expect(exit).toHaveBeenCalledTimes(1));
  expect(api.save).toHaveBeenCalledTimes(1);
 });
-it("keeps the editor open if Save Progress & Exit fails",async()=>{
+it("keeps the editor open if Save Draft & Exit fails",async()=>{
  const exit=vi.fn();api.save.mockRejectedValue(new Error("simulated failure"));
  render(<ProviderPackageForm {...props} onProgressExit={exit}/>);
- fireEvent.click(screen.getByRole("button",{name:"Save Progress & Exit"}));
+ fireEvent.click(screen.getByRole("button",{name:"Save Draft & Exit"}));
  await waitFor(() => expect(screen.getByText("Progress failed")).toHaveAttribute("role", "alert"));
  expect(exit).not.toHaveBeenCalled();
 });
@@ -379,7 +379,7 @@ it("resumes incomplete persisted groups without changing draft persistence",asyn
  expect(screen.getByRole("alert")).toHaveTextContent("Enter a group name");
  expect(api.update).not.toHaveBeenCalled();
  fireEvent.click(screen.getByRole("button",{name:"Cancel"}));
- fireEvent.click(screen.getByRole("button",{name:"Save Progress & Exit"}));
+ fireEvent.click(screen.getByRole("button",{name:"Save Draft & Exit"}));
  await waitFor(()=>expect(api.save).toHaveBeenCalledTimes(1));
  expect(api.save.mock.calls[0][0].progress.foodChoiceGroups).toEqual([incomplete]);
  await waitFor(()=>expect(exit).toHaveBeenCalledTimes(1));
@@ -450,7 +450,7 @@ it("saves and restores unfinished individual food serving options", async () => 
   await chooseSavedDishes(["Pancit Canton Bilao"]);
 
   fireEvent.click(screen.getByRole("button", {
-    name: "Save Progress & Exit",
+    name: "Save Draft & Exit",
   }));
 
   await waitFor(() => expect(api.save).toHaveBeenCalledTimes(1));

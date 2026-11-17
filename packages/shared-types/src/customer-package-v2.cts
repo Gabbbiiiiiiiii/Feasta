@@ -146,7 +146,7 @@ function publicationDescriptionText(
   max: number,
 ): boolean {
   if (typeof value !== "string" ||
-      value.trim().length < min ||
+      (value !== "" && value.trim().length < min) ||
       value.length > max) {
     return false;
   }

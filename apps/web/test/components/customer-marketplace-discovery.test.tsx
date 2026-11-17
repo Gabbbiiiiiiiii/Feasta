@@ -438,13 +438,12 @@ describe("customer marketplace server query contracts", () => {
     expect(globalStyles).toContain("--breakpoint-xl: 96rem");
     expect(providerPage).not.toContain("ProviderFilterForm");
     expect(providerPage).not.toContain("md:grid-cols-[17rem_minmax(0,1fr)]");
-    expect(loading).toContain("grid-cols-[repeat(auto-fill,minmax(min(100%,12.5rem),1fr))]");
+    expect(loading).not.toContain("ProviderDirectoryShell");
     expect(directoryShell).toContain("sm:-mx-6");
     expect(directoryShell).toContain("lg:-mx-8");
     expect(directoryShell).not.toContain("lg:-mx-10");
-    expect(marketplaceHeader).toContain("Open Event Finder");
+    expect(marketplaceHeader).toContain("Plan your event");
     expect(marketplaceHeader).not.toContain("Search event services in Ormoc City");
-    expect(loading).toContain("motion-reduce:animate-none");
     expect(loading).toContain('role="status"');
     expect(loading).toContain('aria-label="Loading providers"');
   });

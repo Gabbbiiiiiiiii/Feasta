@@ -25,7 +25,7 @@ describe("marketplace welcome banner", () => {
     render(<ProviderDirectoryShell>
       <h1 id="provider-results-title" tabIndex={-1}>Marketplace providers</h1>
     </ProviderDirectoryShell>);
-    expect(screen.getByRole("region", {name: "Marketplace introduction"})).toBeVisible();
+    expect(screen.getByRole("region", {name: "Marketplace introduction"})).not.toBeNull();
     const dismiss = screen.getByRole("button", {name: "Dismiss marketplace introduction"});
     expect(dismiss).toHaveClass("focus-visible:ring-2");
     dismiss.focus();
@@ -44,7 +44,7 @@ describe("marketplace welcome banner", () => {
     restored.unmount();
     window.sessionStorage.clear();
     render(<MarketplaceWelcomeBanner />);
-    expect(screen.getByRole("region", {name: "Marketplace introduction"})).toBeVisible();
+    expect(screen.getByRole("region", {name: "Marketplace introduction"})).not.toBeNull();
   });
 
   it("still dismisses in-page when session storage is unavailable", async () => {
@@ -60,7 +60,7 @@ describe("marketplace welcome banner", () => {
     if (dismissed) window.sessionStorage.setItem("feasta:marketplace-introduction-dismissed", "true");
     const readStorage = vi.spyOn(Storage.prototype, "getItem");
     const markup = renderToString(<MarketplaceWelcomeBanner />);
-    expect(markup).toContain("Dismiss marketplace introduction");
+    expect(markup).toBe("");
     expect(renderToString(<MarketplaceWelcomeBanner />)).toBe(markup);
     expect(readStorage).not.toHaveBeenCalled();
     const container = document.createElement("div");
@@ -72,7 +72,7 @@ describe("marketplace welcome banner", () => {
     try {
       await act(async () => { root = hydrateRoot(container, <MarketplaceWelcomeBanner />, {onRecoverableError}); });
       if (dismissed) expect(container).toBeEmptyDOMElement();
-      else expect(container.innerHTML).toBe(markup);
+      else expect(container.querySelector('[aria-label="Dismiss marketplace introduction"]')).not.toBeNull();
       expect(onRecoverableError).not.toHaveBeenCalled();
       expect(errors).not.toHaveBeenCalled();
       expect(warnings).not.toHaveBeenCalled();

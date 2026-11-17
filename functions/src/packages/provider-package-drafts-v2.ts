@@ -135,7 +135,7 @@ export function parseV2DraftWrite(value: unknown, update: boolean) {
   }
   // Allow LF and CRLF paragraph breaks for validation only.
   // Keep the original description unchanged for lossless recovery.
-  plainText(input.description.replace(/\r\n|\n/gu, ""), 10, 5000, "INVALID_NAME");
+  plainText(input.description.replace(/\r\n|\n/gu, ""), input.description === "" ? 0 : 10, 5000, "INVALID_NAME");
   if (input.balanceDueDaysBeforeEvent !== undefined && input.balanceDueDaysBeforeEvent !== null) {
     fail("SERVER_OWNED_FIELD", "invalid-argument");
   }

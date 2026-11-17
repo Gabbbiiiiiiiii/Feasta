@@ -370,7 +370,7 @@ export function parsePackageInput(
   const description = requiredString(
     data.description,
     "Package description",
-    10,
+    typeof data.description === "string" && data.description.trim() === "" ? 0 : 10,
     MAX_PACKAGE_DESCRIPTION_LENGTH,
   );
 
