@@ -68,6 +68,7 @@ export type ProviderVerificationQueueItem = {
   ownerName: string;
   email: string;
   providerServiceType: string;
+  taxVerificationStatus: "not_submitted" | "pending" | "verified" | "rejected";
   submittedAt: string;
   status: Exclude<VerificationQueueStatus, "all">;
 };

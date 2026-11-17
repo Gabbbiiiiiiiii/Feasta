@@ -23,6 +23,16 @@ export function resolveNotificationDestination(
       ? notification.relatedId
       : null;
 
+  // Route tax-profile events before the generic unknown-collection fallback.
+  if (type === "provider_tax_profile_submitted" && role === "admin") {
+    return collection === "providerverifications" && relatedId
+      ? `/admin/providers?selected=${encodeURIComponent(relatedId)}`
+      : "/admin/providers";
+  }
+  if ((type === "provider_tax_profile_verified" || type === "provider_tax_profile_rejected") && role === "provider") {
+    return "/provider/tax-profile";
+  }
+
   const knownCollections = [
     "chatrooms",
     "providerverifications",

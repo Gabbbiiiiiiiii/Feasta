@@ -552,6 +552,36 @@ export async function getProviderVerificationQueue(
     documentData(owner),
   ]));
 
+  // Tax verification is independent of business approval.
+  // Fetch only the tax profiles for providers on this queue page.
+  const taxSnapshots = providerIds.length > 0
+    ? await adminDb.getAll(...providerIds.map((providerId) =>
+        adminDb.collection("providerTaxProfiles").doc(providerId)
+      ))
+    : [];
+
+  const taxByProviderId = new Map(taxSnapshots.map((snapshot) => {
+    const providerId = snapshot.id;
+    const provider = providersById.get(providerId) ?? {};
+
+    const application = documents.find(
+      (document) => getString(document.data().providerId) === providerId
+    );
+
+    const ownerId = getString(
+      application?.data().ownerId ?? provider.ownerId
+    );
+
+    const profile = ownerId
+      ? mapProviderTaxProfileReview(snapshot, providerId, ownerId)
+      : null;
+
+    return [
+      providerId,
+      profile?.verificationStatus ?? "not_submitted",
+    ] as const;
+  }));
+
   const items: ProviderVerificationQueueItem[] = documents.map((document) => {
     const data = document.data();
     const providerId = getString(data.providerId);
@@ -580,6 +610,7 @@ export async function getProviderVerificationQueue(
       ),
       submittedAt: formatDate(data.submittedAt ?? data.createdAt),
       status: queueStatus(data.status),
+      taxVerificationStatus: taxByProviderId.get(providerId) ?? "not_submitted",
     };
   });
 

@@ -55,6 +55,7 @@ const page: ProviderVerificationQueuePage = {
     providerServiceType: "catering",
     submittedAt: "Jul 28, 2026",
     status: "submitted",
+    taxVerificationStatus: "not_submitted",
   }],
   previousCursor: "previous-cursor",
   nextCursor: "next-cursor",

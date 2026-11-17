@@ -77,8 +77,13 @@ const columns: readonly DataTableColumn<ProviderVerificationQueueItem>[] = [
   },
   {
     id: "status",
-    header: "Status",
+    header: "Business status",
     cell: (item) => <StatusBadge status={item.status} label={providerVerificationLabel(item.status)} />,
+  },
+  {
+    id: "taxVerificationStatus",
+    header: "Tax status",
+    cell: (item) => <TaxStatusIndicator status={item.taxVerificationStatus} />,
   },
 ];
 
@@ -437,6 +442,12 @@ function ProviderVerificationQueue({
                 </dd>
               </div>
               <div>
+                <dt className="font-semibold">Tax status</dt>
+                <dd className="mt-1">
+                  <TaxStatusIndicator status={item.taxVerificationStatus} />
+                </dd>
+              </div>
+              <div>
                 <dt className="font-semibold">Submitted</dt>
                 <dd className="text-muted-foreground">{item.submittedAt}</dd>
               </div>
@@ -551,6 +562,35 @@ function ProviderVerificationQueue({
         ) : null}
       </DetailDrawer>
     </div>
+  );
+}
+
+function TaxStatusIndicator({
+  status,
+}: {
+  status: ProviderVerificationQueueItem["taxVerificationStatus"];
+}) {
+  const labels = {
+    not_submitted: "Not submitted",
+    pending: "Pending",
+    verified: "Verified",
+    rejected: "Rejected",
+  } as const;
+
+  const styles = {
+    not_submitted: "border-border bg-muted/40 text-muted-foreground",
+    pending: "border-warning/30 bg-warning-subtle text-warning",
+    verified: "border-success/30 bg-success-subtle text-success",
+    rejected: "border-destructive/30 bg-destructive-subtle text-destructive",
+  } as const;
+
+  return (
+    <span
+      aria-label={`Tax verification: ${labels[status]}`}
+      className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold ${styles[status]}`}
+    >
+      {labels[status]}
+    </span>
   );
 }
 

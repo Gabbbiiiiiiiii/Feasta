@@ -1,3 +1,6 @@
+import {createHash} from "node:crypto";
+import {createNotificationWithIdInTransaction} from "../shared/notifications.js";
+
 import {
   HttpsError,
   onCall,
@@ -101,6 +104,32 @@ export const submitProviderTaxProfile =
         db.collection(
           PROVIDER_TAX_PROFILES_COLLECTION,
         ).doc(providerId);
+
+      // This is a bounded recipient snapshot. Never accept client-supplied Admin IDs.
+      const administrators = await db.collection("users")
+        .where("role", "==", USER_ROLES.admin)
+        .limit(101)
+        .get();
+      if (administrators.size > 100) {
+        throw new HttpsError("resource-exhausted", "The administrator recipient list exceeds the supported limit.");
+      }
+      const adminIds = administrators.docs
+        .filter((doc) => {
+          const data = doc.data();
+          return data.role === USER_ROLES.admin &&
+            data.accountStatus === "active" &&
+            data.isActive !== false &&
+            data.isBlocked !== true &&
+            data.isDeleted !== true;
+        })
+        .map((doc) => doc.id);
+      const verificationMatches = await db.collection("providerVerifications")
+        .where("providerId", "==", providerId)
+        .limit(2)
+        .get();
+      const verificationId = verificationMatches.size === 1
+        ? verificationMatches.docs[0].id
+        : null;
 
       return db.runTransaction(
         async (transaction) => {
@@ -238,6 +267,10 @@ export const submitProviderTaxProfile =
               null,
 
             schemaVersion: 1,
+            notificationRevision: Number.isSafeInteger(existing?.notificationRevision) &&
+              (existing?.notificationRevision as number) >= 0 &&
+              (existing?.notificationRevision as number) < Number.MAX_SAFE_INTEGER
+              ? (existing?.notificationRevision as number) + 1 : 1,
 
             createdAt:
               existing
@@ -289,6 +322,23 @@ export const submitProviderTaxProfile =
                 }),
             },
           );
+
+          // A replay returning changed:false above does not re-notify.
+          // Stable document IDs keep retried transactions idempotent.
+          for (const adminId of adminIds) {
+            createNotificationWithIdInTransaction(
+              transaction,
+              taxNotificationId("submit", providerId, next.notificationRevision, adminId),
+              {
+                userId: adminId,
+                title: existing ? "Provider tax profile resubmitted" : "New provider tax profile",
+                message: "A provider submitted tax information for administrator review.",
+                type: "provider_tax_profile_submitted",
+                relatedCollection: verificationId ? "providerVerifications" : "providerTaxProfiles",
+                relatedId: verificationId ?? providerId,
+              },
+            );
+          }
 
           return {
             providerId,
@@ -507,6 +557,28 @@ export const reviewProviderTaxProfile =
             },
           );
 
+          // The provider's account receives the decision, without exposing TIN.
+          const recipientId = providerSnapshot.data()?.ownerId;
+          if (typeof recipientId !== "string" || recipientId !== current.ownerId) {
+            throw new HttpsError("failed-precondition", "Provider tax-profile ownership is inconsistent.");
+          }
+          createNotificationWithIdInTransaction(
+            transaction,
+            taxNotificationId("review", input.providerId,
+              Number.isSafeInteger(current.notificationRevision) ? current.notificationRevision as number : 0,
+              recipientId),
+            {
+              userId: recipientId,
+              title: nextStatus === "verified" ? "Tax profile verified" : "Tax profile needs correction",
+              message: nextStatus === "verified"
+                ? "FEASTA administration has verified your submitted tax profile."
+                : "FEASTA administration rejected your tax profile. Open your tax profile to review the decision.",
+              type: nextStatus === "verified" ? "provider_tax_profile_verified" : "provider_tax_profile_rejected",
+              relatedCollection: "providerTaxProfiles",
+              relatedId: input.providerId,
+            },
+          );
+
           return {
             providerId:
               input.providerId,
@@ -518,6 +590,14 @@ export const reviewProviderTaxProfile =
       );
     },
   );
+
+function taxNotificationId(kind: string, providerId: string, revision: number, recipientId: string): string {
+  // Short opaque keys are safe even when provider and recipient IDs are long.
+  const digest = createHash("sha256")
+    .update(JSON.stringify([kind, providerId, revision, recipientId]))
+    .digest("hex");
+  return `tax_${digest}`;
+}
 
 function sameSubmittedProfile(
   current:
