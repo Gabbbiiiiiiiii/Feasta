@@ -23,6 +23,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import {NavigationDisclosure} from "./navigation-disclosure";
 import {cn} from "@/lib/utils";
 
 type MobileNavigationProps = {
@@ -40,9 +41,9 @@ function MobileNavigation({
     [role, providerContext],
   );
 
-  if (role === "provider") {
+  if (role === "provider" || role === "admin") {
     return (
-      <ProviderMobileNavigation
+      <WorkspaceMobileNavigation role={role}
         navigation={navigation}
         pathname={pathname}
       />
@@ -69,10 +70,12 @@ function MobileNavigation({
   );
 }
 
-function ProviderMobileNavigation({
+function WorkspaceMobileNavigation({
+  role = "provider",
   navigation,
   pathname,
 }: {
+  role?: "provider" | "admin";
   navigation: ReturnType<typeof getRoleNavigation>;
   pathname: string;
 }) {
@@ -82,23 +85,23 @@ function ProviderMobileNavigation({
     [navigation],
   );
   const primaryLinks = useMemo(
-    () => selectProviderPrimaryLinks(links),
-    [links],
+    () => role === "admin" ? links.filter((item) => ["/admin", "/admin/bookings", "/admin/payments"].includes(item.href)) : selectProviderPrimaryLinks(links),
+    [links, role],
   );
   const groups = useMemo(
     () => groupNavigationItems(navigation),
     [navigation],
   );
-  const secondaryRouteActive = links.some(
+  const secondaryRouteActive = navigation.some((item) => item.kind === "group" && item.children.some((child) => isNavigationItemActive(pathname,child))) || links.some(
     (item) =>
       !primaryLinks.includes(item) &&
       isNavigationItemActive(pathname, item),
   );
 
-  if (links.length <= 3) {
+  if (links.length <= 3 && !navigation.some((item) => item.kind === "group")) {
     return (
       <nav
-        aria-label="Provider mobile navigation"
+        aria-label={`${roleLabels[role]} mobile navigation`}
         className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-card px-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-2 md:hidden"
       >
         <ul className="grid grid-flow-col auto-cols-fr gap-1">
@@ -117,7 +120,7 @@ function ProviderMobileNavigation({
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <nav
-        aria-label="Provider mobile navigation"
+        aria-label={`${roleLabels[role]} mobile navigation`}
         className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-card px-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-2 md:hidden"
       >
         <ul className="grid grid-flow-col auto-cols-fr gap-1">
@@ -133,7 +136,7 @@ function ProviderMobileNavigation({
             <DialogTrigger asChild>
               <button
                 type="button"
-                aria-label="More provider navigation"
+                aria-label={`More ${role} navigation`}
                 className={cn(
                   "flex min-h-14 min-w-12 w-full flex-col items-center justify-center gap-1 rounded-lg px-1 text-xs font-semibold",
                   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
@@ -152,19 +155,19 @@ function ProviderMobileNavigation({
 
       <DialogContent className="inset-y-0 right-0 left-auto top-0 h-dvh max-h-dvh w-[min(100vw,24rem)] max-w-[100vw] translate-x-0 translate-y-0 content-start overflow-x-hidden rounded-none border-y-0 border-r-0 p-0 sm:rounded-l-dialog">
         <DialogHeader className="border-b border-border p-5 pr-16">
-          <DialogTitle>Provider navigation</DialogTitle>
+          <DialogTitle>{roleLabels[role]} navigation</DialogTitle>
           <DialogDescription>
-            Access your FEASTA provider workspace.
+            Access your FEASTA {role} workspace.
           </DialogDescription>
         </DialogHeader>
 
         <nav
-          aria-label="Provider complete mobile navigation"
+          aria-label={`${roleLabels[role]} complete mobile navigation`}
           className="min-h-0 overflow-y-auto px-4 py-5"
         >
           <div className="space-y-6">
             {groups.map((group, groupIndex) => {
-              const headingId = `provider-mobile-navigation-group-${groupIndex}`;
+              const headingId = `${role}-mobile-navigation-group-${groupIndex}`;
 
               return (
                 <section
@@ -182,7 +185,9 @@ function ProviderMobileNavigation({
 
                   <ul className="space-y-1">
                     {group.items.map((item) => (
-                      item.kind === "link" ? (
+                      item.kind === "group" ? (
+                        <NavigationDisclosure key={`${item.label}-${pathname}`} item={item} pathname={pathname} onSelect={() => setOpen(false)} />
+                      ) : item.kind === "link" ? (
                         <ProviderDrawerLink
                           key={item.href}
                           item={item}

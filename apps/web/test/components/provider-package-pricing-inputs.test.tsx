@@ -5,7 +5,7 @@ import {describe, expect, it, vi} from "vitest";
 import {ProviderPackageMoneyInput} from "@/app/provider/packages/provider-package-money-input";
 import {ProviderPackagePricePreview} from "@/app/provider/packages/provider-package-price-preview";
 import {ProviderPackageOfferBuilder, createProviderPackageOfferDraft, serializeProviderPackageOfferDraft} from "@/app/provider/packages/provider-package-offer-builder";
-import {packageMoneyCentavos, packagePreviewGuestCount, packagePreviewSubtotal} from "@/lib/provider/package-pricing-preview";
+import {isPackageMoneyEdit, packageMoneyCentavos, packagePreviewGuestCount, packagePreviewSubtotal} from "@/lib/provider/package-pricing-preview";
 
 vi.mock("@/lib/provider/provider-media-client", () => ({uploadProviderServiceImage: vi.fn()}));
 
@@ -158,4 +158,27 @@ it.each(["0.29", "1.01", "25000.50", "10000000.00"])("serializes %s through exac
   expect(serialized.error).toBeNull();
   expect(serialized.startingPrice).toBe(packageMoneyCentavos(value)! / 100);
   expect(serialized.serviceOptions.drop_off?.price).toBe(Number(value));
+});
+
+it.each(["111111111111111111111111111111111111", "10000000.01", "99999999", "0000000000000"])("rejects oversized price %s and preserves the last valid value", (value) => {
+  render(<MoneyHarness initial="123.45" />);
+  const input=screen.getByRole("textbox");
+  fireEvent.change(input,{target:{value}});
+  expect(input).toHaveValue("123.45");
+  expect(input).toHaveAttribute("aria-invalid","true");
+  expect(screen.getByRole("alert")).toHaveTextContent("PHP 10,000,000.00");
+  expect(isPackageMoneyEdit(value)).toBe(false);
+  expect(packageMoneyCentavos(value)).toBeNull();
+});
+it("accepts the exact price ceiling and clears a rejected-entry error after correction", () => {
+  render(<MoneyHarness initial="123.45" />);
+  const input=screen.getByRole("textbox");
+  fireEvent.change(input,{target:{value:"10000000.01"}});
+  fireEvent.focus(input);
+  fireEvent.change(input,{target:{value:"10000000.00"}});
+  expect(input).toHaveValue("10000000.00");
+  expect(input).toHaveAttribute("aria-invalid","false");
+  expect(packageMoneyCentavos("10000000.00")).toBe(1000000000);
+  expect(isPackageMoneyEdit(".")).toBe(true);
+  expect(isPackageMoneyEdit("12.")).toBe(true);
 });

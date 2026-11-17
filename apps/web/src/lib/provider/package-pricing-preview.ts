@@ -2,11 +2,12 @@ export const MAX_PACKAGE_PRICE_CENTAVOS = 1_000_000_000;
 
 /** Editing permits empty text and an unfinished decimal; final parsing does not. */
 export function isPackageMoneyEdit(value: string): boolean {
-  return /^\d*(?:\.\d{0,2})?$/u.test(value);
+  if (!/^\d{0,8}(?:\.\d{0,2})?$/u.test(value)) return false;
+  return value === "" || value === "." || packageMoneyCentavos(value) !== null;
 }
 
 export function packageMoneyCentavos(value: string): number | null {
-  if (!/^(?:\d+(?:\.\d{0,2})?|\.\d{1,2})$/u.test(value)) return null;
+  if (!/^(?:\d{1,8}(?:\.\d{0,2})?|\.\d{1,2})$/u.test(value)) return null;
   const [whole, fraction = ""] = value.split(".");
   const cents = Number(whole || "0") * 100 + Number(fraction.padEnd(2, "0"));
   return Number.isSafeInteger(cents) && cents >= 0 && cents <= MAX_PACKAGE_PRICE_CENTAVOS ? cents : null;

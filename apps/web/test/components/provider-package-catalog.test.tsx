@@ -495,3 +495,23 @@ describe("starting price PHP display", () => {
     expect(screen.getByRole("textbox", {name: /Starting price/})).toHaveValue("25,000.50");
   });
 });
+
+it("warns about repeated package-name characters without blocking navigation or save", async () => {
+  render(<ProviderPackageForm {...props} initialPackage={record} onSaved={vi.fn()} onCancel={vi.fn()} />);
+  const name=screen.getByRole("textbox",{name:/Package name/});
+  fireEvent.change(name,{target:{value:"wwwwwwwwwwww"}});
+  expect(screen.getByText("Use a recognizable package name customers can understand.")).toHaveAttribute("role","status");
+  expect(name).not.toHaveAttribute("aria-invalid","true");
+  expect(name).toHaveAccessibleDescription("Use a recognizable package name customers can understand.");
+  goToStep(5);
+  fireEvent.click(screen.getByRole("button",{name:"Save changes"}));
+  await waitFor(() => expect(mocks.update).toHaveBeenCalledWith(record.id,expect.objectContaining({name:"wwwwwwwwwwww"})));
+});
+it("clears the package-name warning after the name is made recognizable", () => {
+  render(<ProviderPackageForm {...props} initialPackage={record} onSaved={vi.fn()} onCancel={vi.fn()} />);
+  const name=screen.getByRole("textbox",{name:/Package name/});
+  fireEvent.change(name,{target:{value:"wwwwwwww"}});
+  fireEvent.change(name,{target:{value:"Wedding Buffet Package"}});
+  expect(screen.queryByText("Use a recognizable package name customers can understand.")).not.toBeInTheDocument();
+  expect(name).not.toHaveAttribute("aria-invalid","true");
+});

@@ -4,6 +4,7 @@ import {useId, useRef, useState} from "react";
 import {Input} from "@/components/ui/input";
 import {isPackageMoneyEdit, packageMoneyCentavos} from "@/lib/provider/package-pricing-preview";
 
+const OUT_OF_RANGE = "Enter a price from PHP 0.00 to PHP 10,000,000.00 using no more than 8 digits before the decimal point and two decimal places.";
 const INVALID_MONEY = "Use digits and one decimal point, with at most two decimal places. Exponents and signs are not allowed.";
 
 export function ProviderPackageMoneyInput({value, error, disabled, onChange, readOnly = false, description}: {
@@ -30,7 +31,7 @@ export function ProviderPackageMoneyInput({value, error, disabled, onChange, rea
     if (isPackageMoneyEdit(next)) {
       onChange(next);
     } else {
-      onChange(value, INVALID_MONEY);
+      onChange(value, /^\d*(?:\.\d{0,2})?$/u.test(next) ? OUT_OF_RANGE : INVALID_MONEY);
       const previous = {...selection.current};
       requestAnimationFrame(() => input.current?.setSelectionRange(
         Math.min(previous.start, value.length), Math.min(previous.end, value.length),

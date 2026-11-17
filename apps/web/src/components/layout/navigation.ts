@@ -51,7 +51,11 @@ export type NavigationDisabledItem = NavigationItemBase & {
   disabledReason: "Coming soon";
 };
 
-export type NavigationItem = NavigationLinkItem | NavigationDisabledItem;
+export type NavigationDisclosureItem = NavigationItemBase & {
+  kind: "group";
+  children: readonly NavigationLinkItem[];
+};
+export type NavigationItem = NavigationLinkItem | NavigationDisabledItem | NavigationDisclosureItem;
 
 export type ProviderNavigationContext =
   | {kind: "identity-limited"}
@@ -209,7 +213,12 @@ const adminNavigation: readonly NavigationItem[] = [
   {kind: "link", section: "Support", label: "Reviews", href: "/admin/reviews", icon: MessageSquareText},
   {kind: "link", section: "Support", label: "Complaints", href: "/admin/complaints", icon: MessageSquareWarning},
   {kind: "link", section: "Support", label: "Announcements", href: "/admin/announcements", icon: Megaphone},
-  {kind: "link", section: "System", label: "Reports", href: "/admin/reports", icon: ChartNoAxesCombined},
+  {kind: "group", section: "System", label: "Reports", icon: ChartNoAxesCombined, children: [
+    {kind: "link", label: "Sales & Commission", href: "/admin/reports/sales", icon: ChartNoAxesCombined},
+    {kind: "link", label: "Ratings & Complaints", href: "/admin/reports/quality", icon: MessageSquareWarning},
+    {kind: "link", label: "Event Types & Demand", href: "/admin/reports/demand", icon: CalendarDays},
+    {kind: "link", label: "Customer & Vendor Directory", href: "/admin/reports/directory", icon: Users},
+  ]},
   {kind: "link", section: "System", label: "Activity logs", href: "/admin/audit-logs", icon: ScrollText},
   {kind: "link", section: "System", label: "Settings", href: "/admin/settings", icon: Settings2},
 ];

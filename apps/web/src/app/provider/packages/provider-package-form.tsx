@@ -5,6 +5,7 @@ import {usePackageConfirmation} from "./use-package-confirmation";
 
 import {
   useEffect,
+  useId,
   useImperativeHandle,
   useMemo,
   type Ref,
@@ -177,6 +178,7 @@ export function ProviderPackageForm({
   const occasionOptions = packageOccasionChoices(occasionCatalog, serviceCategoryCode);
   const availableEventTypes = occasionOptions.map((option) => option.id);
   const occasionLabel = (id: string) => occasionCatalog?.options.find((option) => option.id === id)?.label ?? formatEventType(id);
+  const nameFieldId = useId();
   const [name, setName] =
     useState(
       initialEditorProgress?.progress.name ?? initialPackage?.name ?? "",
@@ -838,6 +840,7 @@ export function ProviderPackageForm({
       <div className="grid min-w-0 gap-4 sm:grid-cols-2">
         <FormField
           label="Package name"
+          id={nameFieldId}
           className="relative min-w-0" labelClassName="pr-20"
           error={validationError?.field === "name" ? validationError.message : undefined}
           required
@@ -845,6 +848,7 @@ export function ProviderPackageForm({
           <span className="absolute right-0 top-0 text-xs tabular-nums text-muted-foreground">{name.length}/{usesV2 ? 80 : 120}</span>
           <Input
             value={name}
+            aria-describedby={/([\p{L}\p{N}])\1{5,}/iu.test(name) && validationError?.field !== "name" ? `${nameFieldId}-warning` : undefined}
             onChange={(event) =>
               setName(event.target.value)
             }
@@ -852,8 +856,11 @@ export function ProviderPackageForm({
             autoComplete="off"
             placeholder="e.g., Busog Na Set or Wedding Buffet Package"
           />
-          <p className="mt-1 text-xs text-muted-foreground">
-            Use a name customers can easily recognize.
+          <p id={`${nameFieldId}-warning`} role={/([\p{L}\p{N}])\1{5,}/iu.test(name) ? "status" : undefined}
+            className={/([\p{L}\p{N}])\1{5,}/iu.test(name) ? "mt-1 text-xs text-amber-800" : "mt-1 text-xs text-muted-foreground"}>
+            {/([\p{L}\p{N}])\1{5,}/iu.test(name)
+              ? "Use a recognizable package name customers can understand."
+              : "Use a name customers can easily recognize."}
           </p>
         </FormField>
 

@@ -68,9 +68,8 @@ export function ProviderIndustrySelector({
   return (
     <nav
       aria-label="Provider industries"
-      style={{top: "var(--feasta-marketplace-header-height, 0px)"}}
       className={[
-        "sticky z-30 w-full max-w-full overflow-hidden",
+        "w-full max-w-full overflow-hidden",
         "rounded-[22px] border border-feasta-border-soft bg-white/95",
         "shadow-[0_10px_30px_rgb(0_75_59/0.075)] backdrop-blur-md",
       ].join(" ")}

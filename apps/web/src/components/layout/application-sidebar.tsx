@@ -23,6 +23,7 @@ import {
   type ProviderNavigationContext,
   type ShellRole,
 } from "@/components/layout/navigation";
+import {NavigationDisclosure} from "./navigation-disclosure";
 import { cn } from "@/lib/utils";
 
 type ApplicationSidebarProps = {
@@ -299,7 +300,9 @@ function ApplicationSidebarComponent({
 
                 <ul className={compact ? "space-y-0.5" : "space-y-1"}>
                   {group.items.map((item) => (
-                    item.kind === "link" ? (
+                    item.kind === "group" ? (
+                      <NavigationDisclosure key={`${item.label}-${pathname}`} item={item} pathname={pathname} collapsed={collapsed} onExpand={() => onCollapsedChange(false)} />
+                    ) : item.kind === "link" ? (
                       <SidebarNavigationItem
                         key={item.href}
                         item={item}

@@ -502,8 +502,6 @@ export function ProviderPackagesClient({
           <div><h2 className="font-semibold">Saved progress</h2>
             <p className="text-xs text-muted-foreground">Private, unfinished package editor progress. Not available to customers.</p>
           </div>
-          <Button type="button" variant="secondary" disabled={progressListBusy}
-            onClick={() => void refreshSavedProgress()}>Refresh saved progress</Button>
         </div>
         {savedProgressError ? <p role="alert" className="text-sm text-destructive">{savedProgressError}</p> : null}
         {savedProgressList.length === 0 ? <p className="text-sm text-muted-foreground">No saved progress to resume.</p> : null}
