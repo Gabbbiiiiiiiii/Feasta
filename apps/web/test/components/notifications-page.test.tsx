@@ -3,6 +3,9 @@ import userEvent from "@testing-library/user-event";
 import {beforeEach, describe, expect, it, vi} from "vitest";
 
 import type {FeastaNotification} from "@/lib/notifications/notification-types";
+vi.mock("@/components/announcements/announcement-feed", () => ({
+  AnnouncementFeed: ({role}: {role: string}) => <section aria-label={`Official announcements for ${role}`} />,
+}));
 
 const adminNotificationActionMocks =
   vi.hoisted(() => ({
@@ -107,6 +110,33 @@ describe("notifications page", () => {
       onValue([]);
       return {unsubscribe: mocks.unsubscribe};
     });
+  });
+
+  it.each(["customer", "provider"] as const)("makes the %s announcement feed discoverable from the bell", async (role) => {
+    const user = userEvent.setup();
+    const view = render(<NotificationMenu role={role} />);
+    await user.click(await screen.findByRole("button", {name: "Notifications"}));
+    expect(screen.getByRole("link", {name: "Official announcements"})).toHaveAttribute("href", `/${role}/notifications#official-announcements`);
+    view.unmount();
+    render(<NotificationsPageClient role={role} />);
+    expect(screen.getByRole("region", {name: `Official announcements for ${role}`})).toBeVisible();
+  });
+
+  it("keeps the admin bell live after its initial server read and cleans up the listener", async () => {
+    let publish!: (value: {notifications: FeastaNotification[]; unreadCount: number; unreadCountCapped: boolean}) => void;
+    mocks.subscribeMenu.mockImplementationOnce(async (callback) => {
+      publish = callback;
+      return {unsubscribe: mocks.unsubscribe};
+    });
+    const view = render(<NotificationMenu role="admin" />);
+    await waitFor(() => expect(mocks.subscribeMenu).toHaveBeenCalledTimes(1));
+    const {act} = await import("@testing-library/react");
+    act(() => publish({notifications: [notificationFixture({title: "New admin alert"})], unreadCount: 1, unreadCountCapped: false}));
+    fireEvent.click(screen.getByRole("button", {name: "1 unread notifications"}));
+    expect(screen.getByText("New admin alert")).toBeVisible();
+    expect(screen.getByRole("button", {name: "Enable notification sound"})).toBeVisible();
+    view.unmount();
+    expect(mocks.unsubscribe).toHaveBeenCalledTimes(1);
   });
 
   it("uses the same provider message destination in the dropdown and full page", async () => {

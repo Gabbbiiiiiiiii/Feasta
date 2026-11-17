@@ -162,6 +162,7 @@ export type AdminFinanceAttentionItem = {
   id: string;
   providerDisbursementId?: string | null;
   canonicalDisbursementStatus?: string | null;
+  dispatchBlockReason?: string | null;
   failedDisbursementRetryEligible?: boolean;
 
   kind: AdminFinanceAttentionKind;

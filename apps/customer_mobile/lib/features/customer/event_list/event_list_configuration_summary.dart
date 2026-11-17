@@ -79,7 +79,7 @@ class _EventListConfigurationSummaryState
           ),
         if (!widget.compact) Text(config.event.eventLocation),
         ExpansionTile(
-          title: const Text('Configuration details'),
+          title: const Text('Your selections'),
           tilePadding: EdgeInsets.zero,
           onExpansionChanged: (open) {
             if (open) _load();

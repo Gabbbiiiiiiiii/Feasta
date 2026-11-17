@@ -1,16 +1,25 @@
 "use client";
+import {cloudEventListSaveFeedback} from "@/lib/customer/event-list/customer-event-list-save-feedback";
+import type {CloudSaveOutcome} from "@/lib/customer/event-list/use-customer-event-list-cloud-async";
 import {ServicePortfolioGallery} from "@/components/shared/service-portfolio-gallery";
 import {FreelanceServiceSummary} from "@/components/shared/freelance-service-summary";
 import {sharedEventCandidates, compatibleSharedEvent} from "@/lib/customer/event-list/shared-event-details";
 
 import type {ComponentProps} from "react";
 import {useCustomerEventListSession} from "@/lib/customer/event-list/customer-event-list";
+import {CUSTOMER_EVENT_LIST_CLOUD_ENABLED} from "@/lib/customer/event-list/customer-event-list-cloud-transport";
+import {useCustomerEventListCloudAsync} from "@/lib/customer/event-list/use-customer-event-list-cloud-async";
+import {toWebItem} from "@/lib/customer/event-list/customer-event-list-cloud-contract";
+
 
 import Link from "next/link";
 import type {FoodChoiceSelectionV2} from "@feasta/shared-types/provider-package-v2";
 import {customerPackageEstimate} from "@feasta/shared-types/customer-package-v2";
 import {normalizeConfiguration, useCustomerEventList} from "@/lib/customer/event-list/customer-event-list";
 import {eventListConfigurationDraft} from "@/lib/customer/event-list/configuration-edit";
+import {canonicalConfigurationDraft, projectCanonicalBookingReview} from "@/lib/customer/event-list/configuration-edit";
+import {readCustomerEventListCloud} from "@/lib/customer/event-list/customer-event-list-cloud-transport";
+import type {PlanningEntry} from "../../../../../../functions/src/customer-event-lists/contract";
 import {FixedPackageInclusions} from "./fixed-package-inclusions";
 import {FoodChoiceSelector} from "./food-choice-selector";
 import {foodChoiceSelectionError, reconcileFoodChoiceSelections} from "@/lib/customer/bookings/food-choice-selection";
@@ -98,6 +107,7 @@ import type {CustomerEventContext} from "@/lib/customer/planning/event-planning-
 
 type EventCustomizationExperienceProps = {
   eventListEditProviderId?: string;
+  eventListReviewIntent?: boolean;
   draftOwner?: string;
   planningOnly?: boolean;
   detail: PublicPackageDetail;
@@ -163,13 +173,26 @@ function EventCustomizationExperienceSession({
   planningOnly = false,
   publishedSetups,
   eventListEditProviderId,
+  eventListReviewIntent = false,
 }: EventCustomizationExperienceProps) {
-  const {addItem, readItems} = useCustomerEventList();
+  const {addItem, readItems, removeSubmittedItems} = useCustomerEventList();
+  const cloudList = useCustomerEventListCloudAsync();
+  const canonicalEditOriginal = useRef<PlanningEntry | null>(null);
+  const [canonicalEditRequiresCompatibleReview, setCanonicalEditRequiresCompatibleReview] = useState(false);
+  const cloudItems = cloudList.state.document?.entries.flatMap(entry => {
+    const projection = toWebItem(entry);
+    return projection.status === "supported" ? [projection.item] : [];
+  }) ?? [];
+  const readEventListItems = () => CUSTOMER_EVENT_LIST_CLOUD_ENABLED
+    ? cloudItems : readItems();
   const {
     packageRecord,
     provider,
     customization: sharedCustomization,
   } = detail;
+
+  const [submittedEventListSnapshot] = useState(() => readEventListItems().filter(item =>
+    item.type !== "custom_menu" && item.packageId === packageRecord.id && item.providerId === provider.id));
 
   const [sharedDetailsDismissed, setSharedDetailsDismissed] = useState(false);
   const sharedDetailsOperation = useRef(0);
@@ -210,14 +233,23 @@ function EventCustomizationExperienceSession({
 
   const [isSubmitting, setIsSubmitting] =
   useState(false);
-  const {items: eventListItems} = useCustomerEventList();
+  const {items: localEventListItems} = useCustomerEventList();
+  const eventListItems = CUSTOMER_EVENT_LIST_CLOUD_ENABLED
+    ? cloudItems : localEventListItems;
   const storedEntry = eventListItems.find(item => item.type !== "custom_menu" && item.packageId === packageRecord.id && item.providerId === provider.id);
   const hasSavedConfiguration = storedEntry?.type !== "custom_menu" && Boolean(storedEntry?.configuration);
   const canSaveEventList = draftOwner.startsWith("customer:");
   const eventListSaveBusy = useRef(false);
   const eventListSaveGeneration = useRef(0);
   const [savingEventList, setSavingEventList] = useState(false);
-  const [eventListFeedback, setEventListFeedback] = useState<{signature: string; message: string; success: boolean} | null>(null);
+  const [storedEventListFeedback, setEventListFeedback] = useState<{
+    signature: string; message: string; success: boolean; cloudOutcome?: CloudSaveOutcome;
+  } | null>(null);
+  const eventListFeedback = storedEventListFeedback?.cloudOutcome
+    ? {...storedEventListFeedback, ...cloudEventListSaveFeedback(
+        storedEventListFeedback.cloudOutcome, cloudList.state, cloudList.recovery,
+      )}
+    : storedEventListFeedback;
   useEffect(() => () => {eventListSaveGeneration.current += 1;}, [draftOwner]);
   const [freshAttempt, setFreshAttempt] = useState(false);
   const [recoveryNotice, setRecoveryNotice] = useState<string | null>(null);
@@ -250,6 +282,7 @@ const submissionIdentityRef =
   const [willArrangeOwnAddOns, setWillArrangeOwnAddOns] = useState(false);
   const [customerArrangedAddOnsNote, setCustomerArrangedAddOnsNote] = useState("");
   const [eventListRestoreBlocked, setEventListRestoreBlocked] = useState(Boolean(eventListEditProviderId));
+  const reviewNavigationPending = useRef(eventListReviewIntent && Boolean(eventListEditProviderId) && !planningOnly && draftOwner.startsWith("customer:"));
   const [restoredOptionsNeedReview, setRestoredOptionsNeedReview] = useState(false);
   const [eventListRestoreNotice, setEventListRestoreNotice] = useState<string | null>(null);
   const [restoredContractChanged, setRestoredContractChanged] = useState(false);
@@ -284,7 +317,31 @@ const submissionIdentityRef =
         setEventListRestoreNotice("Your session changed. Reopen Event List with the correct account.");
         throw new Error("Session changed");
       }
-      const selected = readItems().find(item => item.type !== "custom_menu" &&
+      if (CUSTOMER_EVENT_LIST_CLOUD_ENABLED && draftOwner.startsWith("customer:")) {
+        const owner = auth.currentUser;
+        if (!owner) throw new Error("Customer session changed.");
+        try {
+          const document = await readCustomerEventListCloud(owner, () => auth.currentUser === owner);
+          const entry = document.entries.find(candidate => candidate.kind === "catering_package" &&
+            candidate.providerId === eventListEditProviderId && candidate.selectionId === packageRecord.id);
+          if (!entry?.configuration || provider.id !== eventListEditProviderId || packageRecord.providerId !== eventListEditProviderId) {
+            throw new Error("This saved configuration could not be found. Return to Event List.");
+          }
+          const projection = projectCanonicalBookingReview(entry);
+          const restored = projection.status === "supported" && projection.item.type !== "custom_menu" && projection.item.configuration
+            ? eventListConfigurationDraft(projection.item.configuration)
+            : canonicalConfigurationDraft(entry);
+          canonicalEditOriginal.current = entry;
+          setCanonicalEditRequiresCompatibleReview(projection.status === "read_only");
+          setRestoredContractChanged(entry.configuration.sharedContractVersion !== (packageRecord.sharedContractVersion ?? null) ||
+            entry.configuration.expectedPackageRevision !== (packageRecord.revision ?? null));
+          return restored;
+        } catch (cause) {
+          setEventListRestoreNotice(cause instanceof Error ? cause.message : "Cloud configuration could not be restored.");
+          throw cause;
+        }
+      }
+      const selected = readEventListItems().find(item => item.type !== "custom_menu" &&
         item.providerId === eventListEditProviderId && item.packageId === packageRecord.id);
       if (!selected || selected.type === "custom_menu" || !selected.configuration ||
           provider.id !== eventListEditProviderId || packageRecord.providerId !== eventListEditProviderId) {
@@ -618,6 +675,35 @@ const submissionIdentityRef =
       ? ["The setup inspiration is no longer published."] : []),
   ];
 
+  const hasRestoredOptionProblems = restoredOptionProblems.length > 0;
+
+  // Consume only after the explicit identity-checked source restores. Changed options
+  // remain in the existing confirmation and editing flow.
+  useEffect(() => {
+    if (!reviewNavigationPending.current || eventListRestoreBlocked) return;
+    if (hasRestoredOptionProblems ||
+        Object.keys(validateEventDetails(draft, packageRecord.minimumGuests, packageRecord.maximumGuests)).length ||
+        bookingSubmissionDeadlineNotice(draft) ||
+        (offerSelection.availableTiers.length > 0 && !offerSelection.serviceTier)) {
+      reviewNavigationPending.current = false;
+      return;
+    }
+    if (!availabilityIsCurrent) return;
+    if (primaryProviderAvailability?.available !== true || calendarBlockedDate === draft.eventDate) {
+      reviewNavigationPending.current = false;
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      reviewNavigationPending.current = false;
+      setRestoredOptionsNeedReview(false);
+      setEventListRestoreNotice("Saved configuration restored and checked against current package options. Review your booking before submitting.");
+      setStep(3);
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [eventListRestoreBlocked, hasRestoredOptionProblems, draft, packageRecord.minimumGuests,
+    packageRecord.maximumGuests, offerSelection.availableTiers.length, offerSelection.serviceTier,
+    availabilityIsCurrent, primaryProviderAvailability, calendarBlockedDate]);
+
   function confirmRestoredOptions() {
     if (!(packageRecord.occasionMatchIds ?? [packageRecord.eventType]).includes(draft.eventType ?? "")) {
       setDraft(current => ({...current, eventType: ""}));
@@ -644,9 +730,9 @@ const submissionIdentityRef =
     eventListSaveBusy.current = true;
     setSavingEventList(true);
     const generation = eventListSaveGeneration.current;
-    const feedback = (message: string, success = false) => {
+    const feedback = (message: string, success = false, cloudOutcome?: CloudSaveOutcome) => {
       if (generation === eventListSaveGeneration.current) {
-        setEventListFeedback({signature: eventListSaveSignature, message, success});
+        setEventListFeedback({signature: eventListSaveSignature, message, success, cloudOutcome});
       }
     };
     try {
@@ -660,8 +746,8 @@ const submissionIdentityRef =
         feedback("Your session changed. Reopen this plan with the correct customer account or as a signed-out guest.");
         return;
       }
-      const existing = readItems().find(item => item.type !== "custom_menu" && item.packageId === packageRecord.id);
-      if (eventListEditProviderId && (!existing || existing.type === "custom_menu" || !existing.configuration || existing.providerId !== eventListEditProviderId)) {
+      const existing = readEventListItems().find(item => item.type !== "custom_menu" && item.packageId === packageRecord.id);
+      if (eventListEditProviderId && !(CUSTOMER_EVENT_LIST_CLOUD_ENABLED && canonicalEditOriginal.current) && (!existing || existing.type === "custom_menu" || !existing.configuration || existing.providerId !== eventListEditProviderId)) {
         setEventListRestoreBlocked(true);
         setEventListRestoreNotice("This saved configuration was deleted or cleared. Return to Event List or browse packages to start again.");
         return;
@@ -701,13 +787,43 @@ const submissionIdentityRef =
         feedback("This configuration could not be validated. Review your selections before retrying.");
         return;
       }
-      const saved = addItem({providerId: provider.id, packageId: packageRecord.id,
+      const item = {providerId: provider.id, packageId: packageRecord.id,
         providerName: provider.businessName, packageName: packageRecord.name, price: packageRecord.price,
-        imageUrl: packageRecord.imageUrl, packageHref, configuration});
-      feedback(saved ? "Saved to Event List. Configured — revalidation required. Nothing is reserved."
-        : "Could not verify your Event List in browser storage. Check storage access and retry.", saved);
-    } catch {
-      feedback("Could not verify your Event List in browser storage. Check storage access and retry.");
+        imageUrl: packageRecord.imageUrl, packageHref, configuration};
+      if (CUSTOMER_EVENT_LIST_CLOUD_ENABLED) {
+        const original = canonicalEditOriginal.current;
+        const patch: Record<string, unknown> = {...configuration};
+        delete patch.sharedContractVersion;
+        delete patch.expectedPackageRevision;
+        if (canonicalEditRequiresCompatibleReview) {
+          // Web cannot price Mobile-only add-ons. Preserve them and avoid claiming a complete estimate.
+          patch.estimatedTotal = null;
+        }
+        const result = eventListEditProviderId && original
+          ? await cloudList.editCanonicalConfigurationAsync(original, patch)
+          : cloudList.state.status === "missing"
+          ? await cloudList.initializeCloudListAsync(
+              [...readItems().filter(candidate => candidate.type === "custom_menu" ||
+                candidate.providerId !== item.providerId || candidate.packageId !== item.packageId), item],
+              null,
+            )
+          : await cloudList.saveItemAsync(item);
+        if (eventListEditProviderId && "entry" in result) {
+          canonicalEditOriginal.current = result.entry as PlanningEntry;
+        }
+        feedback(result.status === "confirmed"
+          ? "Cloud Event List confirmed. Revalidation required; nothing is reserved."
+          : "Cloud save accepted. Waiting for Firestore confirmation; nothing is reserved.",
+        result.status === "confirmed", result);
+      } else {
+        const saved = addItem(item);
+        feedback(saved ? "Saved to Event List. Configured — revalidation required. Nothing is reserved."
+          : "Could not verify your Event List in browser storage. Check storage access and retry.", saved);
+      }
+    } catch (error) {
+      feedback(CUSTOMER_EVENT_LIST_CLOUD_ENABLED
+        ? (error instanceof Error ? error.message : "Cloud save not confirmed; review recovery state.")
+        : "Could not verify your Event List in browser storage. Check storage access and retry.");
     } finally {
       eventListSaveBusy.current = false;
       if (generation === eventListSaveGeneration.current) setSavingEventList(false);
@@ -998,6 +1114,13 @@ function getSubmissionClientRequestId(
 function navigateToSubmittedBooking(
   result: SubmitBookingRequestResult,
 ) {
+  // A confirmed booking consumes only its matching saved package. This session-bound
+  // mutation also refreshes the drawer and badge and keeps unrelated selections.
+  // Do not substitute ordinary remove for proof-validated cloud cleanup.
+  if (!CUSTOMER_EVENT_LIST_CLOUD_ENABLED) {
+    removeSubmittedItems(submittedEventListSnapshot);
+  }
+
   const parameters = new URLSearchParams({
     submitted: result.bookingId,
   });
@@ -1038,6 +1161,10 @@ async function checkPreviousRequest() {
 }
 
 async function handleSubmitBooking() {
+  if (canonicalEditRequiresCompatibleReview) {
+    setSubmissionError("Saved Mobile package choices require compatible booking review. You can save your edits to Event List.");
+    return;
+  }
   if (eventListRestoreBlocked || restoredOptionsNeedReview) return;
   const choiceError = foodChoiceSelectionError(packageRecord.foodChoiceGroups ?? [], customizationDraft.foodChoiceSelections ?? []);
   if (choiceError) {setSubmissionError(choiceError); setStep(2); return;}
@@ -1471,7 +1598,7 @@ function discardAndLeave() {
             const operation = ++sharedDetailsOperation.current;
             const generation = eventListSaveGeneration.current;
             const signature = currentCustomizationSignature;
-            const current = sharedEventCandidates(readItems(), provider.id).find(item => item.signature === candidate.signature);
+            const current = sharedEventCandidates(readEventListItems(), provider.id).find(item => item.signature === candidate.signature);
             if (!current) return;
             const values = compatibleSharedEvent(current.event, {eventTypes: packageRecord.occasionMatchIds ?? [packageRecord.eventType], minimum: Math.max(packageRecord.minimumGuests ?? 1, provider.minimumGuests ?? 1), maximum: Math.min(packageRecord.maximumGuests ?? 10000, provider.maximumGuests ?? 10000), earliestDate: tomorrowDateValue()});
             if (values.eventDate) {
@@ -1484,7 +1611,7 @@ function discardAndLeave() {
                 delete values.eventDate; delete values.eventTime; delete values.eventEndTime;
               }
             }
-            if (operation !== sharedDetailsOperation.current || generation !== eventListSaveGeneration.current || signature !== sharedDetailsSignature.current || !sharedEventCandidates(readItems(), provider.id).some(item => item.signature === candidate.signature)) return;
+            if (operation !== sharedDetailsOperation.current || generation !== eventListSaveGeneration.current || signature !== sharedDetailsSignature.current || !sharedEventCandidates(readEventListItems(), provider.id).some(item => item.signature === candidate.signature)) return;
             setDraft(value => ({...value, ...values}));
             setSharedDetailsNotice("Shared event details applied where supported. Review the date, guest count and venue; availability and current terms still require verification.");
             setSharedDetailsDismissed(true);
@@ -2164,13 +2291,15 @@ function discardAndLeave() {
               }
               eventListFeedbackSuccess={eventListFeedback?.success === true}
               submissionError={
-                submissionError
+                canonicalEditRequiresCompatibleReview
+                  ? "Saved Mobile package choices require compatible booking review. You can save your edits to Event List."
+                  : submissionError
               }
               submissionResult={
                 submissionResult
               }
               refundPolicyStatus={refundPolicyStatus}
-              agreementReady={everyAgreementAcknowledged}
+              agreementReady={everyAgreementAcknowledged && !canonicalEditRequiresCompatibleReview}
               agreementReview={<BookingPaymentAgreementReview agreements={loadedAgreementInput === agreementInputJSON ? agreements : []} acknowledged={agreementAcknowledged}
                 error={agreementError} onReload={() => setAgreementReload(value => value + 1)}
                 onChange={(providerId, key) => setAgreementAcknowledged(current => {

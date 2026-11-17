@@ -21,16 +21,20 @@ import 'payment_required_screen.dart';
 import 'recovery_offers_screen.dart';
 import 'review_screen.dart';
 import 'booking_complaint_action.dart';
+import 'independent_booking_display.dart';
 
 class BookingDetailsScreen extends StatelessWidget {
-  const BookingDetailsScreen({required this.bookingId, super.key});
+  const BookingDetailsScreen({
+    required this.bookingId,
+    this.bookingStream,
+    super.key,
+  });
 
   final String bookingId;
+  final Stream<BookingModel?>? bookingStream;
 
   @override
   Widget build(BuildContext context) {
-    final repository = FeastaRepository();
-
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
@@ -46,7 +50,7 @@ class BookingDetailsScreen extends StatelessWidget {
         ),
       ),
       body: StreamBuilder<BookingModel?>(
-        stream: repository.bookingById(bookingId),
+        stream: bookingStream ?? FeastaRepository().bookingById(bookingId),
         builder: (context, bookingSnapshot) {
           if (bookingSnapshot.connectionState == ConnectionState.waiting) {
             return const FeastaSkeletonDetailPage(
@@ -69,6 +73,13 @@ class BookingDetailsScreen extends StatelessWidget {
               icon: Icons.event_busy_outlined,
               title: 'Booking not found',
               message: 'This booking may no longer be available.',
+            );
+          }
+
+          if (booking.hasIndependentProviderAssignments) {
+            return ListView(
+              padding: const EdgeInsets.all(AppSpacing.screen),
+              children: [IndependentBookingDetails(booking: booking)],
             );
           }
 

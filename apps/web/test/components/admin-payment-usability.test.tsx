@@ -46,6 +46,20 @@ const details = {
 } as unknown as AdminPaymentDetails;
 
 describe("payment review prerequisites", () => {
+  it("separates blocked eligible payouts from failed payouts and financial reconciliation counts", () => {
+    const blocked: AdminFinanceAttentionQueue = {items: [{id: "blocked", kind: "reconciliation_required",
+      canonicalDisbursementStatus: "ready", dispatchBlockReason: "platform_disbursements_disabled",
+      recordState: "valid", paymentId: null, providerId: "provider", settlementId: null, payoutAttemptId: null,
+      status: "reconciliation_required", amountInCentavos: 90000, formattedAmount: "₱900.00",
+      reason: "Recorded backend reason", updatedAt: null, expectedUpdatedAtMillis: null, payment: null}]};
+    render(<PaymentFinanceAttention queue={blocked} statistics={{failedPayoutCount: 0, reconciliationRequiredCount: 0}}
+      loading={false} repairingItemId={null} onRefresh={vi.fn()} onViewPayment={vi.fn()} onRepairPayoutSetup={vi.fn()} />);
+    expect(screen.getByText("Eligible earnings — transfer blocked")).toBeVisible();
+    expect(screen.getByText("Eligible payouts blocked (shown)").nextElementSibling).toHaveTextContent("1");
+    expect(screen.getByText("Financial reconciliation cases").nextElementSibling).toHaveTextContent("0");
+    expect(screen.getByText(/Application payout transfers are disabled/)).toBeVisible();
+    expect(screen.queryByRole("button", {name: "Retry failed payout"})).toBeNull();
+  });
   it("missing booking does not create a secondary mismatch", () => {
     expect(bookingPaymentStatusMismatch(false, "paid", null)).toBe(false);
     const service = readFileSync(resolve("src/lib/admin/payments/admin-payment-service.ts"), "utf8");

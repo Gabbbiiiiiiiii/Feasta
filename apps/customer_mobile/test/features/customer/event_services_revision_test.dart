@@ -1,4 +1,9 @@
 import 'dart:async';
+import 'package:feasta/features/customer/event_list/event_list_controller.dart';
+import 'package:feasta/features/customer/event_list/event_list_scope.dart';
+import 'package:feasta/features/customer/event_list/event_list_store.dart';
+import 'customer_event_list_test.dart'
+    show EventAuth, MemoryEventStorage;
 import 'test_occasion_catalog_fixture.dart';
 import 'package:feasta/core/domain/service_category.dart';
 import 'package:feasta/features/customer/customer_home_screen.dart';
@@ -33,14 +38,32 @@ void main() {
     await Firebase.initializeApp();
     FirebaseAuthPlatform.instance = GuestAuth();
   });
-  Widget home(CategoryRepository repo) => MaterialApp(
-    home: CustomerHomeScreen(
-      occasionLoader: testOccasionLoader,
-      repository: repo,
-      addressStorage: HomeAddressStorage(),
-      promotions: Stream.value(<PromotionModel>[]),
-    ),
-  );
+  Widget home(CategoryRepository repo) {
+    // Match the guest session used by this test's Firebase fixture.
+    final auth = EventAuth()..switchTo(null, notify: false);
+    final list = EventListController(
+      store: EventListStore(storage: MemoryEventStorage()),
+      authentication: auth,
+    );
+
+    addTearDown(() {
+      list.dispose();
+      auth.dispose();
+    });
+
+    // The production app supplies EventListScope above MaterialApp.
+    return EventListScope(
+      controller: list,
+      child: MaterialApp(
+        home: CustomerHomeScreen(
+          occasionLoader: testOccasionLoader,
+          repository: repo,
+          addressStorage: HomeAddressStorage(),
+          promotions: Stream.value(<PromotionModel>[]),
+        ),
+      ),
+    );
+  }
   const category = ServiceCategory(
     code: 'new_service',
     name: 'Published new service',

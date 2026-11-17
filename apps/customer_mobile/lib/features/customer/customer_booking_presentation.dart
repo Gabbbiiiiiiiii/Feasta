@@ -17,7 +17,7 @@ class CustomerBookingPresentation {
     }
     return const {
           'draft': 'Draft',
-          'needs_provider_replacement': 'Provider replacement needed',
+          'needs_provider_replacement': 'Provider rejected',
           'pending': 'Pending Review',
           'accepted': 'Accepted',
           'waiting_payment': 'Payment Required',

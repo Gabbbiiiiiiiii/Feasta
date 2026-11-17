@@ -12,7 +12,6 @@ import {
 import Link from "next/link";
 import {
   useEffect,
-  useMemo,
   useRef,
   useState,
   useSyncExternalStore,
@@ -27,6 +26,10 @@ import {
 } from "@/lib/customer/event-list/customer-event-list";
 import {menuServingGuestLabel} from "@/lib/provider/provider-menu";
 import {cn} from "@/lib/utils";
+import {useCustomerEventListCloudAsync} from "@/lib/customer/event-list/use-customer-event-list-cloud-async";
+import {presentCloudDrawerEntry} from "@/lib/customer/event-list/customer-event-list-drawer-presentation";
+import type {CustomerEventListItem} from "@/lib/customer/event-list/customer-event-list";
+import {CustomerEventListCloudDrawer} from "./customer-event-list-cloud-drawer";
 
 export function CustomerEventListMenu({
   authenticated: authenticatedProp,
@@ -34,6 +37,7 @@ export function CustomerEventListMenu({
   authenticated: boolean;
 }) {
   const session = useCustomerEventListSession();
+  const cloud = useCustomerEventListCloudAsync();
   const authenticated = authenticatedProp && !!session.user;
   const [previousSession, setPreviousSession] = useState(session.generation);
   const [requestedOpen, setOpen] =
@@ -62,11 +66,42 @@ export function CustomerEventListMenu({
     useRef<HTMLButtonElement>(null);
 
   const {
-    items,
-    removeItem,
+    items: localItems,
+    removeItem: removeLocalItem,
     removeService,
-    clearItems,
+    clearItems: clearLocalItems,
   } = useCustomerEventList();
+
+  const rows = cloud.enabled ? (cloud.state.document?.entries.map(presentCloudDrawerEntry) ?? []) : [];
+  const items = cloud.enabled ? rows.map(row => row.item) : localItems;
+  const rowFor = (item: CustomerEventListItem) => rows.find(row => row.item === item);
+  const servicesFor = (item: CustomerEventListItem) => cloud.enabled
+    ? rowFor(item)?.services ?? []
+    : item.type === "custom_menu" ? [] : item.configuration?.selectedEventServices ?? [];
+  const itemKey = (item: CustomerEventListItem) => rowFor(item)?.canonical.identity ?? customerEventListItemKey(item);
+  const [cloudBusy, setCloudBusy] = useState(false);
+  const [cloudFailure, setCloudFailure] = useState<{generation: number; message: string} | null>(null);
+  const cloudWritable = cloud.state.status === "ready" && !cloudBusy;
+  async function runCloud(action: () => Promise<unknown>) {
+    if (!cloudWritable) return;
+    const generation = session.generation;
+    setCloudBusy(true);
+    setCloudFailure(null);
+    try { await action(); } catch (cause) {
+      setCloudFailure({generation, message: cause instanceof Error ? cause.message : "Cloud change could not be confirmed."});
+    } finally { setCloudBusy(false); }
+  }
+  const removeDisplayItem = (item: CustomerEventListItem) => {
+    const row = rowFor(item);
+    if (cloud.enabled && row) void runCloud(() => cloud.removeCanonicalEntryAsync(row.canonical.identity));
+    else if (!cloud.enabled) removeLocalItem(customerEventListItemKey(item));
+  };
+  const clearItems = () => cloud.enabled ? void runCloud(cloud.clearListAsync) : clearLocalItems();
+  const readOnlyNotice = (item: CustomerEventListItem) => rowFor(item)?.readOnly
+    ? <p className="mt-2 text-xs leading-5 text-feasta-text-secondary">This selection is read-only here. Its full cloud data is preserved.
+        {Array.isArray(rowFor(item)?.canonical.configuration?.selectedEventServices)
+          ? <span className="block">Event services: {(rowFor(item)!.canonical.configuration!.selectedEventServices as Array<{name: string}>).map(service => service.name).join(", ") || "None selected"}</span> : null}
+      </p> : null;
 
   const hasEventListItems =
     items.length > 0;
@@ -77,10 +112,10 @@ export function CustomerEventListMenu({
       : null;
 
   const {
-    selectionCount,
+    selectionCount: localSelectionCount,
     knownTotal,
     pricedSelectionCount,
-  } = useMemo(() => {
+  } = (() => {
     let selections = 0;
     let total = 0;
     let priced = 0;
@@ -97,8 +132,7 @@ export function CustomerEventListMenu({
 
       for (
         const service of
-        item.configuration
-          ?.selectedEventServices ?? []
+        servicesFor(item)
       ) {
         selections += 1;
 
@@ -114,7 +148,11 @@ export function CustomerEventListMenu({
       knownTotal: total,
       pricedSelectionCount: priced,
     };
-  }, [items]);
+  })();
+
+  const selectionCount = cloud.enabled
+    ? (cloud.state.document?.entries.length ?? 0)
+    : localSelectionCount;
 
   function openDrawer() {
     if (!authenticated) return;
@@ -489,6 +527,8 @@ export function CustomerEventListMenu({
               EMPTY STATE
              ================================================= */}
 
+          <CustomerEventListCloudDrawer enabled={cloud.enabled} cloud={cloud}>
+          {cloudFailure?.generation === session.generation ? <p role="alert">{cloudFailure.message}</p> : null}
           {!hasEventListItems ? (
             <div
               className={[
@@ -597,6 +637,7 @@ export function CustomerEventListMenu({
 
                   <button
                     type="button"
+                    disabled={cloud.enabled && !cloudWritable}
                     onClick={clearItems}
                     className={[
                       "inline-flex min-h-9",
@@ -627,7 +668,7 @@ export function CustomerEventListMenu({
 
                 <div className="grid gap-3">
                   {items.map((item) => item.type === "custom_menu" ? (
-                    <article key={customerEventListItemKey(item)} className="grid grid-cols-[4rem_minmax(0,1fr)_auto] gap-3 rounded-[16px] border border-feasta-border-soft bg-white p-3">
+                    <article key={itemKey(item)} className="grid grid-cols-[4rem_minmax(0,1fr)_auto] gap-3 rounded-[16px] border border-feasta-border-soft bg-white p-3">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img src={item.imageUrl} alt="" className="size-16 rounded-xl object-cover" />
                       <div className="min-w-0">
@@ -650,14 +691,15 @@ export function CustomerEventListMenu({
                      )}
                    </p>
                         <p className="mt-2 text-[15px] font-semibold text-primary-strong">{formatPrice(item.price)}</p>
+                        {readOnlyNotice(item)}
                       </div>
-                      <button type="button" onClick={() => removeItem(customerEventListItemKey(item))} aria-label={`Remove ${item.menuItemName} from Event List`} className="grid size-8 place-items-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
+                      <button type="button" disabled={cloud.enabled && !cloudWritable} onClick={() => removeDisplayItem(item)} aria-label={`Remove ${item.menuItemName} from Event List`} className="grid size-8 place-items-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
                         <X aria-hidden="true" className="size-3.5" />
                       </button>
                     </article>
                   ) : (
                     <div
-                      key={customerEventListItemKey(item)}
+                      key={itemKey(item)}
                       className="grid gap-3"
                     >
                       {/* =====================================
@@ -773,16 +815,16 @@ export function CustomerEventListMenu({
                               item.price,
                             )}
                           </p>
+                          {readOnlyNotice(item)}
                         </div>
 
                         <button
                           type="button"
                           onClick={() =>
-                            removeItem(
-                              customerEventListItemKey(item),
-                            )
+                            removeDisplayItem(item)
                           }
                           aria-label={`Remove ${item.packageName} from Event List`}
+                          disabled={cloud.enabled && !cloudWritable}
                           title="Remove from Event List"
                           className={[
                             "grid size-8",
@@ -810,9 +852,7 @@ export function CustomerEventListMenu({
                           EVENT SERVICES
                          ===================================== */}
 
-                      {item.configuration
-                        ?.selectedEventServices
-                        .map((service) => (
+                      {servicesFor(item).map((service) => (
                           <article
                             key={`${item.packageId}:${service.id}`}
                             className={[
@@ -925,6 +965,7 @@ export function CustomerEventListMenu({
                                 )
                               }
                               aria-label={`Remove ${service.name} from Event List`}
+                              disabled={cloud.enabled}
                               title="Remove from Event List"
                               className={[
                                 "grid size-8",
@@ -1027,13 +1068,13 @@ export function CustomerEventListMenu({
                       ].join(" ")}
                     >
                       {pricedSelectionCount ===
-                      selectionCount
+                      localSelectionCount
                         ? "Estimated event total"
                         : "Known event total"}
                     </p>
 
                     {pricedSelectionCount !==
-                    selectionCount ? (
+                    localSelectionCount ? (
                       <p className="mt-1 max-w-[12rem] text-[11px] leading-4 text-feasta-text-secondary">
                         Some selected services
                         do not have a published
@@ -1168,6 +1209,7 @@ export function CustomerEventListMenu({
               </div>
             </>
           )}
+          </CustomerEventListCloudDrawer>
         </aside>
       </div>,
             document.body,

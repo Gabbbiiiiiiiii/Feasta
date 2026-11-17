@@ -2,6 +2,7 @@ part of 'customer_event_list.dart';
 
 enum CustomerEventListReadiness {
   needsCustomization,
+  marketplaceMetadataRefreshRequired,
   configuredRevalidationRequired,
 }
 
@@ -109,7 +110,15 @@ class CustomerEventListFoodChoice {
 /// Uses the existing Mobile AddonModel.toBookingMap identity fields.
 class CustomerEventListAddOn {
   CustomerEventListAddOn._(Map<String, dynamic> json)
-    : addonId = _selectionId(json['addonId']),
+    : serviceId = json['serviceId'] == null
+          ? null
+          : eventListId(json['serviceId']),
+      expectedRevision = json['expectedRevision'] == null
+          ? null
+          : json['expectedRevision'] is int
+          ? json['expectedRevision'] as int
+          : _invalid(),
+      addonId = _selectionId(json['addonId']),
       providerId = _selectionId(json['providerId']),
       source = _configurationText(json['source'], 40),
       name = _configurationText(json['name'], 160),
@@ -121,6 +130,8 @@ class CustomerEventListAddOn {
       category = _configurationText(json['category'], 120, empty: true),
       price = _configurationMoney(json['price']) {
     _keys(json, {
+      'serviceId',
+      'expectedRevision',
       'addonId',
       'providerId',
       'source',
@@ -130,6 +141,10 @@ class CustomerEventListAddOn {
       'category',
       'price',
     });
+    if (expectedRevision != null &&
+        (expectedRevision! < 1 || expectedRevision! > 9007199254740991)) {
+      _invalid();
+    }
     if (!['catering_provider', 'feasta_addon_provider'].contains(source)) {
       _invalid();
     }
@@ -142,7 +157,29 @@ class CustomerEventListAddOn {
       providerType,
       category;
   final double? price;
+  final String? serviceId;
+  final int? expectedRevision;
+  String get kind => source == 'feasta_addon_provider'
+      ? 'marketplace_service'
+      : 'catering_addon';
+  bool get hasMarketplaceSubmissionMetadata =>
+      kind == 'marketplace_service' &&
+      RegExp(r'^[A-Za-z0-9_-]{8,160}$').hasMatch(providerId) &&
+      serviceId != null &&
+      expectedRevision != null;
+  bool matchesMarketplaceMetadata({
+    required String currentProviderId,
+    required String currentServiceId,
+    required int currentRevision,
+  }) =>
+      hasMarketplaceSubmissionMetadata &&
+      currentRevision > 0 &&
+      providerId == currentProviderId &&
+      serviceId == currentServiceId &&
+      expectedRevision == currentRevision;
   Map<String, dynamic> toJson() => {
+    if (serviceId != null) 'serviceId': serviceId,
+    if (expectedRevision != null) 'expectedRevision': expectedRevision,
     'addonId': addonId,
     'providerId': providerId,
     'source': source,
@@ -179,7 +216,10 @@ class CustomerEventListPricingContext {
 /// Creation and decoding share the same strict validation boundary.
 class CustomerEventListConfiguration {
   CustomerEventListConfiguration._(Map<String, dynamic> json)
-    : event = CustomerEventListEvent._(_record(json['event'])),
+    : specialRequest = json.containsKey('specialRequest')
+          ? _configurationText(json['specialRequest'], 1000, empty: true)
+          : null,
+      event = CustomerEventListEvent._(_record(json['event'])),
       sharedContractVersion = json['sharedContractVersion'] as int?,
       expectedPackageRevision = json['expectedPackageRevision'] as int?,
       serviceTier = json['serviceTier'] as String?,
@@ -208,6 +248,7 @@ class CustomerEventListConfiguration {
           ? null
           : CustomerEventListPricingContext._(_record(json['pricingContext'])) {
     _keys(json, {
+      'specialRequest',
       'event',
       'sharedContractVersion',
       'expectedPackageRevision',
@@ -243,6 +284,25 @@ class CustomerEventListConfiguration {
       _invalid();
     }
   }
+
+  /// Marketplace configuration preserves shared event data without package metadata.
+  factory CustomerEventListConfiguration.marketplace({
+    required Map<String, dynamic> event,
+    String? specialRequest,
+  }) => CustomerEventListConfiguration.fromJson({
+    'event': event,
+    'specialRequest': ?specialRequest,
+    'customTheme': '',
+    'selectedFoods': <String>[],
+    'selectedDecorations': <String>[],
+    'selectedFurniture': <String>[],
+    'foodChoiceSelections': <Object>[],
+    'selectedAddOns': <Object>[],
+    'willArrangeOwnAddOns': false,
+    'customerArrangedAddOnsNote': '',
+    'estimatedTotal': null,
+  });
+
   factory CustomerEventListConfiguration.fromJson(Map<String, dynamic> json) {
     for (final key in [
       'event',
@@ -280,6 +340,8 @@ class CustomerEventListConfiguration {
     return List.unmodifiable(result);
   }
 
+  /// Provider-specific instructions; null means use the nested event instructions.
+  final String? specialRequest;
   final CustomerEventListEvent event;
   final int? sharedContractVersion, expectedPackageRevision;
   final String? serviceTier, packageThemeId, themeChoice;
@@ -292,6 +354,7 @@ class CustomerEventListConfiguration {
   final double? estimatedTotal;
   final CustomerEventListPricingContext? pricingContext;
   Map<String, dynamic> toJson() => {
+    if (specialRequest != null) 'specialRequest': specialRequest,
     'event': event.toJson(),
     'sharedContractVersion': sharedContractVersion,
     'expectedPackageRevision': expectedPackageRevision,

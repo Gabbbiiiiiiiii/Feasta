@@ -2,6 +2,9 @@
 
 import type {ComponentProps} from "react";
 import {useCustomerEventListSession} from "@/lib/customer/event-list/customer-event-list";
+import {CUSTOMER_EVENT_LIST_CLOUD_ENABLED} from "@/lib/customer/event-list/customer-event-list-cloud-transport";
+import {useCustomerEventListCloudAsync} from "@/lib/customer/event-list/use-customer-event-list-cloud-async";
+
 
 import {
   type MouseEvent,
@@ -85,6 +88,7 @@ function CustomerProviderMenuSession({
   menuImages: readonly ProviderMenuImage[];
 }) {
     const {addItem, readItems, writeSchedule, readSchedule, openList} = useCustomerEventList();
+    const cloudList = useCustomerEventListCloudAsync();
   const router =
     useRouter();
 const [
@@ -420,9 +424,35 @@ function openMenuItem(
     };
 
     if (auth.currentUser?.uid !== owner) { setError("Your session changed. Reopen this menu."); return; }
-    addItem(
-      item,
-    );
+    if (CUSTOMER_EVENT_LIST_CLOUD_ENABLED) {
+      try {
+        if (cloudList.state.status === "ready" && cloudList.state.document?.entries.some(
+          (entry) => entry.kind === "custom_menu" && entry.providerId === providerId &&
+            entry.selectionId === active.id && entry.variantId !== selected.id,
+        )) {
+          setError("Remove the saved serving size from Event List before selecting another size.");
+          return;
+        }
+        if (cloudList.state.status === "missing") {
+          await cloudList.initializeCloudListAsync(
+            [...readItems().filter(candidate =>
+              customerEventListItemKey(candidate) !== item.key), item],
+            readSchedule(),
+          );
+        } else {
+          await cloudList.saveItemAsync(item);
+        }
+      } catch (error) {
+        setError(error instanceof Error ? error.message : "Cloud menu save not confirmed.");
+        return;
+      }
+      // The next confirmed Firestore snapshot will update the list.
+      // A schedule change must wait for this mutation to finish.
+      setConfirmation("Menu selection sent. Awaiting cloud confirmation; review your event schedule in Event List.");
+      setActive(null);
+      return;
+    }
+    addItem(item);
 
     const saved =
       readItems()

@@ -6,6 +6,7 @@ import {
   paymentReferenceLabel,
 } from "@/components/admin/payments/payment-formatters";
 import {Button} from "@/components/ui/button";
+import {payoutBlockMessage} from "@/lib/payments/payout-block-message";
 import type {
   AdminFinanceAttentionQueue,
   AdminPayment,
@@ -53,6 +54,7 @@ function PaymentFinanceAttention({
   onViewPayment,
   onRepairPayoutSetup,
 }: PaymentFinanceAttentionProps) {
+  const blockedCount = queue.items.filter(item => item.canonicalDisbursementStatus === "ready").length;
   return (
     <section
       className="rounded-card border border-border bg-card p-4 sm:p-5"
@@ -72,7 +74,7 @@ function PaymentFinanceAttention({
           </h2>
 
           <p className="mt-1 max-w-3xl text-sm leading-6 text-muted-foreground">
-            Review provider payouts that failed or need attention.
+            Eligible earnings, blocked transfers and failed payouts are different states. Review the reason before taking action.
           </p>
         </div>
 
@@ -95,7 +97,8 @@ function PaymentFinanceAttention({
       {statistics ? (
         <dl className="mt-4 flex flex-wrap gap-6 text-sm">
           <AttentionField label="Failed provider payouts" value={String(statistics.failedPayoutCount)} />
-          <AttentionField label="Payouts needing review" value={String(statistics.reconciliationRequiredCount)} />
+          <AttentionField label="Financial reconciliation cases" value={String(statistics.reconciliationRequiredCount)} />
+          <AttentionField label="Eligible payouts blocked (shown)" value={String(blockedCount)} />
         </dl>
       ) : null}
 
@@ -134,7 +137,8 @@ function PaymentFinanceAttention({
               item.kind ===
                 "ambiguous_payout_setup";
 
-            const title =
+            const isBlockedEligible = item.canonicalDisbursementStatus === "ready";
+            const title = isBlockedEligible ? "Eligible earnings — transfer blocked" :
               item.kind ===
                 "failed_payout"
                 ? "Failed Provider payout"
@@ -172,7 +176,7 @@ function PaymentFinanceAttention({
                         ? "Problem found"
                         : isPayoutSetupRecovery
                           ? "Setup needs attention"
-                          : "Needs review"}
+                          : isBlockedEligible ? "Not transferred" : "Needs review"}
                     </p>
                   </div>
 
@@ -223,7 +227,7 @@ function PaymentFinanceAttention({
                   <AttentionField
                     label="Status"
                     value={
-                      item.kind ===
+                      isBlockedEligible ? "Transfer unavailable" : item.kind ===
                         "failed_payout"
                         ? "Failed payout"
                         : item.kind ===
@@ -242,6 +246,7 @@ function PaymentFinanceAttention({
                   <p className="mt-1 break-words text-sm leading-6">
                     {item.recordState === "invalid"
                       ? "The provider payout information could not be verified."
+                      : isBlockedEligible ? payoutBlockMessage(item.dispatchBlockReason)
                       : isPayoutSetupRecovery
                         ? "The provider payout account setup could not be confirmed."
                         : item.kind === "failed_payout"

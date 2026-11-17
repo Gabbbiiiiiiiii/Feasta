@@ -11,6 +11,12 @@ void allow() {}
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  // The store serializes work through a process-wide Future. Keep scenarios in
+  // one fake-async zone so later tests do not await a previous test's dead zone.
+  final scenarios = <String, Future<void> Function(WidgetTester)>{};
+  void scenario(String name, Future<void> Function(WidgetTester) body) {
+    scenarios[name] = body;
+  }
 
   late EventAuth auth;
   late MemoryEventStorage memory;
@@ -18,7 +24,7 @@ void main() {
   late EventListController controller;
   late GlobalKey<NavigatorState> navigatorKey;
 
-  setUp(() {
+  void reset() {
     auth = EventAuth()..switchTo(null);
     memory = MemoryEventStorage();
     store = EventListStore(storage: memory);
@@ -28,12 +34,12 @@ void main() {
       signedOutGuest: () => false,
     );
     navigatorKey = GlobalKey<NavigatorState>();
-  });
+  }
 
-  tearDown(() {
+  void dispose() {
     controller.dispose();
     auth.dispose();
-  });
+  }
 
   Widget app({bool includeNavigator = true}) {
     return EventListScope(
@@ -55,7 +61,7 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  testWidgets('Not Now preserves guest selections', (tester) async {
+  scenario('Not Now preserves guest selections', (tester) async {
     await store.guestAddPackage(entry(), authorize: allow);
 
     await signedIn(tester);
@@ -76,7 +82,7 @@ void main() {
     expect(find.text('Add saved packages to your account?'), findsNothing);
   });
 
-  testWidgets('Add to My Account merges without duplicates', (tester) async {
+  scenario('Add to My Account merges without duplicates', (tester) async {
     await store.addPackage('customer_A', entry(), authorize: allow);
     await store.guestAddPackage(entry(), authorize: allow);
     await store.guestAddPackage(entry(1), authorize: allow);
@@ -99,7 +105,7 @@ void main() {
     expect(guest.entries, isEmpty);
   });
 
-  testWidgets('switching customer closes old confirmation', (tester) async {
+  scenario('switching customer closes old confirmation', (tester) async {
     await store.guestAddPackage(entry(), authorize: allow);
     await signedIn(tester);
 
@@ -112,7 +118,7 @@ void main() {
     expect((await store.guestRead(authorize: allow)).entries, hasLength(1));
   });
 
-  testWidgets('Navigator becoming available does not lose the prompt', (
+  scenario('Navigator becoming available does not lose the prompt', (
     tester,
   ) async {
     await store.guestAddPackage(entry(), authorize: allow);
@@ -128,4 +134,23 @@ void main() {
 
     expect(find.text('Add saved packages to your account?'), findsOneWidget);
   });
+  testWidgets(
+    'guest scenarios: ${scenarios.length} isolated fixtures in one storage zone',
+    (tester) async {
+      for (final scenario in scenarios.entries) {
+        debugPrint('SCENARIO START: ${scenario.key}');
+        reset();
+        try {
+          await scenario.value(tester);
+          await tester.pumpWidget(const SizedBox.shrink());
+          await tester.pumpAndSettle();
+          debugPrint('SCENARIO PASS: ${scenario.key}');
+        } catch (error, stack) {
+          fail('${scenario.key}: $error\n$stack');
+        } finally {
+          dispose();
+        }
+      }
+    },
+  );
 }

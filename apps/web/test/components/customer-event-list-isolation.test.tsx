@@ -1,5 +1,11 @@
 import {act, fireEvent, render, renderHook, screen} from "@testing-library/react";
 import {beforeEach, describe, expect, it, vi} from "vitest";
+// This suite verifies local namespace isolation; cloud drawer isolation has its own suite.
+vi.mock("@/lib/customer/event-list/customer-event-list-cloud-transport", () => ({
+  CUSTOMER_EVENT_LIST_CLOUD_ENABLED: false,
+  subscribeCustomerEventListCloud: vi.fn(),
+  sendCustomerEventListMutation: vi.fn(),
+}));
 const mock = vi.hoisted(() => ({auth: {currentUser: null as {uid: string} | null}, listeners: new Set<() => void>()}));
 vi.mock("@/lib/firebase/client", () => ({auth: mock.auth}));
 vi.mock("firebase/auth", () => ({onAuthStateChanged: (_: unknown, callback: () => void) => {

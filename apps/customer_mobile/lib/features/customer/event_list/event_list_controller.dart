@@ -1,4 +1,7 @@
+import 'event_list_cloud_session.dart';
 import 'package:flutter/foundation.dart';
+import '../../../shared/models/customer_event_list_cloud_contract.dart';
+import 'event_list_cloud_transport.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../../../core/security/customer_session_coordinator.dart';
 import '../../../shared/models/customer_event_list.dart';
@@ -105,7 +108,10 @@ class EventListController extends ChangeNotifier {
     required this.store,
     EventListAuthentication? authentication,
     bool Function()? signedOutGuest,
+    this.cloudEnabled = false,
+    this.cloudTransport,
   }) : signedOutGuest = signedOutGuest ?? _defaultSignedOutGuest,
+
        authentication =
            authentication ??
            CustomerSessionEventListAuthentication(
@@ -118,6 +124,64 @@ class EventListController extends ChangeNotifier {
   final EventListStore store;
   final EventListAuthentication authentication;
   final bool Function() signedOutGuest;
+
+  // Keep disabled until coordinated review and explicit activation.
+  final bool cloudEnabled;
+  final EventListCloudGateway? cloudTransport;
+  EventListCloudSession? _cloud;
+  bool get cloudActive =>
+      cloudEnabled && _ownsState && _session?.customerUid != null;
+  bool get saving => cloudActive && (_cloud?.busy ?? false);
+
+  /// Count the canonical list, including selections this device cannot edit.
+  int get selectionCount => cloudActive
+      ? (cloudDocument?.toJson()['entries'] as List?)?.length ?? 0
+      : list?.entries.length ?? 0;
+  List<Map<String, dynamic>> get unsupportedCloudEntries =>
+      cloudActive ? (_cloud?.unsupported ?? []) : [];
+  CloudCustomerEventList? _cloudDocument;
+  bool _cloudServerConfirmed = false;
+  Object? _cloudError;
+
+  CloudCustomerEventList? get cloudDocument =>
+      _ownsState && _session?.customerUid != null ? _cloudDocument : null;
+
+  bool get cloudServerConfirmed =>
+      _ownsState && _session?.customerUid != null && _cloudServerConfirmed;
+
+  Object? get cloudError =>
+      _ownsState && _session?.customerUid != null ? _cloudError : null;
+
+  void _startCloudWatch(EventListAuthSession session, int generation) {
+    final uid = session.customerUid;
+    if (!cloudEnabled || uid == null) return;
+
+    _cloud = EventListCloudSession(
+      uid: uid,
+      store: store,
+      transport: cloudTransport ?? EventListCloudTransport(),
+      authorize: () {
+        if (_disposed ||
+            _epoch != generation ||
+            session != authentication.session) {
+          throw StateError('Customer session changed.');
+        }
+      },
+      changed: () {
+        if (_disposed ||
+            _epoch != generation ||
+            session != authentication.session) {
+          return;
+        }
+        _cloudDocument = _cloud?.document;
+        _cloudServerConfirmed = _cloud?.confirmed ?? false;
+        _cloudError = _cloud?.error;
+        if (_cloudDocument != null) _list = _cloud!.project();
+        notifyListeners();
+      },
+    );
+    _cloud!.start();
+  }
 
   bool get isGuestPlanning =>
       _ownsState &&
@@ -158,11 +222,17 @@ class EventListController extends ChangeNotifier {
     final next = authentication.session;
     if (next == _session) return;
     _epoch++;
+    _cloud?.close();
+    _cloud = null;
+    _cloudDocument = null;
+    _cloudServerConfirmed = false;
+    _cloudError = null;
     _pendingLoads = 0;
     _session = next;
     _list = null;
     _error = null;
     notifyListeners();
+    _startCloudWatch(next, _epoch);
   }
 
   Future<EventListResult> _run(
@@ -222,7 +292,9 @@ class EventListController extends ChangeNotifier {
     notifyListeners();
     try {
       return await _run(
-        (uid, guest, guard) => guest
+        (uid, guest, guard) => cloudActive
+            ? _cloud!.run('load', authorizeOperation: guard)
+            : guest
             ? store.guestRead(authorize: guard)
             : store.read(uid!, authorize: guard),
         EventListResult.loaded,
@@ -241,6 +313,9 @@ class EventListController extends ChangeNotifier {
   }) => _run(
     (uid, guest, guard) {
       if (uid == null) throw StateError('An authorized customer is required.');
+      if (cloudActive) {
+        return _cloud!.run('save', entry: entry, authorizeOperation: guard);
+      }
       return store.addPackage(uid, entry, authorize: guard);
     },
     EventListResult.saved,
@@ -254,30 +329,84 @@ class EventListController extends ChangeNotifier {
     EventListIdentity? editingIdentity,
     bool Function()? isCurrent,
   }) => _run(
-    (uid, guest, guard) => store.saveConfiguration(
-      uid!,
-      entry,
-      expectedRevision: expectedRevision,
-      editingIdentity: editingIdentity,
-      authorize: guard,
-    ),
+    (uid, guest, guard) => cloudActive
+        ? _cloud!.run(
+            'save',
+            authorizeOperation: guard,
+            entry: entry,
+            expectedRevision: expectedRevision,
+            editingIdentity: editingIdentity,
+          )
+        : store.saveConfiguration(
+            uid!,
+            entry,
+            expectedRevision: expectedRevision,
+            editingIdentity: editingIdentity,
+            authorize: guard,
+          ),
     EventListResult.saved,
     isCurrent: () =>
         authentication.session.customerUid != null &&
         (isCurrent?.call() ?? true),
   );
   Future<EventListResult> removePackage(EventListIdentity identity) => _run(
-    (uid, guest, guard) => guest
+    (uid, guest, guard) => cloudActive
+        ? _cloud!.run(
+            'remove',
+            identity: nativeCloudIdentity(identity),
+            authorizeOperation: guard,
+          )
+        : guest
         ? store.guestRemovePackage(identity, authorize: guard)
         : store.removePackage(uid!, identity, authorize: guard),
     EventListResult.saved,
   );
+  Future<EventListResult> removeSubmitted(
+    List<CustomerEventListEntry> submitted, {
+    required EventListAuthSession session,
+    bool Function()? isCurrent,
+  }) => _run(
+    (uid, guest, guard) => cloudActive
+        ? Future.error(
+            UnsupportedError(
+              'Cloud cleanup requires server booking proof. Saved selections were preserved.',
+            ),
+          )
+        : store.removeSubmitted(uid!, submitted, authorize: guard),
+    EventListResult.saved,
+    isCurrent: () =>
+        session.customerUid != null &&
+        authentication.session == session &&
+        (isCurrent?.call() ?? true),
+  );
+
   Future<EventListResult> clear() => _run(
-    (uid, guest, guard) => guest
+    (uid, guest, guard) => cloudActive
+        ? _cloud!.run('clear', authorizeOperation: guard)
+        : guest
         ? store.guestClear(authorize: guard)
         : store.clear(uid!, authorize: guard),
     EventListResult.saved,
   );
+
+  Future<EventListResult> removeCloudEntry(String identity) => _run((
+    uid,
+    guest,
+    guard,
+  ) {
+    if (!cloudActive) throw StateError('Cloud is disabled.');
+    return _cloud!.run('remove', identity: identity, authorizeOperation: guard);
+  }, EventListResult.saved);
+
+  Future<EventListResult> saveCloudSchedule(Map<String, dynamic>? schedule) =>
+      _run((uid, guest, guard) {
+        if (!cloudActive) throw StateError('Cloud is disabled.');
+        return _cloud!.run(
+          'schedule',
+          schedule: schedule,
+          authorizeOperation: guard,
+        );
+      }, EventListResult.saved);
 
   /// Transfers device-local guest selections only to the current
   /// authorized customer session. Never use guest authorization here.
@@ -297,6 +426,7 @@ class EventListController extends ChangeNotifier {
         throw StateError('An authorized customer is required.');
       }
 
+      if (cloudActive) throw UnsupportedError('Guest selections remain local.');
       return store.transferGuestToCustomer(uid, authorize: guard);
     }, EventListResult.saved);
   }
@@ -305,6 +435,11 @@ class EventListController extends ChangeNotifier {
   void dispose() {
     _disposed = true;
     _epoch++;
+    _cloud?.close();
+    _cloud = null;
+    _cloudDocument = null;
+    _cloudServerConfirmed = false;
+    _cloudError = null;
     _list = null;
     _error = null;
     authentication.removeListener(_accountChanged);

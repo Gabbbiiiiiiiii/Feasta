@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import '../../shared/models/feasta_models.dart';
+import '../authentication/data/repositories/customer_provider_requests_source.dart';
 
 const bookingReviewLabel = 'Booking review required';
 const completionOnHoldLabel = 'Completion on hold';
@@ -109,7 +110,7 @@ typedef BookingLifecycleSource =
     Stream<QuerySnapshot<Map<String, dynamic>>> Function(BookingModel booking);
 
 /// Supplies a lifecycle read source to a subtree. Without a scope, cards use
-/// the existing Firestore relationship query and ownership checks below.
+/// authenticated customer-owned relationship query and ownership checks below.
 class BookingLifecycleScope extends InheritedWidget {
   const BookingLifecycleScope({
     required this.source,
@@ -145,10 +146,7 @@ class _BookingLifecycleBuilderState extends State<BookingLifecycleBuilder> {
   void _subscribe() {
     _requests =
         _source?.call(widget.booking) ??
-        FirebaseFirestore.instance
-            .collection('providerRequests')
-            .where('mainEventId', isEqualTo: widget.booking.id)
-            .snapshots();
+        watchCustomerProviderRequests(widget.booking);
   }
 
   @override

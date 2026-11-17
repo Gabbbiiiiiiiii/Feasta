@@ -302,8 +302,12 @@ function AnnouncementManagementClient({
           const request = retryRequest.current;
           if (request) loadPage(request.filters, request.cursor, request.history);
         }}
-        emptyTitle={activeFilters.length ? "No matching announcements" : "No announcements yet"}
-        emptyDescription={activeFilters.length
+        emptyTitle={page.nextCursor ? "No matches in this group of records" : cursorHistory.length > 1 ? "No more matching announcements" : activeFilters.length ? "No matching announcements" : "No announcements yet"}
+        emptyDescription={page.nextCursor
+          ? "Continue to the next group to check more announcement records."
+          : cursorHistory.length > 1
+          ? "Return to the previous page or change your filters."
+          : activeFilters.length
           ? "Try changing your search or clearing a filter."
           : "Create a draft to prepare the first official FEASTA announcement."}
         rowActionsLabel="Details"
@@ -332,7 +336,7 @@ function AnnouncementManagementClient({
         )}
       />
 
-      {page.announcements.length > 0 ? (
+      {page.announcements.length > 0 || page.nextCursor || cursorHistory.length > 1 ? (
         <CursorPagination
           previousCursor={cursorHistory.length > 1 ? "previous" : null}
           nextCursor={page.nextCursor}

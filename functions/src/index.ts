@@ -1,5 +1,6 @@
 import {createHash} from "node:crypto";
 import "./shared/firebase-admin.js";
+export {mutateCustomerEventList} from "./customer-event-lists/customer-event-list-callable.js";
 export {setIntakeMaintenance, inspectIntakeMaintenance} from "./admin/intake-maintenance.js";
 import {Timestamp} from "firebase-admin/firestore";
 import {
@@ -195,6 +196,10 @@ export {
   updateBusinessDocumentType,
 } from "./admin/document-catalog-management.js";
 export {createComplaint} from "./content/create-complaint.js";
+export {
+  submitMultiProviderBookingRequest,
+  getMultiProviderBookingDisclosures,
+} from "./bookings/submit-multi-provider-booking.js";
 export {submitBookingRequest} from "./bookings/submit-booking-request.js";
 export {
   getBookingRefundPolicyDisclosures,

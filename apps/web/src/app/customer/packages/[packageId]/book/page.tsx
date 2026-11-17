@@ -78,6 +78,8 @@ export default async function CustomerPackageBookingPage({
   )}/book`;
   const routingQuery = new URLSearchParams(customerEventContextQuery(initialEventContext));
   if (editProvider) routingQuery.set("eventListProvider", editProvider);
+  const eventListReviewIntent = Boolean(editProvider) && query.eventListIntent === "review";
+  if (eventListReviewIntent) routingQuery.set("eventListIntent", "review");
   const eventContextQuery = routingQuery.toString();
   const bookingPath = eventContextQuery
     ? `${bookingBasePath}?${eventContextQuery}`
@@ -127,6 +129,7 @@ export default async function CustomerPackageBookingPage({
         key={`${account.uid}:${packageId}:${eventContextQuery}`}
         draftOwner={`customer:${account.uid}`}
         eventListEditProviderId={editProvider}
+        eventListReviewIntent={eventListReviewIntent}
         detail={detail}
         eventServices={
           eventServices.services

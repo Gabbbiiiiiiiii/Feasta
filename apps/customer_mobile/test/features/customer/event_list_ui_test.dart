@@ -42,6 +42,32 @@ void main() {
     catalog = EventListCatalog(lookup: (_, _) async => null);
   }
 
+  Finder removeButton(String name) => find.ancestor(
+    of: find.byWidgetPredicate(
+      (w) => w is Text && w.semanticsLabel == 'Remove $name',
+    ),
+    matching: find.byType(TextButton),
+  );
+  Finder cardFor(String name) =>
+      find.ancestor(of: find.text(name), matching: find.byType(Card));
+  Future<void> openDetails(WidgetTester tester, String name) async {
+    final details = find.descendant(
+      of: cardFor(name),
+      matching: find.text('Package details'),
+    );
+    await tester.scrollUntilVisible(details, 120);
+    await tester.pumpAndSettle();
+    await Scrollable.ensureVisible(tester.element(details), alignment: 0.5);
+    await tester.pumpAndSettle();
+    expect(details.hitTestable(), findsOneWidget);
+    await tester.tap(details);
+    await tester.pumpAndSettle();
+  }
+
+  Finder refreshFor(String name) => find.descendant(
+    of: cardFor(name),
+    matching: find.widgetWithText(TextButton, 'Refresh details'),
+  );
   final scenarios = <String, Future<void> Function(WidgetTester)>{};
   void scenario(String name, Future<void> Function(WidgetTester) body) {
     scenarios[name] = body;
@@ -132,7 +158,7 @@ void main() {
     expect(find.textContaining('Your Event List is Empty'), findsOneWidget);
     expect(find.text('0 saved packages'), findsOneWidget);
     expect(
-      find.widgetWithText(FilledButton, 'Continue Browsing'),
+      find.widgetWithText(OutlinedButton, 'Continue Browsing'),
       findsOneWidget,
     );
     expect(memory.writes, 0);
@@ -155,9 +181,9 @@ void main() {
     await controller.addPackage(entry());
     await show(tester);
     expect(find.text('Package 0'), findsOneWidget);
-    expect(find.text('Provider'), findsOneWidget);
-    expect(find.text('No saved estimate.'), findsOneWidget);
-    expect(find.byIcon(Icons.storefront_outlined), findsOneWidget);
+    expect(find.text('Provider · Catering'), findsOneWidget);
+    expect(find.text('Price unavailable'), findsOneWidget);
+    expect(find.byIcon(Icons.image_not_supported_outlined), findsOneWidget);
   });
   for (final fail in [false, true]) {
     scenario('remove exact tuple, write failure=$fail', (tester) async {
@@ -165,9 +191,9 @@ void main() {
       await controller.addPackage(entry(0, 'provider_456'));
       await show(tester);
       memory.failWrite = fail;
-      await tester.ensureVisible(find.text('Remove Package 0').first);
+      await tester.ensureVisible(removeButton('Package 0').first);
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Remove Package 0').first);
+      await tester.tap(removeButton('Package 0').first);
       await tester.pumpAndSettle();
       expect(controller.list!.entries.length, fail ? 2 : 1);
       if (!fail) {
@@ -183,10 +209,10 @@ void main() {
     scenario('confirmed clear, write failure=$fail', (tester) async {
       await controller.addPackage(entry());
       await show(tester);
-      await tester.scrollUntilVisible(find.text('Clear List'), 150);
-      await tester.ensureVisible(find.text('Clear List'));
+      await tester.scrollUntilVisible(find.byTooltip('Clear list'), 150);
+      await tester.ensureVisible(find.byTooltip('Clear list'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Clear List'));
+      await tester.tap(find.byTooltip('Clear list'));
       await tester.pumpAndSettle();
       memory.failWrite = fail;
       await tester.tap(find.text('Confirm Clear List'));
@@ -199,10 +225,10 @@ void main() {
     await controller.addPackage(entry());
     await show(tester);
     final writes = memory.writes;
-    await tester.scrollUntilVisible(find.text('Clear List'), 150);
-    await tester.ensureVisible(find.text('Clear List'));
+    await tester.scrollUntilVisible(find.byTooltip('Clear list'), 150);
+    await tester.ensureVisible(find.byTooltip('Clear list'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Clear List'));
+    await tester.tap(find.byTooltip('Clear list'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Cancel'));
     await tester.pumpAndSettle();
@@ -214,10 +240,10 @@ void main() {
   ) async {
     await controller.addPackage(entry());
     await show(tester);
-    await tester.scrollUntilVisible(find.text('Clear List'), 150);
-    await tester.ensureVisible(find.text('Clear List'));
+    await tester.scrollUntilVisible(find.byTooltip('Clear list'), 150);
+    await tester.ensureVisible(find.byTooltip('Clear list'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Clear List'));
+    await tester.tap(find.byTooltip('Clear list'));
     await tester.pumpAndSettle();
     auth.switchTo('customer_B');
     await tester.pumpAndSettle();
@@ -352,7 +378,7 @@ void main() {
     addTearDown(tester.view.resetDevicePixelRatio);
     await controller.addPackage(entry());
     await show(tester, scale: 2);
-    await tester.scrollUntilVisible(find.text('Remove Package 0'), 200);
+    await tester.scrollUntilVisible(removeButton('Package 0'), 200);
     expect(tester.takeException(), isNull);
     await tester.scrollUntilVisible(find.text('Add another provider'), 200);
     expect(tester.takeException(), isNull);
@@ -418,9 +444,7 @@ void main() {
       await controller.addPackage(entry());
       await show(tester);
       final remove = tester
-          .widget<TextButton>(
-            find.widgetWithText(TextButton, 'Remove Package 0'),
-          )
+          .widget<TextButton>(removeButton('Package 0'))
           .onPressed!;
       auth.switchTo('customer_B');
       await controller.addPackage(entry());
@@ -483,7 +507,12 @@ void main() {
         root = root.parent!;
       }
       inspect(root);
-      expect(priceNodes, 1, reason: 'The visible price must be announced once');
+      expect(
+        priceNodes,
+        2,
+        reason: 'The package estimate and event total are separate announcements',
+      );
+
       expect(
         tester
             .getRect(find.text('\u20b112,500.75'))
@@ -491,11 +520,15 @@ void main() {
         isTrue,
       );
       expect(tester.takeException(), isNull);
-      await tester.scrollUntilVisible(find.text('Remove $packageName'), 100);
+      await tester.scrollUntilVisible(
+        find.text('Estimated Event Total'),
+        100,
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Estimated Event Total'), findsOneWidget);
+      await tester.scrollUntilVisible(removeButton(packageName), -100);
       expect(
-        tester.getSemantics(
-          find.widgetWithText(TextButton, 'Remove $packageName'),
-        ),
+        tester.getSemantics(removeButton(packageName)),
         matchesSemantics(
           label: 'Remove $packageName',
           isButton: true,
@@ -506,11 +539,16 @@ void main() {
           hasFocusAction: true,
         ),
       );
-      await tester.scrollUntilVisible(find.text('Clear List'), 100);
-      expect(find.bySemanticsLabel('Clear List'), findsOneWidget);
-      await tester.ensureVisible(find.text('Clear List'));
+      await tester.scrollUntilVisible(find.byTooltip('Clear list'), 100);
+      final clear = tester
+          .getSemantics(find.byTooltip('Clear list'))
+          .getSemanticsData();
+      expect(clear.tooltip, 'Clear list');
+      expect(clear.flagsCollection.isButton, isTrue);
+      expect(clear.hasAction(SemanticsAction.tap), isTrue);
+      await tester.ensureVisible(find.byTooltip('Clear list'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Clear List'));
+      await tester.tap(find.byTooltip('Clear list'));
       await tester.pumpAndSettle();
       for (final label in ['Cancel', 'Confirm Clear List']) {
         expect(
@@ -523,8 +561,12 @@ void main() {
       }
       await tester.tap(find.text('Cancel'));
       await tester.pumpAndSettle();
-      await tester.ensureVisible(find.text('Remove $packageName'));
-      await tester.tap(find.text('Remove $packageName'));
+      await Scrollable.ensureVisible(
+        tester.element(removeButton(packageName)),
+        alignment: 0.5,
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(removeButton(packageName));
       await tester.pumpAndSettle();
       expect(
         find.bySemanticsLabel(RegExp('12,500.75|Remove $packageName')),
@@ -571,8 +613,8 @@ void main() {
       await controller.addPackage(entry());
       await tester.pumpAndSettle();
       expect(
-        tester.getSemantics(find.text('No saved estimate.')).label,
-        contains('No saved estimate.'),
+        tester.getSemantics(find.text('Price unavailable')).label,
+        contains('Price unavailable'),
       );
       expect(
         find.bySemanticsLabel(
@@ -618,8 +660,12 @@ void main() {
         );
       }
       await show(tester);
-      expect(find.text('2 saved providers'), findsOneWidget);
-      expect(find.byIcon(Icons.storefront_outlined), findsWidgets);
+      expect(find.text('2 providers · 3 selections'), findsOneWidget);
+      expect(find.byIcon(Icons.image_not_supported_outlined), findsWidgets);
+      expect(find.text('Refresh details'), findsNothing);
+      for (final name in ['Package 0', 'Package 1', 'Package 2']) {
+        await openDetails(tester, name);
+      }
       final before = calls;
       await tester.pump();
       await tester.pump();
@@ -628,34 +674,33 @@ void main() {
         find.textContaining('currently unavailable for selection'),
         findsOneWidget,
       );
-      await tester.scrollUntilVisible(
-        find.text('Retry verification for Package 1'),
-        150,
-      );
+      await tester.scrollUntilVisible(refreshFor('Package 1'), 150);
       final semantics = tester.ensureSemantics();
       await tester.pumpAndSettle();
       status(
         tester,
         "We couldn't verify the latest package details. Please try again.",
       );
-      final retry = labelled(
-        tester,
-        'Retry verification for Package 1',
-      ).getSemanticsData();
+      final retry = tester
+          .getSemantics(refreshFor('Package 1'))
+          .getSemanticsData();
       expect(retry.flagsCollection.isButton, isTrue);
       expect(retry.flagsCollection.isEnabled.toBoolOrNull(), isTrue);
       expect(retry.hasAction(SemanticsAction.tap), isTrue);
-      expect(
-        find.bySemanticsLabel('Retry verification for Package 1'),
-        findsOneWidget,
-      );
+      expect(refreshFor('Package 1'), findsOneWidget);
       expect(find.textContaining('private network error'), findsNothing);
       failed = false;
-      await tester.tap(find.text('Retry verification for Package 1'));
+      await tester.tap(refreshFor('Package 1'));
       await tester.pumpAndSettle();
       expect(calls, before + 1);
       expect(requested.last, 'provider_456/package_1');
-      expect(find.text('Retry verification for Package 1'), findsNothing);
+      expect(
+        find.text(
+          "We couldn't verify the latest package details. Please try again.",
+        ),
+        findsNothing,
+      );
+      expect(refreshFor('Package 1'), findsOneWidget);
       await tester.scrollUntilVisible(
         find.text('Latest listed price unavailable.').last,
         150,
@@ -664,7 +709,7 @@ void main() {
       expect(
         exposed(
           tester,
-        ).any((node) => node.label.contains('Latest listed estimate:')),
+        ).any((node) => node.label.contains('Updated listed estimate:')),
         isFalse,
       );
       expect(find.text('Latest listed price unavailable.'), findsWidgets);
@@ -706,34 +751,51 @@ void main() {
       final semantics = tester.ensureSemantics();
       await show(tester, scale: 2);
       expect(calls, 1);
-      await tester.scrollUntilVisible(find.text('Latest listed estimate'), 150);
+      expect(find.text('Updated listed estimate'), findsNothing);
+      await openDetails(tester, 'Package 0');
+      if (latest == 12000) {
+        expect(find.text('Updated listed estimate'), findsNothing);
+        expect(
+          find.textContaining('The listed price has changed'),
+          findsNothing,
+        );
+        await tester.scrollUntilVisible(find.text('\u20b112,000.00'), -100);
+        labelled(tester, 'Saved estimate: 12,000.00 Philippine pesos.');
+        expect(controller.list!.entries.single.estimatedPrice, 12000);
+        semantics.dispose();
+        return;
+      }
+      await tester.scrollUntilVisible(
+        find.text('Updated listed estimate'),
+        150,
+      );
       final amount = latest == 11000
           ? '11,000.00'
           : latest == 13000
           ? '13,000.00'
           : '12,000.00';
       await tester.scrollUntilVisible(find.text('\u20b1$amount').last, 100);
-      labelled(tester, 'Latest listed estimate: $amount Philippine pesos.');
+      labelled(tester, 'Updated listed estimate: $amount Philippine pesos.');
       expect(
         exposed(tester)
             .expand((node) => node.label.split('\n'))
             .where(
               (line) =>
-                  line == 'Latest listed estimate: $amount Philippine pesos.',
+                  line == 'Updated listed estimate: $amount Philippine pesos.',
             ),
         hasLength(1),
       );
       expect(
         exposed(
           tester,
-        ).where((node) => node.label.contains('Latest listed estimate:')),
+        ).where((node) => node.label.contains('Updated listed estimate:')),
         hasLength(1),
       );
       expect(
         tester.getSemantics(find.text('\u20b1$amount').last).label,
-        contains('Latest listed estimate: $amount Philippine pesos.'),
+        contains('Updated listed estimate: $amount Philippine pesos.'),
       );
-      await tester.scrollUntilVisible(find.text('Saved estimate'), -100);
+      await tester.scrollUntilVisible(find.text('\u20b112,000.00').first, -100);
       labelled(tester, 'Saved estimate: 12,000.00 Philippine pesos.');
       if (latest != 12000) {
         await tester.scrollUntilVisible(
@@ -742,7 +804,7 @@ void main() {
         );
         labelled(
           tester,
-          'The listed price has changed since you saved this package. Final pricing and availability require confirmation.',
+          'The listed price has changed. Final pricing and availability require confirmation.',
         );
       } else {
         expect(
@@ -775,10 +837,11 @@ void main() {
       );
       await controller.addPackage(entry());
       await show(tester);
+      await openDetails(tester, 'Package 0');
       expect(find.text('Checking latest package details'), findsOneWidget);
-      await tester.ensureVisible(find.text('Remove Package 0'));
+      await tester.ensureVisible(removeButton('Package 0'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Remove Package 0'));
+      await tester.tap(removeButton('Package 0'));
       await tester.pumpAndSettle();
       expect(controller.list!.entries, isEmpty);
       gates.first.complete(null);
@@ -786,6 +849,7 @@ void main() {
       expect(find.textContaining('currently unavailable'), findsNothing);
       await controller.addPackage(entry());
       await tester.pumpAndSettle();
+      await openDetails(tester, 'Package 0');
       tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
       await tester.pump();
       expect(find.text('Latest package details not checked'), findsOneWidget);
@@ -795,10 +859,10 @@ void main() {
       tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
       await tester.pumpAndSettle();
       expect(gates.length, before + 1);
-      await tester.scrollUntilVisible(find.text('Clear List'), 150);
-      await tester.ensureVisible(find.text('Clear List'));
+      await tester.scrollUntilVisible(find.byTooltip('Clear list'), 150);
+      await tester.ensureVisible(find.byTooltip('Clear list'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Clear List'));
+      await tester.tap(find.byTooltip('Clear list'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Confirm Clear List'));
       await tester.pumpAndSettle();
@@ -830,23 +894,29 @@ void main() {
       await controller.addPackage(entry());
       final tree = tester.ensureSemantics();
       await show(tester);
-      await tester.scrollUntilVisible(find.text('Latest listed estimate'), 100);
-      labelled(tester, 'Latest listed estimate: 12,000.00 Philippine pesos.');
-      labelled(tester, 'No saved estimate.');
+      await openDetails(tester, 'Package 0');
+      expect(find.text('Updated listed estimate'), findsNothing);
+      labelled(tester, 'Price unavailable');
       expect(
         exposed(tester).any((node) => node.label.startsWith('Saved estimate:')),
         isFalse,
       );
       tree.dispose();
-      expect(find.text('No saved estimate.'), findsOneWidget);
-      expect(find.text('Latest listed estimate'), findsOneWidget);
+      expect(find.text('Price unavailable'), findsOneWidget);
+      expect(find.text('Updated listed estimate'), findsNothing);
       expect(find.textContaining('The listed price has changed'), findsNothing);
       final semantics = tester.ensureSemantics();
-      expect(find.bySemanticsLabel('Check latest details'), findsOneWidget);
+      expect(
+        tester
+            .getSemantics(refreshFor('Package 0'))
+            .getSemanticsData()
+            .hasAction(SemanticsAction.tap),
+        isTrue,
+      );
       failed = true;
-      await tester.tap(find.text('Check latest details'));
+      await tester.tap(refreshFor('Package 0'));
       await tester.pump();
-      expect(find.text('Latest listed estimate'), findsNothing);
+      expect(find.text('Updated listed estimate'), findsNothing);
       await tester.pumpWidget(const SizedBox());
       gate.completeError(StateError('private disposed error'));
       await tester.pumpAndSettle();
@@ -882,14 +952,18 @@ void main() {
       await controller.addPackage(entry(0));
       await controller.addPackage(entry(1, 'provider_456'));
       await show(tester);
-      expect(find.text('Provider'), findsNWidgets(2));
+      expect(find.text('Provider · Catering'), findsNWidgets(2));
       expect(find.text('Package 1'), findsOneWidget);
       expect(find.text('Package 0'), findsOneWidget);
-      status(tester, 'Latest package details verified');
+      await openDetails(tester, 'Package 0');
+      await openDetails(tester, 'Package 1');
+      expect(find.text('Latest package details verified'), findsNothing);
       status(tester, 'This package is currently unavailable for selection');
-      labelled(tester, 'Latest listed estimate: 12,500.75 Philippine pesos.');
+      expect(find.text('Updated listed estimate'), findsNothing);
       refresh = true;
-      await tester.tap(find.text('Check latest details'));
+      for (final name in ['Package 0', 'Package 1']) {
+        await tester.tap(refreshFor(name));
+      }
       await tester.pumpAndSettle();
       final checking = exposed(tester).where(
         (node) =>
@@ -975,22 +1049,31 @@ void main() {
         );
       }
       await show(tester);
-      expect(find.textContaining('Known estimate: '), findsOneWidget);
+      expect(find.textContaining('Partial estimate: '), findsOneWidget);
       expect(find.textContaining('201.00'), findsOneWidget);
+      expect(find.textContaining('some prices unavailable'), findsOneWidget);
       expect(
-        find.text('2 of 3 saved package estimates included.'),
-        findsOneWidget,
-      );
-      expect(
-        find.textContaining('Missing prices are excluded'),
-        findsOneWidget,
+        controller.list!.entries.where(
+          (e) => e.configuration!.estimatedTotal != null,
+        ),
+        hasLength(2),
       );
       expect(find.textContaining('Event details differ.'), findsOneWidget);
+      await tester.scrollUntilVisible(
+        find.text('Review and submit booking request'),
+        150,
+      );
+      await tester.pumpAndSettle();
       expect(
-        find.textContaining(
-          'Booking submission for this list is not available.',
-        ),
-        findsOneWidget,
+        tester
+            .widget<FilledButton>(
+              find.widgetWithText(
+                FilledButton,
+                'Review and submit booking request',
+              ),
+            )
+            .onPressed,
+        isNull,
       );
       expect(find.text('Checkout'), findsNothing);
       expect(find.text('Submit all'), findsNothing);
@@ -1023,10 +1106,46 @@ void main() {
     await show(tester);
     expect(find.text('100 guests · Ormoc City'), findsOneWidget);
     expect(find.textContaining('Event details differ.'), findsNothing);
+    expect(find.textContaining('Estimated total: '), findsOneWidget);
     expect(
-      find.text('2 of 2 saved package estimates included.'),
-      findsOneWidget,
+      controller.list!.entries.where(
+        (e) => e.configuration!.estimatedTotal != null,
+      ),
+      hasLength(2),
     );
+  });
+  scenario('single-provider review requires a configured selection', (
+    tester,
+  ) async {
+    await controller.addPackage(entry());
+    await show(tester);
+    final review = find.widgetWithText(
+      FilledButton,
+      'Review and submit booking request',
+    );
+    expect(tester.widget<FilledButton>(review).onPressed, isNull);
+    final saved = controller.list!.entries.single;
+    expect(
+      await controller.saveConfiguration(
+        CustomerEventListEntry(
+          providerId: saved.providerId,
+          packageId: saved.packageId,
+          providerName: saved.providerName,
+          packageName: saved.packageName,
+          configuration: CustomerEventListConfiguration.fromJson(
+            configuration(),
+          ),
+        ),
+        expectedRevision: controller.list!.revision,
+        editingIdentity: saved.identity,
+      ),
+      EventListResult.saved,
+    );
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(review, 100);
+    await tester.pumpAndSettle();
+    expect(tester.widget<FilledButton>(review).onPressed, isNotNull);
+    expect(find.textContaining('coordinated request'), findsNothing);
   });
   // The production store intentionally shares a process-wide Future queue. Keep
   // these scenarios in one fake-async zone so failed futures never cross the
@@ -1037,7 +1156,9 @@ void main() {
       for (final scenario in scenarios.entries) {
         reset();
         try {
+          debugPrint('SCENARIO START: ${scenario.key}');
           await scenario.value(tester);
+          debugPrint('SCENARIO PASS: ${scenario.key}');
           await tester.pumpWidget(const SizedBox());
           await tester.pumpAndSettle();
           tester.view.resetPhysicalSize();

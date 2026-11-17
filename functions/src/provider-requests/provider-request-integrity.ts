@@ -1025,7 +1025,219 @@ function snapshotMismatch(
   );
 }
 /** Independent package snapshots have explicit membership; legacy records keep their parent contract. */
+/**
+ * Explicit mixed-provider assignment projection, version 2.
+ *
+ * The parent stores one assignment per request. All financial
+ * and service fields are compared with the request snapshot
+ * before projection into the legacy acceptance validator.
+ *
+ * Version-1 Catering and unversioned legacy paths are unchanged.
+ */
+function mixedProviderAssignmentEvent(
+  request: DocumentData,
+  event: DocumentData,
+): DocumentData {
+  const assignments = event.providerAssignments;
+  const requestIds = event.providerRequestIds;
+
+  if (
+    !Array.isArray(assignments) ||
+    !Array.isArray(requestIds) ||
+    assignments.length < 2 ||
+    assignments.length > 4 ||
+    requestIds.length !== assignments.length ||
+    new Set(requestIds).size !== requestIds.length
+  ) {
+    throw invalidServiceLinkage();
+  }
+
+  const seenRequests = new Set<string>();
+  const seenProviders = new Set<string>();
+
+  for (const entry of assignments) {
+    if (
+      !entry ||
+      !optionalId(entry.providerRequestId) ||
+      !optionalId(entry.providerId) ||
+      !requestIds.includes(entry.providerRequestId) ||
+      seenRequests.has(entry.providerRequestId) ||
+      seenProviders.has(entry.providerId) ||
+      (entry.kind !== "catering_package" &&
+        entry.kind !== "marketplace_service")
+    ) {
+      throw invalidServiceLinkage();
+    }
+
+    seenRequests.add(entry.providerRequestId);
+    seenProviders.add(entry.providerId);
+  }
+
+  const assignment = assignments.find(
+    (entry: DocumentData) =>
+      entry.providerRequestId === request.providerRequestId,
+  );
+
+  if (
+    !assignment ||
+    !requestIds.includes(request.providerRequestId) ||
+    assignment.providerId !== request.providerId
+  ) {
+    throw invalidServiceLinkage();
+  }
+
+  const catering = assignment.kind === "catering_package";
+
+  if (
+    catering ?
+      request.type !== "catering" ||
+        request.assignmentKind !== "independent_package" :
+      request.type !== "addon" ||
+        request.assignmentKind !== "independent_marketplace_service"
+  ) {
+    throw invalidServiceLinkage();
+  }
+
+  const sharedFields = [
+    "providerId",
+    "services",
+    "amount",
+    "downPaymentAmount",
+    "remainingBalance",
+    "downPaymentPercentage",
+  ] as const;
+
+  for (const field of sharedFields) {
+    if (
+      !Object.hasOwn(assignment, field) ||
+      !isDeepStrictEqual(assignment[field], request[field])
+    ) {
+      throw invalidServiceLinkage();
+    }
+  }
+
+  if (
+    !Array.isArray(assignment.services) ||
+    assignment.services.length !== 1
+  ) {
+    throw invalidServiceLinkage();
+  }
+
+  const service = assignment.services[0];
+
+  if (
+    !service ||
+    !optionalId(service.serviceId) ||
+    !Number.isFinite(service.price) ||
+    !Number.isFinite(service.downPaymentAmount)
+  ) {
+    throw invalidServiceLinkage();
+  }
+
+  if (catering) {
+    const fields = [
+      "packageId",
+      "packageName",
+      "packageRevision",
+      "packagePaymentTerms",
+    ] as const;
+
+    for (const field of fields) {
+      if (
+        !Object.hasOwn(assignment, field) ||
+        !isDeepStrictEqual(assignment[field], request[field])
+      ) {
+        throw invalidServiceLinkage();
+      }
+    }
+
+    if (
+      !optionalId(assignment.packageId) ||
+      service.serviceId !== assignment.packageId ||
+      service.category !== "catering_package" ||
+      !parsePackagePaymentTermsSnapshot(
+        assignment.packagePaymentTerms,
+      )
+    ) {
+      throw invalidServiceLinkage();
+    }
+
+    return {
+      ...event,
+      providerId: assignment.providerId,
+      currentProviderId: assignment.providerId,
+      packageId: assignment.packageId,
+      packageName: assignment.packageName,
+      packagePrice: assignment.amount,
+      totalAmount: assignment.amount,
+      downPaymentAmount: assignment.downPaymentAmount,
+      remainingBalance: assignment.remainingBalance,
+      downPaymentPercentage:
+        assignment.downPaymentPercentage,
+      packagePaymentTerms: assignment.packagePaymentTerms,
+      selectedAddOns: [],
+    };
+  }
+
+  if (
+    request.packageId !== null ||
+    request.packageName !== null ||
+    assignment.packageId !== null ||
+    assignment.packageName !== null ||
+    request.packagePaymentTerms !== null ||
+    assignment.packagePaymentTerms !== null ||
+    !Object.hasOwn(assignment, "serviceId") ||
+    !optionalId(assignment.serviceId) ||
+    service.serviceId !== assignment.serviceId ||
+    service.category === "catering_package" ||
+    !Number.isFinite(assignment.amount) ||
+    assignment.amount <= 0 ||
+    !Number.isFinite(assignment.downPaymentAmount) ||
+    assignment.downPaymentAmount !== assignment.amount ||
+    assignment.remainingBalance !== 0 ||
+    assignment.downPaymentPercentage !== 100 ||
+    service.downPaymentAmount !== assignment.amount ||
+    service.downPaymentPercentage !== 100 ||
+    !Object.hasOwn(assignment, "selectedAddOns") ||
+    !Array.isArray(assignment.selectedAddOns) ||
+    assignment.selectedAddOns.length !== 1
+  ) {
+    throw invalidServiceLinkage();
+  }
+
+  const selected = assignment.selectedAddOns[0];
+
+  if (
+    !selected ||
+    selected.addonId !== assignment.serviceId ||
+    selected.providerId !== assignment.providerId ||
+    selected.name !== service.name ||
+    selected.category !== service.category ||
+    !isDeepStrictEqual(selected.price, service.price) ||
+    !isDeepStrictEqual(
+      selected.downPaymentPercentage,
+      service.downPaymentPercentage,
+    )
+  ) {
+    throw invalidServiceLinkage();
+  }
+
+  // Only this provider's selected service is projected.
+  // The parent event and other provider assignments are untouched.
+  return {
+    ...event,
+    providerId: assignment.providerId,
+    currentProviderId: assignment.providerId,
+    packageId: null,
+    packageName: null,
+    packagePaymentTerms: null,
+    selectedAddOns: [selected],
+  };
+}
 function packageAssignmentEvent(request: DocumentData, event: DocumentData): DocumentData {
+  if (event.packageAssignmentVersion === 2) {
+    return mixedProviderAssignmentEvent(request, event);
+  }
   if (request.assignmentKind === undefined && event.packageAssignmentVersion === undefined) return event;
   if (event.packageAssignmentVersion !== 1 || request.assignmentKind !== "independent_package" ||
     request.type !== "catering" ||

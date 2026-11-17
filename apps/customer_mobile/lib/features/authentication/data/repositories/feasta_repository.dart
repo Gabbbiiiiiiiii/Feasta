@@ -25,6 +25,15 @@ import '../../../../core/domain/service_category.dart';
 import '../../../../core/helpers/provider_category_helper.dart';
 import '../../../../core/helpers/provider_discovery.dart';
 
+/// An exact catalog lookup must return one unambiguous record.
+AddonModel? exactPreparationAddon(List<AddonModel> services, String addonId) {
+  if (services.length != 1) return null;
+  final service = services.single;
+  return service.id == addonId && service.price.isFinite && service.price >= 0
+      ? service
+      : null;
+}
+
 class FeastaRepository {
   List<ServiceCategory>? _serviceCategoryCache;
   final OccasionCatalogService _occasionCatalog = OccasionCatalogService();
@@ -487,14 +496,8 @@ class FeastaRepository {
       'catalog',
       addonId: addonId,
     );
-    for (final service in services) {
-      if (service.id == addonId &&
-          service.price.isFinite &&
-          service.price >= 0) {
-        return service;
-      }
-    }
-    return null;
+    // Reject ambiguous exact lookups rather than choosing the first owner.
+    return exactPreparationAddon(services, addonId);
   }
 
   /// Read-only revalidation for booking preparation, never a reservation.
@@ -568,29 +571,10 @@ class FeastaRepository {
       throw const FormatException('Invalid event service catalog.');
     }
     return (data['services'] as List).map((raw) {
-      if (raw is! Map ||
-          raw['id'] is! String ||
-          raw['providerId'] is! String ||
-          raw['name'] is! String ||
-          raw['providerName'] is! String) {
+      if (raw is! Map) {
         throw const FormatException('Invalid event service.');
       }
-      return AddonModel(
-        id: raw['id'] as String,
-        providerId: raw['providerId'] as String,
-        name: raw['name'] as String,
-        description: raw['description'] as String? ?? '',
-        category: raw['category'] as String? ?? '',
-        price: (raw['price'] as num?)?.toDouble() ?? double.nan,
-        imageUrl: raw['imageUrl'] as String?,
-        bookingLeadTimeDays: raw['bookingLeadTimeDays'] as int?,
-        providerBusinessName: raw['providerName'] as String,
-        providerType: raw['source'] == 'catering_provider'
-            ? 'catering_provider'
-            : 'addon_provider',
-        isActive: true,
-        isAvailable: true,
-      );
+      return AddonModel.fromCatalog(raw);
     }).toList();
   }
 

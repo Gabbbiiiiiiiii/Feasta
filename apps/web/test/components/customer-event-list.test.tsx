@@ -1,12 +1,23 @@
 vi.mock("@/lib/firebase/client", () => ({auth: {currentUser: {uid: "test-customer"}}}));
 vi.mock("firebase/auth", () => ({onAuthStateChanged: () => () => {}}));
+// This legacy suite exercises local storage/UI behavior. Cloud-enabled coverage
+// lives in the dedicated cloud suites, independent of the application's gate.
+vi.mock("@/lib/customer/event-list/customer-event-list-cloud-transport", () => ({
+  CUSTOMER_EVENT_LIST_CLOUD_ENABLED: false,
+  subscribeCustomerEventListCloud: vi.fn(),
+  sendCustomerEventListMutation: vi.fn(),
+}));
 vi.mock("@/app/customer/packages/event-list-labels", () => ({loadEventListPackageLabels: vi.fn(async () => null)}));
 import {fireEvent, render, screen, waitFor} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import {readFileSync} from "node:fs";
 import {join} from "node:path";
 import {NextRequest} from "next/server";
-import {beforeEach, describe, expect, it, vi} from "vitest";
+import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
+import {
+  sendCustomerEventListMutation,
+  subscribeCustomerEventListCloud,
+} from "@/lib/customer/event-list/customer-event-list-cloud-transport";
 
 import {AddToEventListButton} from "@/components/customer/event-list/add-to-event-list-button";
 import {CustomerEventListMenu} from "@/components/customer/event-list/customer-event-list-menu";
@@ -85,6 +96,11 @@ beforeEach(() => {
   window.localStorage.clear();
 });
 
+afterEach(() => {
+  expect(subscribeCustomerEventListCloud).not.toHaveBeenCalled();
+  expect(sendCustomerEventListMutation).not.toHaveBeenCalled();
+});
+
 describe("customer event list storage", () => {
   it("persists a versioned planning list and replaces duplicates by identity", () => {
     addCustomerEventListItem(packageItem);
@@ -147,15 +163,34 @@ describe("customer event list storage", () => {
       });
     }
     const capped = readCustomerEventList();
+    const before = window.localStorage.getItem(CUSTOMER_EVENT_LIST_STORAGE_KEY + ":uid:test-customer");
+    expect(addCustomerEventListItem({...packageItem, packageId: "overflow"})).toBe(false);
+    expect(window.localStorage.getItem(CUSTOMER_EVENT_LIST_STORAGE_KEY + ":uid:test-customer")).toBe(before);
     expect(capped).toHaveLength(24);
     expect(capped[0]?.type === "package" ? capped[0].packageId : null)
-      .toBe(`package-${CUSTOMER_EVENT_LIST_MAX_ITEMS + 2}`);
+      .toBe(`package-${CUSTOMER_EVENT_LIST_MAX_ITEMS - 1}`);
+
+    expect(addCustomerEventListItem({...packageItem, packageId: "package-0", packageName: "Updated"})).toBe(true);
+    expect(readCustomerEventList()).toHaveLength(24);
+    expect(readCustomerEventList()[0]).toMatchObject({packageId: "package-0", packageName: "Updated"});
 
     window.localStorage.setItem(CUSTOMER_EVENT_LIST_STORAGE_KEY + ":uid:test-customer", JSON.stringify([
       packageItem,
       packageItem,
     ]));
     expect(readCustomerEventList()).toHaveLength(1);
+  });
+
+  it("routes configured package review to authenticated booking with scoped restoration intent", () => {
+    addCustomerEventListItem({...packageItem, configuration: {
+      event: {eventType: "wedding", eventDate: "2026-12-12", eventTime: "10:00", eventEndTime: "14:00",
+        guestCount: 80, eventLocation: "Garden", eventAddress: "Ormoc City", specialRequest: ""},
+      selectedFoods: [], selectedDecorations: [], selectedFurniture: [], selectedEventServices: [],
+      willArrangeOwnAddOns: false, customerArrangedAddOnsNote: "", estimatedTotal: 45000,
+    }});
+    render(<CustomerEventListReview />);
+    expect(screen.getByRole("link", {name: "Review and submit booking request"})).toHaveAttribute("href",
+      "/customer/packages/package-one/book?eventListProvider=provider-one&eventListIntent=review");
   });
 
   it("removes items and services, and clears schedule context with the last item", () => {

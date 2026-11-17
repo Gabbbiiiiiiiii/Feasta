@@ -369,7 +369,7 @@ void main() {
   const labels = {
     'draft': 'Draft',
     'pending_provider_approval': 'Response status unavailable',
-    'needs_provider_replacement': 'Provider replacement needed',
+    'needs_provider_replacement': 'Provider rejected',
     'pending': 'Pending Review',
     'accepted': 'Accepted',
     'waiting_payment': 'Payment Required',

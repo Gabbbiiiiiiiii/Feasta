@@ -1,4 +1,7 @@
+import 'dart:convert';
+
 import 'initial_payment_deadline.dart';
+import 'package:crypto/crypto.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 enum CustomerPaymentChoice {
@@ -74,6 +77,7 @@ class CustomerProviderPaymentRequest {
   factory CustomerProviderPaymentRequest.fromDoc(
     DocumentSnapshot<Map<String, dynamic>> document, {
     required String mainEventStatus,
+    DateTime? now,
   }) {
     final data = document.data() ?? const <String, dynamic>{};
 
@@ -101,7 +105,12 @@ class CustomerProviderPaymentRequest {
         data['remainingBalanceGraceEndsAt'],
       ),
       initialPaymentDeadline: InitialPaymentDeadline.fromRecord(data),
-      checkoutOptions: _checkoutOptions(data, mainEventStatus: mainEventStatus),
+      checkoutOptions: _checkoutOptions(
+        data,
+        providerRequestId: document.id,
+        mainEventStatus: mainEventStatus,
+        now: now ?? DateTime.now(),
+      ),
     );
   }
 }
@@ -150,9 +159,105 @@ const _retryPaymentStatuses = <String>{
   'expired',
 };
 
+enum _InitialEligibility { invalid, minimumOrFull, fullOnly }
+
+// Read the frozen server decision; amounts and the checkout clock never grant
+// deposit permission. Legacy means all three canonical fields are absent/null.
+_InitialEligibility _initialPaymentEligibility(Map<String, dynamic> request) {
+  final version = request['initialPaymentEligibilitySchemaVersion'];
+  if (version == null &&
+      request['initialPaymentEligibility'] == null &&
+      request['bookingPaymentPolicySnapshot'] == null) {
+    return _InitialEligibility.minimumOrFull;
+  }
+  final data = _map(request['initialPaymentEligibility']);
+  if ((version != 1 && version != 2) || data == null) {
+    return _InitialEligibility.invalid;
+  }
+  final mode = data['mode'];
+  final reason = data['reason'];
+  final hours = _centavos(data['depositMinimumNoticeHours']);
+  if ((mode != 'minimum_or_full' && mode != 'full_only') ||
+      data['depositEligible'] != (mode == 'minimum_or_full') ||
+      data['depositAllowed'] is! bool ||
+      !const {
+        'deposit_eligible',
+        'package_full_payment',
+        'deposit_disabled',
+        'short_notice',
+      }.contains(reason) ||
+      (reason == 'deposit_eligible') != data['depositEligible'] ||
+      ((reason == 'deposit_eligible' || reason == 'short_notice') &&
+          data['depositAllowed'] != true) ||
+      (reason == 'deposit_disabled' && data['depositAllowed'] != false) ||
+      (reason != 'package_full_payment' &&
+          (hours == null || hours <= 0 || hours > 24 * 365)) ||
+      (version == 2 &&
+          (data['authorityTimeSource'] != 'booking_submission' ||
+              data['depositMinimumNoticeHours'] != 72 ||
+              data['submittedAt'] == null ||
+              data['evaluatedAt'] == null))) {
+    return _InitialEligibility.invalid;
+  }
+  return mode == 'minimum_or_full'
+      ? _InitialEligibility.minimumOrFull
+      : _InitialEligibility.fullOnly;
+}
+
+String _paymentId(String requestId, CustomerPaymentChoice choice) =>
+    'payment_${sha256.convert(utf8.encode('provider-request:$requestId:payment-choice:${choice.apiValue}:v1')).toString().substring(0, 32)}';
+
+// Checkout projection of Web's remaining-balance enforcement. The callable
+// remains authoritative, including when a device clock or saved view is stale.
+bool _balanceEnforcementBlocksActions(
+  Map<String, dynamic> request,
+  DateTime now,
+) {
+  final version = request['remainingBalanceTimingSchemaVersion'];
+  final enforcement = _map(request['remainingBalanceEnforcement']);
+  if (version == 3) {
+    final event = _timestampDate(request['eventStartAt']);
+    final due = _timestampDate(request['remainingBalanceDueAt']);
+    final hard = _timestampDate(request['hardPaymentDeadlineAt']);
+    final prep = _timestampDate(request['preparationStartsAt']);
+    final policy = _map(request['bookingLifecyclePolicySnapshot']);
+    if (event == null ||
+        due == null ||
+        hard == null ||
+        prep == null ||
+        request['balanceDueHoursBeforeEvent'] != 48 ||
+        due != event.subtract(const Duration(hours: 48)) ||
+        hard != event.subtract(const Duration(hours: 24)) ||
+        prep != hard ||
+        policy == null ||
+        policy['schemaVersion'] != 3 ||
+        policy['providerStartsManually'] != false ||
+        policy['requiresFullPayment'] != true ||
+        policy['autoStartAtScheduledTime'] != true ||
+        policy['providerConfirmsCompletion'] != true ||
+        const {
+          'on_hold',
+          'reconciliation_required',
+        }.contains(enforcement?['status'])) {
+      return true;
+    }
+    return !now.isBefore(hard);
+  }
+  if (version != 2) return false;
+  if (request['remainingBalanceEnforcementSchemaVersion'] != null &&
+      (request['remainingBalanceEnforcementSchemaVersion'] != 1 ||
+          enforcement?['status'] != 'clear')) {
+    return true;
+  }
+  final due = _timestampDate(request['remainingBalanceDueAt']);
+  return due == null || !now.isBefore(due);
+}
+
 List<CustomerPaymentOption> _checkoutOptions(
   Map<String, dynamic> request, {
   required String mainEventStatus,
+  required String providerRequestId,
+  required DateTime now,
 }) {
   final financialSnapshot = _map(request['financialSnapshot']);
 
@@ -176,9 +281,16 @@ List<CustomerPaymentOption> _checkoutOptions(
     return const [];
   }
 
-  if (request['initialPaymentReview'] != null ||
+  if ((request['initialPaymentReview'] != null &&
+          const {
+            'accepted',
+            'waiting_for_down_payment',
+            'payment_processing',
+          }.contains(request['status'])) ||
       request['lifecycleReconciliationRequired'] == true ||
       request['activeCancellationRequestId'] != null ||
+      request['approvedCancellationRequestId'] != null ||
+      request['refundExecutionLock'] != null ||
       request['reconciliationRequired'] == true) {
     return const [];
   }
@@ -187,12 +299,11 @@ List<CustomerPaymentOption> _checkoutOptions(
     return const [];
   }
 
-  final rawInitialChoice = _string(request['initialPaymentChoice']);
-  final initialPaymentId = _string(request['initialPaymentId']);
-  final remainingBalancePaymentId = _string(
-    request['remainingBalancePaymentId'],
-  );
-  final currentPaymentId = _string(request['paymentId']);
+  final rawInitialChoice = request['initialPaymentChoice'];
+  final initialPaymentId = request['initialPaymentId'];
+  final remainingBalancePaymentId = request['remainingBalancePaymentId'];
+  final currentPaymentId = request['paymentId'];
+  final eligibility = _initialPaymentEligibility(request);
 
   final partialDeposit = upfront > 0 && upfront < gross;
 
@@ -204,11 +315,12 @@ List<CustomerPaymentOption> _checkoutOptions(
         remainingBalancePaymentId != null ||
         request['settlementSchemaVersion'] != null ||
         request['settlementStatus'] != null ||
-        !_initialEligible(request, mainEventStatus)) {
+        !_initialEligible(request, mainEventStatus, now) ||
+        eligibility == _InitialEligibility.invalid) {
       return const [];
     }
 
-    if (partialDeposit) {
+    if (partialDeposit && eligibility == _InitialEligibility.minimumOrFull) {
       return [
         CustomerPaymentOption(
           choice: CustomerPaymentChoice.minimum,
@@ -233,7 +345,7 @@ List<CustomerPaymentOption> _checkoutOptions(
 
   if (initialChoice == null ||
       initialChoice == CustomerPaymentChoice.remainingBalance ||
-      initialPaymentId == null ||
+      initialPaymentId != _paymentId(providerRequestId, initialChoice) ||
       request['settlementSchemaVersion'] != 1) {
     return const [];
   }
@@ -243,7 +355,12 @@ List<CustomerPaymentOption> _checkoutOptions(
   }
 
   if (remainingBalancePaymentId != null &&
-      initialChoice != CustomerPaymentChoice.minimum) {
+      (initialChoice != CustomerPaymentChoice.minimum ||
+          remainingBalancePaymentId !=
+              _paymentId(
+                providerRequestId,
+                CustomerPaymentChoice.remainingBalance,
+              ))) {
     return const [];
   }
 
@@ -256,14 +373,19 @@ List<CustomerPaymentOption> _checkoutOptions(
     return const [];
   }
 
-  final settlementStatus = _string(request['settlementStatus']);
+  final settlementStatus = request['settlementStatus'];
   final grossSettled = _centavos(request['grossSettledAmountInCentavos']);
   final outstanding = _centavos(request['outstandingAmountInCentavos']);
-  final paymentStatus = _string(request['paymentStatus']) ?? 'unpaid';
+  final paymentStatus = request['paymentStatus'];
 
   final balanceEligible =
       request['status'] == 'confirmed' &&
-      mainEventStatus == 'confirmed' &&
+      const {
+        'pending_provider_approval',
+        'needs_provider_replacement',
+        'waiting_for_down_payment',
+        'confirmed',
+      }.contains(mainEventStatus) &&
       initialChoice == CustomerPaymentChoice.minimum &&
       settlementStatus == 'deposit_settled' &&
       grossSettled == upfront &&
@@ -279,6 +401,9 @@ List<CustomerPaymentOption> _checkoutOptions(
                 _retryPaymentStatuses.contains(paymentStatus));
 
   if (balanceEligible) {
+    if (_balanceEnforcementBlocksActions(request, now)) {
+      return const [];
+    }
     return [
       CustomerPaymentOption(
         choice: CustomerPaymentChoice.remainingBalance,
@@ -288,13 +413,19 @@ List<CustomerPaymentOption> _checkoutOptions(
   }
 
   if (remainingBalancePaymentId != null ||
-      !_initialEligible(request, mainEventStatus) ||
+      !_initialEligible(request, mainEventStatus, now) ||
       grossSettled != 0 ||
       outstanding != gross ||
       !const {
         'unpaid',
         'initial_payment_processing',
       }.contains(settlementStatus)) {
+    return const [];
+  }
+
+  if (eligibility == _InitialEligibility.invalid ||
+      (initialChoice == CustomerPaymentChoice.minimum &&
+          eligibility != _InitialEligibility.minimumOrFull)) {
     return const [];
   }
 
@@ -308,18 +439,24 @@ List<CustomerPaymentOption> _checkoutOptions(
   ];
 }
 
-bool _initialEligible(Map<String, dynamic> request, String mainEventStatus) {
-  final paymentStatus = _string(request['paymentStatus']) ?? 'unpaid';
+bool _initialEligible(
+  Map<String, dynamic> request,
+  String mainEventStatus,
+  DateTime now,
+) {
+  final paymentStatus = request['paymentStatus'];
+  final deadline = InitialPaymentDeadline.fromRecord(request);
 
   // Device time is never payment authority. The callable checks expiration
   // transactionally on every checkout, including retries and stale app screens.
-  return InitialPaymentDeadline.fromRecord(request).hasValidEvidence &&
+  return deadline.hasValidEvidence &&
+      (request['initialPaymentDeadlinePolicyVersion'] == null ||
+          (deadline.at != null && now.isBefore(deadline.at!))) &&
       request['status'] == 'waiting_for_down_payment' &&
       const {
         'pending_provider_approval',
         'needs_provider_replacement',
         'waiting_for_down_payment',
-        'waiting_payment',
       }.contains(mainEventStatus) &&
       _retryPaymentStatuses.contains(paymentStatus);
 }
@@ -338,12 +475,20 @@ bool _validRefundState(Map<String, dynamic> request) {
 
   return refundState != null &&
       refundState['schemaVersion'] == 1 &&
+      refundState.containsKey('activeCancellationRequestId') &&
       refundState['activeCancellationRequestId'] == null &&
-      request['refundPolicySnapshot'] != null &&
-      request['refundPolicyAgreement'] != null;
+      _storedTruthy(request['refundPolicySnapshot']) &&
+      _storedTruthy(request['refundPolicyAgreement']);
 }
 
-CustomerPaymentChoice? _paymentChoice(String? value) {
+bool _storedTruthy(dynamic value) =>
+    value != null &&
+    value != false &&
+    value != '' &&
+    value != 0 &&
+    !(value is double && value.isNaN);
+
+CustomerPaymentChoice? _paymentChoice(dynamic value) {
   switch (value) {
     case 'minimum':
       return CustomerPaymentChoice.minimum;
@@ -361,7 +506,9 @@ Map<String, dynamic>? _map(dynamic value) {
     return null;
   }
 
-  return Map<String, dynamic>.from(value);
+  return value.keys.every((key) => key is String)
+      ? Map<String, dynamic>.from(value)
+      : null;
 }
 
 String? _string(dynamic value) {
@@ -375,8 +522,12 @@ String? _string(dynamic value) {
 }
 
 int? _centavos(dynamic value) {
-  if (value is int && value >= 0) {
-    return value;
+  if (value is num &&
+      value.isFinite &&
+      value >= 0 &&
+      value <= 9007199254740991 &&
+      value == value.truncateToDouble()) {
+    return value.toInt();
   }
 
   return null;

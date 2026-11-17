@@ -201,6 +201,7 @@ export function useCustomerEventList() {
     items, count: items.length,
     addItem: (item: CustomerEventListItem) => addCustomerEventListItem(item, session),
     removeItem: (key: string) => removeCustomerEventListItem(key, session),
+    removeSubmittedItems: (items: readonly CustomerEventListItem[]) => removeSubmittedCustomerEventListItems(items, session),
     removeService: (packageId: string, serviceId: string) => removeCustomerEventListService(packageId, serviceId, session),
     clearItems: () => clearCustomerEventList(session),
     readItems: () => readCustomerEventList(session),
@@ -295,6 +296,8 @@ export function addCustomerEventListItem(item: CustomerEventListItem, session = 
       customerEventListItemKey(normalized),
   );
 
+  if (!existing && existingItems.length >= CUSTOMER_EVENT_LIST_MAX_ITEMS) return false;
+
   // A package-only planning action must not erase a completed configuration.
   // A deliberate configured save can still replace the previous entry.
   const protectedItem =
@@ -313,9 +316,34 @@ export function addCustomerEventListItem(item: CustomerEventListItem, session = 
         customerEventListItemKey(candidate) !==
         customerEventListItemKey(normalized),
     ),
-  ].slice(0, CUSTOMER_EVENT_LIST_MAX_ITEMS);
+  ];
 
   return writeCustomerEventList(next, session);
+}
+
+/** Consume only unchanged submitted snapshots; concurrent saves belong to the next booking. */
+export function removeSubmittedCustomerEventListItems(
+  submitted: readonly CustomerEventListItem[], session = currentSession(),
+): void {
+  if (typeof window === "undefined" || !authorized(session)) return;
+  const snapshots = submitted.map(normalizeEventListItem).filter(item => item !== null);
+  const current = readCustomerEventList(session);
+  const next = current.filter(item => !snapshots.some(snapshot =>
+    customerEventListItemKey(snapshot) === customerEventListItemKey(item) &&
+    snapshot.providerId === item.providerId &&
+    (snapshot.type === "custom_menu" && item.type === "custom_menu"
+      ? JSON.stringify(snapshot) === JSON.stringify(item)
+      : snapshot.type !== "custom_menu" && item.type !== "custom_menu" &&
+        JSON.stringify(snapshot.configuration) === JSON.stringify(item.configuration)),
+  ));
+  if (next.length === current.length) return;
+  if (writeCustomerEventList(next, session) && next.length === 0) {
+    try {
+      window.localStorage.removeItem(storageKey(CUSTOMER_EVENT_LIST_SCHEDULE_STORAGE_KEY, session));
+    } catch {
+      // Ignore unavailable storage.
+    }
+  }
 }
 
 export function removeCustomerEventListItem(itemKey: string, session = currentSession()): void {

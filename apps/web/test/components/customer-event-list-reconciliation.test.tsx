@@ -1,11 +1,25 @@
 vi.mock("firebase/auth", () => ({onAuthStateChanged: () => () => {}}));
+// Legacy local reconciliation coverage; cloud recovery has dedicated suites.
+vi.mock("@/lib/customer/event-list/customer-event-list-cloud-transport", () => ({
+  CUSTOMER_EVENT_LIST_CLOUD_ENABLED: false,
+  subscribeCustomerEventListCloud: vi.fn(),
+  sendCustomerEventListMutation: vi.fn(),
+}));
 vi.mock("@/app/customer/packages/event-list-labels", () => ({loadEventListPackageLabels: vi.fn(async () => null)}));
 import {fireEvent, render, screen, waitFor} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import {beforeEach, expect, it, vi} from "vitest";
+import {afterEach, beforeEach, expect, it, vi} from "vitest";
+import {
+  sendCustomerEventListMutation,
+  subscribeCustomerEventListCloud,
+} from "@/lib/customer/event-list/customer-event-list-cloud-transport";
 import {bookingAgreementFixture} from "./booking-agreement-fixture";
 
 const mocks = vi.hoisted(() => ({submit: vi.fn(), reconcile: vi.fn(), replace: vi.fn(), policies: vi.fn()}));
+afterEach(() => {
+  expect(subscribeCustomerEventListCloud).not.toHaveBeenCalled();
+  expect(sendCustomerEventListMutation).not.toHaveBeenCalled();
+});
 vi.mock("next/navigation", () => ({useRouter: () => ({replace: mocks.replace})}));
 vi.mock("@/lib/firebase/client", () => ({auth: {currentUser: {uid: "customer-a"}, authStateReady: async () => {}}, functions: {}, initializeBrowserAppCheck: vi.fn()}));
 vi.mock("@/app/customer/providers/menu-item-actions", () => ({loadCustomerMenuItemForEditAction: vi.fn()}));
@@ -18,6 +32,27 @@ vi.mock("@/lib/customer/bookings/customer-refund-policy-client", async original 
 vi.mock("@/lib/customer/bookings/customer-booking-agreement", () => ({getCustomerBookingPaymentAgreements: async () => [bookingAgreementFixture("provider-one")]}));
 import {CustomerEventListReview} from "@/components/customer/event-list/customer-event-list-review";
 import {addCustomerEventListItem, clearCustomerEventList, readCustomerEventList, writeCustomerEventListSchedule} from "@/lib/customer/event-list/customer-event-list";
+
+it.each([false, true])("preserves unrelated entries and concurrent menu edits (%s) after confirmation", async edit => {
+  const original = readCustomerEventList()[0];
+  if (original.type !== "custom_menu") throw new Error("Expected menu fixture");
+  let finish!: (value: {bookingId: string}) => void;
+  mocks.submit.mockImplementation(() => new Promise(resolve => {finish = resolve;}));
+  const user = userEvent.setup();
+  render(<CustomerEventListReview />);
+  await waitFor(() => expect(screen.getAllByRole("checkbox", {name: /I (have )?reviewed/})).toHaveLength(2));
+  for (const checkbox of screen.getAllByRole("checkbox", {name: /I (have )?reviewed/})) await user.click(checkbox);
+  await user.click(screen.getByRole("button", {name: "Submit Booking"}));
+  await waitFor(() => expect(mocks.submit).toHaveBeenCalledOnce());
+  addCustomerEventListItem({providerId: "other", packageId: "unrelated", providerName: "Other",
+    packageName: "Other package", price: 100, imageUrl: null, packageHref: "/customer/packages/unrelated"});
+  if (edit) addCustomerEventListItem({...original, servingOptionId: "new-tray"});
+  finish({bookingId: "confirmed"});
+  await waitFor(() => expect(mocks.replace).toHaveBeenCalledWith("/customer/bookings?submitted=confirmed"));
+  expect(readCustomerEventList()).toHaveLength(edit ? 2 : 1);
+  expect(readCustomerEventList()).toContainEqual(expect.objectContaining({packageId: "unrelated"}));
+  if (edit) expect(readCustomerEventList()).toContainEqual(expect.objectContaining({servingOptionId: "new-tray"}));
+});
 
 beforeEach(() => {
   vi.clearAllMocks(); localStorage.clear();

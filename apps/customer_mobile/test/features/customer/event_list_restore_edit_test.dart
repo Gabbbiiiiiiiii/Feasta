@@ -113,7 +113,7 @@ void main() {
       ),
     );
     expect(find.text('Configured — revalidation required'), findsOneWidget);
-    await tester.tap(find.text('Configuration details'));
+    await tester.tap(find.text('Your selections'));
     await tester.pumpAndSettle();
     expect(find.text('Food selections: Fish'), findsOneWidget);
     expect(find.text('Theme: Garden'), findsOneWidget);
@@ -137,7 +137,7 @@ void main() {
       ),
     );
     expect(find.text('Needs customization'), findsOneWidget);
-    expect(find.text('Configuration details'), findsNothing);
+    expect(find.text('Your selections'), findsNothing);
   });
   testWidgets(
     'customer and guest restore/edit/save, stale correction, identity and entry preservation',
@@ -193,13 +193,20 @@ void main() {
           ),
         );
         await tester.pumpAndSettle();
-        expect(find.text('Needs customization'), findsWidgets);
+        expect(find.text('Customize Package'), findsOneWidget);
+        expect(find.text('Your selections'), findsNothing);
+        expect(
+          controller.list!.entries
+              .singleWhere((e) => e.packageId == 'package-other')
+              .configuration,
+          isNull,
+        );
         await tester.scrollUntilVisible(
-          find.text('Edit configuration'),
+          find.text('Edit details'),
           150,
           scrollable: find.byType(Scrollable).first,
         );
-        await tester.tap(find.text('Edit configuration'));
+        await tester.tap(find.text('Edit details'));
         await tester.pumpAndSettle();
         expect(find.byType(EventCustomizationScreen), findsOneWidget);
         expect(

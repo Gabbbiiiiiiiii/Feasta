@@ -57,6 +57,7 @@ CustomerProviderPaymentRequest read(Map<String, dynamic> data) =>
     CustomerProviderPaymentRequest.fromDoc(
       StoredDocument(data),
       mainEventStatus: 'waiting_for_down_payment',
+      now: DateTime.parse('2026-11-01T08:00:00+08:00'),
     );
 
 void main() {
@@ -197,27 +198,24 @@ void main() {
     }
   }
 
-  test('projection never uses device clock for payment authority', () {
-    // Even these already elapsed timestamps are only display evidence; server
-    // checks the actual time when the customer requests checkout.
-    final past = stored(
-      accepted: '2000-01-01T09:00:00+08:00',
-      deadline: '2000-01-01T15:00:00+08:00',
-    );
-    expect(
-      read(past).initialPaymentDeadline!.manilaLabel,
-      '2000-01-01 15:00 PHT',
-    );
-    expect(read(past).canStartCheckout, isTrue);
-    final projectionSource = File(
-      'lib/shared/models/initial_payment_deadline.dart',
-    ).readAsStringSync();
-    final optionsSource = File(
-      'lib/shared/models/customer_payment_request.dart',
-    ).readAsStringSync();
-    expect(projectionSource, isNot(contains('DateTime.now')));
-    expect(optionsSource, isNot(contains('DateTime.now')));
-  });
+  test(
+    'elapsed versioned deadline hides checkout without changing evidence',
+    () {
+      final past = stored(
+        accepted: '2000-01-01T09:00:00+08:00',
+        deadline: '2000-01-01T15:00:00+08:00',
+      );
+      expect(
+        read(past).initialPaymentDeadline!.manilaLabel,
+        '2000-01-01 15:00 PHT',
+      );
+      expect(read(past).canStartCheckout, isFalse);
+      final projectionSource = File(
+        'lib/shared/models/initial_payment_deadline.dart',
+      ).readAsStringSync();
+      expect(projectionSource, isNot(contains('DateTime.now')));
+    },
+  );
 
   for (final patch in <Map<String, dynamic>>[
     {'initialPaymentDeadlineAt': null},

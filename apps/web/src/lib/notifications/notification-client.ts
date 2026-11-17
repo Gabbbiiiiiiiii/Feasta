@@ -72,8 +72,11 @@ export async function subscribeToNotifications(
     readonly FeastaNotification[] = [];
 
   let unreadCount = 0;
+  let recentReady = false;
+  let unreadReady = false;
 
   const publish = () => {
+    if (!recentReady || !unreadReady) return;
     onData({
       notifications:
         recentNotifications,
@@ -88,6 +91,7 @@ export async function subscribeToNotifications(
     onSnapshot(
       recentQuery,
       (snapshot) => {
+        recentReady = true;
         recentNotifications =
           snapshot.docs.map(
             mapNotification,
@@ -106,6 +110,7 @@ export async function subscribeToNotifications(
     onSnapshot(
       unreadQuery,
       (snapshot) => {
+        unreadReady = true;
         unreadCount =
           snapshot.size;
 

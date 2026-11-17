@@ -716,6 +716,9 @@ class AddonRequestModel {
 }
 
 class AddonModel {
+  /// Catalog metadata only; mixed booking must refresh and revalidate it.
+  /// Null keeps legacy services browsable without inventing booking authority.
+  final int? revision;
   final int? bookingLeadTimeDays;
   final String id;
   final String providerId;
@@ -730,6 +733,7 @@ class AddonModel {
   final String providerType;
 
   AddonModel({
+    int? revision,
     this.bookingLeadTimeDays,
     required this.id,
     required this.providerId,
@@ -742,7 +746,50 @@ class AddonModel {
     required this.isActive,
     required this.providerBusinessName,
     required this.providerType,
-  });
+  }) : revision = _serviceRevision(revision);
+
+  static int? _serviceRevision(Object? value) =>
+      value is num &&
+          value.isFinite &&
+          value > 0 &&
+          value <= 9007199254740991 &&
+          value == value.truncateToDouble()
+      ? value.toInt()
+      : null;
+
+  /// Metadata presence is not proof of current availability or booking approval.
+  bool get hasMarketplaceSubmissionMetadata =>
+      providerType == 'addon_provider' &&
+      revision != null &&
+      RegExp(r'^[A-Za-z0-9_-]{8,160}$').hasMatch(id) &&
+      RegExp(r'^[A-Za-z0-9_-]{8,160}$').hasMatch(providerId);
+
+  /// Parse the existing owner-verified catalog response without changing display.
+  factory AddonModel.fromCatalog(Map raw) {
+    if (raw['id'] is! String ||
+        raw['providerId'] is! String ||
+        raw['name'] is! String ||
+        raw['providerName'] is! String) {
+      throw const FormatException('Invalid event service.');
+    }
+    return AddonModel(
+      id: raw['id'] as String,
+      providerId: raw['providerId'] as String,
+      revision: _serviceRevision(raw['revision']),
+      name: raw['name'] as String,
+      description: raw['description'] as String? ?? '',
+      category: raw['category'] as String? ?? '',
+      price: (raw['price'] as num?)?.toDouble() ?? double.nan,
+      imageUrl: raw['imageUrl'] as String?,
+      bookingLeadTimeDays: raw['bookingLeadTimeDays'] as int?,
+      providerBusinessName: raw['providerName'] as String,
+      providerType: raw['source'] == 'catering_provider'
+          ? 'catering_provider'
+          : 'addon_provider',
+      isActive: true,
+      isAvailable: true,
+    );
+  }
 
   factory AddonModel.fromDoc(DocumentSnapshot doc) {
     final data = doc.data() as Map<String, dynamic>;
@@ -779,6 +826,11 @@ class AddonModel {
 }
 
 class BookingModel {
+  /// Version-2 singular provider fields are only a first-assignment projection.
+  bool get hasIndependentProviderAssignments =>
+      lifecycleData['packageAssignmentVersion'] == 2 ||
+      lifecycleData.containsKey('providerAssignments');
+
   final Map<String, dynamic> lifecycleData;
   final String id;
   final String bookingCode;

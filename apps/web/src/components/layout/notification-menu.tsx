@@ -8,6 +8,8 @@ import {
   Info,
   MessageSquareText,
   ShieldCheck,
+  Volume2,
+  VolumeX,
 } from "lucide-react";
 import Link from "next/link";
 import {useRouter} from "next/navigation";
@@ -38,6 +40,8 @@ import {
   markAdminNotificationReadAction,
   markAdminNotificationsReadAction,
 } from "@/app/admin/notifications/actions";
+import {AnnouncementFeed} from "@/components/announcements/announcement-feed";
+import {useNotificationSound} from "@/lib/notifications/use-notification-sound";
 
 
 const EMPTY_SNAPSHOT: NotificationSnapshot = {
@@ -59,6 +63,8 @@ export function NotificationMenu({
   const [error, setError] = useState<string | null>(null);
   const [snapshot, setSnapshot] = useState(EMPTY_SNAPSHOT);
   const [marking, setMarking] = useState(false);
+  const [announcementCount, setAnnouncementCount] = useState(0);
+  const {enabled: soundEnabled, unavailable: soundUnavailable, toggle: toggleSound, ring, observe} = useNotificationSound(role);
 
   const [loadAttempt, setLoadAttempt] = useState(0);
   const lifecycle = useRef(0);
@@ -68,6 +74,13 @@ export function NotificationMenu({
     let active = true;
     let subscriptionFailed = false;
     let unsubscribe: (() => void) | undefined;
+    const acceptSnapshot = (nextSnapshot: NotificationSnapshot) => {
+      if (!active || subscriptionFailed || generation !== lifecycle.current) return;
+      observe(nextSnapshot.notifications);
+      setSnapshot(nextSnapshot);
+      setLoading(false);
+      setError(null);
+    };
 
     if (role === "admin") {
       void loadAdminNotificationMenuAction()
@@ -85,6 +98,18 @@ export function NotificationMenu({
               summary.unreadCountCapped,
           });
           setLoading(false);
+          void subscribeToNotifications(acceptSnapshot, () => {
+            if (!active || generation !== lifecycle.current) return;
+            subscriptionFailed = true;
+            unsubscribe?.();
+            unsubscribe = undefined;
+            setError("Live notifications disconnected. Retry to reconnect.");
+          }).then((subscription) => {
+            if (active && !subscriptionFailed && generation === lifecycle.current) unsubscribe = subscription.unsubscribe;
+            else subscription.unsubscribe();
+          }).catch(() => {
+            if (active && generation === lifecycle.current) setError("Live notifications disconnected. Retry to reconnect.");
+          });
         })
         .catch(() => {
           if (!active || generation !== lifecycle.current) return;
@@ -97,6 +122,7 @@ export function NotificationMenu({
 
       return () => {
         active = false;
+        unsubscribe?.();
         if (lifecycle.current === generation) lifecycle.current += 1;
       };
     }
@@ -105,9 +131,7 @@ export function NotificationMenu({
       (nextSnapshot) => {
         if (!active || subscriptionFailed || generation !== lifecycle.current) return;
 
-        setSnapshot(nextSnapshot);
-        setLoading(false);
-        setError(null);
+        acceptSnapshot(nextSnapshot);
       },
       () => {
         if (!active || subscriptionFailed || generation !== lifecycle.current) return;
@@ -143,7 +167,7 @@ export function NotificationMenu({
       if (lifecycle.current === generation) lifecycle.current += 1;
       unsubscribe?.();
     };
-  }, [role, loadAttempt]);
+  }, [role, loadAttempt, observe]);
 
   useEffect(() => {
     if (!open) return;
@@ -289,6 +313,7 @@ export function NotificationMenu({
         onClick={() => setOpen((current) => !current)}
       >
         <Bell aria-hidden="true" className="size-5" />
+        {announcementCount > 0 ? <span aria-label="Official announcements available" className="absolute bottom-1 right-1 size-2 rounded-full bg-primary" /> : null}
 
         {snapshot.unreadCount > 0 ? (
           <span className="absolute right-1.5 top-1.5 inline-flex min-h-4 min-w-4 items-center justify-center rounded-full border-2 border-background bg-destructive px-1 text-[10px] font-black leading-none text-destructive-foreground">
@@ -299,26 +324,39 @@ export function NotificationMenu({
         ) : null}
       </button>
 
-      {open ? (
+      <div hidden={!open}>
         <section
           id="feasta-notification-menu"
           role="dialog"
           aria-label="Notifications"
-          className="absolute right-0 top-[calc(100%+0.5rem)] z-50 w-[min(24rem,calc(100vw-2rem))] overflow-hidden rounded-xl border border-border bg-card shadow-floating"
+          className="absolute right-0 top-[calc(100%+0.5rem)] z-50 flex max-h-[min(38rem,calc(100dvh-7rem))] w-[min(24rem,calc(100vw-2rem))] flex-col overflow-hidden rounded-xl border border-border bg-card shadow-floating"
         >
-          <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-3">
+          <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border px-4 py-3">
             <div className="min-w-0">
               <h2 className="font-black">Notifications</h2>
               <p className="text-xs text-muted-foreground">
-                {unreadLabel(snapshot)}
+                {snapshot.unreadCount === 0 ? "No unread personal notifications" : unreadLabel(snapshot)}
               </p>
             </div>
+
+            <button type="button" aria-label={soundEnabled ? "Mute notification sound" : "Enable notification sound"} title={soundEnabled ? "Mute notification sound" : "Enable notification sound"} aria-pressed={soundEnabled} onClick={() => void toggleSound()} className="inline-flex size-10 shrink-0 items-center justify-center rounded-lg text-primary hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+              {soundEnabled ? <Volume2 aria-hidden="true" className="size-5" /> : <VolumeX aria-hidden="true" className="size-5" />}
+            </button>
+          </div>
+
+          {soundUnavailable ? <p role="status" className="shrink-0 border-b border-border px-4 py-2 text-xs">Sound unavailable in this browser. Visual notifications remain active.</p> : null}
+
+          <div className="min-h-0 overflow-y-auto overscroll-contain">
+            {role !== "admin" ? <AnnouncementFeed role={role} compact onAvailability={setAnnouncementCount} onNew={ring} /> : null}
+
+            <div className="flex items-center justify-between gap-2 border-b border-border bg-secondary/40 px-4 py-2">
+              <h3 className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Recent activity</h3>
 
             {snapshot.notifications.some((item) => !item.isRead) ? (
               <button
                 type="button"
                 disabled={marking}
-                className="inline-flex min-h-10 items-center gap-2 rounded-lg px-3 text-xs font-bold text-primary hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-60"
+                className="inline-flex min-h-9 items-center gap-1.5 rounded-lg px-2 text-xs font-bold text-primary hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-60"
                 onClick={() => void markRecentRead()}
               >
                 <CheckCheck aria-hidden="true" className="size-4" />
@@ -327,7 +365,7 @@ export function NotificationMenu({
             ) : null}
           </div>
 
-          <div className="max-h-[25rem] overflow-y-auto">
+          <div>
             {loading ? (
               <NotificationMessage>Loading notifications…</NotificationMessage>
             ) : error ? (
@@ -366,18 +404,26 @@ export function NotificationMenu({
               </ul>
             )}
           </div>
+          </div>
 
-          <div className="border-t border-border p-2">
+          <div className="flex shrink-0 items-center gap-1 border-t border-border bg-card p-2">
+              {role !== "admin" ? <Link
+                href={`${roleActions[role].notificationsHref}#official-announcements`}
+                className="flex min-h-11 flex-1 items-center justify-center rounded-lg px-2 text-xs font-bold text-primary hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                onClick={() => setOpen(false)}
+              >
+                Official announcements
+              </Link> : null}
             <Link
               href={roleActions[role].notificationsHref}
-              className="flex min-h-11 items-center justify-center rounded-lg px-3 text-sm font-bold text-primary hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="flex min-h-11 flex-1 items-center justify-center rounded-lg bg-primary/10 px-2 text-xs font-bold text-primary hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               onClick={() => setOpen(false)}
             >
               View all notifications
             </Link>
           </div>
         </section>
-      ) : null}
+      </div>
     </div>
   );
 }

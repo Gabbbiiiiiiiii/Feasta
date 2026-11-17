@@ -141,12 +141,19 @@ void main() {
 
       expect(packageDetails, contains("'Full Payment'"));
       expect(packageDetails, isNot(contains('% down payment')));
-      expect(bookingSummary, contains("'Full Payment'"));
+      // The summary delegates authoritative payment copy to this widget.
+      expect(bookingSummary, contains('BookingPaymentRequirement('));
+      final paymentRequirement = File(
+        'lib/features/customer/booking_payment_requirement.dart',
+      ).readAsStringSync();
+      expect(paymentRequirement, contains('agreement.depositEligible'));
+      expect(paymentRequirement, contains("'Full payment required'"));
+      expect(paymentRequirement, contains('agreement.upfront / 100'));
       expect(bookingSummary, isNot(contains('Down payment')));
       expect(
         bookingSummary,
         contains(
-          'The exact amount due is taken from the accepted provider request.',
+          'Your provider reviews the request first. Final charges follow the accepted booking, not this estimate.',
         ),
       );
     });

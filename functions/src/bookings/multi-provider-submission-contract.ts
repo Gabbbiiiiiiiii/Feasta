@@ -259,6 +259,26 @@ export function parseMultiProviderSubmissionEnvelope(
       invalid("Package configuration is required.");
     }
 
+    if (configuration.customTheme !== undefined &&
+        (typeof configuration.customTheme !== "string" ||
+          configuration.customTheme.length > 10000)) {
+      invalid("Invalid custom theme request.");
+    }
+    if (configuration.themeChoice !== undefined && configuration.themeChoice !== null &&
+        (typeof configuration.themeChoice !== "string" ||
+          !["none", "package", "custom"].includes(configuration.themeChoice))) {
+      invalid("Invalid theme choice.");
+    }
+    if (configuration.willArrangeOwnAddOns !== undefined &&
+        typeof configuration.willArrangeOwnAddOns !== "boolean") {
+      invalid("Invalid customer-arranged services choice.");
+    }
+    if (configuration.customerArrangedAddOnsNote !== undefined &&
+        (typeof configuration.customerArrangedAddOnsNote !== "string" ||
+        configuration.customerArrangedAddOnsNote.length > 1000)) {
+      invalid("Invalid customer-arranged services note.");
+    }
+
     // A saved provider configuration must belong to this exact event.
     // The event-level specialRequest is intentionally not compared:
     // providers may have different package-specific instructions.
@@ -303,6 +323,319 @@ export function parseMultiProviderSubmissionEnvelope(
 
   return {
     schemaVersion: 1,
+    clientRequestId,
+    event,
+    selections,
+  };
+}
+/**
+ * Explicit marketplace-service selection for future mixed-provider submissions.
+ *
+ * This parser is transport validation only. It does not authorize a service,
+ * price, owner, refund, payment agreement, or booking.
+ *
+ * Existing schema-v1 Catering selections are intentionally unchanged.
+ */
+export type MultiProviderMarketplaceSelection = {
+  kind: "marketplace_service";
+  providerId: string;
+  serviceId: string;
+  expectedRevision: number;
+  configuration: Readonly<Record<string, unknown>>;
+};
+
+export function parseMultiProviderMarketplaceSelection(
+  value: unknown,
+  sharedEvent: Readonly<Record<string, unknown>>,
+): MultiProviderMarketplaceSelection {
+  const selection = record(value);
+
+  exactKeys(selection, [
+    "kind",
+    "providerId",
+    "serviceId",
+    "expectedRevision",
+    "configuration",
+  ]);
+
+  if (selection.kind !== "marketplace_service") {
+    invalid("Invalid marketplace selection kind.");
+  }
+
+  const providerId = identifier(selection.providerId, "provider ID");
+  const serviceId = identifier(selection.serviceId, "service ID");
+  const revision = selection.expectedRevision;
+
+  if (
+    typeof revision !== "number" ||
+    !Number.isSafeInteger(revision) ||
+    revision < 1
+  ) {
+    invalid("Invalid marketplace service revision.");
+  }
+
+  const configuration = record(selection.configuration);
+  const event = record(sharedEvent);
+
+  // The service's saved configuration must refer to the same event.
+  // A malformed nested event must never fall back to outer fields.
+  const configuredEvent = Object.prototype.hasOwnProperty.call(
+    configuration,
+    "event",
+  ) ?
+    record(configuration.event) :
+    configuration;
+
+  // Marketplace prices come exclusively from the trusted service record.
+  // Presence, including null/undefined/zero, is invalid at either event layout.
+  if (
+    Object.prototype.hasOwnProperty.call(configuration, "price") ||
+    Object.prototype.hasOwnProperty.call(configuredEvent, "price")
+  ) {
+    invalid("Marketplace configuration must not supply price.");
+  }
+
+  const sharedFields = [
+    "eventType",
+    "eventDate",
+    "eventTime",
+    "eventEndTime",
+    "guestCount",
+    "eventLocation",
+    "eventAddress",
+  ] as const;
+
+  for (const field of sharedFields) {
+    if (
+      !Object.prototype.hasOwnProperty.call(event, field) ||
+      !Object.prototype.hasOwnProperty.call(configuredEvent, field) ||
+      configuredEvent[field] !== event[field]
+    ) {
+      invalid(`Marketplace configuration has conflicting ${field}.`);
+    }
+  }
+
+  if (
+    configuration.specialRequest !== undefined &&
+    (
+      typeof configuration.specialRequest !== "string" ||
+      configuration.specialRequest.length > 1000
+    )
+  ) {
+    invalid("Invalid marketplace provider instructions.");
+  }
+
+  return {
+    kind: "marketplace_service",
+    providerId,
+    serviceId,
+    expectedRevision: revision,
+    configuration,
+  };
+}
+
+/**
+ * Mixed-provider transport contract, schema v2.
+ *
+ * Schema v1 remains unchanged and Catering-only.
+ *
+ * This parser authorizes NO booking writes, prices, services,
+ * provider eligibility, payment policies, or acknowledgements.
+ */
+export type MultiProviderMixedCateringSelection = {
+  kind: "catering_package";
+  providerId: string;
+  packageId: string;
+  configuration: Readonly<Record<string, unknown>>;
+};
+
+export type MultiProviderMixedSelection =
+  | MultiProviderMixedCateringSelection
+  | MultiProviderMarketplaceSelection;
+
+export type MultiProviderMixedSubmissionEnvelope = {
+  schemaVersion: 2;
+  clientRequestId: string;
+  event: Readonly<Record<string, unknown>>;
+  selections: readonly MultiProviderMixedSelection[];
+};
+
+function mixedConfigurationEvent(
+  configuration: Readonly<Record<string, unknown>>,
+  event: Readonly<Record<string, unknown>>,
+): void {
+  const configured = Object.prototype.hasOwnProperty.call(
+    configuration,
+    "event",
+  ) ?
+    record(configuration.event) :
+    configuration;
+
+  const fields = [
+    "eventType",
+    "eventDate",
+    "eventTime",
+    "eventEndTime",
+    "guestCount",
+    "eventLocation",
+    "eventAddress",
+  ] as const;
+
+  for (const field of fields) {
+    if (
+      !Object.prototype.hasOwnProperty.call(configured, field) ||
+      configured[field] !== event[field]
+    ) {
+      invalid(`Provider configuration has conflicting ${field}.`);
+    }
+  }
+}
+
+export function parseMultiProviderMixedSubmissionEnvelope(
+  value: unknown,
+): MultiProviderMixedSubmissionEnvelope {
+  const input = record(value);
+
+  exactKeys(input, [
+    "schemaVersion",
+    "clientRequestId",
+    "event",
+    "selections",
+  ]);
+
+  if (input.schemaVersion !== 2) {
+    invalid("Unsupported mixed-provider submission version.");
+  }
+
+  const clientRequestId = identifier(
+    input.clientRequestId,
+    "request identity",
+  );
+
+  const event = eventDetails(input.event);
+  const raw = input.selections;
+
+  if (
+    !Array.isArray(raw) ||
+    raw.length < 2 ||
+    raw.length > MAX_MULTI_PROVIDER_SELECTIONS
+  ) {
+    invalid("Select between 2 and 4 configured providers.");
+  }
+
+  const providers = new Set<string>();
+  const selections: MultiProviderMixedSelection[] = [];
+
+  let cateringCount = 0;
+  let marketplaceCount = 0;
+
+  for (const candidate of raw) {
+    const selection = record(candidate);
+    let parsed: MultiProviderMixedSelection;
+
+    if (selection.kind === "catering_package") {
+      exactKeys(selection, [
+        "kind",
+        "providerId",
+        "packageId",
+        "configuration",
+      ]);
+
+      const providerId = identifier(
+        selection.providerId,
+        "provider ID",
+      );
+
+      const packageId = identifier(
+        selection.packageId,
+        "package ID",
+      );
+
+      const configuration = record(
+        selection.configuration,
+      );
+
+      if (Object.keys(configuration).length === 0) {
+        invalid("Package configuration is required.");
+      }
+
+      if (
+        configuration.customTheme !== undefined &&
+        (
+          typeof configuration.customTheme !== "string" ||
+          configuration.customTheme.length > 10000
+        )
+      ) {
+        invalid("Invalid custom theme request.");
+      }
+
+      if (
+        configuration.themeChoice !== undefined &&
+        configuration.themeChoice !== null &&
+        (
+          typeof configuration.themeChoice !== "string" ||
+          !["none", "package", "custom"].includes(
+            configuration.themeChoice,
+          )
+        )
+      ) {
+        invalid("Invalid theme choice.");
+      }
+
+      if (
+        configuration.willArrangeOwnAddOns !== undefined &&
+        typeof configuration.willArrangeOwnAddOns !== "boolean"
+      ) {
+        invalid("Invalid customer-arranged services choice.");
+      }
+
+      if (
+        configuration.customerArrangedAddOnsNote !== undefined &&
+        (
+          typeof configuration.customerArrangedAddOnsNote !== "string" ||
+          configuration.customerArrangedAddOnsNote.length > 1000
+        )
+      ) {
+        invalid("Invalid customer-arranged services note.");
+      }
+
+      mixedConfigurationEvent(configuration, event);
+
+      parsed = {
+        kind: "catering_package",
+        providerId,
+        packageId,
+        configuration,
+      };
+
+      cateringCount++;
+    } else if (selection.kind === "marketplace_service") {
+      parsed = parseMultiProviderMarketplaceSelection(
+        selection,
+        event,
+      );
+
+      marketplaceCount++;
+    } else {
+      invalid("Unsupported mixed-provider selection kind.");
+    }
+
+    if (providers.has(parsed.providerId)) {
+      invalid("Only one configuration per provider is allowed.");
+    }
+
+    providers.add(parsed.providerId);
+    selections.push(parsed);
+  }
+
+  // Schema v2 is explicitly for mixed categories.
+  // Catering-only bookings retain the proven schema-v1 path.
+  if (cateringCount === 0 || marketplaceCount === 0) {
+    invalid("Mixed booking requires Catering and an event service.");
+  }
+
+  return {
+    schemaVersion: 2,
     clientRequestId,
     event,
     selections,

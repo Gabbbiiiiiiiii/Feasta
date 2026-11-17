@@ -18,6 +18,7 @@ import Link from "next/link";
 import {useEffect, useRef, useState} from "react";
 
 import {PageHeading} from "@/components/layout/page-heading";
+import {AnnouncementFeed} from "@/components/announcements/announcement-feed";
 import {type ShellRole} from "@/components/layout/navigation";
 import {resolveNotificationDestination} from "@/lib/notifications/notification-destination";
 import {
@@ -214,7 +215,7 @@ export function NotificationsPageClient({role}: {role: ShellRole}) {
   return (
     <div className="grid min-w-0 gap-6">
       <PageHeading
-        eyebrow="Administration"
+        eyebrow={role === "admin" ? "Administration" : "Updates"}
         title="Notifications"
         description="Review important booking, payment, verification, and account updates."
         actions={
@@ -231,6 +232,8 @@ export function NotificationsPageClient({role}: {role: ShellRole}) {
           ) : null
         }
       />
+
+      {role !== "admin" ? <AnnouncementFeed role={role} /> : null}
 
       {error ? (
       <section

@@ -36,7 +36,8 @@ class _EventListScopeState extends State<EventListScope> {
   void initState() {
     super.initState();
     controller =
-        widget.controller ?? EventListController(store: EventListStore());
+        widget.controller ??
+        EventListController(store: EventListStore(), cloudEnabled: true);
     controller.authentication.addListener(_changed);
     _changed();
   }
@@ -111,6 +112,9 @@ class _EventListScopeState extends State<EventListScope> {
   }
 
   Future<void> _offerTransfer(EventListAuthSession session) async {
+    // Guest selections stay local in cloud mode. Only the account's confirmed
+    // missing cloud document may import its own prior authenticated storage.
+    if (controller.cloudActive) return;
     if (!_isCurrentCustomer(session)) return;
 
     void authorize() {
@@ -218,7 +222,10 @@ class _EventListInherited extends InheritedNotifier<EventListController> {
   const _EventListInherited({required super.notifier, required super.child});
 }
 
-String eventListMessage(EventListResult result) => switch (result) {
+String eventListMessage(
+  EventListResult result, {
+  bool cloud = false,
+}) => switch (result) {
   EventListResult.saved => 'Event List saved.',
   EventListResult.loaded => 'Event List loaded.',
   EventListResult.capacity =>
@@ -226,5 +233,7 @@ String eventListMessage(EventListResult result) => switch (result) {
   EventListResult.unauthorized =>
     'Your customer session changed. Please log in again.',
   EventListResult.persistenceError =>
-    'Could not verify your Event List in secure storage. Please retry.',
+    cloud
+        ? 'Could not confirm your Event List with the server. Open Event List and retry to recover your save.'
+        : 'Could not verify your Event List in secure storage. Please retry.',
 };

@@ -1,3 +1,4 @@
+import 'booking_refund_policy_terms.dart';
 import 'dart:async';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
@@ -70,49 +71,13 @@ class _BookingRefundPolicyReviewScreenState
     super.dispose();
   }
 
-  Widget _policy(BookingRefundPolicy p) => FeastaCard(
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(p.providerName, style: Theme.of(context).textTheme.titleLarge),
-        const SizedBox(height: 8),
-        Text(
-          p.sourceKind == 'package_override'
-              ? 'Package-specific refund policy'
-              : 'Provider default refund policy',
-        ),
-        Text('Current applicable policy ? Version ${p.policyVersion}'),
-        const SizedBox(height: 12),
-        for (var i = 0; i < p.rules.length; i++)
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: 6),
-            child: Text(
-              '${refundStageLabels[i]}: ${refundPercentage(p.rules[i].refundBasisPoints)} refund rate',
-            ),
-          ),
-        if (p.terms != null && p.terms!.isNotEmpty) ...[
-          const SizedBox(height: 8),
-          Text(
-            'Additional policy terms',
-            style: Theme.of(context).textTheme.titleMedium,
-          ),
-          Text(p.terms!),
-        ],
-        CheckboxListTile(
-          key: ValueKey('refund-${p.providerId}'),
-          contentPadding: EdgeInsets.zero,
-          controlAffinity: ListTileControlAffinity.leading,
-          value: controller.acknowledged(p),
-          onChanged: (value) => controller.acknowledge(
-            p.providerId,
-            p.effectivePolicyKey,
-            value == true,
-          ),
-          title: const Text(
-            "I have reviewed and acknowledge this provider's current refund policy.",
-          ),
-        ),
-      ],
+  Widget _policy(BookingRefundPolicy p) => BookingRefundPolicyTerms(
+    policy: p,
+    acknowledged: controller.acknowledged(p),
+    onChanged: (value) => controller.acknowledge(
+      p.providerId,
+      p.effectivePolicyKey,
+      value == true,
     ),
   );
 

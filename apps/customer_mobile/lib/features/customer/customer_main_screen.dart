@@ -17,6 +17,7 @@ import 'customer_favorites_screen.dart';
 import 'customer_home_screen.dart';
 import 'customer_messages_screen.dart';
 import 'customer_plan_screen.dart';
+import 'event_list/event_list_count_badge.dart';
 
 enum _MainDestination { home, messages, bookings, account }
 
@@ -522,12 +523,14 @@ class _FeastaBottomNavigation extends StatelessWidget {
             left: 0,
             right: 0,
             child: Center(
-              child: _PlanFloatingNavButton(
-                diameter: planDiameter,
-                selected: planSelected,
-                enabled: true,
-                focusNode: planFocusNode,
-                onTap: () => onTap(2),
+              child: EventListCountBadge(
+                child: _PlanFloatingNavButton(
+                  diameter: planDiameter,
+                  selected: planSelected,
+                  enabled: true,
+                  focusNode: planFocusNode,
+                  onTap: () => onTap(2),
+                ),
               ),
             ),
           ),

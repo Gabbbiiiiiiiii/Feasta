@@ -548,8 +548,6 @@ function BookingMonitoringClient({
       />
 
       {supplementalContent}
-      {initialCancellationQueue ? <CancellationManagementClient initialQueue={initialCancellationQueue} onUpdated={() => refreshBookings(true)} /> : null}
-
       <section
         className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"
         aria-label="Booking statistics"
@@ -729,6 +727,8 @@ function BookingMonitoringClient({
           loading={isPending}
         />
       ) : null}
+
+      {initialCancellationQueue ? <CancellationManagementClient initialQueue={initialCancellationQueue} onUpdated={() => refreshBookings(true)} /> : null}
 
       <BookingDetailsDrawer
         booking={selectedBooking}

@@ -1,3 +1,5 @@
+import 'event_list_submission_contract.dart';
+import 'event_list_submission_screen.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../../app/router/customer_auth_navigation.dart';
@@ -126,7 +128,16 @@ class _CustomerEventListScreenState extends State<CustomerEventListScreen>
         session == EventListScope.of(context).authentication.session) {
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
-        ..showSnackBar(SnackBar(content: Text(eventListMessage(result))));
+        ..showSnackBar(
+          SnackBar(
+            content: Text(
+              eventListMessage(
+                result,
+                cloud: EventListScope.of(context).cloudActive,
+              ),
+            ),
+          ),
+        );
     }
   }
 
@@ -180,6 +191,9 @@ class _CustomerEventListScreenState extends State<CustomerEventListScreen>
     final authorized =
         session.customerUid != null || controller.isGuestPlanning;
     final list = controller.list;
+    final providerCount = controller.cloudActive
+        ? _cloudProviderCount(controller)
+        : (list == null ? 0 : groupEventList(list).length);
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
@@ -193,49 +207,45 @@ class _CustomerEventListScreenState extends State<CustomerEventListScreen>
           'My Event List',
           style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
         ),
+        actions: [
+          if (authorized &&
+              ((list?.entries.isNotEmpty ?? false) ||
+                  controller.unsupportedCloudEntries.isNotEmpty))
+            IconButton(
+              tooltip: 'Clear list',
+              onPressed: _busy ? null : () => _clear(controller, session),
+              icon: const Icon(Icons.delete_outline),
+            ),
+        ],
       ),
       body: SafeArea(
         child: ListView(
           padding: const EdgeInsets.all(20),
           children: [
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: AppColors.primarySubtle,
-                border: Border.all(color: AppColors.primarySubtleStrong),
-                borderRadius: BorderRadius.circular(14),
-              ),
-              child: const Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Icon(Icons.info_rounded, size: 18, color: AppColors.primary),
-                  SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      'This is a planning list, not a reservation. Prices are estimates; availability is not guaranteed.',
-                      style: TextStyle(
-                        fontSize: 13,
-                        height: 1.6,
-                        color: AppColors.mainText,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 16),
             if (!authorized)
               const Text(
                 'Log in with an authorized customer account to view your Event List.',
               )
             else ...[
-              if (_busy)
+              if (_busy || controller.saving)
                 const LinearProgressIndicator(
                   semanticsLabel: 'Updating Event List',
                 ),
-              if (controller.error != null) ...[
+              if (controller.cloudActive)
+                Text(
+                  (_busy || controller.saving)
+                      ? 'Saving to your account…'
+                      : controller.cloudError != null ||
+                            controller.error != null
+                      ? 'Cloud synchronization failed. Retry to recover your save.'
+                      : controller.cloudServerConfirmed
+                      ? 'Event List verified with server'
+                      : 'Connecting to your Event List…',
+                ),
+              if (controller.error != null ||
+                  controller.cloudError != null) ...[
                 const Text(
-                  'Your Event List could not be verified in secure storage. Previously verified selections, if shown, may be out of date.',
+                  'Your Event List could not be verified. Previously verified selections, if shown, may be out of date.',
                 ),
                 TextButton(
                   onPressed: _busy
@@ -251,45 +261,196 @@ class _CustomerEventListScreenState extends State<CustomerEventListScreen>
                   ),
                 ),
               if (list != null) ...[
-                if (list.entries.isNotEmpty) ...[
-                  Text('${list.entries.length} saved packages'),
-                  Text('${groupEventList(list).length} saved providers'),
-                ],
-                if (list.entries.isNotEmpty)
-                  TextButton.icon(
-                    onPressed: () {
-                      if (session == controller.authentication.session) {
-                        _review?.refresh();
-                      }
-                    },
-                    icon: const Icon(Icons.refresh, color: AppColors.mainText),
-                    label: const Text('Check latest details'),
+                if (controller.selectionCount > 0) ...[
+                  Text(
+                    '$providerCount ${providerCount == 1 ? 'provider' : 'providers'} · ${controller.selectionCount} ${controller.selectionCount == 1 ? 'selection' : 'selections'}',
+                    style: Theme.of(context).textTheme.bodyMedium,
                   ),
-                if (list.entries.isEmpty)
+                ],
+                if (controller.unsupportedCloudEntries.isNotEmpty)
+                  _cloudPlanningSummary(controller.cloudDocument!.toJson()),
+                for (final entry in controller.unsupportedCloudEntries)
+                  _readOnlyCard(entry, controller, session),
+                if (list.entries.isEmpty &&
+                    controller.unsupportedCloudEntries.isEmpty)
                   _EmptyEventList(
                     onBrowse: () => returnToCustomerRoot(Navigator.of(context)),
                   ),
                 if (list.entries.isNotEmpty) ...[
-                  _PlanningSummary(entries: list.entries),
-                  for (final entry in list.entries)
-                    _card(entry, controller, session),
-                ],
-                if (list.entries.isNotEmpty)
-                  OutlinedButton.icon(
-                    onPressed: _busy ? null : () => _clear(controller, session),
-                    icon: const Icon(
-                      Icons.delete_sweep_outlined,
-                      color: AppColors.mainText,
-                    ),
-                    label: const Text('Clear List'),
+                  if (controller.unsupportedCloudEntries.isEmpty)
+                    _PlanningSummary(entries: list.entries),
+                  for (final group in groupEventList(list))
+                    for (final entry in group.entries)
+                      _card(entry, controller, session),
+                  _eventListEstimatedTotalCard(
+                    context: context,
+                    prices: controller.cloudActive &&
+                            controller.cloudDocument != null
+                        ? ((controller.cloudDocument!.toJson()['entries']
+                                        as List?) ??
+                                const [])
+                            .whereType<Map>()
+                            .map<double?>((row) {
+                              final config = row['configuration'];
+                              final raw = config is Map
+                                  ? config['estimatedTotal'] ??
+                                      row['estimatedPrice']
+                                  : row['estimatedPrice'];
+                              if (raw is! num ||
+                                  !raw.isFinite ||
+                                  raw < 0) {
+                                return null;
+                              }
+                              return raw.toDouble();
+                            })
+                            .toList()
+                        : list.entries
+                            .map<double?>(
+                              (entry) =>
+                                  entry.configuration?.estimatedTotal ??
+                                  entry.estimatedPrice,
+                            )
+                            .toList(),
+                    cloudVerified: !controller.cloudActive ||
+                        controller.cloudServerConfirmed,
                   ),
+                  if (!controller.isGuestPlanning)
+                    FilledButton(
+                      onPressed:
+                          _busy ||
+                              _checkingPhoneForBooking ||
+                              controller.saving ||
+                              controller.error != null ||
+                              controller.cloudError != null ||
+                              controller.unsupportedCloudEntries.isNotEmpty ||
+                              (controller.cloudActive &&
+                                  !controller.cloudServerConfirmed) ||
+                              !_canReview(list.entries)
+                          ? null
+                          : () async {
+                              setState(() => _checkingPhoneForBooking = true);
+                              try {
+                                final verify =
+                                    widget.bookingEligibilityCheck ??
+                                    requireVerifiedPhoneForBooking;
+                                final navigator = Navigator.of(context);
+                                final verified = await verify(context);
+                                if (!mounted ||
+                                    !verified ||
+                                    controller.saving ||
+                                    controller.error != null ||
+                                    controller.cloudError != null ||
+                                    controller.list?.revision !=
+                                        list.revision ||
+                                    controller
+                                        .unsupportedCloudEntries
+                                        .isNotEmpty ||
+                                    session.customerUid !=
+                                        controller
+                                            .authentication
+                                            .session
+                                            .customerUid) {
+                                  return;
+                                }
+                                if (list.entries.length == 1) {
+                                  final entry = list.entries.single;
+
+                                  if (entry.kind != 'catering_package' ||
+                                      entry.configuration == null) {
+                                    ScaffoldMessenger.of(
+                                      this.context,
+                                    ).showSnackBar(
+                                      const SnackBar(
+                                        content: Text(
+                                          'Complete this catering package before booking review.',
+                                        ),
+                                      ),
+                                    );
+                                    return;
+                                  }
+
+                                  await _customization?.customize(
+                                    entry,
+                                    originIsCurrent: () =>
+                                        mounted &&
+                                        session.customerUid ==
+                                            controller
+                                                .authentication
+                                                .session
+                                                .customerUid &&
+                                        (ModalRoute.of(
+                                              this.context,
+                                            )?.isCurrent ??
+                                            false),
+                                    navigate:
+                                        (provider, package, binding) async {
+                                          if (!mounted ||
+                                              session.customerUid !=
+                                                  controller
+                                                      .authentication
+                                                      .session
+                                                      .customerUid) {
+                                            return;
+                                          }
+
+                                          final route = EventCustomizationRoute(
+                                            origin: ModalRoute.of(this.context),
+                                            builder: (_) =>
+                                                EventCustomizationScreen(
+                                                  provider: provider,
+                                                  eventPackage: package,
+                                                  repository: _repository,
+                                                  session: binding,
+                                                  initialConfiguration:
+                                                      entry.configuration,
+                                                  openReviewOnLoad: true,
+                                                ),
+                                          );
+
+                                          unawaited(
+                                            navigator.push<void>(route),
+                                          );
+                                          await route.completed;
+                                        },
+                                  );
+                                } else {
+                                  await navigator.push<void>(
+                                    MaterialPageRoute(
+                                      builder: (_) =>
+                                          const EventListSubmissionScreen(),
+                                    ),
+                                  );
+                                }
+                              } catch (_) {
+                                if (mounted) {
+                                  ScaffoldMessenger.of(
+                                    this.context,
+                                  ).showSnackBar(
+                                    const SnackBar(
+                                      content: Text(
+                                        'Could not verify booking eligibility. Please retry.',
+                                      ),
+                                    ),
+                                  );
+                                }
+                              } finally {
+                                if (mounted) {
+                                  setState(
+                                    () => _checkingPhoneForBooking = false,
+                                  );
+                                }
+                              }
+                            },
+                      child: const Text('Review and submit booking request'),
+                    ),
+                ],
               ],
             ],
             const SizedBox(height: 16),
-            FilledButton(
-              style: FilledButton.styleFrom(
-                backgroundColor: AppColors.primary,
-                foregroundColor: AppColors.primaryForeground,
+            OutlinedButton(
+              style: OutlinedButton.styleFrom(
+                foregroundColor: AppColors.primary,
+                side: const BorderSide(color: AppColors.primary),
                 minimumSize: const Size(double.infinity, 52),
                 shape: const StadiumBorder(),
                 textStyle: const TextStyle(
@@ -298,10 +459,31 @@ class _CustomerEventListScreenState extends State<CustomerEventListScreen>
                 ),
               ),
               onPressed: () => returnToCustomerRoot(Navigator.of(context)),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (authorized && controller.selectionCount > 0) ...[
+                    const Icon(Icons.add, size: 20),
+                    const SizedBox(width: 8),
+                  ],
+                  Flexible(
+                    child: Text(
+                      authorized && controller.selectionCount > 0
+                          ? 'Add another provider'
+                          : 'Continue Browsing',
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 8),
               child: Text(
-                authorized && (list?.entries.isNotEmpty ?? false)
-                    ? 'Add another provider'
-                    : 'Continue Browsing',
+                'Planning only. No reservation or payment until the applicable booking steps are completed.',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 12, color: AppColors.mainText),
               ),
             ),
           ],
@@ -309,6 +491,146 @@ class _CustomerEventListScreenState extends State<CustomerEventListScreen>
       ),
     );
   }
+
+  Widget _entryHeader({
+    required String name,
+    required String providerName,
+    required String kind,
+    required String? imageUrl,
+    required double? estimatedPrice,
+  }) => Row(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      ClipRRect(
+        borderRadius: BorderRadius.circular(12),
+        child: FeastaImage.network(
+          imageUrl: imageUrl,
+          compactFallback: true,
+          description: '$name package cover',
+          height: 88,
+          width: 88,
+        ),
+      ),
+      const SizedBox(width: 12),
+      Expanded(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              name,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w700,
+                color: AppColors.mainText,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              '$providerName · ${kind == 'catering_package' ? 'Catering' : 'Event service'}',
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontSize: 12,
+                color: AppColors.secondaryTextAccessible,
+              ),
+            ),
+            const SizedBox(height: 6),
+            if (estimatedPrice != null)
+              FeastaPriceText(
+                amount: estimatedPrice,
+                semanticLabel:
+                    'Saved estimate: ${FeastaPriceFormatter.format(estimatedPrice, symbol: '')} Philippine pesos.',
+              )
+            else
+              const Text('Price unavailable'),
+            const SizedBox(height: 2),
+            const Text(
+              'Estimated price',
+              style: TextStyle(
+                fontSize: 12,
+                color: AppColors.secondaryTextAccessible,
+              ),
+            ),
+          ],
+        ),
+      ),
+    ],
+  );
+
+  Widget _readOnlyCard(
+    Map<String, dynamic> entry,
+    EventListController controller,
+    EventListAuthSession session,
+  ) => Card(
+    margin: const EdgeInsets.symmetric(vertical: 8),
+    child: Padding(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _entryHeader(
+            name: entry['name'] as String,
+            providerName: entry['providerName'] as String,
+            kind: entry['kind'] as String,
+            imageUrl: entry['imageUrl'] as String?,
+            estimatedPrice: (entry['estimatedPrice'] as num?)?.toDouble(),
+          ),
+          const SizedBox(height: 8),
+          ExpansionTile(
+            tilePadding: EdgeInsets.zero,
+            title: const Text(
+              'Package details',
+              style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
+            ),
+            children: [_cloudSavedDetails(entry)],
+          ),
+          const Text(
+            'Open Web to review or edit this selection. Its full data is preserved.',
+          ),
+          const SizedBox(height: 4),
+          Wrap(
+            alignment: WrapAlignment.spaceBetween,
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              const FilledButton(
+                onPressed: null,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.edit_outlined, size: 16),
+                    SizedBox(width: 6),
+                    Text('Edit details', style: TextStyle(fontSize: 13)),
+                  ],
+                ),
+              ),
+              TextButton.icon(
+                onPressed: _busy || controller.saving
+                    ? null
+                    : () => _run(
+                        () => controller.removeCloudEntry(
+                          entry['identity'] as String,
+                        ),
+                        expectedSession: session,
+                      ),
+                icon: const Icon(
+                  Icons.remove_circle_outline,
+                  color: AppColors.mainText,
+                ),
+                label: Text(
+                  'Remove',
+                  semanticsLabel: 'Remove ${entry['name']}',
+                  style: const TextStyle(fontSize: 13),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    ),
+  );
 
   Widget _card(
     CustomerEventListEntry entry,
@@ -321,178 +643,189 @@ class _CustomerEventListScreenState extends State<CustomerEventListScreen>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
+          _entryHeader(
+            name: entry.packageName,
+            providerName: entry.providerName,
+            kind: entry.kind,
+            imageUrl: entry.imageUrl,
+            estimatedPrice: entry.estimatedPrice,
+          ),
+          const SizedBox(height: 8),
+          ExpansionTile(
+            tilePadding: EdgeInsets.zero,
+            title: const Text(
+              'Package details',
+              style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
+            ),
             children: [
-              ClipRRect(
-                borderRadius: BorderRadius.circular(10),
-                child: FeastaImage.network(
-                  imageUrl: entry.imageUrl,
-                  compactFallback: true,
-                  description: '${entry.packageName} package cover',
-                  height: 72,
-                  width: 72,
+              if (entry.configuration != null)
+                EventListConfigurationSummary(
+                  key: ValueKey(entry.identity.key),
+                  entry: entry,
+                  compact: true,
+                  lookupPackage: _repository.getEligiblePackageForPreparation,
                 ),
+              if (_review!.resultFor(entry).status.message.trim() !=
+                  'Latest package details verified')
+                Semantics(
+                  liveRegion: true,
+                  child: Text(_review!.resultFor(entry).status.message),
+                ),
+              if (_review!.resultFor(entry).latestPrice case final double price)
+                if (_review!.resultFor(entry).priceChanged(entry)) ...[
+                  const Text('Updated listed estimate'),
+                  FeastaPriceText(
+                    amount: price,
+                    semanticLabel:
+                        'Updated listed estimate: ${FeastaPriceFormatter.format(price, symbol: '')} Philippine pesos.',
+                  ),
+                  const Text(
+                    'The listed price has changed. Final pricing and availability require confirmation.',
+                  ),
+                ],
+              TextButton.icon(
+                onPressed: () {
+                  if (session == controller.authentication.session) {
+                    _review?.refresh(only: entry.identity);
+                  }
+                },
+                icon: const Icon(Icons.refresh),
+                label: const Text('Refresh details'),
               ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+            ],
+          ),
+          const SizedBox(height: 4),
+          Wrap(
+            alignment: WrapAlignment.spaceBetween,
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              FilledButton(
+                onPressed:
+                    entry.kind != 'catering_package' ||
+                        controller.saving ||
+                        controller.error != null ||
+                        controller.cloudError != null ||
+                        _busy ||
+                        _checkingPhoneForBooking ||
+                        (_customization?.busy ?? true)
+                    ? null
+                    : () async {
+                        if (session != controller.authentication.session) {
+                          return;
+                        }
+
+                        final originalUid = session.customerUid;
+                        final guest = controller.isGuestPlanning;
+                        if (originalUid == null && !guest) return;
+
+                        setState(() => _checkingPhoneForBooking = true);
+
+                        try {
+                          // Match Web: require verified phone before customization.
+                          final verify =
+                              widget.bookingEligibilityCheck ??
+                              requireVerifiedPhoneForBooking;
+                          final verified = guest || await verify(context);
+
+                          if (!mounted || !verified) return;
+
+                          // OTP may refresh authentication state. Preserve account
+                          // identity, rather than requiring the old session object.
+                          if (controller.authentication.session.customerUid !=
+                              originalUid) {
+                            return;
+                          }
+
+                          if (!(ModalRoute.of(context)?.isCurrent ?? false)) {
+                            return;
+                          }
+
+                          await _customization?.customize(
+                            entry,
+                            originIsCurrent: () =>
+                                mounted &&
+                                controller.authentication.session.customerUid ==
+                                    originalUid &&
+                                (ModalRoute.of(context)?.isCurrent ?? false),
+                            navigate: (provider, package, binding) async {
+                              if (!mounted ||
+                                  controller
+                                          .authentication
+                                          .session
+                                          .customerUid !=
+                                      originalUid) {
+                                return;
+                              }
+
+                              final route = EventCustomizationRoute(
+                                origin: ModalRoute.of(context),
+                                builder: (_) => EventCustomizationScreen(
+                                  provider: provider,
+                                  eventPackage: package,
+                                  repository: _repository,
+                                  session: binding,
+                                  initialConfiguration: entry.configuration,
+                                ),
+                              );
+                              unawaited(
+                                Navigator.of(context).push<void>(route),
+                              );
+                              await route.completed;
+                            },
+                          );
+                        } catch (_) {
+                          if (mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text(
+                                  'Could not verify booking eligibility. Please retry.',
+                                ),
+                              ),
+                            );
+                          }
+                        } finally {
+                          if (mounted) {
+                            setState(() => _checkingPhoneForBooking = false);
+                          }
+                        }
+                      },
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
                   children: [
-                    Text(
-                      entry.packageName,
-                      style: Theme.of(context).textTheme.titleMedium,
-                    ),
-                    Row(
-                      children: [
-                        const Icon(Icons.storefront_outlined, size: 16),
-                        const SizedBox(width: 4),
-                        Expanded(child: Text(entry.providerName)),
-                      ],
-                    ),
-                    Text(
-                      entry.configuration == null
-                          ? 'Needs customization'
-                          : 'Configured — revalidation required',
+                    const Icon(Icons.edit_outlined, size: 16),
+                    const SizedBox(width: 6),
+                    Flexible(
+                      child: Text(
+                        entry.configuration == null
+                            ? 'Customize Package'
+                            : 'Edit details',
+                        style: const TextStyle(fontSize: 13),
+                        semanticsLabel:
+                            '${entry.configuration == null ? 'Customize Package' : 'Edit details'}: ${entry.packageName}',
+                      ),
                     ),
                   ],
                 ),
               ),
+              TextButton.icon(
+                onPressed: _busy
+                    ? null
+                    : () => _run(() {
+                        _customization?.invalidate(identity: entry.identity);
+                        return controller.removePackage(entry.identity);
+                      }, expectedSession: session),
+                icon: const Icon(
+                  Icons.remove_circle_outline,
+                  color: AppColors.mainText,
+                ),
+                label: Text(
+                  'Remove',
+                  style: const TextStyle(fontSize: 13),
+                  semanticsLabel: 'Remove ${entry.packageName}',
+                ),
+              ),
             ],
-          ),
-          const SizedBox(height: 8),
-          if (entry.configuration != null)
-            EventListConfigurationSummary(
-              key: ValueKey(entry.identity.key),
-              entry: entry,
-              compact: true,
-              lookupPackage: _repository.getEligiblePackageForPreparation,
-            ),
-          Semantics(
-            liveRegion: true,
-            child: Text(_review!.resultFor(entry).status.message),
-          ),
-          Text(
-            entry.configuration == null
-                ? 'Saved estimate'
-                : 'Saved package estimate',
-          ),
-          if (entry.estimatedPrice != null)
-            FeastaPriceText(
-              amount: entry.estimatedPrice!,
-              semanticLabel:
-                  'Saved estimate: ${FeastaPriceFormatter.format(entry.estimatedPrice!, symbol: '')} Philippine pesos.',
-            ),
-          if (entry.estimatedPrice == null) const Text('No saved estimate.'),
-          if (_review!.resultFor(entry).latestPrice
-              case final double price) ...[
-            const Text('Latest listed estimate'),
-            FeastaPriceText(
-              amount: price,
-              semanticLabel:
-                  'Latest listed estimate: ${FeastaPriceFormatter.format(price, symbol: '')} Philippine pesos.',
-            ),
-          ],
-          if (_review!.resultFor(entry).priceChanged(entry))
-            const Text(
-              'The listed price has changed since you saved this package. Final pricing and availability require confirmation.',
-            ),
-          if (_review!.resultFor(entry).status ==
-              EventListCatalogStatus.couldNotVerify)
-            TextButton(
-              onPressed: () {
-                if (session == controller.authentication.session) {
-                  _review?.refresh(only: entry.identity);
-                }
-              },
-              child: Text('Retry verification for ${entry.packageName}'),
-            ),
-          FilledButton(
-            onPressed:
-                _busy ||
-                    _checkingPhoneForBooking ||
-                    (_customization?.busy ?? true)
-                ? null
-                : () async {
-                    if (session != controller.authentication.session) return;
-
-                    final originalUid = session.customerUid;
-                    final guest = controller.isGuestPlanning;
-                    if (originalUid == null && !guest) return;
-
-                    setState(() => _checkingPhoneForBooking = true);
-
-                    try {
-                      // Match Web: require verified phone before customization.
-                      final verify =
-                          widget.bookingEligibilityCheck ??
-                          requireVerifiedPhoneForBooking;
-                      final verified = guest || await verify(context);
-
-                      if (!mounted || !verified) return;
-
-                      // OTP may refresh authentication state. Preserve account
-                      // identity, rather than requiring the old session object.
-                      if (controller.authentication.session.customerUid !=
-                          originalUid) {
-                        return;
-                      }
-
-                      if (!(ModalRoute.of(context)?.isCurrent ?? false)) {
-                        return;
-                      }
-
-                      await _customization?.customize(
-                        entry,
-                        originIsCurrent: () =>
-                            mounted &&
-                            controller.authentication.session.customerUid ==
-                                originalUid &&
-                            (ModalRoute.of(context)?.isCurrent ?? false),
-                        navigate: (provider, package, binding) async {
-                          if (!mounted ||
-                              controller.authentication.session.customerUid !=
-                                  originalUid) {
-                            return;
-                          }
-
-                          final route = EventCustomizationRoute(
-                            origin: ModalRoute.of(context),
-                            builder: (_) => EventCustomizationScreen(
-                              provider: provider,
-                              eventPackage: package,
-                              repository: _repository,
-                              session: binding,
-                              initialConfiguration: entry.configuration,
-                            ),
-                          );
-                          unawaited(Navigator.of(context).push<void>(route));
-                          await route.completed;
-                        },
-                      );
-                    } catch (_) {
-                      if (mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text(
-                              'Could not verify booking eligibility. Please retry.',
-                            ),
-                          ),
-                        );
-                      }
-                    } finally {
-                      if (mounted) {
-                        setState(() => _checkingPhoneForBooking = false);
-                      }
-                    }
-                  },
-            child: Text(
-              entry.configuration == null
-                  ? 'Customize Package'
-                  : 'Edit configuration',
-              semanticsLabel:
-                  '${entry.configuration == null ? 'Customize Package' : 'Edit configuration'}: ${entry.packageName}',
-            ),
           ),
           if (_customization?.selectedKey == entry.identity.key) ...[
             if (_customization!.verifying)
@@ -514,33 +847,251 @@ class _CustomerEventListScreenState extends State<CustomerEventListScreen>
                 child: Text(_customization!.message!),
               ),
           ],
-          TextButton.icon(
-            onPressed: _busy
-                ? null
-                : () => _run(() {
-                    _customization?.invalidate(identity: entry.identity);
-                    return controller.removePackage(entry.identity);
-                  }, expectedSession: session),
-            icon: const Icon(
-              Icons.remove_circle_outline,
-              color: AppColors.mainText,
-            ),
-            label: Text('Remove ${entry.packageName}'),
-          ),
         ],
       ),
     ),
   );
 }
 
+/// Read saved canonical fields without converting them to an editable model.
+bool _canReview(List<CustomerEventListEntry> entries) {
+  if (entries.length == 1) {
+    return entries.single.kind == 'catering_package' &&
+        entries.single.configuration != null;
+  }
+  try {
+    eventListSubmission(
+      entries,
+      'eligibility_check',
+      currentMarketplaceMetadata: [
+        for (final entry in entries)
+          if (entry.kind == 'marketplace_service' &&
+              entry.expectedRevision != null)
+            EventListIdentityRevision(
+              providerId: entry.providerId,
+              serviceId: entry.serviceId!,
+              revision: entry.expectedRevision!,
+            ),
+      ],
+    );
+    return true;
+  } on FormatException {
+    return false;
+  }
+}
+
+Widget _cloudSavedDetails(Map<String, dynamic> entry) {
+  final config = entry['configuration'] as Map<String, dynamic>?;
+  final event = config?['event'] as Map<String, dynamic>?;
+  final menu = entry['menu'] as Map<String, dynamic>?;
+  Widget line(String label, Object? value) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: 3),
+    child: Text(
+      '$label: ${value == null || value == '' ? 'None selected' : value}',
+    ),
+  );
+  String names(Object? rows) => rows is List
+      ? rows
+            .map(
+              (row) => row is Map
+                  ? row['name'] ?? row['addonName'] ?? 'Saved selection'
+                  : row,
+            )
+            .join(', ')
+      : '';
+  return Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      if (event != null) ...[
+        line('Event', event['eventType']),
+        line('Date', event['eventDate']),
+        line('Time', '${event['eventTime']}–${event['eventEndTime'] ?? ''}'),
+        line('Guests', event['guestCount']),
+        line('City / location', event['eventLocation']),
+        line('Address', event['eventAddress']),
+        line('Special requests', event['specialRequest']),
+      ],
+      if (menu != null) ...[
+        line('Serving option', menu['servingOptionName']),
+        line('Serving description', menu['servingDescription']),
+        line(
+          'Guests',
+          '${menu['servingMinimumGuests']}–${menu['servingMaximumGuests']}',
+        ),
+      ],
+      if (config != null) ...[
+        line('Service level', config['serviceTier']),
+        line('Food selections', names(config['selectedFoods'])),
+        line('Decorations', names(config['selectedDecorations'])),
+        line('Furniture', names(config['selectedFurniture'])),
+        line('Event services', names(config['selectedEventServices'])),
+        line('Add-ons', names(config['selectedAddOns'])),
+        if (config['themeInspiration'] case final Map theme)
+          line('Theme inspiration', theme['notes']),
+        if (config['customTheme'] != null)
+          line('Custom theme request', config['customTheme']),
+      ],
+    ],
+  );
+}
+
+int _cloudProviderCount(EventListController controller) {
+  final entries =
+      (controller.cloudDocument?.toJson()['entries'] as List?) ?? const [];
+  return entries
+      .whereType<Map>()
+      .map((entry) => entry['providerId'])
+      .whereType<String>()
+      .where((id) => id.trim().isNotEmpty)
+      .toSet()
+      .length;
+}
+
+Widget _cloudPlanningSummary(Map<String, dynamic> document) {
+  final entries = (document['entries'] as List).cast<Map<String, dynamic>>();
+  final events = entries
+      .map((e) => (e['configuration'] as Map?)?['event'])
+      .whereType<Map>()
+      .toList();
+  final consistent =
+      events.length == entries.length &&
+      events.isNotEmpty &&
+      events.every(
+        (e) => [
+          'eventType',
+          'eventDate',
+          'eventTime',
+          'eventEndTime',
+          'guestCount',
+          'eventLocation',
+          'eventAddress',
+        ].every((key) => e[key] == events.first[key]),
+      );
+  final prices = entries
+      .map(
+        (e) =>
+            (e['configuration'] as Map?)?['estimatedTotal'] ??
+            e['estimatedPrice'],
+      )
+      .whereType<num>()
+      .toList();
+  return Card(
+    child: Padding(
+      padding: const EdgeInsets.all(12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (consistent) ...[
+            Text(_eventListDisplayType(events.first['eventType'] as String)),
+            Text(
+              '${events.first['eventDate']} · ${_eventListDisplayTime(events.first['eventTime'] as String)} – ${_eventListDisplayTime(events.first['eventEndTime'] as String? ?? '')}',
+            ),
+            Text(
+              '${events.first['guestCount']} guests · ${events.first['eventLocation']}',
+            ),
+          ] else
+            const Text('Open package details to review the saved selections.'),
+          if (entries.length > 1)
+            Text(
+              '${prices.length == entries.length ? 'Estimated total' : 'Partial estimate'}: ${FeastaPriceFormatter.format(prices.fold<double>(0, (sum, price) => sum + price))}',
+            ),
+        ],
+      ),
+    ),
+  );
+}
+
+String _eventListDisplayType(String value) {
+  final text = value.trim();
+  if (text.isEmpty) return text;
+  return '${text[0].toUpperCase()}${text.substring(1)}';
+}
+
+String _eventListDisplayTime(String value) {
+  final text = value.trim();
+  final match = RegExp(r'^([01]?\d|2[0-3]):([0-5]\d)$').firstMatch(text);
+
+  if (match == null) return text;
+
+  final hour = int.parse(match.group(1)!);
+  final minute = match.group(2)!;
+  final displayHour = hour % 12 == 0 ? 12 : hour % 12;
+  final period = hour < 12 ? 'AM' : 'PM';
+
+  return '$displayHour:$minute $period';
+}
+
+Widget _eventListEstimatedTotalCard({
+  required BuildContext context,
+  required List<double?> prices,
+  required bool cloudVerified,
+}) {
+  final known = prices
+      .whereType<double>()
+      .where((price) => price.isFinite && price >= 0)
+      .toList();
+
+  final complete = known.length == prices.length;
+  final total = known.fold<double>(0, (sum, price) => sum + price);
+
+  final label = known.isEmpty
+      ? 'Estimate unavailable'
+      : complete
+      ? 'Estimated Event Total'
+      : 'Partial estimate';
+
+  final amount = known.isEmpty
+      ? 'Estimate unavailable'
+      : FeastaPriceFormatter.format(total);
+
+  return Card(
+    child: Padding(
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.w700,
+              color: AppColors.primary,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            amount,
+            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+              fontWeight: FontWeight.w800,
+              color: AppColors.primary,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            known.isEmpty
+                ? 'Saved selections do not have a usable price estimate.'
+                : complete
+                ? 'Combined planning estimate for all saved selections.'
+                : 'Some saved selections have unavailable prices.',
+          ),
+          const SizedBox(height: 4),
+          Text(
+            cloudVerified
+                ? 'Final prices and availability are verified during booking.'
+                : 'Waiting for server confirmation of your saved Event List.',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+        ],
+      ),
+    ),
+  );
+}
 class _PlanningSummary extends StatelessWidget {
   const _PlanningSummary({required this.entries});
+
   final List<CustomerEventListEntry> entries;
 
   @override
   Widget build(BuildContext context) {
-    // Configured totals include the saved choices. Never substitute a base
-    // package price when the configured total is unknown.
     final prices = entries
         .map(
           (e) => e.configuration == null
@@ -549,60 +1100,45 @@ class _PlanningSummary extends StatelessWidget {
         )
         .whereType<double>()
         .toList();
-    final events = entries.map((e) => e.configuration?.event).toList();
-    final configured = events.whereType<CustomerEventListEvent>().toList();
+
+    final configured = entries
+        .map((e) => e.configuration?.event)
+        .whereType<CustomerEventListEvent>()
+        .toList();
+
+    final complete = configured.length == entries.length;
     final consistent =
         configured.isNotEmpty &&
-        configured.every(
-          (e) => e.toJson().toString() == configured.first.toJson().toString(),
-        );
-    final complete = configured.length == entries.length;
-    final event = consistent && complete ? configured.first : null;
+        configured.every((e) => sameEventListEvent(e, configured.first));
+    final event = complete && consistent ? configured.first : null;
+
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             if (event != null) ...[
               Text(
-                event.eventType,
+                _eventListDisplayType(event.eventType),
                 style: Theme.of(context).textTheme.titleMedium,
               ),
               Text(
-                '${event.eventDate} · ${event.eventTime}–${event.eventEndTime}',
+                '${event.eventDate} · ${_eventListDisplayTime(event.eventTime)} – ${_eventListDisplayTime(event.eventEndTime)}',
               ),
               Text('${event.guestCount} guests · ${event.eventLocation}'),
             ] else if (!consistent && configured.length > 1)
-              const Text(
-                'Event details differ. Review each configuration to reconcile your event.',
-              ),
-            if (!complete)
-              const Text(
-                'Event details are incomplete. Configure each package and confirm its schedule.',
-              ),
-            const SizedBox(height: 8),
-            const Text('Known-price planning estimate'),
-            if (prices.isNotEmpty)
+              const Text('Event details differ. Edit details to reconcile.')
+            else if (!complete)
+              const Text('Complete the event details for each package.'),
+            if (entries.length > 1) ...[
+              const SizedBox(height: 8),
               Text(
-                'Known estimate: ${FeastaPriceFormatter.format(prices.fold<double>(0, (a, b) => a + b))}',
-              )
-            else
-              const Text('Estimate unavailable'),
-            Text(
-              '${prices.length} of ${entries.length} saved package estimates included.',
-            ),
-            if (prices.length != entries.length)
-              const Text(
-                'Missing prices are excluded; this is not a complete total.',
+                prices.length == entries.length
+                    ? 'Estimated total: ${FeastaPriceFormatter.format(prices.fold<double>(0, (a, b) => a + b))}'
+                    : 'Partial estimate: ${FeastaPriceFormatter.format(prices.fold<double>(0, (a, b) => a + b))} — some prices unavailable',
               ),
-            const Text(
-              'Saved estimates require revalidation. Final booking prices and availability must be confirmed.',
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              'Booking submission for this list is not available. Your selections remain saved; review and edit each provider configuration.',
-            ),
+            ],
           ],
         ),
       ),

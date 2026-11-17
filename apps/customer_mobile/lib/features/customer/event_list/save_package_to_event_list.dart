@@ -74,7 +74,7 @@ class _SavePackageToEventListState extends State<SavePackageToEventList> {
         setState(
           () => _message = result == EventListResult.saved
               ? null
-              : eventListMessage(result),
+              : eventListMessage(result, cloud: controller.cloudActive),
         );
       }
     } on FormatException {

@@ -196,6 +196,27 @@ class EventListStore {
     );
   }
 
+  /// Consume only the unchanged snapshots included in a confirmed booking.
+  /// Compare within the serialized write so newer edits cannot be lost.
+  Future<CustomerEventList> removeSubmitted(
+    String uid,
+    List<CustomerEventListEntry> submitted, {
+    required void Function() authorize,
+  }) => _mutate(uid, authorize, (list) {
+    final snapshots = {
+      for (final entry in submitted)
+        entry.identity.key: jsonEncode(entry.configuration?.toJson()),
+    };
+    return list.entries
+        .where(
+          (entry) =>
+              !snapshots.containsKey(entry.identity.key) ||
+              snapshots[entry.identity.key] !=
+                  jsonEncode(entry.configuration?.toJson()),
+        )
+        .toList();
+  });
+
   Future<CustomerEventList> clear(
     String uid, {
     required void Function() authorize,

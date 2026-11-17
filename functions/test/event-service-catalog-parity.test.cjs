@@ -53,7 +53,8 @@ function seed({addon = {}, provider = {}, owner = {}} = {}) {
 async function parity() {
  const expected = (await web.getPublicEventServices('caterer')).services;
  const actual = (await mobile.loadPublicEventServices('caterer')).services;
- assert.deepEqual(JSON.parse(JSON.stringify(actual.map(({bookingLeadTimeDays, ...rest}) => rest))), JSON.parse(JSON.stringify(expected)));
+ // Mobile adds lead-time and revision metadata; browsing stays identical to Web.
+ assert.deepEqual(JSON.parse(JSON.stringify(actual.map(({bookingLeadTimeDays, revision, ...rest}) => rest))), JSON.parse(JSON.stringify(expected)));
  return actual;
 }
 test('catalog matches Web without legacy providerType, createdAt or isDeleted fields', async () => {
@@ -78,4 +79,70 @@ test('callable rejects parameter injection and invalid document ids', async () =
  for (const data of [null, {}, {cateringProviderId: '../private'}, {cateringProviderId: 'caterer', addonId: 'a/b'}, {cateringProviderId: 'caterer', ownerId: 'owner'}]) {
   await assert.rejects(mobile.listCustomerEventServices.run({data}), {code: 'invalid-argument'});
  }
+});
+
+for (const revision of [1, 7, Number.MAX_SAFE_INTEGER]) {
+ test(`catalog returns authoritative stored revision ${revision}`, async () => {
+  seed({addon: {revision}});
+  const services = await parity();
+  assert.equal(services[0].revision, revision);
+  const exact = await mobile.listCustomerEventServices.run({
+   data: {cateringProviderId: 'caterer', addonId: 'photo'},
+  });
+  assert.equal(exact.services[0].id, 'photo');
+  assert.equal(exact.services[0].providerId, 'studio');
+  assert.equal(exact.services[0].revision, revision);
+ });
+}
+
+for (const [label, revision] of [
+ ['missing', undefined], ['null', null], ['zero', 0], ['negative', -1],
+ ['fraction', 1.5], ['string', '7'], ['boolean', true], ['object', {}],
+ ['NaN', NaN], ['infinite', Infinity], ['unsafe', Number.MAX_SAFE_INTEGER + 1],
+]) {
+ test(`${label} revision preserves browsing with explicitly unavailable booking metadata`, async () => {
+  seed({addon: {revision}});
+  const services = await parity();
+  assert.equal(services.length, 1);
+  assert.equal(services[0].revision, null);
+  const exact = (await mobile.loadPublicEventServices('caterer', 'photo')).services;
+  assert.equal(exact.length, 1);
+  assert.equal(exact[0].revision, null);
+ });
+}
+
+test('revisions stay linked to the exact service and verified provider', async () => {
+ seed({addon: {revision: 3}});
+ records.set('addons/wedding', {...records.get('addons/photo'), name: 'Wedding coverage', revision: 8});
+ records.set('addons/music', {...records.get('addons/photo'), providerId: 'musician', ownerId: 'music_owner', name: 'Music', revision: 12});
+ records.set('providers/musician', {...records.get('providers/studio'), ownerId: 'music_owner'});
+ records.set('users/music_owner', {...records.get('users/owner'), providerId: 'musician'});
+ const services = (await mobile.loadPublicEventServices('caterer')).services;
+ assert.equal(services.length, 3);
+ for (const [id, providerId, revision] of [['photo', 'studio', 3], ['wedding', 'studio', 8], ['music', 'musician', 12]]) {
+  const service = services.find(service => service.id === id);
+  assert.equal(service.providerId, providerId);
+  assert.equal(service.revision, revision);
+ }
+ records.get('addons/music').ownerId = 'owner';
+ assert.equal((await mobile.loadPublicEventServices('caterer', 'music')).services.length, 0);
+});
+
+test('a valid revision never bypasses publication or owner visibility', async () => {
+ for (const changes of [
+  {addon: {revision: 3, isPublished: false}},
+  {addon: {revision: 3, isAvailable: false}},
+  {addon: {revision: 3, ownerId: 'foreign'}},
+  {addon: {revision: 3}, owner: {isBlocked: true}},
+ ]) {
+  seed(changes);
+  assert.equal((await parity()).length, 0);
+ }
+});
+
+test('callable never accepts a client-supplied revision', async () => {
+ seed({addon: {revision: 7}});
+ await assert.rejects(mobile.listCustomerEventServices.run({
+  data: {cateringProviderId: 'caterer', addonId: 'photo', revision: 1},
+ }), {code: 'invalid-argument'});
 });

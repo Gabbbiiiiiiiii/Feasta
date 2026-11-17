@@ -287,6 +287,23 @@ it("retries the failed announcements page with its filters, cursor, and history"
   await waitFor(() => expect(actions.load.mock.calls[3][0]).toMatchObject({status: "draft", cursor: null}));
 });
 
+it("keeps navigation available across empty filtered scan pages", async () => {
+  const user = userEvent.setup();
+  const scanPage = {...emptyPage, nextCursor: "more-records", hasMore: true};
+  actions.load.mockResolvedValueOnce(emptyPage).mockResolvedValueOnce(scanPage);
+  render(<AnnouncementManagementClient initialPage={scanPage} />);
+  expect(screen.getByText("No matches in this group of records")).toBeVisible();
+  await user.click(screen.getByRole("button", {name: "Next"}));
+  await waitFor(() => expect(screen.getByRole("button", {name: "Previous"})).toBeEnabled());
+  expect(screen.getByText("No more matching announcements")).toBeVisible();
+  expect(screen.getByRole("button", {name: "Next"})).toBeDisabled();
+  expect(actions.load.mock.calls[0][0]).toMatchObject({cursor: "more-records"});
+  await user.click(screen.getByRole("button", {name: "Previous"}));
+  await waitFor(() => expect(actions.load).toHaveBeenCalledTimes(2));
+  expect(actions.load.mock.calls[1][0]).toMatchObject({cursor: null});
+  await waitFor(() => expect(screen.getByRole("button", {name: "Next"})).toBeEnabled());
+});
+
 it("retries a failed new announcement filter rather than the previous successful filter", async () => {
   const user = userEvent.setup();
   actions.load.mockRejectedValueOnce(new Error("Filtered read failed")).mockResolvedValueOnce(emptyPage);

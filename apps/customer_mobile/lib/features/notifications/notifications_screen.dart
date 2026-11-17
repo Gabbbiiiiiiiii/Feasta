@@ -8,6 +8,7 @@ import '../../core/widgets/widgets.dart';
 import '../../shared/models/feasta_models.dart';
 import '../authentication/data/repositories/feasta_repository.dart';
 import '../chat/chat_screen.dart';
+import 'announcements_screen.dart';
 import '../customer/addon_payment_required_screen.dart';
 import '../customer/booking_details_screen.dart';
 
@@ -117,6 +118,15 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                     ),
                     child: Column(
                       children: [
+                        ListTile(
+                          leading: const Icon(Icons.campaign_outlined, color: AppColors.primary),
+                          title: const Text('Official announcements'),
+                          subtitle: const Text('FEASTA updates for everyone and customers'),
+                          trailing: const Icon(Icons.chevron_right),
+                          onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(
+                            builder: (_) => const AnnouncementsScreen(),
+                          )),
+                        ),
                         _NotificationFilterBar(
                           showUnreadOnly: showUnreadOnly,
                           unreadCount: unreadCount,

@@ -1,5 +1,5 @@
-// Task 3 work in progress. Deliberately NOT exported from src/index.ts:
-// release still requires end-to-end downstream callable verification.
+// Coordinated intake for 2-4 independent catering packages. Unsupported
+// service contracts fail closed; deployment is a separate release action.
 import {createHash} from "node:crypto";
 import {assertNoCustomerBookingRestriction} from "./customer-booking-restriction.js";
 import {getAuth} from "firebase-admin/auth";
@@ -20,7 +20,7 @@ import {readInitialPaymentRollout, initialPaymentEnrollment} from "../payments/i
 import {assertBookingSubmissionAllowed} from "./booking-authorization.js";
 import {bookingPolicyV3Evidence, bookingSubmissionDeadlinePassedV3} from "./booking-policy-v3.js";
 import {bookingOutcomeId} from "./submission-outcome.js";
-import {parseMultiProviderSubmissionEnvelope, MultiProviderContractError} from "./multi-provider-submission-contract.js";
+import {parseMultiProviderSubmissionEnvelope, parseMultiProviderMixedSubmissionEnvelope, MultiProviderContractError} from "./multi-provider-submission-contract.js";
 import {prepareTrustedMultiProviderSubmission} from "./multi-provider-authority-bridge.js";
 import {coordinateMultiProviderSubmission} from "./multi-provider-transaction-coordinator.js";
 import {confirmMultiProviderBookingAgreements} from "./multi-provider-agreement-preparation.js";
@@ -28,8 +28,12 @@ import {confirmMultiProviderRefundAcknowledgements} from "./multi-provider-refun
 import {REFUND_POLICY_ROLLOUT_DOCUMENT_ID} from "./booking-refund-policy.js";
 import {validateAcceptanceProviderRequest} from "../provider-requests/provider-request-integrity.js";
 
+import {prepareTrustedMixedProviderSubmission} from "./multi-provider-mixed-authority-bridge.js";
+import {confirmMixedProviderBookingAgreements} from "./multi-provider-mixed-agreement-preparation.js";
+
 type Identity = {customerId: string; emailVerified: boolean; phoneNumber: string | undefined};
-type Prepared = Awaited<ReturnType<typeof prepareTrustedMultiProviderSubmission>>;
+type Prepared = Awaited<ReturnType<typeof prepareTrustedMultiProviderSubmission>> |
+  Awaited<ReturnType<typeof prepareTrustedMixedProviderSubmission>>;
 
 function parse(value: unknown) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -40,7 +44,9 @@ function parse(value: unknown) {
     throw new HttpsError("invalid-argument", "Unsupported submission fields.");
   }
   try {
-    return {input, envelope: parseMultiProviderSubmissionEnvelope(input.submission)};
+    return {input, envelope: (input.submission as {schemaVersion?: unknown} | null)?.schemaVersion === 2
+      ? parseMultiProviderMixedSubmissionEnvelope(input.submission)
+      : parseMultiProviderSubmissionEnvelope(input.submission)};
   } catch (error) {
     if (error instanceof MultiProviderContractError) throw new HttpsError("invalid-argument", error.message);
     throw error;
@@ -74,7 +80,13 @@ async function authorizeAndPrepare(
     throw new HttpsError("failed-precondition", "This occasion is unavailable for new bookings.");
   }
   const rollout = await readInitialPaymentRollout(transaction);
-  const prepared = await prepareTrustedMultiProviderSubmission({
+  const prepared = envelope.schemaVersion === 2
+    ? await prepareTrustedMixedProviderSubmission({transaction, firestore, customerId: identity.customerId,
+      bookingId, envelope, submissionTime: now, loadRefundRollout: async tx => {
+        const snapshot = await tx.get(firestore.collection("appSettings").doc(REFUND_POLICY_ROLLOUT_DOCUMENT_ID));
+        return {exists: snapshot.exists, data: snapshot.data()};
+      }})
+    : await prepareTrustedMultiProviderSubmission({
     transaction, firestore, customerId: identity.customerId, bookingId, envelope, submissionTime: now,
     loadRefundRollout: async tx => {
       const snapshot = await tx.get(firestore.collection("appSettings").doc(REFUND_POLICY_ROLLOUT_DOCUMENT_ID));
@@ -94,6 +106,17 @@ async function authorizeAndPrepare(
   return {prepared, customer: customer.data()!, user: user.data()!, rollout};
 }
 
+function providerInstructions(configuration: Readonly<Record<string, unknown>>, preferTopLevel = false): string {
+  const event = configuration.event as Record<string, unknown> | undefined;
+  const value = preferTopLevel && Object.prototype.hasOwnProperty.call(configuration, "specialRequest")
+    ? configuration.specialRequest : event ? event.specialRequest : configuration.specialRequest;
+  if (value === undefined) return "";
+  if (typeof value !== "string" || value.length > 1000) {
+    throw new HttpsError("invalid-argument", "Invalid provider instructions.");
+  }
+  return value;
+}
+
 function assertDeadline(prepared: Prepared) {
   if (prepared.eligibility.items.some(item => bookingSubmissionDeadlinePassedV3(item.initialPaymentEligibility.eventStartAt, new Date()))) {
     throw new HttpsError("failed-precondition", "The payment deadline has passed.", {reason: "booking_submission_payment_deadline_passed"});
@@ -111,8 +134,14 @@ export async function submitAuthorizedMultiProviderBooking(
   const bookingId = bookingOutcomeId(customerId, envelope.clientRequestId);
   if (disclosureOnly) {
     return firestore.runTransaction(async transaction => {
-      const {prepared} = await authorizeAndPrepare(transaction, firestore, identity, envelope, bookingId, now);
-      return {agreements: prepared.agreements.disclosures, refundPolicies: prepared.refunds.disclosures};
+      const {prepared} = await authorizeAndPrepare(
+        transaction, firestore, identity, envelope, bookingId, now,
+      );
+      return {agreements: prepared.agreements.disclosures, refundPolicies: {
+        rolloutMode: prepared.refunds.mode,
+        acknowledgementsRequired: prepared.refunds.mode === "required",
+        policies: prepared.refunds.disclosures,
+      }};
     });
   }
   return coordinateMultiProviderSubmission({
@@ -137,12 +166,31 @@ export async function submitAuthorizedMultiProviderBooking(
         const upfront = agreement.requiredUpfrontAmountInCentavos / 100;
         const selection = envelope.selections[index].configuration;
         const request = prepared.requests[index];
+        const marketplace = "kind" in row && row.kind === "marketplace_service" ? row : null;
+        const catering = "resolved" in row ? row : null;
+        const percentage = financial.packagePaymentTerms ? financial.packagePaymentTerms.depositRateBps / 100 : 100;
+        const services = marketplace ? [{serviceId: marketplace.service.serviceId, name: marketplace.service.name, category: marketplace.service.category, price: gross, downPaymentPercentage: 100, downPaymentAmount: upfront}]
+          : [{serviceId: catering!.resolved.packageId, name: catering!.resolved.packageName,
+            category: "catering_package", price: gross, downPaymentPercentage: percentage, downPaymentAmount: upfront}];
+        const selectedAddOns = marketplace ? [{addonId: marketplace.service.serviceId,
+          providerId: row.providerId, ownerId: row.providerOwnerId, name: marketplace.service.name,
+          category: marketplace.service.category, price: gross, downPaymentPercentage: 100, source: "marketplace"}] : [];
         const data = {
-          ...common, providerRequestId: request.providerRequestId, providerId: row.providerId,
+          ...common, customTheme: selection.customTheme ?? "",
+          themeChoice: selection.themeChoice ?? null,
+          specialRequest: providerInstructions(selection, envelope.schemaVersion === 2 && marketplace !== null),
+          willArrangeOwnAddOns: selection.willArrangeOwnAddOns ?? false,
+          customerArrangedAddOnsNote: selection.customerArrangedAddOnsNote ?? "",
+          outsidePlatformServicesMonitored: false, providerRequestId: request.providerRequestId,
+          providerId: row.providerId,
           providerBusinessName: row.providerData.businessName, type: request.type,
-          assignmentKind: "independent_package", packageRevision: row.resolved.expectedPackageRevision,
-          cateringSelectionType: "package", packageId: row.resolved.packageId, packageName: row.resolved.packageName,
-          ...row.resolved.offer, packagePaymentTerms: financial.packagePaymentTerms,
+          assignmentKind: marketplace ? "independent_marketplace_service" : "independent_package",
+          packageRevision: catering?.resolved.expectedPackageRevision ?? null,
+          cateringSelectionType: catering ? "package" : null,
+          packageId: catering?.resolved.packageId ?? null, packageName: catering?.resolved.packageName ?? null,
+          ...(catering?.resolved.offer ?? {}), packagePaymentTerms: financial.packagePaymentTerms,
+          ...(marketplace ? {serviceId: marketplace.service.serviceId,
+            serviceRevision: marketplace.service.serviceData.revision, selectedAddOns} : {}),
           bookingPaymentPolicySnapshot: eligibility.bookingPaymentPolicySnapshot,
           bookingPaymentPolicyCapturedAt: serverTimestamp(), bookingPaymentPolicyCapturedAtStage: "submission",
           ...bookingPolicyV3Evidence(initial.eventStartAt, Timestamp.fromDate),
@@ -152,10 +200,8 @@ export async function submitAuthorizedMultiProviderBooking(
             eventStartAt: Timestamp.fromDate(initial.eventStartAt)},
           bookingPaymentAgreement: {...agreement, agreedAt: Timestamp.fromDate(now)},
           selectedFoods: selection.selectedFoods ?? [], selectedDecorations: selection.selectedDecorations ?? [],
-          selectedFurniture: selection.selectedFurniture ?? [], foodChoiceSelections: row.resolved.foodChoices,
-          menuSelections: [], services: [{serviceId: row.resolved.packageId, name: row.resolved.packageName,
-            category: "catering_package", price: gross, downPaymentPercentage: financial.packagePaymentTerms.depositRateBps / 100,
-            downPaymentAmount: upfront}], amount: gross, downPaymentPercentage: financial.packagePaymentTerms.depositRateBps / 100,
+          selectedFurniture: selection.selectedFurniture ?? [], foodChoiceSelections: catering?.resolved.foodChoices ?? [],
+          menuSelections: [], services, amount: gross, downPaymentPercentage: percentage,
           downPaymentAmount: upfront, remainingBalance: (financial.grossAmountInCentavos - agreement.requiredUpfrontAmountInCentavos) / 100,
           status: "pending", ...initialPaymentEnrollment(rollout),
           rejectionReason: null, cancellationReason: null, requestedAt: serverTimestamp(),
@@ -166,20 +212,35 @@ export async function submitAuthorizedMultiProviderBooking(
       });
       const first = requests[0].data;
       const total = prepared.financials.totalGrossAmountInCentavos / 100;
-      const upfrontTotal = requests.reduce((sum, request) => sum + request.data.downPaymentAmount, 0);
+      const upfrontTotal = prepared.agreements.agreements.reduce(
+        (sum, agreement) => sum + agreement.requiredUpfrontAmountInCentavos, 0,
+      ) / 100;
       const booking = {reference: firestore.collection("mainEvents").doc(bookingId), data: {
-        ...first, customerViolationPolicyVersion: 1,
+        ...first, specialRequest: envelope.event.specialRequest,
+        customerViolationPolicyVersion: 1,
         status: "pending_provider_approval", clientRequestId: envelope.clientRequestId, submissionFingerprint: fingerprint,
         bookingCode: `BK-${bookingId.slice(0, 10).toUpperCase()}`, currentProviderId: first.providerId, originalProviderId: first.providerId,
         // Singular package fields remain a display projection of the first
         // assignment; all financial linkage uses packageAssignments instead.
-        packagePrice: first.amount, cateringSubtotal: total, amount: total, totalAmount: total, estimatedEventTotal: total,
+        packagePrice: first.amount, cateringSubtotal: "cateringSubtotalInCentavos" in prepared.financials
+          ? prepared.financials.cateringSubtotalInCentavos / 100 : total, amount: total, totalAmount: total, estimatedEventTotal: total,
         downPaymentAmount: upfrontTotal, remainingBalance: Math.round((total - upfrontTotal) * 100) / 100,
         downPaymentPercentage: total === 0 ? 0 : Math.round(upfrontTotal / total * 10000) / 100,
-        cateringAddOnsTotal: 0, marketplaceAddOnsTotal: 0, addOnsTotal: 0, selectedAddOns: [],
-        willArrangeOwnAddOns: false, customerArrangedAddOnsNote: "", outsidePlatformServicesMonitored: false,
+        cateringAddOnsTotal: 0,
+        marketplaceAddOnsTotal: "marketplaceSubtotalInCentavos" in prepared.financials ? prepared.financials.marketplaceSubtotalInCentavos / 100 : 0,
+        addOnsTotal: "marketplaceSubtotalInCentavos" in prepared.financials ? prepared.financials.marketplaceSubtotalInCentavos / 100 : 0,
+        selectedAddOns: envelope.schemaVersion === 2 ? requests.flatMap(({data}) => data.selectedAddOns ?? []) : [],
+        willArrangeOwnAddOns: requests.some(request => request.data.willArrangeOwnAddOns),
+        customerArrangedAddOnsNote: "", outsidePlatformServicesMonitored: false,
         recoveryStatus: "none", cancellationStatus: "none", refundStatus: "none", refundAmount: 0,
-        packageAssignmentVersion: 1,
+        packageAssignmentVersion: envelope.schemaVersion,
+        ...(envelope.schemaVersion === 2 ? {providerAssignments: requests.map(({data}, index) => ({
+          kind: envelope.selections[index].kind,
+          ...Object.fromEntries(["providerRequestId", "providerId", "packageId", "packageName", "packageRevision",
+            "packagePaymentTerms", "services", "amount", "downPaymentAmount", "remainingBalance", "downPaymentPercentage"]
+            .map(field => [field, (data as Record<string, unknown>)[field]])),
+          ...(data.type === "addon" ? {serviceId: data.serviceId, selectedAddOns: data.selectedAddOns} : {}),
+        }))} : {}),
         packageAssignments: requests.map(({data}) => Object.fromEntries([
           "providerRequestId", "providerId", "packageId", "packageName", "packageRevision", "services",
           "amount", "downPaymentAmount", "remainingBalance", "downPaymentPercentage", "packagePaymentTerms",
@@ -215,7 +276,8 @@ export async function submitAuthorizedMultiProviderBooking(
           for (const request of requests) Object.assign(request.data, refundEvidence.get(request.providerId) ?? {});
         },
         validatePaymentAgreements: () => {
-          confirmMultiProviderBookingAgreements(prepared.agreements, input.agreementAcknowledgements);
+          if (envelope.schemaVersion === 2) confirmMixedProviderBookingAgreements(prepared.agreements, input.agreementAcknowledgements);
+          else confirmMultiProviderBookingAgreements(prepared.agreements, input.agreementAcknowledgements);
           assertDeadline(prepared);
           // All authority reads and acknowledgement checks are complete before side effects.
           recordMaintenanceAdmission(transaction, firestore);

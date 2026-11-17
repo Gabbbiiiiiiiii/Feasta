@@ -242,7 +242,7 @@ class _SaveReviewConfigurationState extends State<SaveReviewConfiguration> {
             ? 'Saved to Event List. Configured — revalidation required. Nothing is reserved.'
             : _controller!.error is EventListStaleException
             ? 'Your Event List changed. Return to Event List and reopen this configuration.'
-            : eventListMessage(result);
+            : eventListMessage(result, cloud: _controller!.cloudActive);
       });
     } on FormatException catch (error) {
       if (_current) {
@@ -337,6 +337,17 @@ class _SaveReviewConfigurationState extends State<SaveReviewConfiguration> {
                     ),
                   ],
                 ),
+              ),
+            if (ready && (_saved || _duplicate))
+              TextButton(
+                onPressed: widget.submitting || _busy
+                    ? null
+                    : () => Navigator.of(context).push<void>(
+                        MaterialPageRoute(
+                          builder: (_) => const CustomerEventListScreen(),
+                        ),
+                      ),
+                child: const Text('Review Event List'),
               ),
             if (!_current)
               const Text(

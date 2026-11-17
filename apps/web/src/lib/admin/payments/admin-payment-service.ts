@@ -313,6 +313,7 @@ export async function getAdminFinanceAttentionQueue(): Promise<
       new Set(data.sourcePaymentIds).size === data.sourcePaymentIds.length;
     return [{id: `disbursement:${document.id}`, providerDisbursementId: document.id,
       canonicalDisbursementStatus: data.status, failedDisbursementRetryEligible: retryEligible, kind: data.status === "failed" ? "failed_payout" : "reconciliation_required",
+      dispatchBlockReason: nullableString(data.dispatchBlockReason),
       recordState: data.schemaVersion === 1 && data.policyVersion === 1 && data.disbursementId === document.id && data.currency === "PHP" ? "valid" : "invalid",
       paymentId: nullableString(data.sourcePaymentIds?.[0]), providerId: nullableString(data.providerId),
       settlementId: null, payoutAttemptId: nullableString(data.activePayoutAttemptId),

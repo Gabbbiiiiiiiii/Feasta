@@ -1627,6 +1627,37 @@ service cloud.firestore {
       }
     }
 
+    // Phase 2A: isolated planning resource, never booking/payment authority.
+    // Nested schema, UTF-8 byte bounds, identity uniqueness and CAS revisions
+    // are enforced by the trusted writer contract, not claimed as Rules checks.
+    // No client writes, including deletes: empty documents retain migration
+    // completion so an old device cannot resurrect a cleared list.
+    match /customerEventLists/{customerUid} {
+      function validPlanningEnvelope() {
+        let d = resource.data;
+        return d.keys().hasAll([
+            'version', 'ownerUid', 'revision', 'currency', 'entries',
+            'schedule', 'migration'
+          ]) && d.keys().hasOnly([
+            'version', 'ownerUid', 'revision', 'currency', 'entries',
+            'schedule', 'migration'
+          ]) && d.version is int && d.version == 1 &&
+          d.ownerUid is string && d.ownerUid == customerUid &&
+          d.revision is int && d.revision >= 0 &&
+          d.revision <= 9007199254740991 && d.currency == 'PHP' &&
+          d.entries is list && d.entries.size() <= 24 &&
+          (d.schedule == null || d.schedule is map) &&
+          d.migration is map &&
+          d.migration.keys().hasOnly(['version', 'completed']) &&
+          d.migration.version is int && d.migration.version == 1 &&
+          d.migration.completed is bool && d.migration.completed == true;
+      }
+      allow get: if isOwner(customerUid) && isCustomer() && isActiveAccount() &&
+          (!exists(/databases/$(database)/documents/customerEventLists/$(customerUid)) ||
+            validPlanningEnvelope());
+      allow list, create, update, delete: if false;
+    }
+
     match /{document=**} {
       allow read, write: if false;
     }

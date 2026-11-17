@@ -13,6 +13,7 @@ vi.mock("@/app/provider/packages/setup-gallery-actions", () => ({loadProviderSet
 vi.mock("@/components/provider/catalog-image-uploader", () => ({CatalogImageUploader: () => null, uploadCatalogImages: vi.fn()}));
 vi.mock("@/lib/notifications/notification-client", () => ({subscribeToNotifications: mocks.subscribe, markNotificationRead: mocks.mark, markRecentNotificationsRead: mocks.mark}));
 vi.mock("@/app/admin/notifications/actions", () => ({loadAdminNotificationMenuAction: mocks.admin, markAdminNotificationReadAction: mocks.mark, markAdminNotificationsReadAction: mocks.mark}));
+vi.mock("@/components/announcements/announcement-feed", () => ({AnnouncementFeed: () => null}));
 
 type DrawerProps = {open: boolean; loading: boolean; error: string | null; detail?: {payment: {paymentId: string}} | null; review?: {id: string} | null; onOpenChange: (open: boolean) => void; onRetry: () => void};
 function Drawer(props: DrawerProps) {
@@ -126,6 +127,7 @@ it("disposes a subscription that resolves after unmount", async () => {
 });
 
 it("admin notification reads can retry after failure", async () => {
+  mocks.subscribe.mockResolvedValue({unsubscribe: vi.fn()});
   mocks.admin.mockRejectedValueOnce(new Error("offline")).mockResolvedValueOnce({notifications: [], unreadCount: 0, unreadCountCapped: false});
   render(<NotificationMenu role="admin" />); fireEvent.click(screen.getByRole("button", {name: "Notifications"}));
   expect(await screen.findByRole("alert")).toHaveTextContent("could not be loaded"); fireEvent.click(screen.getByRole("button", {name: "Retry"}));

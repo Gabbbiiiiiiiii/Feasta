@@ -196,16 +196,18 @@ void main() {
         await tester.pump(const Duration(milliseconds: 400));
       } else if (action.contains('remove')) {
         memory.failWrite = action == 'failed remove';
-        final remove = find.text('Remove Saved package');
+        final remove = find.byWidgetPredicate(
+          (w) => w is Text && w.semanticsLabel == 'Remove Saved package',
+        );
         await tester.ensureVisible(remove);
         await tester.pump();
         await tester.tap(remove);
         await tester.pumpAndSettle();
       } else {
         memory.failWrite = action == 'failed clear';
-        await tester.ensureVisible(find.text('Clear List'));
+        await tester.ensureVisible(find.byTooltip('Clear list'));
         await tester.pump();
-        await tester.tap(find.text('Clear List'));
+        await tester.tap(find.byTooltip('Clear list'));
         await tester.pump(const Duration(milliseconds: 400));
         await tester.tap(
           find.text(action == 'cancel clear' ? 'Cancel' : 'Confirm Clear List'),
@@ -227,6 +229,11 @@ void main() {
         expect(list.list!.entries, isEmpty);
       }
       if (action == 'failed clear') {
+        // A persistence error intentionally disables editing until reload.
+        expect(list.error, isNotNull);
+        memory.failWrite = false;
+        expect(await list.load(), EventListResult.loaded);
+        await tester.pumpAndSettle();
         repo.gate = null;
         await tester.ensureVisible(find.text('Customize Package'));
         await tester.tap(find.text('Customize Package'));
@@ -530,8 +537,8 @@ void main() {
       await show(tester);
       await tester.tap(find.text('Customize Package'));
       await tester.pump();
-      await tester.ensureVisible(find.text('Clear List'));
-      await tester.tap(find.text('Clear List'));
+      await tester.ensureVisible(find.byTooltip('Clear list'));
+      await tester.tap(find.byTooltip('Clear list'));
       await tester.pump(const Duration(milliseconds: 400));
       final before = Map<String, String>.of(memory.values);
       gate.complete(preparationPackage());

@@ -1,6 +1,10 @@
 "use client";
 
 import {useCustomerEventListSession} from "@/lib/customer/event-list/customer-event-list";
+import {CUSTOMER_EVENT_LIST_CLOUD_ENABLED} from "@/lib/customer/event-list/customer-event-list-cloud-transport";
+import {useCustomerEventListCloudAsync} from "@/lib/customer/event-list/use-customer-event-list-cloud-async";
+import {projectCanonicalBookingReview} from "@/lib/customer/event-list/configuration-edit";
+
 
 import {
   ArrowLeft,
@@ -17,6 +21,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import {ConfigurationSummary} from "./configuration-summary";
+import {canonicalPackageEditHref} from "@/lib/customer/event-list/configuration-edit";
 import {eventListPackageEditHref} from "@/lib/customer/event-list/configuration-edit";
 import {useRouter} from "next/navigation";
 import {
@@ -135,7 +140,22 @@ type RefundPolicyStatus =
   | "error";
 
 function CustomerEventListReviewSession() {
-  const {addItem, readItems, removeItem: removeStoredItem, writeSchedule} = useCustomerEventList();
+  const localList = useCustomerEventList();
+  const cloudList = useCustomerEventListCloudAsync();
+  const cloudProjections = useMemo(() =>
+    cloudList.state.document?.entries.map(projectCanonicalBookingReview) ?? [],
+    [cloudList.state.document],
+  );
+  const cloudItems = useMemo(() => cloudProjections.flatMap(
+    (entry) => entry.status === "supported" ? [entry.item] : [],
+  ), [cloudProjections]);
+  const readOnlyCloud = cloudProjections.filter(
+    (entry) => entry.status === "read_only",
+  );
+  const items = CUSTOMER_EVENT_LIST_CLOUD_ENABLED ? cloudItems : localList.items;
+  const readItems = () => CUSTOMER_EVENT_LIST_CLOUD_ENABLED
+    ? items : localList.readItems();
+
   const submissionOwner = useRef(auth.currentUser?.uid);
   const [freshAttempt, setFreshAttempt] = useState(false);
   const [recoveryNotice, setRecoveryNotice] = useState<string | null>(null);
@@ -149,14 +169,11 @@ function CustomerEventListReviewSession() {
   const router =
     useRouter();
 
-  const {
-    items,
-    clearItems,
-  } =
-    useCustomerEventList();
-
-  const schedule =
-    useCustomerEventListSchedule();
+  const {removeSubmittedItems} = localList;
+  const localSchedule = useCustomerEventListSchedule();
+  const schedule = CUSTOMER_EVENT_LIST_CLOUD_ENABLED
+    ? (cloudList.state.document?.schedule as CustomerEventListSchedule | null ?? null)
+    : localSchedule;
 
   const [
     eventDialogOpen,
@@ -339,6 +356,44 @@ function CustomerEventListReviewSession() {
       let total = 0;
       let known = true;
 
+      // Preserve planning estimates even when a saved selection is read-only.
+      // Booking and editing eligibility are checked separately.
+      for (const entry of readOnlyCloud) {
+        if (entry.status !== "read_only") continue;
+
+        const configuration = entry.preserved.configuration;
+        const configuredValue =
+          configuration &&
+          typeof configuration === "object" &&
+          "estimatedTotal" in configuration
+            ? configuration.estimatedTotal
+            : null;
+
+        const savedValue = entry.preserved.estimatedPrice;
+
+        const configuredPrice =
+          typeof configuredValue === "number" &&
+          Number.isFinite(configuredValue) &&
+          configuredValue >= 0
+            ? configuredValue
+            : null;
+
+        const fallbackPrice =
+          typeof savedValue === "number" &&
+          Number.isFinite(savedValue) &&
+          savedValue >= 0
+            ? savedValue
+            : null;
+
+        const selectionPrice = configuredPrice ?? fallbackPrice;
+
+        if (selectionPrice === null) {
+          known = false;
+        } else {
+          total += selectionPrice;
+        }
+      }
+
       for (const item of items) {
         if (
           item.price === null
@@ -383,7 +438,7 @@ function CustomerEventListReviewSession() {
         allPricesKnown:
           known,
       };
-    }, [items]);
+    }, [items, readOnlyCloud]);
 
   const customMenuItems =
     useMemo(
@@ -431,8 +486,14 @@ function CustomerEventListReviewSession() {
   const hasPackageItems =
     packageItems.length > 0;
 
+  const cloudReviewBlocked = CUSTOMER_EVENT_LIST_CLOUD_ENABLED &&
+    (cloudList.state.status !== "ready" || readOnlyCloud.length > 0 || (cloudList.recovery != null && !["idle", "confirmed"].includes(cloudList.recovery.status)));
+  const unconfiguredPackages = packageItems.some(item => !item.configuration);
+  const duplicatePackageProvider = packageItems.some((item, index) =>
+    packageItems.findIndex(other => other.providerId === item.providerId) !== index);
+
   const customMenuEligible =
-    hasCustomMenuItems &&
+    !cloudReviewBlocked && hasCustomMenuItems &&
     !hasPackageItems &&
     customMenuProviderIds.length === 1;
 
@@ -487,12 +548,10 @@ function CustomerEventListReviewSession() {
     ) ?? null;
 
   const existingPackageSubmitHref =
-    !hasCustomMenuItems &&
+    !cloudReviewBlocked && !unconfiguredPackages && !duplicatePackageProvider &&
+    !hasCustomMenuItems && packageItems.length === 1 &&
     configuredPackage
-      ? packageReviewHref(
-          configuredPackage
-            .packageHref,
-        )
+      ? `/customer/packages/${encodeURIComponent(configuredPackage.packageId)}/book?${new URLSearchParams({eventListProvider: configuredPackage.providerId, eventListIntent: "review"})}`
       : null;
 
   useEffect(() => {
@@ -673,7 +732,7 @@ function CustomerEventListReviewSession() {
     }
   }
 
-  function saveCustomMenuEdit() {
+  async function saveCustomMenuEdit() {
     if (!auth.currentUser || auth.currentUser.uid !== submissionOwner.current) {
       setMenuEditError("Sign in with the original account to save changes."); return;
     }
@@ -740,9 +799,24 @@ function CustomerEventListReviewSession() {
         menuEditRecord.url,
     };
 
-    addItem(
-      updated,
-    );
+    if (CUSTOMER_EVENT_LIST_CLOUD_ENABLED) {
+      // Changing serving variant changes canonical identity; it cannot be
+      // silently overwritten as if it were the same saved selection.
+      if (updated.servingOptionId !== menuEditSourceItem.servingOptionId) {
+        setMenuEditError("To change serving size, remove the old selection and add the new size.");
+        return;
+      }
+      try {
+        await cloudList.saveItemAsync(updated);
+        setRecoveryNotice("Menu edit sent. Waiting for server-confirmed Event List state.");
+      } catch (error) {
+        setMenuEditError(error instanceof Error ? error.message :
+          "The menu edit was not confirmed.");
+        return;
+      }
+    } else {
+      localList.addItem(updated);
+    }
 
     submissionIdentityRef.current =
       null;
@@ -771,7 +845,7 @@ function CustomerEventListReviewSession() {
     );
   }
 
-  function saveEventDetails() {
+  async function saveEventDetails() {
     if (!auth.currentUser || auth.currentUser.uid !== submissionOwner.current) {
       setSubmissionError("Sign in with the original account to save changes."); return;
     }
@@ -787,9 +861,18 @@ function CustomerEventListReviewSession() {
       return;
     }
 
-    writeSchedule(
-      result.schedule,
-    );
+    try {
+      if (CUSTOMER_EVENT_LIST_CLOUD_ENABLED) {
+        await cloudList.writeScheduleAsync(result.schedule);
+        setRecoveryNotice("Schedule change sent. Waiting for cloud confirmation.");
+      } else {
+        localList.writeSchedule(result.schedule);
+      }
+    } catch (error) {
+      setSubmissionError(error instanceof Error ? error.message :
+        "The event schedule was not confirmed.");
+      return;
+    }
 
     submissionIdentityRef.current =
       null;
@@ -803,14 +886,21 @@ function CustomerEventListReviewSession() {
     );
   }
 
-  function removeItem(
+  async function removeItem(
     item: CustomerEventListItem,
   ) {
-    removeStoredItem(
-      customerEventListItemKey(
-        item,
-      ),
-    );
+    try {
+      if (CUSTOMER_EVENT_LIST_CLOUD_ENABLED) {
+        await cloudList.removeItemAsync(item);
+        setRecoveryNotice("Removal sent. Waiting for cloud confirmation.");
+      } else {
+        localList.removeItem(customerEventListItemKey(item));
+      }
+    } catch (error) {
+      setSubmissionError(error instanceof Error ? error.message :
+        "Removal could not be confirmed.");
+      return;
+    }
 
     submissionIdentityRef.current =
       null;
@@ -1057,7 +1147,11 @@ function CustomerEventListReviewSession() {
           {customerId: submissionOwner.current, freshAttempt},
         );
 
-      clearItems();
+      // Cloud cleanup requires booking-proof snapshots and cannot be replaced
+      // with ordinary client-side removal. Retain cloud entries until proven.
+      if (!CUSTOMER_EVENT_LIST_CLOUD_ENABLED) {
+        removeSubmittedItems(customMenuItems);
+      }
 
       router.replace(
         `/customer/bookings?submitted=${encodeURIComponent(
@@ -1102,7 +1196,59 @@ function CustomerEventListReviewSession() {
     }
   }
 
-  if (items.length === 0) {
+  if (CUSTOMER_EVENT_LIST_CLOUD_ENABLED &&
+      !["ready", "missing", "pending", "error"].includes(cloudList.state.status)) {
+    return <main className="mx-auto max-w-5xl p-6" role="status">
+      Loading your server-confirmed Event List…
+    </main>;
+  }
+
+  if (CUSTOMER_EVENT_LIST_CLOUD_ENABLED &&
+      cloudList.state.status === "missing") {
+    return <main className="mx-auto max-w-5xl space-y-4 p-6">
+      <h1 className="text-2xl font-bold">Your cloud Event List is not initialized</h1>
+      <p>Your existing local selections will be imported only when you choose to initialize.</p>
+      <button type="button" className="rounded-full bg-primary px-5 py-3 text-white"
+        onClick={() => { void cloudList.initializeCloudListAsync(
+          localList.items, localList.readSchedule(),
+        ).catch(error => setSubmissionError(
+          error instanceof Error ? error.message : "Cloud initialization failed.",
+        )); }}>
+        Import saved Event List
+      </button>
+      {submissionError && <p role="alert">{submissionError}</p>}
+    </main>;
+  }
+
+  // A failed or unresolved cloud read must not masquerade as an empty list.
+  if (CUSTOMER_EVENT_LIST_CLOUD_ENABLED &&
+      cloudList.state.status === "error" &&
+      items.length === 0 && readOnlyCloud.length === 0) {
+    return <main role="alert" className="mx-auto max-w-5xl p-6">
+      The cloud Event List could not be verified. Your saved selections have not been deleted.
+      Check your connection and sign-in state, then retry.
+    </main>;
+  }
+
+  if (CUSTOMER_EVENT_LIST_CLOUD_ENABLED &&
+      cloudList.state.status === "pending" &&
+      items.length === 0 && readOnlyCloud.length === 0) {
+    return <main role="status" className="mx-auto max-w-5xl p-6">
+      Waiting for Firestore to confirm your Event List.
+    </main>;
+  }
+
+  if (CUSTOMER_EVENT_LIST_CLOUD_ENABLED &&
+      cloudList.state.status === "ready" &&
+      (cloudList.state.document?.entries.length ?? 0) > 0 &&
+      items.length === 0 && readOnlyCloud.length === 0) {
+    return <main role="alert" className="mx-auto max-w-5xl p-6">
+      Cloud selections were received but could not be displayed.
+      No saved entries have been removed.
+    </main>;
+  }
+
+  if (items.length === 0 && readOnlyCloud.length === 0) {
     return (
       <main className="mx-auto w-full max-w-5xl px-4 py-8 sm:px-6 lg:px-8">
         <section className="rounded-[24px] border border-feasta-border-soft bg-white p-6 text-center shadow-[0_8px_28px_rgb(0_75_59/0.04)] sm:p-8">
@@ -1181,6 +1327,35 @@ function CustomerEventListReviewSession() {
           <h1 className="mt-2 text-3xl font-extrabold tracking-[-0.035em] text-foreground sm:text-4xl">
             Review List
           </h1>
+          {CUSTOMER_EVENT_LIST_CLOUD_ENABLED && (
+            <div className="mt-3 space-y-2">
+              <p role="status" className="text-sm text-feasta-text-secondary">
+                {cloudList.recovery?.status === "uncertain"
+                  ? "An earlier cloud change needs a same-request retry."
+                  : cloudList.state.status === "pending"
+                    ? "Waiting for cloud confirmation…"
+                    : cloudList.state.status === "ready"
+                      ? "Server-confirmed cloud Event List"
+                      : "Cloud Event List is not ready for changes."}
+              </p>
+              {cloudList.recovery?.status === "uncertain" && (
+                <button type="button" className="rounded-full border px-4 py-2"
+                  onClick={() => { void cloudList.retryUncertainAsync().catch(error =>
+                    setSubmissionError(error instanceof Error ? error.message : "Retry failed.")); }}>
+                  Retry pending cloud change
+                </button>
+              )}
+              {cloudList.state.status === "ready" && items.length > 0 && (
+                <button type="button" className="rounded-full border px-4 py-2"
+                  onClick={() => {
+                    if (!window.confirm("Clear all saved Event List selections?")) return;
+                    void cloudList.clearListAsync().catch(error =>
+                      setSubmissionError(error instanceof Error ? error.message : "Clear failed."));
+                  }}>Clear saved list</button>
+              )}
+              {submissionError && <p role="alert" className="text-sm text-destructive">{submissionError}</p>}
+            </div>
+          )}
 
           <p className="mt-3 max-w-2xl text-sm leading-6 text-feasta-text-secondary">
             Review your event details, providers, menu items, serving sizes, and displayed prices before submitting your booking request.
@@ -1327,6 +1502,120 @@ function CustomerEventListReviewSession() {
           ) : null}
         </section>
 
+        {CUSTOMER_EVENT_LIST_CLOUD_ENABLED && readOnlyCloud.length > 0 && (
+          <div
+            className="grid gap-5"
+            aria-label="Saved selections requiring compatible review"
+          >
+            {readOnlyCloud.map((entry) =>
+              entry.status === "read_only" ? (
+                <section
+                  key={entry.preserved.identity}
+                  className="overflow-hidden rounded-[24px] border border-feasta-border-soft bg-white shadow-[0_8px_28px_rgb(0_75_59/0.04)]"
+                >
+                  <header className="flex items-center gap-3 border-b border-feasta-divider bg-feasta-canvas px-5 py-4 sm:px-6">
+                    <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-secondary text-primary-strong">
+                      <Store aria-hidden="true" className="size-5" />
+                    </span>
+                    <div className="min-w-0">
+                      <p className="text-[10px] font-extrabold uppercase tracking-[0.1em] text-primary-strong">
+                        Provider
+                      </p>
+                      <h2 className="truncate text-base font-extrabold text-foreground">
+                        {String(entry.preserved.providerName)}
+                      </h2>
+                    </div>
+                  </header>
+
+                  <div className="p-4 sm:p-5">
+                    <article className="rounded-[16px] border border-feasta-border-soft bg-white p-4">
+                      <div className="flex flex-col gap-4 sm:flex-row">
+                        <div className="shrink-0">
+                          {typeof entry.preserved.imageUrl === "string" &&
+                          entry.preserved.imageUrl ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img
+                              src={entry.preserved.imageUrl}
+                              alt=""
+                              className="size-20 rounded-xl object-cover sm:size-24"
+                            />
+                          ) : (
+                            <div className="grid size-20 place-items-center rounded-xl bg-feasta-surface-muted sm:size-24">
+                              <PackageOpen
+                                aria-hidden="true"
+                                className="size-7 text-feasta-text-tertiary"
+                              />
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="min-w-0 flex-1">
+                          <h3 className="text-base font-extrabold leading-6 text-foreground">
+                            {String(entry.preserved.name)}
+                          </h3>
+
+                          <p className="mt-1 text-xs text-feasta-text-secondary">
+                            Saved Event List selection
+                          </p>
+
+                          <p className="mt-3 text-xl font-extrabold text-primary-strong">
+                            {typeof entry.preserved.estimatedPrice === "number"
+                              ? money.format(entry.preserved.estimatedPrice)
+                              : "Price unavailable"}
+                          </p>
+
+                          <p className="mt-1 text-xs text-feasta-text-secondary">
+                            Saved planning estimate
+                          </p>
+                        </div>
+                      </div>
+
+                      <div
+                        role="status"
+                        className="mt-4 rounded-[14px] border border-primary/10 bg-secondary/50 px-4 py-3"
+                      >
+                        <p className="text-xs font-semibold leading-5 text-primary-strong">
+                          Compatible booking review required
+                        </p>
+                        <p className="mt-1 text-xs leading-5 text-feasta-text-secondary">
+                          {entry.reason} Your saved details are preserved.
+                          This selection cannot be submitted from this page yet.
+                        </p>
+                      </div>
+
+                      <div className="mt-4 space-y-2">
+                        {entry.preserved.kind === "catering_package" && entry.preserved.configuration ? <Link href={canonicalPackageEditHref(entry.preserved)} className="inline-flex min-h-11 items-center rounded-full bg-primary px-5 text-sm font-semibold text-white hover:bg-primary-hover">Edit details</Link> : <button
+                          type="button"
+                          disabled
+                          aria-describedby={`read-only-edit-note-${entry.preserved.identity}`}
+                          className="inline-flex min-h-[44px] items-center justify-center rounded-full border border-feasta-border-soft bg-feasta-canvas px-5 text-sm font-semibold text-feasta-text-secondary opacity-70 disabled:cursor-not-allowed"
+                        >
+                          Edit details
+                        </button>}
+
+                        <p
+                          id={`read-only-edit-note-${entry.preserved.identity}`}
+                          className="text-xs leading-5 text-feasta-text-secondary"
+                        >
+                          {entry.preserved.kind === "catering_package" && entry.preserved.configuration
+                            ? "Review your saved details and current package options before saving."
+                            : "Open this saved selection on a compatible device to edit its details."}
+                        </p>
+                      </div>
+
+
+                      {entry.preserved.menu && (
+                        <div className="mt-3">
+                          <SavedReviewDetails value={entry.preserved.menu} />
+                        </div>
+                      )}
+                    </article>
+                  </div>
+                </section>
+              ) : null
+            )}
+          </div>
+        )}
         <div className="grid gap-5">
           {providerGroups.map(
             (group) => (
@@ -1421,7 +1710,7 @@ function CustomerEventListReviewSession() {
                                     item,
                                   )
                                 }
-                                className="inline-flex min-h-9 items-center gap-1.5 rounded-full border border-feasta-border-soft px-3 text-xs font-bold text-primary-strong outline-none transition hover:bg-secondary focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
+                                className="inline-flex min-h-9 items-center gap-1.5 rounded-full bg-primary px-3 text-xs font-bold text-white outline-none transition hover:bg-primary-hover focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
                               >
                                 <Pencil
                                   aria-hidden="true"
@@ -1510,14 +1799,14 @@ function CustomerEventListReviewSession() {
                                 href={
                                   eventListPackageEditHref(item)
                                 }
-                                className="inline-flex min-h-9 items-center gap-1.5 rounded-full border border-feasta-border-soft px-3 text-xs font-bold text-primary-strong outline-none transition hover:bg-secondary focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
+                                className="inline-flex min-h-9 items-center gap-1.5 rounded-full bg-primary px-3 text-xs font-bold text-white outline-none transition hover:bg-primary-hover focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
                               >
                                 <Pencil
                                   aria-hidden="true"
                                   className="size-3.5"
                                 />
 
-                                {item.configuration ? "Edit configuration" : "Customize package"}
+                                {item.configuration ? "Edit details" : "Customize package"}
                               </Link>
 
                               <button
@@ -1597,7 +1886,7 @@ function CustomerEventListReviewSession() {
                 ? money.format(
                     estimatedTotal,
                   )
-                : "Partial total"}
+                : estimatedTotal > 0 ? `Partial estimate: ${money.format(estimatedTotal)}` : "Estimate unavailable"}
             </p>
           </div>
 
@@ -1628,6 +1917,14 @@ function CustomerEventListReviewSession() {
             </p>
           ) : null}
 
+          {(cloudReviewBlocked || unconfiguredPackages || duplicatePackageProvider || packageItems.length > 1) && (
+            <p role="alert" className="mt-5 rounded-[16px] border border-primary/15 bg-secondary p-4 text-sm font-semibold leading-6 text-foreground">
+              {cloudReviewBlocked ? "Wait for your saved list to be verified and review any selections requiring a compatible editor before submitting."
+                : duplicatePackageProvider ? "Only one package per provider can be included in a booking request. Return to your Event List to review these selections."
+                : unconfiguredPackages ? "Customize every saved package before continuing to booking review."
+                : "These packages require coordinated booking review. Open your Event List on Mobile to review all providers together."}
+            </p>
+          )}
           {existingPackageSubmitHref ? (
             <Link
               href={
@@ -1635,7 +1932,7 @@ function CustomerEventListReviewSession() {
               }
               className="mt-6 flex min-h-[52px] w-full items-center justify-center gap-2 rounded-full bg-primary px-6 text-sm font-semibold text-white shadow-[0_8px_20px_rgb(9_59_38/0.14)] outline-none transition-[transform,background-color,box-shadow] hover:-translate-y-0.5 hover:bg-primary-hover focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 motion-reduce:transform-none"
             >
-              Continue to Submit Booking
+              Review and submit booking request
 
               <ArrowRight
                 aria-hidden="true"
@@ -1707,7 +2004,31 @@ function CustomerEventListReviewSession() {
                 </>
               )}
             </>
-          ) : null}
+          ) : (
+            <div className="mt-6 space-y-3">
+              <button
+                type="button"
+                disabled
+                aria-describedby="event-list-booking-unavailable"
+                className="flex min-h-[52px] w-full cursor-not-allowed items-center justify-center gap-2 rounded-full bg-primary px-6 text-sm font-semibold text-white opacity-50"
+              >
+                Review and submit booking request
+                <ArrowRight
+                  aria-hidden="true"
+                  className="size-4"
+                />
+              </button>
+
+              <p
+                id="event-list-booking-unavailable"
+                role="status"
+                className="text-center text-sm font-medium leading-6 text-feasta-text-secondary"
+              >
+                Booking review is unavailable until your saved selections
+                meet the current booking requirements.
+              </p>
+            </div>
+          )}
         </section>
       </main>
 
@@ -2748,35 +3069,6 @@ function formatRefundPercentage(
   )}%`;
 }
 
-function packageReviewHref(
-  href: string,
-): string {
-  const [
-    pathname,
-    query = "",
-  ] =
-    href.split(
-      "?",
-      2,
-    );
-
-  const parameters =
-    new URLSearchParams(
-      query,
-    );
-
-  parameters.set(
-    "reviewList",
-    "1",
-  );
-
-  const serialized =
-    parameters.toString();
-
-  return serialized
-    ? `${pathname}?${serialized}`
-    : pathname;
-}
 import {getCustomerBookingPaymentAgreements, type BookingAgreementDisclosure} from "@/lib/customer/bookings/customer-booking-agreement";
 import {BookingPaymentAgreementReview} from "@/components/customer/bookings/booking-payment-agreement-review";
 
@@ -2784,4 +3076,13 @@ import {BookingPaymentAgreementReview} from "@/components/customer/bookings/book
 export function CustomerEventListReview() {
   const session = useCustomerEventListSession();
   return <CustomerEventListReviewSession key={session.generation} />;
+}
+
+function SavedReviewDetails({value}: {value: unknown}) {
+  if (value === null || value === undefined) return null;
+  if (Array.isArray(value)) return <ul className="ml-4 list-disc space-y-1">{value.map((item, index) => <li key={index}><SavedReviewDetails value={item} /></li>)}</ul>;
+  if (typeof value === "object") return <dl className="mt-2 space-y-2 break-words">{Object.entries(value).map(([key, item]) => (
+    <div key={key}><dt className="font-semibold">{key.replace(/([A-Z])/g, " $1").replace(/^./, letter => letter.toUpperCase())}</dt><dd className="text-feasta-text-secondary"><SavedReviewDetails value={item} /></dd></div>
+  ))}</dl>;
+  return <span>{typeof value === "boolean" ? value ? "Yes" : "No" : String(value)}</span>;
 }

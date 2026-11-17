@@ -1,3 +1,5 @@
+import 'event_list/event_list_controller.dart';
+import 'event_list/event_list_scope.dart';
 import 'booking_payment_requirement.dart';
 import 'widgets/package_option_cards.dart' show CustomizationProgress;
 import 'event_list/save_review_configuration.dart';
@@ -82,6 +84,7 @@ class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
   bool _checkingSavedAttempt = true;
   bool _reconciliationRequired = false;
   String? _requestReference;
+  BookingAttempt? _confirmedRecovery;
   Future<void> _restoreSavedAttempt() async {
     try {
       final attempt = await _attemptCoordinator.restore();
@@ -178,9 +181,49 @@ class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
     }
   }
 
+  Future<void> Function() _savedListCleanup() {
+    final list = EventListScope.maybeOf(context);
+    final session = list?.authentication.session;
+    final entries = list?.list?.entries
+        .where(
+          (entry) =>
+              entry.providerId == widget.provider.id &&
+              entry.packageId == widget.eventPackage.id,
+        )
+        .toList();
+    return () async {
+      if (list == null ||
+          session == null ||
+          entries == null ||
+          entries.isEmpty ||
+          session.customerUid != _session?.uid ||
+          !_canRecover) {
+        return;
+      }
+      final outcome = await list.removeSubmitted(
+        entries,
+        session: session,
+        isCurrent: () => _canRecover,
+      );
+      if (outcome == EventListResult.persistenceError && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Booking recorded, but the Event List could not be updated. Do not submit again.',
+            ),
+          ),
+        );
+      }
+    };
+  }
+
   Future<void> _checkPreviousRequest() async {
-    if (!_canRecover || isSubmitting) return;
-    setState(() => isSubmitting = true);
+    if (!_canRecover || isSubmitting || _savingAttempt) return;
+    final cleanup = _savedListCleanup();
+    setState(() {
+      isSubmitting = true;
+      _confirmedRecovery = null;
+    });
     try {
       final attempt = await _attemptCoordinator.restore();
       if (!_canRecover || attempt == null) return;
@@ -199,6 +242,11 @@ class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
       }
       setState(() {
         _reconciliationRequired = !rejected;
+        _confirmedRecovery =
+            reconciled.status == BookingAttemptStatus.confirmedExisting &&
+                reconciled.result != null
+            ? reconciled
+            : null;
         _attemptMessage = rejected
             ? 'Request ${attempt.clientRequestId} was confirmed rejected before creation. Review and explicitly acknowledge current agreements and refund policies before preparing another request.'
             : reconciled.result != null &&
@@ -210,6 +258,11 @@ class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
           reconciled.result != null &&
           _canRecover &&
           mounted) {
+        if (attempt.selectionIdentity == bookingSelectionIdentity(_selection)) {
+          await cleanup();
+          if (!mounted || !_canRecover) return;
+        }
+        if (!mounted) return;
         await Navigator.of(context).push<void>(
           CustomizationSessionRoute<void>(
             session: _session,
@@ -225,6 +278,87 @@ class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
           () => _attemptMessage =
               'Cannot verify the previous request. Sign in with the original account and retry Check previous request, or contact FEASTA support. The saved request has been retained.',
         );
+      }
+    } finally {
+      if (mounted) setState(() => isSubmitting = false);
+    }
+  }
+
+  Future<void> _startNewBookingRequest() async {
+    final confirmed = _confirmedRecovery;
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (!_canRecover ||
+        isSubmitting ||
+        _savingAttempt ||
+        confirmed == null ||
+        confirmed.uid != uid ||
+        confirmed.status != BookingAttemptStatus.confirmedExisting ||
+        confirmed.result == null) {
+      return;
+    }
+    setState(() => isSubmitting = true);
+    try {
+      final accepted = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Start a new booking request?'),
+          content: const Text(
+            'Your existing booking will remain in booking history. A new request '
+            'will be created separately. Review and acknowledge the current '
+            'agreements and refund policies again.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Start new request'),
+            ),
+          ],
+        ),
+      );
+      if (accepted != true ||
+          !_canRecover ||
+          !identical(_confirmedRecovery, confirmed) ||
+          FirebaseAuth.instance.currentUser?.uid != uid) {
+        return;
+      }
+      final current = await _attemptCoordinator.restore();
+      if (!_canRecover ||
+          FirebaseAuth.instance.currentUser?.uid != uid ||
+          !identical(_confirmedRecovery, confirmed) ||
+          current?.clientRequestId != confirmed.clientRequestId ||
+          current?.status != BookingAttemptStatus.confirmedExisting ||
+          current?.result == null) {
+        return;
+      }
+      await _attemptCoordinator.close(confirmed.clientRequestId);
+      if (!_canRecover || FirebaseAuth.instance.currentUser?.uid != uid) return;
+      _agreements.select(_selection, ownerId: null);
+      _refunds.select(_selection, ownerId: null);
+      _reviewedAgreementKeys.clear();
+      _reviewedRefundKeys.clear();
+      _selectReviews();
+      setState(() {
+        _confirmedRecovery = null;
+        _reconciliationRequired = false;
+        _requestReference = null;
+        _attemptMessage =
+            'Previous request completed. Review and acknowledge '
+            'current agreements and refund policies to prepare a new request.';
+      });
+    } catch (error, stack) {
+      debugPrint('Cannot complete booking recovery: $error\n$stack');
+      if (mounted) {
+        setState(() {
+          _confirmedRecovery = null;
+          _reconciliationRequired = true;
+          _attemptMessage =
+              'Cannot complete the previous request. Check previous '
+              'request again before starting a new booking request.';
+        });
       }
     } finally {
       if (mounted) setState(() => isSubmitting = false);
@@ -412,10 +546,22 @@ class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
                   ),
           ),
           OutlinedButton.icon(
-            onPressed: isSubmitting ? null : _checkPreviousRequest,
+            onPressed: isSubmitting || _savingAttempt
+                ? null
+                : _checkPreviousRequest,
             icon: const Icon(Icons.refresh),
             label: const Text('Check previous request'),
           ),
+          if (_confirmedRecovery != null &&
+              _confirmedRecovery!.uid ==
+                  FirebaseAuth.instance.currentUser?.uid &&
+              _authorized)
+            OutlinedButton(
+              onPressed: isSubmitting || _savingAttempt
+                  ? null
+                  : _startNewBookingRequest,
+              child: const Text('Start a new booking request'),
+            ),
           if (_requestReference != null)
             ExpansionTile(
               tilePadding: EdgeInsets.zero,
@@ -493,6 +639,7 @@ class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
     if (!widget.preparationOnly) unawaited(_restoreSavedAttempt());
     _session?.addListener(_sessionChanged);
     _attemptAuth = FirebaseAuth.instance.authStateChanges().listen((_) {
+      _confirmedRecovery = null;
       _selectReviews();
       if (_session != null) {
         _sessionChanged();
@@ -520,7 +667,7 @@ class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
   }
 
   Future<void> _prepareAttempt() async {
-    if (!_canAct || _savingAttempt) return;
+    if (!_canAct || _savingAttempt || isSubmitting) return;
     setState(() => _savingAttempt = true);
     try {
       final attempt = await _attemptCoordinator.prepare(
@@ -650,6 +797,7 @@ class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
       return;
     }
 
+    final cleanup = _savedListCleanup();
     setState(() => isSubmitting = true);
     String? dispatchedId;
     try {
@@ -738,6 +886,8 @@ class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
         'providerRequestIds': result.providerRequestIds,
         'created': result.created,
       });
+      if (!mounted || !_canAct) return;
+      await cleanup();
       if (!mounted || !_canAct) return;
       Navigator.pushAndRemoveUntil(
         context,

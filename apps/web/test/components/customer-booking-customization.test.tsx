@@ -1,11 +1,21 @@
 vi.mock("firebase/auth", () => ({onAuthStateChanged: () => () => {}}));
+// Existing booking regressions exercise local Event List behavior explicitly.
+vi.mock("@/lib/customer/event-list/customer-event-list-cloud-transport", () => ({
+  get CUSTOMER_EVENT_LIST_CLOUD_ENABLED() { return mocks.cloudEnabled; },
+  subscribeCustomerEventListCloud: vi.fn(),
+  sendCustomerEventListMutation: vi.fn(),
+  readCustomerEventListCloud: (...args: unknown[]) => mocks.cloudRead(...args),
+}));
 import type {ComponentProps} from "react";
 import {cleanup, fireEvent, render, screen, waitFor, within} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import {beforeEach, describe, expect, it, vi} from "vitest";
+import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
+import {fromWebList} from "@/lib/customer/event-list/customer-event-list-cloud-contract";
+import type {CloudListState} from "@/lib/customer/event-list/customer-event-list-cloud-controller";
+import type {RecoverySnapshot} from "@/lib/customer/event-list/customer-event-list-cloud-recovery";
 
 import {BookingOfferSelection} from "@/components/customer/bookings/booking-offer-selection";
-import {addCustomerEventListItem, removeCustomerEventListItem, readCustomerEventList, CUSTOMER_EVENT_LIST_STORAGE_KEY,
+import {addCustomerEventListItem, removeCustomerEventListItem, readCustomerEventList, useCustomerEventList, CUSTOMER_EVENT_LIST_STORAGE_KEY,
   type CustomerPackageEventListItem} from "@/lib/customer/event-list/customer-event-list";
 import {
   omitUntrustedBookingCustomization,
@@ -22,6 +32,12 @@ import type {PublicPackageDetail} from "@/lib/customer/discovery/marketplace-typ
 import type {CustomerRefundPolicyDisclosure} from "@/lib/customer/bookings/customer-refund-policy-client";
 
 const mocks = vi.hoisted(() => ({
+  cloudEnabled: false,
+  cloudState: {status: "idle", document: null, error: null, pendingRevision: null} as CloudListState,
+  cloudRecovery: null as RecoverySnapshot | null,
+  cloudSave: vi.fn(),
+  cloudRead: vi.fn(),
+  cloudEdit: vi.fn(),
   auth: {currentUser: null as {uid: string} | null, authStateReady: vi.fn(async () => {})},
   checkAvailability: vi.fn(),
   loadCalendar: vi.fn(async (_providerId: string, month: string) => ({month, dates: [] as Array<{date: string; state: "booked" | "on_hold" | "unavailable"}>})),
@@ -30,6 +46,12 @@ const mocks = vi.hoisted(() => ({
   reconcile: vi.fn(),
   replace: vi.fn(),
 }));
+
+vi.mock("@/lib/customer/event-list/use-customer-event-list-cloud-async", () => ({
+  useCustomerEventListCloudAsync: () => ({enabled: mocks.cloudEnabled, state: mocks.cloudState,
+    recovery: mocks.cloudRecovery, saveItemAsync: mocks.cloudSave, editCanonicalConfigurationAsync: mocks.cloudEdit}),
+}));
+afterEach(() => { mocks.cloudEnabled = false; mocks.cloudRecovery = null; });
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({replace: mocks.replace, push: vi.fn()}),
@@ -1230,6 +1252,138 @@ describe("Event List explicit restore and edit", () => {
       detail={detail(v2)} eventServices={[]} />);
     return {unrelatedKey, unrelated};
   }
+  it("opens Step 3 only after restoring and validating the exact saved configuration", async () => {
+    const value = saved(true); addCustomerEventListItem(value);
+    mocks.checkAvailability.mockResolvedValue([{providerId: PROVIDER_ID, available: true, reasonCode: null, message: "Available"}]);
+    mocks.loadDisclosures.mockResolvedValue({acknowledgementsRequired: true, policies: [primaryPolicy()]});
+    render(<EventCustomizationExperience draftOwner="customer:customer-a" eventListEditProviderId={PROVIDER_ID}
+      eventListReviewIntent detail={detail(true)} eventServices={[]} />);
+    await screen.findByRole("button", {name: "Submit booking request"}, {timeout: 5000});
+    expect(screen.getByText("Saved ballroom")).toBeVisible();
+    expect(screen.getByText("No peanuts")).toBeVisible();
+    expect(screen.getAllByText(/Fish/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Garden/).length).toBeGreaterThan(0);
+    expect(screen.getByRole("button", {name: "Submit booking request"})).toBeDisabled();
+    expect(readCustomerEventList()[0]).toMatchObject({configuration: value.configuration});
+    expect(mocks.submitBooking).not.toHaveBeenCalled();
+  });
+  it.each(["missing", "provider", "customer", "changed", "invalid", "normal", "intent-only"])("does not jump to review for %s navigation", async scenario => {
+    const value = saved(true);
+    if (scenario === "changed") value.configuration!.expectedPackageRevision = 6;
+    if (scenario === "invalid") value.configuration!.event.guestCount = 1;
+    if (scenario !== "missing") addCustomerEventListItem(value);
+    if (scenario === "customer") mocks.auth.currentUser = {uid: "customer-b"};
+    mocks.checkAvailability.mockResolvedValue([{providerId: PROVIDER_ID, available: true, reasonCode: null, message: "Available"}]);
+    render(<EventCustomizationExperience draftOwner="customer:customer-a"
+      eventListEditProviderId={scenario === "intent-only" ? undefined : scenario === "provider" ? "wrong-provider" : PROVIDER_ID}
+      eventListReviewIntent={scenario !== "normal"} detail={detail(true)} eventServices={[]} />);
+    if (["changed", "invalid", "normal"].includes(scenario)) await screen.findByText(/Saved configuration restored/);
+    else if (scenario !== "intent-only") await screen.findByText(scenario === "customer" ? /Your session changed/ : /no other draft has been loaded/);
+    await new Promise(resolve => setTimeout(resolve, 450));
+    expect(screen.queryByRole("button", {name: "Submit booking request"})).toBeNull();
+    expect(screen.getByLabelText(/^Complete event address/)).toBeVisible();
+    expect(mocks.submitBooking).not.toHaveBeenCalled();
+  });
+  it.each(["success", "success-empty", "success-edited", "success-provider", "failure", "confirmed_created", "confirmed_rejected", "unresolved"])("updates the submitted Event List only after %s", async outcome => {
+    const value = saved(true);
+    addCustomerEventListItem(value);
+    if (outcome !== "success-empty") addCustomerEventListItem({...value, packageId: "unrelated-package", packageHref: "/customer/packages/unrelated-package"});
+    mocks.checkAvailability.mockResolvedValue([{providerId: PROVIDER_ID, available: true, reasonCode: null, message: "Available"}]);
+    mocks.loadCalendar.mockImplementation(async (_providerId: string, month: string) => ({month, dates: []}));
+    mocks.loadDisclosures.mockResolvedValue({acknowledgementsRequired: true, policies: [primaryPolicy()]});
+    const booking = {bookingId: "booking_completed", mainEventId: "booking_completed", providerRequestIds: ["request_completed"], created: true};
+    mocks.submitBooking.mockImplementation(async () => {
+      if (outcome === "success-edited") addCustomerEventListItem({...value,
+        configuration: {...value.configuration!, event: {...value.configuration!.event, specialRequest: "Newer edit"}}});
+      if (outcome === "success-provider") {
+        removeCustomerEventListItem(value.packageId);
+        addCustomerEventListItem({...value, providerId: "different-provider"});
+      }
+      return booking;
+    });
+    if (outcome === "failure") mocks.submitBooking.mockRejectedValue(new Error("Request failed"));
+    mocks.reconcile.mockResolvedValue({outcome, booking});
+    function ListCount() {
+      const {count} = useCustomerEventList();
+      return <output aria-label="Event List count">{count}</output>;
+    }
+    render(<><ListCount /><EventCustomizationExperience draftOwner="customer:customer-a" eventListEditProviderId={PROVIDER_ID}
+      eventListReviewIntent detail={detail(true)} eventServices={[]} /></>);
+    const submit = await screen.findByRole("button", {name: "Submit booking request"}, {timeout: 5000});
+    if (outcome.startsWith("success") || outcome === "failure") {
+      await waitFor(() => expect(screen.getAllByRole("checkbox", {name: /I have reviewed/})).toHaveLength(2), {timeout: 5000});
+      for (const checkbox of screen.getAllByRole("checkbox", {name: /I have reviewed/})) fireEvent.click(checkbox);
+      await waitFor(() => expect(submit).toBeEnabled());
+      fireEvent.click(submit);
+    } else fireEvent.click(screen.getByRole("button", {name: "Check Previous Request"}));
+    if (outcome.startsWith("success") || outcome === "confirmed_created") {
+      await waitFor(() => expect(mocks.replace).toHaveBeenCalledWith("/customer/bookings?submitted=booking_completed"));
+      expect(readCustomerEventList().map(item => item.type !== "custom_menu" && item.packageId)).toEqual(outcome === "success-empty" ? [] : outcome === "success-edited" || outcome === "success-provider" ? [PACKAGE_ID, "unrelated-package"] : ["unrelated-package"]);
+      await waitFor(() => expect(screen.getByLabelText("Event List count")).toHaveTextContent(outcome === "success-empty" ? "0" : outcome === "success-edited" || outcome === "success-provider" ? "2" : "1"));
+    } else {
+      await screen.findByText(outcome === "failure" ? "Request failed" : outcome === "confirmed_rejected" ? /Previous request was confirmed rejected/ : /Previous request is unresolved/);
+      expect(readCustomerEventList()).toHaveLength(2);
+      expect(mocks.replace).not.toHaveBeenCalled();
+    }
+  });
+  it("opens Mobile cloud editing at Step 1 and saves through the canonical update path", async () => {
+    mocks.cloudEnabled = true;
+    const document = fromWebList("customer-a", [saved()], null);
+    const entry = document.entries[0];
+    entry.href = null;
+    entry.configuration!.themeChoice = "custom";
+    entry.configuration!.customTheme = "Mobile rustic theme";
+    entry.configuration!.specialRequest = "Mobile provider instructions";
+    delete entry.configuration!.selectedEventServices;
+    mocks.cloudState = {status: "ready", document, error: null, pendingRevision: null};
+    mocks.cloudRead.mockResolvedValue(document);
+    mocks.cloudEdit.mockResolvedValue({requestId: "canonical-mobile-save", revision: 1, status: "awaiting_snapshot"});
+    await open(false, false);
+    await screen.findByText(/Saved configuration restored/);
+    expect(screen.getByText("Step 1 of 3")).toBeVisible();
+    expect(screen.getByLabelText(/^Complete event address/)).toHaveValue("Saved ballroom");
+    expect(screen.getByLabelText(/^Number of guests/)).toHaveValue(100);
+    fireEvent.change(screen.getByLabelText(/^Special requests/i), {target: {value: "Edited in Step 1"}});
+    fireEvent.click(screen.getByRole("button", {name: "Confirm restored options"}));
+    fireEvent.click(screen.getByRole("button", {name: "Continue"}));
+    fireEvent.click(screen.getByRole("button", {name: "Review booking"}));
+    fireEvent.click(screen.getByRole("button", {name: "Save to Event List"}));
+    await screen.findByText(/Cloud save accepted/);
+    expect(mocks.cloudEdit).toHaveBeenCalledWith(entry, expect.objectContaining({
+      event: expect.objectContaining({specialRequest: "Edited in Step 1"}),
+    }));
+    expect(mocks.cloudSave).not.toHaveBeenCalled();
+    expect(mocks.submitBooking).not.toHaveBeenCalled();
+    expect(entry.configuration!.customTheme).toBe("Mobile rustic theme");
+    expect(readCustomerEventList()).toHaveLength(0);
+  });
+  it("reviews a single Mobile provider directly at Step 3 and submits after agreement checks", async () => {
+    mocks.cloudEnabled = true;
+    const document = fromWebList("customer-a", [saved(true)], null);
+    const entry = document.entries[0]; entry.href = null;
+    entry.configuration!.selectedAddOns = [];
+    entry.configuration!.themeChoice = "custom";
+    entry.configuration!.customTheme = "Rustic lights";
+    entry.configuration!.specialRequest = "Provider instructions";
+    delete entry.configuration!.selectedEventServices;
+    mocks.cloudState = {status: "ready", document, error: null, pendingRevision: null};
+    mocks.cloudRead.mockResolvedValue(document);
+    mocks.checkAvailability.mockResolvedValue([{providerId: PROVIDER_ID, available: true, reasonCode: null, message: "Available"}]);
+    mocks.loadDisclosures.mockResolvedValue({acknowledgementsRequired: true, policies: [primaryPolicy()]});
+    mocks.submitBooking.mockResolvedValue({bookingId: "booking_mobile", mainEventId: "event_mobile", providerRequestIds: ["request_mobile"], created: true});
+    render(<EventCustomizationExperience draftOwner="customer:customer-a" eventListEditProviderId={PROVIDER_ID}
+      eventListReviewIntent detail={detail(true)} eventServices={[]} />);
+    const submit = await screen.findByRole("button", {name: "Submit booking request"}, {timeout: 5000});
+    expect(screen.getByText("Step 3 of 3")).toBeVisible();
+    expect(screen.queryByText(/Saved Mobile package choices require/)).toBeNull();
+    expect(submit).toBeDisabled();
+    await waitFor(() => expect(screen.getAllByRole("checkbox", {name: /I have reviewed/})).toHaveLength(2));
+    for (const checkbox of screen.getAllByRole("checkbox", {name: /I have reviewed/})) fireEvent.click(checkbox);
+    await waitFor(() => expect(submit).toBeEnabled());
+    fireEvent.click(submit);
+    await waitFor(() => expect(mocks.submitBooking).toHaveBeenCalledOnce());
+    expect(mocks.submitBooking.mock.calls[0][0]).toMatchObject({packageId: PACKAGE_ID, specialRequest: "No peanuts Provider instructions"});
+  });
   it("restores intentionally, edits and saves the same entry while preserving other entries and drafts", async () => {
     const other = {...saved(), packageId: "other-package", packageHref: "/customer/packages/other-package"};
     addCustomerEventListItem(other);
@@ -1350,14 +1504,33 @@ describe("Review Booking Event List save", () => {
       addonIds: ["music"], serviceTier: "full_service", packageThemeId: "theme_garden",
       themeInspiration: {notes: "Rustic lights", referenceSetupId: "setup-one"},
     });
-    render(<EventCustomizationExperience detail={detail} eventServices={[service]}
+    const view = render(<EventCustomizationExperience detail={detail} eventServices={[service]}
       planningOnly={planningOnly} draftOwner={owner} />);
     await screen.findByText(/Draft restored/);
     if (!planningOnly) await screen.findByText("Maria's Catering is available");
     fireEvent.click(screen.getByRole("button", {name: "Continue"}));
     fireEvent.click(screen.getByRole("button", {name: "Review booking"}));
+    lastReviewRerender = () => view.rerender(<EventCustomizationExperience detail={detail}
+      eventServices={[service]} planningOnly={planningOnly} draftOwner={owner} />);
     return screen.getByRole("button", {name: /^(Save to|Add to|Already in) Event List$/});
   }
+  let lastReviewRerender: () => void;
+  it("updates the rendered booking save status when the accepted request is server-confirmed", async () => {
+    mocks.cloudEnabled = true;
+    mocks.cloudState = {status: "ready", document: fromWebList("customer-a", [], null), error: null, pendingRevision: null};
+    mocks.cloudSave.mockResolvedValue({requestId: "booking-ui-request-1", revision: 1, status: "awaiting_snapshot"});
+    fireEvent.click(await review());
+    await screen.findByText(/Cloud save accepted\. Waiting for Firestore confirmation/);
+    const savedItem = mocks.cloudSave.mock.calls[0][0] as CustomerPackageEventListItem;
+    mocks.cloudState = {status: "ready", document: {...fromWebList("customer-a", [savedItem], null), revision: 1}, error: null, pendingRevision: null};
+    mocks.cloudRecovery = {status: "confirmed", requestId: "booking-ui-request-1", acceptedRevision: 1, error: null};
+    lastReviewRerender();
+    await screen.findByText(/Cloud Event List confirmed/);
+    expect(screen.queryByText(/Cloud save accepted\. Waiting/)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", {name: "Already in Event List"})).toBeDisabled();
+    expect(readCustomerEventList()).toHaveLength(0);
+    expect(mocks.submitBooking).not.toHaveBeenCalled();
+  });
   it.each([false])("saves all selections, replaces by identity and prevents downgrade; guest=%s", async guest => {
     mocks.auth.currentUser = guest ? null : {uid: "customer-a"};
     const save = await review(guest);

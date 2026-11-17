@@ -13,9 +13,11 @@ import '../authentication/data/repositories/feasta_repository.dart';
 import '../chat/chat_screen.dart';
 import 'booking_details_screen.dart';
 import 'customer_booking_presentation.dart';
+import 'customer_booking_status_filter.dart';
 import 'customer_bookings_controller.dart';
 import 'full_payment_presentation.dart';
 import 'payment_required_screen.dart';
+import 'independent_booking_display.dart';
 
 class CustomerBookingsScreen extends StatefulWidget {
   const CustomerBookingsScreen({super.key, this.source});
@@ -31,25 +33,7 @@ class _CustomerBookingsScreenState extends State<CustomerBookingsScreen> {
   String _filter = 'All';
   String _query = '';
   bool _matches(BookingModel b) {
-    final terminal = const [
-      'completed',
-      'cancelled',
-      'expired',
-      'rejected',
-    ].contains(b.status);
-    final pending = const [
-      'pending',
-      'pending_provider_approval',
-      'needs_provider_replacement',
-      'accepted',
-      'waiting_payment',
-      'waiting_for_down_payment',
-      'payment_processing',
-    ].contains(b.status);
-    return (_filter == 'All' ||
-            (_filter == 'Past' && terminal) ||
-            (_filter == 'Pending' && pending) ||
-            (_filter == 'Upcoming' && !terminal && !pending)) &&
+    return customerBookingStatusMatchesFilter(b.status, _filter) &&
         '${b.providerBusinessName} ${b.packageName} ${b.eventType} ${b.bookingCode}'
             .toLowerCase()
             .contains(_query.toLowerCase().trim());
@@ -135,19 +119,14 @@ class _CustomerBookingsScreenState extends State<CustomerBookingsScreen> {
                 }
 
                 final bookings = controller.bookings.where(_matches).toList()
-                  ..sort((a, b) {
-                    bool past(BookingModel value) => const [
-                      'completed',
-                      'cancelled',
-                      'expired',
-                      'rejected',
-                    ].contains(value.status);
-                    if (past(a) != past(b)) return past(a) ? 1 : -1;
-                    final order = (a.eventDate ?? DateTime(9999)).compareTo(
-                      b.eventDate ?? DateTime(9999),
-                    );
-                    return past(a) ? -order : order;
-                  });
+                  ..sort(
+                    (a, b) => compareCustomerBookingCreatedNewest(
+                      a.createdAt,
+                      a.id,
+                      b.createdAt,
+                      b.id,
+                    ),
+                  );
 
                 if (controller.bookings.isEmpty) {
                   return RefreshIndicator(
@@ -418,11 +397,17 @@ class BookingCard extends StatelessWidget {
   }
 
   @override
-  Widget build(BuildContext context) => BookingLifecycleBuilder(
-    booking: booking,
-    builder: (context, label, message) =>
-        _buildContent(context, label, message),
-  );
+  Widget build(BuildContext context) =>
+      booking.hasIndependentProviderAssignments
+      ? IndependentBookingSummary(
+          booking: booking,
+          onDetails: () => _openDetails(context),
+        )
+      : BookingLifecycleBuilder(
+          booking: booking,
+          builder: (context, label, message) =>
+              _buildContent(context, label, message),
+        );
 
   Widget _buildContent(BuildContext context, String? label, String? message) {
     final statusLabel = label ?? this.statusLabel;

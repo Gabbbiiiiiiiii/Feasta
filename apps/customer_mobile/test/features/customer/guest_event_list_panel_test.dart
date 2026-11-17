@@ -14,13 +14,19 @@ class AllowedGuestAuth extends EventAuth {
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  // The store serializes work through a process-wide Future. Keep scenarios in
+  // one fake-async zone so later tests do not await a previous test's dead zone.
+  final scenarios = <String, Future<void> Function(WidgetTester)>{};
+  void scenario(String name, Future<void> Function(WidgetTester) body) {
+    scenarios[name] = body;
+  }
 
   late AllowedGuestAuth auth;
   late EventListController controller;
   late MemoryEventStorage memory;
   bool signedOut = true;
 
-  setUp(() {
+  void reset() {
     memory = MemoryEventStorage();
     auth = AllowedGuestAuth()..switchTo(null);
     signedOut = true;
@@ -29,12 +35,12 @@ void main() {
       authentication: auth,
       signedOutGuest: () => signedOut,
     );
-  });
+  }
 
-  tearDown(() {
+  void dispose() {
     controller.dispose();
     auth.dispose();
-  });
+  }
 
   Future<void> showPanel(WidgetTester tester) async {
     await tester.pumpWidget(
@@ -50,9 +56,9 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  testWidgets('guest Clear All requires confirmation', (tester) async {
+  scenario('guest Clear All requires confirmation', (tester) async {
+    await controller.store.guestAddPackage(entry(), authorize: () {});
     expect(await controller.load(), EventListResult.loaded);
-    expect(await controller.addPackage(entry()), EventListResult.saved);
 
     await showPanel(tester);
 
@@ -71,9 +77,9 @@ void main() {
     expect(find.text('Package 0'), findsOneWidget);
   });
 
-  testWidgets('guest Clear All removes saved packages', (tester) async {
+  scenario('guest Clear All removes saved packages', (tester) async {
+    await controller.store.guestAddPackage(entry(), authorize: () {});
     expect(await controller.load(), EventListResult.loaded);
-    expect(await controller.addPackage(entry()), EventListResult.saved);
 
     await showPanel(tester);
 
@@ -83,7 +89,10 @@ void main() {
     expect(controller.list!.entries, hasLength(1));
 
     await tester.tap(find.widgetWithText(FilledButton, 'Clear All'));
-    await tester.pumpAndSettle();
+    // Bounded frame pumping after the asynchronous guest storage mutation.
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 350));
+    await tester.pump(const Duration(milliseconds: 100));
 
     expect(controller.list!.entries, isEmpty);
     expect(find.text('Your Event List is empty.'), findsOneWidget);
@@ -95,9 +104,9 @@ void main() {
       isNull,
     );
   });
-  testWidgets('guest can view and remove a saved package', (tester) async {
+  scenario('guest can view and remove a saved package', (tester) async {
+    await controller.store.guestAddPackage(entry(), authorize: () {});
     expect(await controller.load(), EventListResult.loaded);
-    expect(await controller.addPackage(entry()), EventListResult.saved);
 
     await showPanel(tester);
 
@@ -115,10 +124,9 @@ void main() {
     expect(controller.list!.entries, isEmpty);
   });
 
-  testWidgets('panel hides saved items after an account change', (
-    tester,
-  ) async {
-    await controller.addPackage(entry());
+  scenario('panel hides saved items after an account change', (tester) async {
+    await controller.store.guestAddPackage(entry(), authorize: () {});
+    expect(await controller.load(), EventListResult.loaded);
     await showPanel(tester);
 
     expect(find.text('Package 0'), findsOneWidget);
@@ -131,10 +139,11 @@ void main() {
     expect(find.textContaining('Your account session changed'), findsOneWidget);
   });
 
-  testWidgets('panel does not expose items after guest permission is lost', (
+  scenario('panel does not expose items after guest permission is lost', (
     tester,
   ) async {
-    await controller.addPackage(entry());
+    await controller.store.guestAddPackage(entry(), authorize: () {});
+    expect(await controller.load(), EventListResult.loaded);
     await showPanel(tester);
 
     expect(find.text('Package 0'), findsOneWidget);
@@ -146,4 +155,23 @@ void main() {
     expect(find.text('Package 0'), findsNothing);
     expect(find.byTooltip('Remove Package 0'), findsNothing);
   });
+  testWidgets(
+    'guest scenarios: ${scenarios.length} isolated fixtures in one storage zone',
+    (tester) async {
+      for (final scenario in scenarios.entries) {
+        debugPrint('SCENARIO START: ${scenario.key}');
+        reset();
+        try {
+          await scenario.value(tester);
+          await tester.pumpWidget(const SizedBox.shrink());
+          await tester.pumpAndSettle();
+          debugPrint('SCENARIO PASS: ${scenario.key}');
+        } catch (error, stack) {
+          fail('${scenario.key}: $error\n$stack');
+        } finally {
+          dispose();
+        }
+      }
+    },
+  );
 }

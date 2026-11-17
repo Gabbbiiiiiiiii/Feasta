@@ -98,6 +98,11 @@ void main() {
           await controller.addPackage(entry());
           final prior = controller.list;
           final gate = Completer<void>(), entered = Completer<void>();
+          addTearDown(() {
+            if (!gate.isCompleted) gate.complete();
+            memory.readGate = null;
+            memory.writeGate = null;
+          });
           if (stage == 'read') {
             memory.readGate = gate;
             memory.enteredRead = entered;
@@ -133,7 +138,7 @@ void main() {
                 ? 2
                 : 1,
           );
-          expect(calls, 0);
+          expect(calls, stage == 'read' ? 1 : 0);
           if (transition == 'duplicate') {
             expect(controller.list, same(prior));
           } else {
@@ -148,7 +153,7 @@ void main() {
             expect(await pending, EventListResult.unauthorized);
             expect(controller.list, isNull);
             expect(controller.error, isNull);
-            expect(calls, 0);
+            expect(calls, stage == 'read' ? 1 : 0);
             controller = EventListController(
               store: controller.store,
               authentication: auth,
@@ -164,12 +169,27 @@ void main() {
                       : EventListResult.saved
                 : EventListResult.unauthorized,
           );
-          expect(calls, transition == 'duplicate' ? 1 : 0);
+          expect(
+              calls,
+              transition == 'duplicate'
+                  ? (stage == 'read' ? 3 : 1)
+                  : (stage == 'read' ? 2 : 0),
+            );
           if (transition != 'duplicate') expect(controller.list, isNull);
           auth.emit();
-          expect(calls, 1);
+          expect(
+              calls,
+              transition == 'duplicate'
+                  ? (stage == 'read' ? 3 : 1)
+                  : (stage == 'read' ? 3 : 1),
+            );
           auth.emit();
-          expect(calls, 1);
+          expect(
+              calls,
+              transition == 'duplicate'
+                  ? (stage == 'read' ? 3 : 1)
+                  : (stage == 'read' ? 3 : 1),
+            );
           memory.readGate = null;
           memory.writeGate = null;
           if (auth.uid == null) auth.switchTo('customer_A');
@@ -198,9 +218,9 @@ void main() {
       expect(await controller.load(), EventListResult.loaded);
       expect(controller.list!.ownerUid, 'customer_B');
       expect(controller.list!.entries, isEmpty);
-      expect(calls, 2);
+      expect(calls, 4);
       auth.emit();
-      expect(calls, 2);
+      expect(calls, 4);
     },
   );
 }

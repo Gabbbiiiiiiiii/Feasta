@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/security/runtime_security.dart';
@@ -14,16 +15,35 @@ import '../authentication/data/repositories/feasta_repository.dart';
 import 'payment_status_screen.dart';
 
 class PaymentRequiredScreen extends StatefulWidget {
-  const PaymentRequiredScreen({required this.booking, super.key});
+  const PaymentRequiredScreen({
+    required this.booking,
+    this.loadRequests,
+    this.createSession,
+    super.key,
+  });
 
   final BookingModel booking;
+  final Future<List<CustomerProviderPaymentRequest>> Function()? loadRequests;
+  final Future<
+    ({
+      String paymentId,
+      String checkoutUrl,
+      String providerRequestId,
+      String bookingId,
+    })
+  >
+  Function({
+    required String providerRequestId,
+    required CustomerPaymentChoice paymentChoice,
+  })?
+  createSession;
 
   @override
   State<PaymentRequiredScreen> createState() => _PaymentRequiredScreenState();
 }
 
 class _PaymentRequiredScreenState extends State<PaymentRequiredScreen> {
-  final FeastaRepository repository = FeastaRepository();
+  late final FeastaRepository repository = FeastaRepository();
 
   late Future<List<CustomerProviderPaymentRequest>> _requestsFuture;
 
@@ -41,7 +61,8 @@ class _PaymentRequiredScreenState extends State<PaymentRequiredScreen> {
   }
 
   Future<List<CustomerProviderPaymentRequest>> _loadRequests() {
-    return repository.customerPaymentRequests(booking: booking);
+    return widget.loadRequests?.call() ??
+        repository.customerPaymentRequests(booking: booking);
   }
 
   void _reload() {
@@ -64,7 +85,9 @@ class _PaymentRequiredScreenState extends State<PaymentRequiredScreen> {
     });
 
     try {
-      final session = await repository.createProviderPaymentSession(
+      final createSession =
+          widget.createSession ?? repository.createProviderPaymentSession;
+      final session = await createSession(
         providerRequestId: request.id,
         paymentChoice: option.choice,
       );
@@ -112,7 +135,12 @@ class _PaymentRequiredScreenState extends State<PaymentRequiredScreen> {
         ..hideCurrentSnackBar()
         ..showSnackBar(
           SnackBar(
-            content: Text(error.toString().replaceAll('Exception: ', '')),
+            content: Text(
+              error is FirebaseFunctionsException &&
+                      error.code == 'failed-precondition'
+                  ? 'Payment options have changed. Please review the refreshed options.'
+                  : 'We could not start secure checkout. Please try again.',
+            ),
           ),
         );
 
@@ -146,8 +174,7 @@ class _PaymentRequiredScreenState extends State<PaymentRequiredScreen> {
       body: FutureBuilder<List<CustomerProviderPaymentRequest>>(
         future: _requestsFuture,
         builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting &&
-              snapshot.data == null) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(
               child: Padding(
                 padding: EdgeInsets.all(AppSpacing.screen),

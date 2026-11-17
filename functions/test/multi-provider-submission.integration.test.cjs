@@ -235,3 +235,65 @@ test("independent packages can use distinct authoritative payment terms", async 
   for (const request of requests) validate({authorized: {providerId: request.providerId,
     requestData: request}, mainEventData: event, now: new Date()});
 });
+
+test("disclosures expose authoritative rollout and never create booking records", async () => {
+  const f = fixture();
+  const result = await f.disclose();
+  assert.deepEqual(result.refundPolicies, {rolloutMode: "off", acknowledgementsRequired: false, policies: []});
+  assert.equal(result.agreements.length, 2);
+  assert.equal(bookings(f).length, 0);
+  assert.equal(f.commits.at(-1).length, 0);
+});
+
+test("distinct provider instructions and customer arrangements survive one event submission", async () => {
+  const f = fixture();
+  for (const [index, row] of f.input.submission.selections.entries()) {
+    row.configuration.event.specialRequest = `Instructions ${index}`;
+    row.configuration.willArrangeOwnAddOns = true;
+    row.configuration.customerArrangedAddOnsNote = `Own services ${index}`;
+    row.configuration.customTheme = `Theme ${index}`;
+    row.configuration.themeChoice = "custom";
+  }
+  await f.disclose();
+  const result = await submit(f.firestore, identity, f.input);
+  const rows = result.providerRequestIds.map(id => f.records[`providerRequests/${id}`]);
+  assert.deepEqual(rows.map(row => row.specialRequest), ["Instructions 0", "Instructions 1"]);
+  assert.deepEqual(rows.map(row => row.customerArrangedAddOnsNote), ["Own services 0", "Own services 1"]);
+  assert.deepEqual(rows.map(row => row.customTheme), ["Theme 0", "Theme 1"]);
+  assert.equal(f.records[`mainEvents/${result.mainEventId}`].specialRequest, "");
+});
+
+for (const [field, value] of [["willArrangeOwnAddOns", "true"], ["customerArrangedAddOnsNote", 12],
+  ["customTheme", 12], ["themeChoice", "unknown"]]) {
+  test(`invalid provider note field ${field} creates nothing`, async () => {
+    const f = fixture();
+    f.input.submission.selections[1].configuration[field] = value;
+    await assert.rejects(submit(f.firestore, identity, f.input), {code: "invalid-argument"});
+    assert.equal(bookings(f).length, 0);
+  });
+}
+
+test("add-on and non-catering contracts cannot be partially submitted", async () => {
+  for (const mutate of [
+    f => {f.input.submission.selections[1].configuration.selectedAddOns = [{addonId: "addon_123"}];},
+    f => {f.records["providers/provider_002"].providerServiceType = "event_service";},
+  ]) {
+    const f = fixture(); mutate(f);
+    await assert.rejects(submit(f.firestore, identity, f.input));
+    assert.equal(bookings(f).length, 0);
+  }
+});
+
+test("parent upfront total sums authoritative integer centavos without floating point drift", async () => {
+  const f = fixture();
+  for (const [index, price] of [1.1, 2.2].entries()) {
+    const data = f.records[`packages/package_00${index + 1}`];
+    data.price = price; data.serviceOptions.drop_off.price = price;
+  }
+  await f.disclose();
+  const result = await submit(f.firestore, identity, f.input);
+  const event = f.records[`mainEvents/${result.mainEventId}`];
+  assert.equal(event.totalAmount, 3.3);
+  assert.equal(event.downPaymentAmount, 3.3);
+  assert.equal(event.remainingBalance, 0);
+});

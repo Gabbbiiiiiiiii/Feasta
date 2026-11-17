@@ -3,7 +3,7 @@ vi.mock("firebase/auth", () => ({onAuthStateChanged: () => () => {}}));
 import {beforeEach, expect, it, vi} from "vitest";
 import {
   addCustomerEventListItem, customerEventListReadiness, normalizeConfiguration,
-  readCustomerEventList, CUSTOMER_EVENT_LIST_STORAGE_KEY,
+  readCustomerEventList, removeSubmittedCustomerEventListItems, CUSTOMER_EVENT_LIST_STORAGE_KEY,
   type CustomerEventListConfiguration, type CustomerPackageEventListItem,
 } from "@/lib/customer/event-list/customer-event-list";
 
@@ -25,6 +25,32 @@ const item: CustomerPackageEventListItem = {providerId: "provider-one", packageI
   providerName: "Provider", packageName: "Package", price: 10000, imageUrl: null,
   packageHref: "/customer/packages/package-one"};
 beforeEach(() => window.localStorage.clear());
+
+it.each([
+  {expectedPackageRevision: 4},
+  {serviceTier: "drop_off" as const},
+  {packageThemeId: "new-theme"},
+  {foodChoiceSelections: [{groupId: "main", optionIds: ["fish"]}]},
+  {selectedDecorations: ["New flowers"]},
+  {selectedEventServices: []},
+  {themeInspiration: {notes: "New notes", referenceSetupId: null}},
+  {event: {...configuration().event, specialRequest: "New request"}},
+])("retains a configuration edited after its submission snapshot: %j", change => {
+  addCustomerEventListItem({...item, configuration: configuration()});
+  const submitted = readCustomerEventList();
+  expect(addCustomerEventListItem({...item, configuration: {...configuration(), ...change}})).toBe(true);
+  const edited = readCustomerEventList();
+  removeSubmittedCustomerEventListItems(submitted);
+  expect(readCustomerEventList()).toEqual(edited);
+});
+
+it("removes only the unchanged submitted package snapshot", () => {
+  addCustomerEventListItem({...item, configuration: configuration()});
+  const submitted = readCustomerEventList();
+  addCustomerEventListItem({...item, packageId: "other-package"});
+  removeSubmittedCustomerEventListItems(submitted);
+  expect(readCustomerEventList()).toEqual([expect.objectContaining({packageId: "other-package"})]);
+});
 
 it("round-trips V2 configuration and protects it from package-only saves", () => {
   const config = configuration();

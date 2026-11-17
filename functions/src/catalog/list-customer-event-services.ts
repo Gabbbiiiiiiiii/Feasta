@@ -9,6 +9,8 @@ type PublicEventService = {
  id: string; providerId: string; providerName: string; name: string;
  description: string | null; category: string | null; price: number | null;
  imageUrl: string | null; source: string; bookingLeadTimeDays: number | null;
+ // Null preserves legacy browsing, but cannot satisfy mixed-booking metadata.
+ revision: number | null;
 };
 type PublicEventServicePage = {services: PublicEventService[]};
 function isPublicProviderId(value: string): boolean {
@@ -224,6 +226,9 @@ export async function loadPublicEventServices(
 
         return [{
           id: candidate.documentId,
+          revision: typeof candidate.data.revision === "number" &&
+            Number.isSafeInteger(candidate.data.revision) && candidate.data.revision > 0
+            ? candidate.data.revision : null,
           providerId:
             candidate.providerId,
           providerName:

@@ -286,21 +286,23 @@ class _HomeHeader extends StatelessWidget {
                       controller.authentication.session.customerUid != null;
 
                   final selectionCount = authenticated
-                      ? (controller.list?.entries.fold<int>(
-                              0,
-                              (total, entry) =>
-                                  total +
-                                  1 +
-                                  (entry.configuration?.selectedAddOns
-                                          .where(
-                                            (addon) =>
-                                                addon.source ==
-                                                'feasta_addon_provider',
-                                          )
-                                          .length ??
-                                      0),
-                            ) ??
-                            0)
+                      ? controller.cloudActive
+                            ? controller.selectionCount
+                            : (controller.list?.entries.fold<int>(
+                                    0,
+                                    (total, entry) =>
+                                        total +
+                                        1 +
+                                        (entry.configuration?.selectedAddOns
+                                                .where(
+                                                  (addon) =>
+                                                      addon.source ==
+                                                      'feasta_addon_provider',
+                                                )
+                                                .length ??
+                                            0),
+                                  ) ??
+                                  0)
                       : 0;
 
                   return IconButton(

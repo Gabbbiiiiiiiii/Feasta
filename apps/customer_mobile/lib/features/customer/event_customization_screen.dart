@@ -67,11 +67,13 @@ class EventCustomizationScreen extends StatefulWidget {
     this.initialServiceTier,
     this.onServiceChanged,
     this.initialConfiguration,
+    this.openReviewOnLoad = false,
     super.key,
   });
 
   final EventDraftPersistence? draftPersistence;
   final CustomerEventListConfiguration? initialConfiguration;
+  final bool openReviewOnLoad;
   final CustomizationSession? session;
 
   final ValueChanged<String>? onServiceChanged;
@@ -968,6 +970,27 @@ class _EventCustomizationScreenState extends State<EventCustomizationScreen>
       _savedSnapshot = _snapshotIdentity;
       _draftDirty = false;
       setState(() => _draftReady = true);
+      if (widget.openReviewOnLoad &&
+          !_draftBlocked &&
+          _restoredProblems.isEmpty &&
+          _unavailableRestoredAddons.isEmpty) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted ||
+              !_draftReady ||
+              !_canEditDraft ||
+              !_restoredNeedsReview ||
+              _restoredProblems.isNotEmpty ||
+              _unavailableRestoredAddons.isNotEmpty) {
+            return;
+          }
+
+          // This does not submit a booking.
+          // The existing review pathway still checks current eligibility.
+          _confirmRestoredOptions();
+          setState(() => _step = 1);
+          unawaited(_continueToReview());
+        });
+      }
     } catch (_) {
       if (_canPublish) {
         _draftBlocked = true;
