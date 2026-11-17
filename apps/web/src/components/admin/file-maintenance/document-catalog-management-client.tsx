@@ -235,7 +235,6 @@ export function AgreementTemplateManagement({
           >
             {agreement.name}
           </button>
-          <p className="mt-1 break-all text-xs text-muted-foreground">{agreement.code}</p>
         </div>
       ),
     },
@@ -243,6 +242,19 @@ export function AgreementTemplateManagement({
       id: "type",
       header: "Type",
       cell: (agreement) => agreementTypes.find((type) => type.code === agreement.agreementTypeCode)?.name ?? "Not assigned",
+    },
+    {
+      id: "audience",
+      header: "Audience",
+      cell: (agreement) => {
+        const type = agreementTypes.find((item) => item.code === agreement.agreementTypeCode);
+        switch (type?.targetAudience) {
+          case "provider": return "Providers only";
+          case "platform": return "Customer only";
+          case "custom": return "Custom";
+          default: return "Not assigned";
+        }
+      },
     },
     {
       id: "publication",

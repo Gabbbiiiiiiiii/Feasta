@@ -2,20 +2,15 @@ import Link from "next/link";
 
 import {ProviderAgreementAcceptanceSection} from "@/components/provider/provider-agreement-acceptance";
 import {Button} from "@/components/ui/button";
-import {getOptionalAccountContext} from "@/lib/auth/session";
+import {requireProvider} from "@/lib/auth/session";
 import {getProviderOnboardingAgreement} from "@/lib/documents/document-catalog-service";
 import {loadProviderAgreementAcceptanceSummary} from "@/lib/provider/provider-agreement-download";
 
 export default async function ProviderAgreementPage() {
-  const account = await getOptionalAccountContext({checkRevoked: true});
+  const account = await requireProvider();
   const [agreement, acceptance] = await Promise.all([
     getProviderOnboardingAgreement(),
-    account?.role === "provider"
-      ? loadProviderAgreementAcceptanceSummary({
-          uid: account.uid,
-          providerId: account.providerId,
-        })
-      : Promise.resolve(null),
+    loadProviderAgreementAcceptanceSummary({uid: account.uid, providerId: account.providerId}),
   ]);
   const acceptedCopyAvailable = Boolean(acceptance?.snapshot);
   const downloadLabel = acceptedCopyAvailable
@@ -55,11 +50,9 @@ export default async function ProviderAgreementPage() {
                   <span className="font-medium text-foreground">Version:</span>{" "}
                   {agreement.version}
                 </p>
-                {account?.role === "provider" ? (
-                  <Button variant="secondary" size="compact" asChild className="w-fit">
-                    <a href={downloadHref}>{downloadLabel}</a>
-                  </Button>
-                ) : null}
+                <Button variant="secondary" size="compact" asChild className="w-fit">
+                  <a href={downloadHref}>{downloadLabel}</a>
+                </Button>
               </div>
             ) : null}
           </header>

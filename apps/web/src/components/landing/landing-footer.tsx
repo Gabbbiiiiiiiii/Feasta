@@ -193,13 +193,13 @@ export function LandingFooter() {
             <ul className="mt-5 space-y-3.5">
               <li>
                 <Link href="/privacy" target="_blank" rel="noopener noreferrer" className={footerLinkClassName}>
-                  Privacy
+                  Privacy Policy
                 </Link>
               </li>
 
               <li>
                 <Link href="/terms" target="_blank" rel="noopener noreferrer" className={footerLinkClassName}>
-                  Terms
+                  Customer Terms &amp; Conditions
                 </Link>
               </li>
             </ul>

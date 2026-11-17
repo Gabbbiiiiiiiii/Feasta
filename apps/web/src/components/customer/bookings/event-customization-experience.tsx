@@ -3374,6 +3374,11 @@ function BookingReview({
                   : ""}
           </p>
 
+          <nav aria-label="Customer legal policies" className="flex flex-wrap gap-x-4 gap-y-2 text-xs text-muted-foreground">
+            <a href="/terms" target="_blank" rel="noopener noreferrer" className="underline underline-offset-2">Customer Terms &amp; Conditions</a>
+            <a href="/privacy" target="_blank" rel="noopener noreferrer" className="underline underline-offset-2">Privacy Policy</a>
+          </nav>
+
           <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center lg:justify-end">
             <Button
               type="button"
