@@ -30,7 +30,7 @@ export default function AdminDashboardLoading() {
       </header>
 
       <section
-        className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"
+        className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5"
         aria-label="Loading dashboard statistics"
       >
         <SummaryCard
@@ -52,6 +52,7 @@ export default function AdminDashboardLoading() {
           label="Pending provider verifications"
           loading
         />
+        <SummaryCard label="Open complaints" loading />
       </section>
 
       <section className="grid gap-4 xl:grid-cols-[minmax(0,2fr)_minmax(18rem,1fr)]">
