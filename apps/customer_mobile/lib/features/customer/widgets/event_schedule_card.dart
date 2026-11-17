@@ -71,26 +71,44 @@ class EventScheduleCard extends StatelessWidget {
             onTap: onDateTap,
           ),
           const SizedBox(height: AppSpacing.sm),
-          Row(
-            children: [
-              Expanded(
-                child: _ScheduleField(
-                  icon: Icons.schedule_outlined,
-                  label: 'Start time',
-                  value: _formatTime(context, startTime),
-                  onTap: onStartTap,
-                ),
-              ),
-              const SizedBox(width: AppSpacing.sm),
-              Expanded(
-                child: _ScheduleField(
-                  icon: Icons.schedule_rounded,
-                  label: 'End time',
-                  value: _formatTime(context, endTime),
-                  onTap: onEndTap,
-                ),
-              ),
-            ],
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final textScale = MediaQuery.textScalerOf(context).scale(1);
+              final stackTimeFields =
+                  constraints.maxWidth < 300 || textScale >= 1.2;
+
+              final startField = _ScheduleField(
+                icon: Icons.schedule_outlined,
+                label: 'Start time',
+                value: _formatTime(context, startTime),
+                onTap: onStartTap,
+              );
+
+              final endField = _ScheduleField(
+                icon: Icons.schedule_rounded,
+                label: 'End time',
+                value: _formatTime(context, endTime),
+                onTap: onEndTap,
+              );
+
+              if (stackTimeFields) {
+                return Column(
+                  children: [
+                    startField,
+                    const SizedBox(height: AppSpacing.sm),
+                    endField,
+                  ],
+                );
+              }
+
+              return Row(
+                children: [
+                  Expanded(child: startField),
+                  const SizedBox(width: AppSpacing.sm),
+                  Expanded(child: endField),
+                ],
+              );
+            },
           ),
         ],
       ),
@@ -143,8 +161,8 @@ class _ScheduleField extends StatelessWidget {
                     const SizedBox(height: 2),
                     Text(
                       value,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
+                      maxLines: 2,
+                      softWrap: true,
                       style: AppTypography.bodySmall.copyWith(
                         color: AppColors.mainText,
                         fontWeight: FontWeight.w800,

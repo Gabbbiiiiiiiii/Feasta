@@ -129,10 +129,9 @@ typedef BestFitAvailabilityLoader =
 /// Keeps the last successful result visible while a new search runs.
 class BestFitController extends ChangeNotifier {
   BestFitController({
-    required FeastaRepository repository,
-    BestFitAvailabilityLoader availability = checkMarketplaceAvailability,
-  }) : _repository = repository,
-       _availability = availability;
+    required this._repository,
+    this._availability = checkMarketplaceAvailability,
+  });
 
   final FeastaRepository _repository;
   final BestFitAvailabilityLoader _availability;
@@ -263,11 +262,15 @@ Future<BestFitResult> loadBestFit(
       .where((provider) => provider.providerServiceType != 'catering')
       .toList();
   final offers = <BestFitOffer>[];
-  final services = serviceProviders.isEmpty
-      ? Future.value(<AddonModel>[])
-      : attempt(
-          () => repository.bestFitEventServices(serviceProviders.first.id),
-        );
+
+  // Read all eligible provider service catalogs. A failed catalog
+  // does not discard successful catalogs from other providers.
+  final services = Future.wait<List<AddonModel>>(
+    serviceProviders.map(
+      (provider) => attempt(() => repository.bestFitEventServices(provider.id)),
+    ),
+  );
+
   await Future.wait(
     packageProviders.map((provider) async {
       final packages = await attempt(
@@ -326,7 +329,7 @@ Future<BestFitResult> loadBestFit(
   final serviceById = {
     for (final provider in serviceProviders) provider.id: provider,
   };
-  for (final service in await services) {
+  for (final service in (await services).expand((items) => items)) {
     final provider = serviceById[service.providerId];
     final cents = _centavos(service.price);
     if (provider == null ||

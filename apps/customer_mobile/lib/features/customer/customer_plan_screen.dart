@@ -1,6 +1,7 @@
 import '../../core/domain/service_category.dart';
 import '../authentication/data/repositories/feasta_repository.dart';
 import 'best_fit_controller.dart';
+import 'best_fit_venue_guard.dart';
 import 'widgets/event_schedule_card.dart';
 import 'package:flutter/material.dart';
 
@@ -13,7 +14,6 @@ import '../../shared/models/customer_address_model.dart';
 import '../../shared/models/customer_profile_preferences.dart';
 import '../../shared/models/event_plan_preferences.dart';
 import '../authentication/data/services/customer_address_storage_service.dart';
-import 'customer_search_screen.dart';
 import 'location_picker_screen.dart';
 import 'plan_matching_services_screen.dart';
 
@@ -115,7 +115,6 @@ class _CustomerPlanScreenState extends State<CustomerPlanScreen> {
   TimeOfDay? _endTime;
 
   bool _loadingAddress = true;
-  bool _loadingPlanPreferences = true;
   final Set<String> _selectedThemes = <String>{};
 
   List<ServiceCategory> _serviceCategories = [];
@@ -234,7 +233,6 @@ class _CustomerPlanScreenState extends State<CustomerPlanScreen> {
       }
 
       _customThemeController.text = saved.customTheme;
-      _loadingPlanPreferences = false;
     });
   }
 
@@ -259,60 +257,6 @@ class _CustomerPlanScreenState extends State<CustomerPlanScreen> {
     }
 
     return value;
-  }
-
-  Future<void> _toggleTheme(String theme) async {
-    if (theme == 'Not sure yet') {
-      setState(() {
-        _selectedThemes
-          ..clear()
-          ..add('Not sure yet');
-        _customThemeController.clear();
-      });
-
-      await _savePlanPreferences();
-      return;
-    }
-
-    if (_selectedThemes.contains(theme)) {
-      setState(() {
-        _selectedThemes.remove(theme);
-
-        if (theme == 'Custom theme') {
-          _customThemeController.clear();
-        }
-      });
-
-      await _savePlanPreferences();
-      return;
-    }
-
-    if (_selectedThemes.length >= 3) {
-      ScaffoldMessenger.of(context)
-        ..hideCurrentSnackBar()
-        ..showSnackBar(
-          const SnackBar(
-            backgroundColor: AppColors.primary,
-            behavior: SnackBarBehavior.floating,
-            content: Text(
-              'You can choose up to 3 themes.',
-              style: TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ),
-        );
-
-      return;
-    }
-    setState(() {
-      _selectedThemes
-        ..remove('Not sure yet')
-        ..add(theme);
-    });
-
-    await _savePlanPreferences();
   }
 
   double? _parseBudget(TextEditingController controller) {
@@ -414,7 +358,7 @@ class _CustomerPlanScreenState extends State<CustomerPlanScreen> {
       return 'Enter how many guests are attending.';
     }
 
-    if (!_selectedAddress.hasCoordinates) {
+    if (_loadingAddress || !isConfirmedBestFitVenue(_selectedAddress)) {
       return 'Set the exact event location and confirm the map pin.';
     }
 
@@ -470,20 +414,6 @@ class _CustomerPlanScreenState extends State<CustomerPlanScreen> {
     }
 
     return null;
-  }
-
-  void _openCategory(String query) {
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => CustomerSearchScreen(
-          initialQuery: query,
-          initialEventType: _selectedEventType,
-          initialLocation: _selectedAddress.city,
-          initialMinBudget: _parseBudget(_minBudgetController),
-          initialMaxBudget: _parseBudget(_maxBudgetController),
-        ),
-      ),
-    );
   }
 
   bool _editingBestFit = false;
@@ -601,7 +531,7 @@ class _CustomerPlanScreenState extends State<CustomerPlanScreen> {
                     final eventType = occasion.id;
                     return SizedBox(
                       width: itemWidth,
-                      height: 42,
+                      height: 56,
                       child: _EventTypeTile(
                         label: occasion.label,
                         selected: eventType == _selectedEventType,
@@ -675,83 +605,6 @@ class _CustomerPlanScreenState extends State<CustomerPlanScreen> {
               },
             ),
 
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Do you have a theme?',
-                  style: AppTypography.sectionTitle.copyWith(
-                    color: AppColors.mainText,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  'Optional - Choose up to 3',
-                  style: AppTypography.caption.copyWith(
-                    color: AppColors.secondaryTextAccessible,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: AppSpacing.sm),
-
-            if (_loadingPlanPreferences)
-              const LinearProgressIndicator(
-                color: AppColors.primary,
-                backgroundColor: AppColors.primarySubtle,
-              )
-            else
-              _DynamicThemeSuggestions(
-                eventType: _selectedEventLabel,
-                selectedThemes: _selectedThemes,
-                onThemeTap: _toggleTheme,
-              ),
-
-            if (_selectedThemes.contains('Custom theme')) ...[
-              const SizedBox(height: AppSpacing.sm),
-              TextField(
-                controller: _customThemeController,
-                textInputAction: TextInputAction.done,
-                onChanged: (_) {
-                  _savePlanPreferences();
-                },
-                decoration: InputDecoration(
-                  labelText: 'Your custom theme',
-                  hintText: 'e.g. Celestial garden',
-                  filled: true,
-                  fillColor: AppColors.surface,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(AppRadius.large),
-                    borderSide: const BorderSide(color: AppColors.border),
-                  ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(AppRadius.large),
-                    borderSide: const BorderSide(color: AppColors.border),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(AppRadius.large),
-                    borderSide: const BorderSide(
-                      color: AppColors.primary,
-                      width: 1.5,
-                    ),
-                  ),
-                ),
-              ),
-            ],
-
-            if (_selectedThemes.isNotEmpty &&
-                !_selectedThemes.contains('Not sure yet')) ...[
-              const SizedBox(height: AppSpacing.sm),
-              _ThemePreviewCard(
-                themes: _selectedThemes.toList(growable: false),
-                customTheme: _customThemeController.text.trim(),
-              ),
-            ],
-
-            const SizedBox(height: AppSpacing.xl),
-
             Text(
               'Where is your event?',
               style: AppTypography.sectionTitle.copyWith(
@@ -764,6 +617,7 @@ class _CustomerPlanScreenState extends State<CustomerPlanScreen> {
             _LocationSelectionCard(
               address: _selectedAddress,
               loading: _loadingAddress,
+              confirmed: isConfirmedBestFitVenue(_selectedAddress),
               onTap: _editLocation,
             ),
 
@@ -852,44 +706,6 @@ class _CustomerPlanScreenState extends State<CustomerPlanScreen> {
                 ),
               ),
             ),
-            const SizedBox(height: AppSpacing.xl),
-
-            Text(
-              'Quick services',
-              style: AppTypography.sectionTitle.copyWith(
-                color: AppColors.mainText,
-                fontWeight: FontWeight.w900,
-              ),
-            ),
-            const SizedBox(height: AppSpacing.sm),
-
-            Row(
-              children: [
-                Expanded(
-                  child: _QuickServiceCard(
-                    icon: Icons.restaurant_menu_outlined,
-                    label: 'Catering',
-                    onTap: () => _openCategory('Catering'),
-                  ),
-                ),
-                const SizedBox(width: AppSpacing.sm),
-                Expanded(
-                  child: _QuickServiceCard(
-                    icon: Icons.camera_alt_outlined,
-                    label: 'Photography',
-                    onTap: () => _openCategory('Photography'),
-                  ),
-                ),
-                const SizedBox(width: AppSpacing.sm),
-                Expanded(
-                  child: _QuickServiceCard(
-                    icon: Icons.auto_awesome_outlined,
-                    label: 'Styling',
-                    onTap: () => _openCategory('Event Styling'),
-                  ),
-                ),
-              ],
-            ),
           ],
         ),
       ),
@@ -938,24 +754,19 @@ class _EventTypeTile extends StatelessWidget {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                SizedBox(
-                  width: 18,
-                  child: AnimatedOpacity(
-                    opacity: selected ? 1 : 0,
-                    duration: const Duration(milliseconds: 120),
-                    child: const Icon(
-                      Icons.check_rounded,
-                      size: 16,
-                      color: AppColors.primaryStrong,
-                    ),
+                if (selected) ...[
+                  const Icon(
+                    Icons.check_rounded,
+                    size: 16,
+                    color: AppColors.primaryStrong,
                   ),
-                ),
-                const SizedBox(width: 2),
+                  const SizedBox(width: 2),
+                ],
                 Flexible(
                   child: Text(
                     label,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
+                    maxLines: 2,
+                    softWrap: true,
                     textAlign: TextAlign.center,
                     style: AppTypography.caption.copyWith(
                       color: selected
@@ -1025,306 +836,27 @@ class _GuestCountCard extends StatelessWidget {
   }
 }
 
-class _ThemeChoiceChip extends StatelessWidget {
-  const _ThemeChoiceChip({
-    required this.label,
-    required this.selected,
-    required this.enabled,
-    required this.onTap,
-  });
-
-  final String label;
-  final bool selected;
-  final bool enabled;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final reduceMotion =
-        MediaQuery.maybeOf(context)?.disableAnimations ?? false;
-
-    return Semantics(
-      button: true,
-      selected: selected,
-      enabled: enabled,
-      label: label,
-      child: Opacity(
-        opacity: enabled ? 1 : 0.45,
-        child: Material(
-          color: selected ? AppColors.primarySubtle : AppColors.surface,
-          borderRadius: BorderRadius.circular(AppRadius.pill),
-          child: InkWell(
-            onTap: enabled ? onTap : null,
-            borderRadius: BorderRadius.circular(AppRadius.pill),
-            child: AnimatedContainer(
-              duration: reduceMotion
-                  ? Duration.zero
-                  : const Duration(milliseconds: 150),
-              curve: Curves.easeOutCubic,
-              padding: const EdgeInsets.symmetric(
-                horizontal: AppSpacing.sm,
-                vertical: AppSpacing.xs,
-              ),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(AppRadius.pill),
-                border: Border.all(
-                  color: selected ? AppColors.primary : AppColors.border,
-                  width: selected ? 1.4 : 1,
-                ),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (selected) ...[
-                    const Icon(
-                      Icons.check_rounded,
-                      size: 16,
-                      color: AppColors.primaryStrong,
-                    ),
-                    const SizedBox(width: 4),
-                  ],
-                  Text(
-                    label,
-                    style: AppTypography.caption.copyWith(
-                      color: selected
-                          ? AppColors.primaryStrong
-                          : AppColors.mainText,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _DynamicThemeSuggestions extends StatelessWidget {
-  const _DynamicThemeSuggestions({
-    required this.eventType,
-    required this.selectedThemes,
-    required this.onThemeTap,
-  });
-
-  final String eventType;
-  final Set<String> selectedThemes;
-  final ValueChanged<String> onThemeTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final suggestedThemes = feastaSuggestedThemesForEvent(eventType);
-    final otherThemes = feastaOtherThemesForEvent(eventType);
-    final notSureSelected = selectedThemes.contains('Not sure yet');
-    final reduceMotion =
-        MediaQuery.maybeOf(context)?.disableAnimations ?? false;
-
-    return AnimatedSwitcher(
-      duration: reduceMotion
-          ? Duration.zero
-          : const Duration(milliseconds: 220),
-      switchInCurve: Curves.easeOutCubic,
-      switchOutCurve: Curves.easeInCubic,
-      transitionBuilder: (Widget child, Animation<double> animation) {
-        final slideAnimation =
-            Tween<Offset>(
-              begin: const Offset(0, 0.04),
-              end: Offset.zero,
-            ).animate(
-              CurvedAnimation(parent: animation, curve: Curves.easeOutCubic),
-            );
-
-        return FadeTransition(
-          opacity: animation,
-          child: SlideTransition(position: slideAnimation, child: child),
-        );
-      },
-      child: Column(
-        key: ValueKey<String>(eventType),
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                width: 32,
-                height: 32,
-                alignment: Alignment.center,
-                decoration: const BoxDecoration(
-                  color: AppColors.primarySubtle,
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(
-                  Icons.auto_awesome_rounded,
-                  color: AppColors.primary,
-                  size: 17,
-                ),
-              ),
-              const SizedBox(width: AppSpacing.xs),
-              Expanded(
-                child: Text(
-                  'Suggested for $eventType',
-                  style: AppTypography.label.copyWith(
-                    color: AppColors.mainText,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: AppSpacing.sm),
-          Wrap(
-            spacing: AppSpacing.xs,
-            runSpacing: AppSpacing.xs,
-            children: suggestedThemes
-                .map((theme) {
-                  return _ThemeChoiceChip(
-                    label: theme,
-                    selected: selectedThemes.contains(theme),
-                    enabled: !notSureSelected,
-                    onTap: () => onThemeTap(theme),
-                  );
-                })
-                .toList(growable: false),
-          ),
-          if (otherThemes.isNotEmpty) ...[
-            const SizedBox(height: AppSpacing.md),
-            Text(
-              'More themes',
-              style: AppTypography.caption.copyWith(
-                color: AppColors.secondaryTextAccessible,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-            const SizedBox(height: AppSpacing.xs),
-            Wrap(
-              spacing: AppSpacing.xs,
-              runSpacing: AppSpacing.xs,
-              children: otherThemes
-                  .map((theme) {
-                    return _ThemeChoiceChip(
-                      label: theme,
-                      selected: selectedThemes.contains(theme),
-                      enabled: !notSureSelected,
-                      onTap: () => onThemeTap(theme),
-                    );
-                  })
-                  .toList(growable: false),
-            ),
-          ],
-          const SizedBox(height: AppSpacing.md),
-          Wrap(
-            spacing: AppSpacing.xs,
-            runSpacing: AppSpacing.xs,
-            children: [
-              _ThemeChoiceChip(
-                label: 'Custom theme',
-                selected: selectedThemes.contains('Custom theme'),
-                enabled: !notSureSelected,
-                onTap: () => onThemeTap('Custom theme'),
-              ),
-              _ThemeChoiceChip(
-                label: 'Not sure yet',
-                selected: selectedThemes.contains('Not sure yet'),
-                enabled: true,
-                onTap: () => onThemeTap('Not sure yet'),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ThemePreviewCard extends StatelessWidget {
-  const _ThemePreviewCard({required this.themes, required this.customTheme});
-
-  final List<String> themes;
-  final String customTheme;
-
-  @override
-  Widget build(BuildContext context) {
-    final labels = themes
-        .map((theme) {
-          if (theme == 'Custom theme' && customTheme.isNotEmpty) {
-            return customTheme;
-          }
-
-          return theme;
-        })
-        .toList(growable: false);
-
-    return Container(
-      padding: const EdgeInsets.all(AppSpacing.sm),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(AppRadius.large),
-        border: Border.all(color: AppColors.border),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 64,
-            height: 64,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              color: AppColors.primarySubtle,
-              borderRadius: BorderRadius.circular(AppRadius.medium),
-            ),
-            child: const Icon(
-              Icons.palette_outlined,
-              color: AppColors.primary,
-              size: 30,
-            ),
-          ),
-          const SizedBox(width: AppSpacing.sm),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  labels.join(' ┬╖ '),
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: AppTypography.label.copyWith(
-                    color: AppColors.mainText,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-                const SizedBox(height: 3),
-                Text(
-                  'WeΓÇÖll prioritize providers with matching portfolios.',
-                  style: AppTypography.caption.copyWith(
-                    color: AppColors.secondaryTextAccessible,
-                    height: 1.3,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 class _LocationSelectionCard extends StatelessWidget {
   const _LocationSelectionCard({
     required this.address,
     required this.loading,
+    required this.confirmed,
     required this.onTap,
   });
 
   final CustomerAddressModel address;
   final bool loading;
+  final bool confirmed;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    final title = loading ? 'Loading location…' : address.displayTitle;
-    final subtitle = loading ? '' : address.displaySubtitle;
+    final title = loading
+        ? 'Loading location…'
+        : confirmed
+        ? address.displayTitle
+        : 'Choose event location';
+    final subtitle = loading || !confirmed ? '' : address.displaySubtitle;
 
     return Material(
       color: AppColors.surface,
@@ -1389,7 +921,7 @@ class _LocationSelectionCard extends StatelessWidget {
                         ),
                       ),
                     ],
-                    if (!loading && address.hasCoordinates) ...[
+                    if (!loading && confirmed) ...[
                       const SizedBox(height: 5),
                       Row(
                         mainAxisSize: MainAxisSize.min,
@@ -1476,10 +1008,6 @@ class _BudgetCard extends StatelessWidget {
           const SizedBox(height: AppSpacing.sm),
           Text(
             'Enter any range from ₱1,000 to ₱1,000,000. Best Fit uses your maximum.',
-            style: Theme.of(context).textTheme.bodySmall,
-          ),
-          Text(
-            'Example: About ₱65,500 for a 100-guest birthday with catering, photography, and videography.',
             style: Theme.of(context).textTheme.bodySmall,
           ),
         ],
@@ -1594,55 +1122,6 @@ class _PlanIntroCard extends StatelessWidget {
             ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _QuickServiceCard extends StatelessWidget {
-  const _QuickServiceCard({
-    required this.icon,
-    required this.label,
-    required this.onTap,
-  });
-
-  final IconData icon;
-  final String label;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: AppColors.surface,
-      borderRadius: BorderRadius.circular(AppRadius.large),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(AppRadius.large),
-        child: Container(
-          height: 92,
-          padding: const EdgeInsets.all(AppSpacing.sm),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(AppRadius.large),
-            border: Border.all(color: AppColors.border),
-          ),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(icon, color: AppColors.primary, size: 25),
-              const SizedBox(height: AppSpacing.xs),
-              Text(
-                label,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                textAlign: TextAlign.center,
-                style: AppTypography.caption.copyWith(
-                  color: AppColors.mainText,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-            ],
-          ),
-        ),
       ),
     );
   }
