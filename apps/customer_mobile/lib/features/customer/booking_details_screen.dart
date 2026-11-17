@@ -857,17 +857,24 @@ class PaymentDetailsCard extends StatelessWidget {
                   amount: booking.totalAmount,
                   upfrontAmount: booking.downPaymentAmount,
                 )
-                ? Column(
+                ? ExpansionTile(
+                    title: const Text('Original payment terms'),
+                    tilePadding: EdgeInsets.zero,
                     children: [
                       _PriceRow(
-                        label: 'Down payment',
+                        label: 'Original deposit amount',
                         amount: booking.downPaymentAmount,
                         accent: true,
                       ),
                       const SizedBox(height: AppSpacing.sm),
                       _PriceRow(
-                        label: 'Remaining balance',
+                        label: 'Original remaining balance',
                         amount: booking.remainingBalance,
+                      ),
+                      const SizedBox(height: AppSpacing.sm),
+                      const Text(
+                        'These are the original package terms, not necessarily the amount due now. '
+                        'Open Manage Payments for your current available payment options.',
                       ),
                     ],
                   )

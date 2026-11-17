@@ -1,6 +1,7 @@
 import 'event_list/event_list_controller.dart';
 import 'event_list/event_list_scope.dart';
 import 'booking_payment_requirement.dart';
+import 'provider_vat_preview.dart';
 import 'widgets/package_option_cards.dart' show CustomizationProgress;
 import 'event_list/save_review_configuration.dart';
 import '../../shared/models/customer_availability.dart';
@@ -1218,6 +1219,10 @@ class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
           ),
           const SizedBox(height: 12),
           _SummaryPrice(
+            key: ValueKey(
+              'vat-${widget.provider.id}-${FirebaseAuth.instance.currentUser?.uid ?? "guest"}',
+            ),
+            providerId: widget.provider.id,
             package: widget.eventPackage,
             addons: data.selectedAddOns,
             serviceTier: data.serviceTier,
@@ -1695,21 +1700,55 @@ class _BookingSubmitBar extends StatelessWidget {
   }
 }
 
-class _SummaryPrice extends StatelessWidget {
+class _SummaryPrice extends StatefulWidget {
   const _SummaryPrice({
+    required this.providerId,
     required this.package,
+    super.key,
     required this.addons,
     this.serviceTier,
     this.guests,
     this.hasUnconfirmedRequests = false,
   });
+  final String providerId;
   final PackageModel package;
   final List<Map<String, dynamic>> addons;
   final String? serviceTier;
   final int? guests;
   final bool hasUnconfirmedRequests;
+
+  @override
+  State<_SummaryPrice> createState() => _SummaryPriceState();
+}
+
+class _SummaryPriceState extends State<_SummaryPrice> {
+  late Future<String> _taxFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _taxFuture = _readTaxStatus();
+  }
+
+  Future<String> _readTaxStatus() => FirebaseAuth.instance.currentUser == null
+      ? Future<String>.value('unknown')
+      : FeastaRepository().getCustomerProviderTaxPreview(widget.providerId);
+
+  @override
+  void didUpdateWidget(covariant _SummaryPrice oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.providerId != widget.providerId) {
+      _taxFuture = _readTaxStatus();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    final package = widget.package;
+    final addons = widget.addons;
+    final serviceTier = widget.serviceTier;
+    final guests = widget.guests;
+    final hasUnconfirmedRequests = widget.hasUnconfirmedRequests;
     final services = preparationServices(package);
     final base = preparationEstimate(
       package,
@@ -1757,6 +1796,50 @@ class _SummaryPrice extends StatelessWidget {
               label: (addon['name'] ?? 'Add-on').toString(),
               value: money(addon['price']),
             ),
+          const SizedBox(height: 12),
+          FutureBuilder<String>(
+            future: _taxFuture,
+            builder: (context, snapshot) {
+              final status = snapshot.hasData ? snapshot.data! : 'unknown';
+              final breakdown = needsSelection
+                  ? null
+                  : customerProviderVatBreakdown(base, status);
+              if (snapshot.connectionState != ConnectionState.done) {
+                return const Text('Checking provider tax verification...');
+              }
+              if (breakdown != null) {
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    _EstimateRow(
+                      label: 'Included provider VAT (12%)',
+                      value: money(breakdown.vatCentavos / 100),
+                    ),
+                    ExpansionTile(
+                      title: const Text('Tax breakdown'),
+                      tilePadding: EdgeInsets.zero,
+                      childrenPadding: EdgeInsets.zero,
+                      children: [
+                        _EstimateRow(
+                          label: 'VAT-exclusive service amount',
+                          value: money(breakdown.exclusiveCentavos / 100),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    const Text(
+                      'VAT is already included in the provider service price, not added to your booking total. Final tax details are set on provider acceptance.',
+                    ),
+                  ],
+                );
+              }
+              return Text(
+                status == 'non_vat'
+                    ? 'Non-VAT provider. No provider VAT component is displayed.'
+                    : 'Provider VAT breakdown is not confirmed. Final tax details are determined when the provider accepts.',
+              );
+            },
+          ),
           const Divider(),
           DefaultTextStyle.merge(
             style: AppTypography.cardTitle.copyWith(

@@ -152,6 +152,13 @@ function CustomerBookingProviderRequestCard({
                 <span className="font-medium">Included provider VAT (12%)</span>
                 <strong>{formatCurrency(request.serviceVat.includedInPriceInCentavos / 100)}</strong>
               </div>
+              <details className="rounded-lg border border-border p-2">
+                <summary className="cursor-pointer font-semibold">Tax breakdown</summary>
+                <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+                  <span>VAT-exclusive service amount</span>
+                  <strong>{formatCurrency((Math.round(request.amount * 100) - request.serviceVat.includedInPriceInCentavos) / 100)}</strong>
+                </div>
+              </details>
               <p className="text-xs text-muted-foreground">
                 VAT is already included in the total service price. No additional charge.
               </p>

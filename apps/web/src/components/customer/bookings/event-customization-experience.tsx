@@ -97,6 +97,8 @@ import {
 import {ProviderDatePicker, type ProviderCalendarCache} from "./provider-date-picker";
 import {PackagePaymentTerms} from "@/components/shared/package-payment-terms";
 import {PriceDisplay} from "@/components/shared/price-display";
+import {getCustomerProviderTaxPreview} from "@/lib/customer/bookings/customer-provider-vat-preview-client";
+import {customerProviderVatBreakdown, type CustomerProviderTaxStatus} from "@/lib/customer/bookings/customer-provider-vat-breakdown";
 import {Button} from "@/components/ui/button";
 import {Input} from "@/components/ui/input";
 import {Textarea} from "@/components/ui/textarea";
@@ -2325,6 +2327,7 @@ function discardAndLeave() {
             <BookingReview
               packageRecord={packageRecord}
               providerName={provider.businessName}
+              providerId={provider.id}
               eventDraft={draft}
               customizationDraft={customizationDraft}
               includedServices={customization.services}
@@ -2912,6 +2915,7 @@ function immediateGuestCountError(
 function BookingReview({
   packageRecord,
   providerName,
+  providerId,
   eventDraft,
   customizationDraft,
   includedServices,
@@ -2949,6 +2953,7 @@ function BookingReview({
     PublicPackageDetail["packageRecord"];
 
   providerName: string;
+  providerId: string;
 
   eventDraft:
     EventDetailsDraft;
@@ -3015,6 +3020,47 @@ function BookingReview({
   onSubmit:
     () => Promise<void>;
 }) {
+  const [taxResult, setTaxResult] = useState<{
+    providerId: string;
+    status: CustomerProviderTaxStatus;
+  } | null>(null);
+
+  useEffect(() => {
+    let active = true;
+
+    void getCustomerProviderTaxPreview(providerId)
+      .then((preview) => {
+        if (active) {
+          setTaxResult({
+            providerId,
+            status: preview.taxStatus,
+          });
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setTaxResult({
+            providerId,
+            status: "unknown",
+          });
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [providerId]);
+
+  const taxStatus =
+    taxResult?.providerId === providerId
+      ? taxResult.status
+      : null;
+
+  const vatBreakdown = customerProviderVatBreakdown(
+    displayedServicePrice,
+    taxStatus,
+  );
+
   const estimatedTotal =
     displayedServicePrice !== null
       ? displayedServicePrice +
@@ -3283,6 +3329,29 @@ function BookingReview({
             <EstimateRow label="Estimated service price" value={displayedServicePrice}
               detail={`${packageRecord.name} · ${eventDraft.guestCount} guests`} />
             <EstimateRow label="Selected FEASTA services" value={selectedEventServicesSubtotal} />
+
+            <div aria-label="Estimated provider tax breakdown" className="rounded-xl border border-feasta-divider bg-secondary/40 p-3">
+              {taxStatus === null ? (
+                <p className="text-sm text-feasta-text-secondary">Checking provider tax verification...</p>
+              ) : vatBreakdown ? (
+                <div className="grid gap-2">
+                  <EstimateRow label="Included provider VAT (12%)" value={vatBreakdown.vatCentavos / 100} />
+                  <details className="rounded-lg border border-feasta-divider p-2">
+                    <summary className="cursor-pointer text-sm font-semibold">Tax breakdown</summary>
+                    <div className="mt-2">
+                      <EstimateRow label="VAT-exclusive service amount" value={vatBreakdown.exclusiveCentavos / 100} />
+                    </div>
+                  </details>
+                  <p className="text-xs text-feasta-text-secondary">VAT is already included in this provider&apos;s service price. No additional charge.</p>
+                </div>
+              ) : (
+                <p className="text-sm text-feasta-text-secondary">
+                  {taxStatus === "non_vat"
+                    ? "Non-VAT provider. No provider VAT component is displayed."
+                    : "Provider VAT breakdown is not confirmed. Final tax details are determined when the provider accepts."}
+                </p>
+              )}
+            </div>
             <div className="flex flex-wrap items-center justify-between gap-3 border-t border-feasta-divider pt-4">
               <p className="text-base font-extrabold text-foreground">Estimated total</p>
               <PriceDisplay amount={estimatedTotal} unknownLabel="Not available" className="[&>span]:text-3xl" />

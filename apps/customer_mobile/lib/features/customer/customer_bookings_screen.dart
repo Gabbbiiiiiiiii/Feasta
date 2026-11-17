@@ -15,7 +15,6 @@ import 'booking_details_screen.dart';
 import 'customer_booking_presentation.dart';
 import 'customer_booking_status_filter.dart';
 import 'customer_bookings_controller.dart';
-import 'full_payment_presentation.dart';
 import 'payment_required_screen.dart';
 import 'independent_booking_display.dart';
 
@@ -1130,12 +1129,7 @@ class _BookingCardActions extends StatelessWidget {
             onPressed: onPayment,
             style: _primaryStyle,
             child: Text(
-              isHistoricalDepositTerms(
-                    amount: booking.totalAmount,
-                    upfrontAmount: booking.downPaymentAmount,
-                  )
-                  ? 'Pay down payment'
-                  : 'Pay full payment',
+              'Manage payments',
               textAlign: TextAlign.center,
               style: AppTypography.button.copyWith(
                 color: Colors.white,

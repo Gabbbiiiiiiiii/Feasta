@@ -495,7 +495,12 @@ class _ProviderPaymentCard extends StatelessWidget {
 
           const SizedBox(height: AppSpacing.md),
 
-          _DetailRow(label: 'Request status', value: _humanize(request.status)),
+          _DetailRow(
+            label: 'Request status',
+            value: request.status == 'waiting_for_down_payment'
+                ? 'Accepted - payment required'
+                : _humanize(request.status),
+          ),
 
           InitialPaymentDeadlineNotice(
             deadline: request.initialPaymentDeadline,
@@ -510,6 +515,18 @@ class _ProviderPaymentCard extends StatelessWidget {
 
           const SizedBox(height: AppSpacing.sm),
 
+          if (request.checkoutOptions.length == 1 &&
+              request.checkoutOptions.single.choice ==
+                  CustomerPaymentChoice.full) ...[
+            const Text(
+              'Full payment required',
+              style: TextStyle(fontWeight: FontWeight.w700),
+            ),
+            if (request.initialPaymentExplanation != null)
+              Text(request.initialPaymentExplanation!),
+            const SizedBox(height: AppSpacing.sm),
+          ],
+
           if (request.serviceVat == null)
             Text(
               'VAT breakdown unavailable for this booking.',
@@ -521,6 +538,17 @@ class _ProviderPaymentCard extends StatelessWidget {
             _DetailRow(
               label: 'Included provider VAT (12%)',
               value: _peso(request.serviceVat!.includedVatInCentavos / 100),
+            ),
+            ExpansionTile(
+              title: const Text('Tax breakdown'),
+              tilePadding: EdgeInsets.zero,
+              childrenPadding: EdgeInsets.zero,
+              children: [
+                _DetailRow(
+                  label: 'VAT-exclusive service amount',
+                  value: _peso(request.serviceVat!.exclusiveInCentavos / 100),
+                ),
+              ],
             ),
             const SizedBox(height: AppSpacing.xxs),
             Text(
@@ -615,7 +643,7 @@ class _PaymentOptionButton extends StatelessWidget {
 
   String get actionLabel {
     if (onlyFullPayment && option.choice == CustomerPaymentChoice.full) {
-      return 'Pay Full Payment';
+      return 'Pay in full';
     }
 
     switch (option.choice) {

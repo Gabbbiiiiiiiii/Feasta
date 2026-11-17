@@ -896,6 +896,34 @@ class FeastaRepository {
         (await getEligiblePreparationAddon(id))?.providerId,
   );
 
+  /// Customer-safe tax classification for an informational booking estimate.
+  /// Private TIN data is never requested or returned to the application.
+  Future<String> getCustomerProviderTaxPreview(String providerId) async {
+    if (_auth.currentUser == null ||
+        !RegExp(r'^[A-Za-z0-9_-]{1,160}$').hasMatch(providerId)) {
+      return 'unknown';
+    }
+    try {
+      final result = await _functions
+          .httpsCallable('getCustomerProviderTaxPreview')
+          .call(<String, dynamic>{'providerId': providerId});
+      if (result.data is! Map) return 'unknown';
+      final response = Map<String, dynamic>.from(result.data as Map);
+      if (response['providerId'] != providerId) return 'unknown';
+      final status = response['taxStatus'];
+      final rate = response['vatRateBps'];
+      if (status == 'vat_registered' && rate == 1200) {
+        return 'vat_registered';
+      }
+      if ((status == 'non_vat' || status == 'unknown') && rate == 0) {
+        return status as String;
+      }
+    } catch (_) {
+      // A missing/unavailable callable must never invent a VAT amount.
+    }
+    return 'unknown';
+  }
+
   /// Disclosure only. Uses the existing regional Functions/App Check setup.
   Future<List<BookingAgreement>> getBookingPaymentAgreementDisclosures(
     BookingAgreementRequest request,

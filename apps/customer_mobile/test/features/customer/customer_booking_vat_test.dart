@@ -17,6 +17,12 @@ void main() {
     final vat = customerBookingVatFromRequest(validRequest);
     expect(vat?.taxType, 'vat_registered');
     expect(vat?.includedVatInCentavos, 214286);
+    expect(vat?.grossInCentavos, 2000000);
+    expect(vat?.exclusiveInCentavos, 1785714);
+    expect(
+      vat!.exclusiveInCentavos + vat.includedVatInCentavos,
+      vat.grossInCentavos,
+    );
   });
 
   test('verified Non-VAT has no VAT component', () {

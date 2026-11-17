@@ -88,6 +88,7 @@ export {
   reviewProviderTaxProfile,
   submitProviderTaxProfile,
 } from "./providers/provider-tax-profile.js";
+export {getCustomerProviderTaxPreview} from "./providers/customer-provider-tax-preview.js";
 export {
   archiveProviderService,
   createProviderService,

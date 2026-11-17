@@ -41,10 +41,14 @@ class CustomerBookingVat {
   const CustomerBookingVat({
     required this.taxType,
     required this.includedVatInCentavos,
+    required this.grossInCentavos,
   });
 
   final String taxType;
   final int includedVatInCentavos;
+  final int grossInCentavos;
+
+  int get exclusiveInCentavos => grossInCentavos - includedVatInCentavos;
 }
 
 /// Display-only projection of the frozen provider-request tax evidence.
@@ -78,9 +82,10 @@ CustomerBookingVat? customerBookingVatFromRequest(
   }
 
   if (taxType == 'non_vat') {
-    return const CustomerBookingVat(
+    return CustomerBookingVat(
       taxType: 'non_vat',
       includedVatInCentavos: 0,
+      grossInCentavos: gross,
     );
   }
 
@@ -97,7 +102,60 @@ CustomerBookingVat? customerBookingVatFromRequest(
   return CustomerBookingVat(
     taxType: 'vat_registered',
     includedVatInCentavos: included.toInt(),
+    grossInCentavos: gross,
   );
+}
+
+/// Explanation from the saved initial-payment eligibility, never device time.
+/// Only server-approved versions/reasons produce customer-facing wording.
+String? customerInitialPaymentExplanation(Map<String, dynamic> request) {
+  final version = request['initialPaymentEligibilitySchemaVersion'];
+  final value = request['initialPaymentEligibility'];
+  if (value is! Map || (version != 1 && version != 2)) {
+    return null;
+  }
+
+  if (value.keys.any((key) => key is! String)) {
+    return null;
+  }
+  final eligibility = Map<String, dynamic>.from(value);
+  if (eligibility['mode'] != 'full_only' ||
+      eligibility['depositEligible'] != false ||
+      eligibility['depositAllowed'] is! bool) {
+    return null;
+  }
+
+  if (eligibility['reason'] == 'deposit_disabled' &&
+      eligibility['depositAllowed'] == false) {
+    return 'Full payment is required under the saved booking payment policy.';
+  }
+
+  if (eligibility['reason'] != 'short_notice' ||
+      eligibility['depositAllowed'] != true) {
+    return null;
+  }
+
+  final hours = eligibility['depositMinimumNoticeHours'];
+  if (hours is! int || hours <= 0 || hours > 24 * 365) {
+    return null;
+  }
+
+  if (version == 2) {
+    if (hours != 72 ||
+        eligibility['authorityTimeSource'] != 'booking_submission' ||
+        eligibility['submittedAt'] == null ||
+        eligibility['evaluatedAt'] == null) {
+      return null;
+    }
+
+    return 'Full payment is required because the booking was submitted fewer than 3 days before the event.';
+  }
+
+  final amount = hours % 24 == 0 ? hours ~/ 24 : hours;
+  final unit = hours % 24 == 0 ? 'day' : 'hour';
+  final plural = amount == 1 ? '' : 's';
+
+  return 'Full payment is required because fewer than $amount $unit$plural remained before the event when this booking was accepted.';
 }
 
 class CustomerProviderPaymentRequest {
@@ -117,6 +175,7 @@ class CustomerProviderPaymentRequest {
     this.remainingBalanceGraceEndsAt,
     required this.checkoutOptions,
     this.initialPaymentDeadline,
+    this.initialPaymentExplanation,
     this.serviceVat,
   });
 
@@ -135,6 +194,7 @@ class CustomerProviderPaymentRequest {
   final DateTime? remainingBalanceGraceEndsAt;
   final List<CustomerPaymentOption> checkoutOptions;
   final InitialPaymentDeadline? initialPaymentDeadline;
+  final String? initialPaymentExplanation;
   final CustomerBookingVat? serviceVat;
 
   bool get canStartCheckout => checkoutOptions.isNotEmpty;
@@ -170,6 +230,7 @@ class CustomerProviderPaymentRequest {
         data['remainingBalanceGraceEndsAt'],
       ),
       initialPaymentDeadline: InitialPaymentDeadline.fromRecord(data),
+      initialPaymentExplanation: customerInitialPaymentExplanation(data),
       serviceVat: customerBookingVatFromRequest(data),
       checkoutOptions: _checkoutOptions(
         data,

@@ -562,7 +562,7 @@ void main() {
         );
         expect(find.textContaining('RAW_FIREBASE'), findsNothing);
         expect(find.textContaining('Pay Minimum'), findsNothing);
-        expect(find.textContaining('Pay Full Payment'), findsOneWidget);
+        expect(find.textContaining('Pay in full'), findsOneWidget);
       },
     );
   }
