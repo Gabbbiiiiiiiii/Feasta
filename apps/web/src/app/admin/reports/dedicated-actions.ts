@@ -43,18 +43,22 @@ export async function loadDedicatedReport(filters: ReportFilters): Promise<Dedic
     filters.type === "quality" ? `Rating: ${filters.rating === "all" ? "All ratings" : "Below 3.0 stars"}; complaint status: ${filters.complaintStatus.replaceAll("_", " ")}` : "",
     directory ? `Account status: ${filters.status}; directory: ${filters.directory === "providers" ? "Registered Vendors" : "Registered Customers"}` : "",
   ].filter(Boolean).join(" | ");
-  const users = new Map<string, Record<string, unknown>>(filters.type === "demand" ? [] : (await records(adminDb.collection("users").select("firstName", "lastName", "displayName", "role", "isActive", "isBlocked", "accountStatus", "email", "phoneNumber", "city", "createdAt"))).map((row) => [row.id, row.data]));
+  const users = new Map<string, Record<string, unknown>>(filters.type === "demand" ? [] : (await records(adminDb.collection("users").select("firstName", "lastName", "displayName", "role", "isActive", "isBlocked", "accountStatus", "email", "phoneNumber", "createdAt"))).map((row) => [row.id, row.data]));
   const locationMatches = (city: unknown) => filters.municipality === "all" || text(city, "").toLowerCase() === filters.municipality.toLowerCase();
   const date = (value: unknown) => iso(value) ? new Date(iso(value)).toLocaleDateString("en-PH", {timeZone: "Asia/Manila"}) : "Unavailable";
   if (directory && filters.directory === "customers") {
-    const events = await records(adminDb.collection("mainEvents").select("customerId", "status"));
+    const [events, customerProfiles] = await Promise.all([
+      records(adminDb.collection("mainEvents").select("customerId", "status")),
+      records(adminDb.collection("customers").select("city")),
+    ]);
+    const customerCities = new Map(customerProfiles.map(({id, data}) => [id, text(data.city, "")]));
     const counts = new Map<string, number>();
     for (const {data} of events) if (data.status !== "draft") counts.set(text(data.customerId), (counts.get(text(data.customerId)) || 0) + 1);
     report.title = "Registered Customers Directory";
     report.headers = ["Full Name", "Email / Phone Number", "Municipality", "Total Bookings Made", "Date Joined", "Status"];
-    report.rows = [...users].filter(([,user]) => user.role === "customer" && locationMatches(user.city) && (filters.status === "all" || accountState(user) === filters.status))
+    report.rows = [...users].filter(([id,user]) => user.role === "customer" && locationMatches(customerCities.get(id)) && (filters.status === "all" || accountState(user) === filters.status))
       .map(([id,user]) => {
-        return [person(user), `${text(user.email)} / ${text(user.phoneNumber)}`, text(user.city), counts.get(id) || 0, date(user.createdAt), accountState(user)];
+        return [person(user), `${text(user.email)} / ${text(user.phoneNumber)}`, customerCities.get(id) || "Unavailable", counts.get(id) || 0, date(user.createdAt), accountState(user)];
       }).sort((a,b) => String(a[0]).localeCompare(String(b[0])));
     report.note = "Current customer accounts. Bookings count submitted events, including later cancellations; draft events are excluded.";
     return report;

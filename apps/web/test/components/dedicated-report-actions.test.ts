@@ -80,11 +80,24 @@ describe("dedicated report server results", () => {
 });
 
 it("shows customer contact details and distinct submitted-booking counts", async () => {
-  mocks.data.users.push({id:"customer-private",data:{firstName:"Customer",lastName:"Name",role:"customer",isActive:true,email:"customer@example.test",phoneNumber:"09123456789",city:"Ormoc City",createdAt:"2026-10-01T00:00:00Z"}});
+  mocks.data.users.push({id:"customer-private",data:{firstName:"Customer",lastName:"Name",role:"customer",isActive:true,email:"customer@example.test",phoneNumber:"09123456789",city:"Stale city",createdAt:"2026-10-01T00:00:00Z"}});
+  mocks.data.customers = [{id:"customer-private",data:{city:" Ormoc City "}}];
   mocks.data.mainEvents[0].data.customerId="customer-private";
   mocks.data.mainEvents[1].data.customerId="customer-private";
-  const result=await loadDedicatedReport({...filters,type:"directory",directory:"customers",status:"Active"});
+  const result=await loadDedicatedReport({...filters,type:"directory",directory:"customers",status:"Active",municipality:"Ormoc City"});
   expect(result.rows).toHaveLength(1);
   expect(result.rows[0].slice(0,4)).toEqual(["Customer Name","customer@example.test / 09123456789","Ormoc City",1]);
   expect(JSON.stringify(result)).not.toContain("private");
+});
+
+it("shows missing or invalid profile cities only in the unfiltered customer directory", async () => {
+  mocks.data.users.push(...["missing", "blank", "invalid"].map((id) => ({
+    id, data: {firstName:id, role:"customer", city:"Ormoc City"},
+  })));
+  mocks.data.customers = [{id:"blank",data:{city:"  "}}, {id:"invalid",data:{city:42}}];
+  const directory = {...filters,type:"directory",directory:"customers"} as const;
+  const all = await loadDedicatedReport(directory);
+  expect(all.rows.map((row) => row[2])).toEqual(["Unavailable","Unavailable","Unavailable"]);
+  const filtered = await loadDedicatedReport({...directory,municipality:"Ormoc City"});
+  expect(filtered.rows).toEqual([]);
 });
