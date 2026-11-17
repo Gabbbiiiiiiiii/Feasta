@@ -54,6 +54,7 @@ describe("explainable page-scoped best fit", () => {
 
   it("matches documented service-area aliases, not provider addresses or arbitrary substrings", () => {
     expect(fit({...provider, serviceAreas: ["City of Ormoc"]}).evidence.area).toBe("match");
+    expect(fit({...provider, serviceAreas: ["Ormoc City, Eastern Visayas"]}).evidence.area).toBe("match");
     expect(fit({...provider, serviceAreas: []}).evidence.area).toBe("unknown");
     expect(fit({...provider, serviceAreas: ["Baybay City, Leyte"]}).evidence.area).toBe("mismatch");
     expect(fit({...provider, serviceAreas: ["near Ormoc City"]}).evidence.area).toBe("unknown");
@@ -80,3 +81,16 @@ it("keeps criterion priority lexicographic and ignores evidence for other provid
   expect(rankProviderBestFits([provider], {...filters, eventContext: null}, new Map([[provider.id, confirmation]]))[0].availability).toBe("unknown");
   expect(rankProviderBestFits([provider], filters, new Map([[provider.id, {...confirmation, providerId: "someone_else"}]]))[0].availability).toBe("unknown");
 });
+
+it.each(["Ormoc City", "Albuera", "Kananga", "Isabel", "Baybay City"])(
+  "matches regional and provincial address labels for %s",
+  (city) => {
+    const context = {...filters, planningContext: {...filters.planningContext,
+      eventVenue: {...filters.planningContext!.eventVenue!, city, province: "Eastern Visayas"},
+    }};
+    expect(fit({...provider, serviceAreas: [`${city}, Leyte`]}, context).evidence.area).toBe("match");
+    expect(fit({...provider, serviceAreas: [`${city}, Cebu`]}, context).evidence.area).toBe("unknown");
+    const otherCity = city === "Ormoc City" ? "Baybay City" : "Ormoc City";
+    expect(fit({...provider, serviceAreas: [`${otherCity}, Eastern Visayas`]}, context).evidence.area).toBe("mismatch");
+  },
+);

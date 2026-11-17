@@ -10,8 +10,10 @@ class SavePackageToEventList extends StatefulWidget {
   const SavePackageToEventList({
     required this.provider,
     required this.eventPackage,
+    this.compact = false,
     super.key,
   });
+  final bool compact;
   final ProviderModel provider;
   final PackageModel eventPackage;
   @override
@@ -143,10 +145,12 @@ class _SavePackageToEventListState extends State<SavePackageToEventList> {
                     ? 'Saving package…'
                     : saved
                     ? 'Added to List'
+                    : widget.compact
+                    ? 'Add to Event List'
                     : 'Add to List',
               ),
             ),
-            if (saved)
+            if (saved && !widget.compact)
               const Padding(
                 padding: EdgeInsets.only(top: 8),
                 child: Text(
@@ -161,38 +165,40 @@ class _SavePackageToEventListState extends State<SavePackageToEventList> {
             if (_message != null &&
                 _feedbackSession == controller.authentication.session)
               Semantics(liveRegion: true, child: Text(_message!)),
-            TextButton(
-              onPressed: () async {
-                if (controller.isGuestPlanning) {
-                  final result = await controller.load();
-                  if (!context.mounted || !controller.isGuestPlanning) return;
+            if (!widget.compact) ...[
+              TextButton(
+                onPressed: () async {
+                  if (controller.isGuestPlanning) {
+                    final result = await controller.load();
+                    if (!context.mounted || !controller.isGuestPlanning) return;
 
-                  if (result != EventListResult.loaded) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text(eventListMessage(result))),
+                    if (result != EventListResult.loaded) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text(eventListMessage(result))),
+                      );
+                      return;
+                    }
+
+                    await showModalBottomSheet<void>(
+                      context: context,
+                      isScrollControlled: true,
+                      showDragHandle: true,
+                      builder: (_) => GuestEventListPanel(
+                        controller: controller,
+                        session: controller.authentication.session,
+                      ),
                     );
                     return;
                   }
 
-                  await showModalBottomSheet<void>(
-                    context: context,
-                    isScrollControlled: true,
-                    showDragHandle: true,
-                    builder: (_) => GuestEventListPanel(
-                      controller: controller,
-                      session: controller.authentication.session,
-                    ),
-                  );
-                  return;
-                }
-
-                await openCustomerEventList(context);
-              },
-              child: const Text('View Event List'),
-            ),
-            const Text(
-              'Planning selection only. No reservation or availability guarantee.',
-            ),
+                  await openCustomerEventList(context);
+                },
+                child: const Text('View Event List'),
+              ),
+              const Text(
+                'Planning selection only. No reservation or availability guarantee.',
+              ),
+            ],
           ],
         );
       },

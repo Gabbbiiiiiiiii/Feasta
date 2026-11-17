@@ -129,6 +129,7 @@ void main() {
       final field = find.byType(TextField).first;
       Future<void> search(String query, String firstId, String count) async {
         await tester.enterText(field, query);
+        await tester.pump(const Duration(milliseconds: 400));
         await tester.pumpAndSettle();
         expect(find.text(count), findsOneWidget);
         final cards = tester
@@ -149,7 +150,15 @@ void main() {
             .map((card) => card.provider.id),
         ['sb', 'sophie'],
       );
-      await search(' so ', 'sophie', '1 provider found');
+      await tester.enterText(field, 'does not exist');
+      await tester.pump(const Duration(milliseconds: 399));
+      expect(find.text('3 providers found'), findsOneWidget);
+      expect(find.text('No results found'), findsNothing);
+      await tester.enterText(field, ' so ');
+      await tester.pump(const Duration(milliseconds: 399));
+      expect(find.text('3 providers found'), findsOneWidget);
+      await tester.pump(const Duration(milliseconds: 1));
+      expect(find.text('1 provider found'), findsOneWidget);
       await search('le', 'lerie', '1 provider found');
       await search('S', 'sb', '3 providers found');
       expect(repository.searchCalls, 1);

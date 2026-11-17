@@ -1,3 +1,4 @@
+import '../../../core/helpers/best_fit_area.dart';
 import 'dart:convert';
 import '../../../shared/models/customer_event_list.dart';
 import '../../../shared/models/provider_calendar_month.dart';
@@ -28,8 +29,7 @@ Map<String, dynamic> compatibleSharedEvent(
 }) {
   final futureDate =
       event.eventDate.compareTo(calendarDateKey(manilaToday(now))) > 0;
-  final locationValid =
-      event.eventLocation.trim().toLowerCase() == 'ormoc city';
+  final locationValid = normalizeBestFitArea(event.eventLocation) != null;
   return {
     if (eventTypes.contains(event.eventType)) 'eventType': event.eventType,
     if (futureDate) ...{

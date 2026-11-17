@@ -1,9 +1,10 @@
+import {parseProviderDirectoryReturnHref} from "@/lib/customer/providers/provider-query";
 import type {Metadata} from "next";
 import {notFound} from "next/navigation";
 
 import {PackageDetail} from "@/components/customer/packages/package-detail";
 import {getPublicPackageDetail} from "@/lib/customer/discovery/package-detail-service";
-import {parseCustomerEventContext} from "@/lib/customer/planning/event-planning-context";
+import {parseCustomerEventContext, parseCustomerPlanningContext} from "@/lib/customer/planning/event-planning-context";
 import {getServiceCategoryOptions} from "@/lib/service-categories/service-category-service";
 
 type CustomerPackageDetailPageProps = {
@@ -41,7 +42,7 @@ export default async function CustomerPackageDetailPage({
 }: CustomerPackageDetailPageProps) {
   const [{packageId}, query] = await Promise.all([
     params,
-    searchParams ?? Promise.resolve({}),
+    searchParams ?? Promise.resolve<Record<string, string | string[] | undefined>>({}),
   ]);
 
   const [
@@ -60,6 +61,8 @@ export default async function CustomerPackageDetailPage({
     <PackageDetail
       detail={detail}
       eventContext={parseCustomerEventContext(query)}
+      planningContext={parseCustomerPlanningContext(query)}
+      bestFitReturnHref={query.returnTo ? parseProviderDirectoryReturnHref(query.returnTo) : undefined}
       serviceCategoryOptions={serviceCategoryOptions}
     />
   );

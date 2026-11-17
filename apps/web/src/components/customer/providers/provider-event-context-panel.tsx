@@ -1,3 +1,6 @@
+"use client";
+
+import {clearBestFitSession} from "@/lib/customer/providers/clear-best-fit-session";
 import Link from "next/link";
 import {
   CalendarDays,
@@ -18,8 +21,10 @@ import {EditEventFinderButton} from "./edit-event-finder-button";
 
 export function ProviderEventContextPanel({
   filters,
+  customerId,
 }: {
   filters: ProviderDiscoveryFilters;
+  customerId?: string;
 }) {
   const availability = filters.eventContext;
   const planning = filters.planningContext;
@@ -79,6 +84,7 @@ export function ProviderEventContextPanel({
           <EditEventFinderButton />
           <Link
             href={clearHref}
+            onClick={() => { if (customerId) clearBestFitSession(customerId); }}
             className="inline-flex min-h-10 items-center rounded-xl px-3 text-xs font-bold text-primary-strong hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
           >
             Clear event details

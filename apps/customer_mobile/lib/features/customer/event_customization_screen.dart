@@ -1,3 +1,4 @@
+import 'best_fit_controller.dart';
 import 'booking_agreement_controller.dart';
 import 'event_list/event_list_scope.dart';
 import 'event_list/shared_event_details.dart';
@@ -68,9 +69,13 @@ class EventCustomizationScreen extends StatefulWidget {
     this.onServiceChanged,
     this.initialConfiguration,
     this.openReviewOnLoad = false,
+    this.bestFitEvent,
+    this.onReturnToBestFit,
     super.key,
   });
 
+  final BestFitEvent? bestFitEvent;
+  final VoidCallback? onReturnToBestFit;
   final EventDraftPersistence? draftPersistence;
   final CustomerEventListConfiguration? initialConfiguration;
   final bool openReviewOnLoad;
@@ -93,9 +98,22 @@ class _EventCustomizationScreenState extends State<EventCustomizationScreen>
     (widget.draftPersistence ?? eventDraftPersistence).store,
     context: 'event-list',
   );
-  EventDraftPersistence get _drafts => widget.initialConfiguration == null
-      ? widget.draftPersistence ?? eventDraftPersistence
-      : _editDrafts;
+  late final EventDraftPersistence _bestFitDrafts = EventDraftPersistence(
+    (widget.draftPersistence ?? eventDraftPersistence).store,
+    context: jsonEncode([
+      'best-fit',
+      widget.bestFitEvent!.schedule.key,
+      widget.bestFitEvent!.occasion,
+      widget.bestFitEvent!.venue.fullAddress,
+      widget.bestFitEvent!.venue.latitude,
+      widget.bestFitEvent!.venue.longitude,
+    ]),
+  );
+  EventDraftPersistence get _drafts => widget.initialConfiguration != null
+      ? _editDrafts
+      : widget.bestFitEvent != null
+      ? _bestFitDrafts
+      : widget.draftPersistence ?? eventDraftPersistence;
   bool get _guestPlanning => _entrySession?.isGuest == true;
   bool _restoredNeedsReview = false;
   final List<String> _restoredProblems = [];
@@ -311,6 +329,27 @@ class _EventCustomizationScreenState extends State<EventCustomizationScreen>
         ? packageEventType
         : (_eventTypes.isEmpty ? '' : _eventTypes.first);
 
+    final plan = widget.bestFitEvent;
+    if (plan != null && plan.validate(DateTime.now()) == null) {
+      TimeOfDay parseTime(String value) => TimeOfDay(
+        hour: int.parse(value.substring(0, 2)),
+        minute: int.parse(value.substring(3, 5)),
+      );
+      if (_eventTypes.contains(plan.occasion)) {
+        selectedEventType = plan.occasion;
+      }
+      selectedDate = DateTime.parse(plan.schedule.eventDate);
+      selectedStartTime = parseTime(plan.schedule.eventTime);
+      selectedEndTime = parseTime(plan.schedule.eventEndTime);
+      guestCount = plan.schedule.guestCount;
+      locationController.text = [
+        plan.venue.city,
+        plan.venue.province,
+      ].where((value) => value.trim().isNotEmpty).join(', ');
+      addressController.text = plan.venue.fullAddress;
+      _eventAddress = plan.venue;
+    }
+
     if (preparationServices(
       _eventPackage,
     ).containsKey(widget.initialServiceTier)) {
@@ -513,7 +552,7 @@ class _EventCustomizationScreenState extends State<EventCustomizationScreen>
     return true;
   }
 
-  Future<void> _requestExit() async {
+  Future<void> _requestExit({bool toBestFit = false}) async {
     if (_singleExitPending ||
         _exitDialogOpen ||
         _exiting ||
@@ -546,8 +585,10 @@ class _EventCustomizationScreenState extends State<EventCustomizationScreen>
               borderRadius: BorderRadius.circular(24),
             ),
             insetPadding: const EdgeInsets.all(AppSpacing.screen),
-            title: const Text(
-              'Leave this customization?',
+            title: Text(
+              toBestFit
+                  ? 'Back to Best Fit Recommendations?'
+                  : 'Leave this customization?',
               style: AppTypography.sectionTitle,
             ),
             content: SingleChildScrollView(
@@ -555,8 +596,10 @@ class _EventCustomizationScreenState extends State<EventCustomizationScreen>
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  const Text(
-                    "Your changes are saved automatically. We'll verify the latest draft before leaving so you can continue where you left off.",
+                  Text(
+                    toBestFit
+                        ? "Save your latest changes as a draft so you can continue where you left off when you return."
+                        : "Your changes are saved automatically. We'll verify the latest draft before leaving so you can continue where you left off.",
                     style: AppTypography.body,
                   ),
                   const SizedBox(height: 24),
@@ -568,8 +611,8 @@ class _EventCustomizationScreenState extends State<EventCustomizationScreen>
                       minimumSize: const Size(0, 48),
                     ),
                     onPressed: () => Navigator.pop(dialogContext, 'leave'),
-                    child: const Text(
-                      'Leave customization',
+                    child: Text(
+                      toBestFit ? 'Save & Go Back' : 'Leave customization',
                       textAlign: TextAlign.center,
                     ),
                   ),
@@ -582,8 +625,10 @@ class _EventCustomizationScreenState extends State<EventCustomizationScreen>
                       side: const BorderSide(color: AppColors.borderStrong),
                     ),
                     onPressed: () => Navigator.pop(dialogContext, 'discard'),
-                    child: const Text(
-                      'Discard saved draft',
+                    child: Text(
+                      toBestFit
+                          ? 'Discard Changes & Go Back'
+                          : 'Discard saved draft',
                       textAlign: TextAlign.center,
                     ),
                   ),
@@ -591,7 +636,7 @@ class _EventCustomizationScreenState extends State<EventCustomizationScreen>
                   TextButton(
                     autofocus: true,
                     onPressed: () => Navigator.pop(dialogContext),
-                    child: const Text('Continue editing'),
+                    child: Text(toBestFit ? 'Cancel' : 'Continue editing'),
                   ),
                 ],
               ),
@@ -611,12 +656,13 @@ class _EventCustomizationScreenState extends State<EventCustomizationScreen>
     }
     if (choice == 'discard') {
       await _discardDraft(confirmedExit: true);
+      if (toBestFit && _allowExit) widget.onReturnToBestFit?.call();
       return;
     }
     _singleExitPending = true;
     try {
       final retry = _navigationGuard?.retry;
-      if (retry != null) {
+      if (!toBestFit && retry != null) {
         await retry();
         return;
       }
@@ -624,7 +670,11 @@ class _EventCustomizationScreenState extends State<EventCustomizationScreen>
       if (!saved || !_canPublish) return;
       await WidgetsBinding.instance.endOfFrame;
       if (mounted && _canPublish && (route?.isCurrent ?? false) && _allowExit) {
-        await Navigator.of(context).maybePop();
+        if (toBestFit) {
+          widget.onReturnToBestFit?.call();
+        } else {
+          await Navigator.of(context).maybePop();
+        }
       }
     } finally {
       _singleExitPending = false;
@@ -1074,7 +1124,9 @@ class _EventCustomizationScreenState extends State<EventCustomizationScreen>
 
   void _applyDraft(Map<String, dynamic> saved) {
     // Legacy services/review positions resume customization for explicit revalidation.
-    _step = (saved['step'] as int? ?? 0).clamp(0, 1);
+    _step = widget.bestFitEvent == null
+        ? (saved['step'] as int? ?? 0).clamp(0, 1)
+        : 0;
     selectedEventType = _eventTypes.isEmpty ? '' : _eventTypes.first;
     selectedDate = saved['date'] as DateTime?;
     selectedStartTime = saved['start'] as TimeOfDay?;
@@ -1873,10 +1925,24 @@ class _EventCustomizationScreenState extends State<EventCustomizationScreen>
             customization: customization,
             preparationOnly: _entrySession == null || _guestPlanning,
             availability: approval,
+            canReturnToBestFit: widget.onReturnToBestFit != null,
           ),
         ),
       );
-      if (mounted && _entryAuthorized && edit != null) {
+      if (!mounted || !_entryAuthorized) return;
+      if (edit == BookingReviewEdit.returnSaved) {
+        final saved = await _prepareExit();
+        if (saved && mounted && _entryAuthorized) {
+          widget.onReturnToBestFit?.call();
+        }
+      } else if (edit == BookingReviewEdit.returnDiscarded) {
+        if (_draftOwner == null) {
+          widget.onReturnToBestFit?.call();
+        } else {
+          await _discardDraft(confirmedExit: true);
+          if (_allowExit) widget.onReturnToBestFit?.call();
+        }
+      } else if (edit != null) {
         await _goToStep(edit == BookingReviewEdit.event ? 0 : 1);
       }
     } on FormatException catch (error) {
@@ -2122,7 +2188,22 @@ class _EventCustomizationScreenState extends State<EventCustomizationScreen>
         backgroundColor: AppColors.background,
         surfaceTintColor: Colors.transparent,
         elevation: 0,
-        leading: BackButton(onPressed: _exiting ? null : _requestExit),
+        leadingWidth: widget.onReturnToBestFit == null ? null : 145,
+        leading: widget.onReturnToBestFit != null
+            ? TextButton.icon(
+                onPressed: _exiting
+                    ? null
+                    : () => _requestExit(toBestFit: true),
+                icon: const Icon(Icons.arrow_back),
+                label: const Text('Back to Best Fit'),
+              )
+            : BackButton(
+                onPressed: _exiting
+                    ? null
+                    : () => _requestExit(
+                        toBestFit: widget.onReturnToBestFit != null,
+                      ),
+              ),
         actions: [
           if (_step == 1)
             PopupMenuButton<String>(

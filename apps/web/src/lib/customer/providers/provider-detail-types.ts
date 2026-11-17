@@ -17,6 +17,7 @@ export type PublicProviderDetail = {
     name: string;
     description: string | null;
     price?: number;
+    category?: string;
     pricingType?: AddonPricingType;
     freelanceDetails?: FreelanceServiceDetails;
     portfolio?: ServicePortfolio;

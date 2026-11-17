@@ -228,6 +228,14 @@ export function customerEventContextQuery(
   return appendCustomerEventContext(new URLSearchParams(), context).toString();
 }
 
+export function customerBookingPlanningQuery(
+  event: CustomerEventContext | null,
+  planning?: CustomerPlanningContext | null,
+): string {
+  const query = appendCustomerPlanningContext(new URLSearchParams(), planning);
+  return appendCustomerEventContext(query, event).toString();
+}
+
 export function customerEventContextFromHref(
   href: string,
   minimumDate?: string,
@@ -326,14 +334,17 @@ function first(value: string | string[] | undefined): string {
   return Array.isArray(value) ? value[0] ?? "" : value ?? "";
 }
 
+export const MIN_PLANNING_BUDGET = 1_000;
+export const MAX_PLANNING_BUDGET = 1_000_000;
+
 function budgetValue(raw: string): number | undefined {
-  if (!/^\d{1,9}$/u.test(raw)) return undefined;
+  if (!/^\d{1,7}$/u.test(raw)) return undefined;
 
   const amount = Number(raw);
 
   return Number.isSafeInteger(amount) &&
-    amount >= 0 &&
-    amount <= 100_000_000
+    amount >= MIN_PLANNING_BUDGET &&
+    amount <= MAX_PLANNING_BUDGET
     ? amount
     : undefined;
 }

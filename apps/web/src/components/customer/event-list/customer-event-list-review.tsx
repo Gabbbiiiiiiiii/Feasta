@@ -1,5 +1,7 @@
 "use client";
 
+import {eventListItemPrice} from "@/lib/customer/event-list/customer-event-list";
+
 import {useCustomerEventListSession} from "@/lib/customer/event-list/customer-event-list";
 import {CUSTOMER_EVENT_LIST_CLOUD_ENABLED} from "@/lib/customer/event-list/customer-event-list-cloud-transport";
 import {useCustomerEventListCloudAsync} from "@/lib/customer/event-list/use-customer-event-list-cloud-async";
@@ -315,6 +317,7 @@ function CustomerEventListReviewSession() {
         >();
 
       for (const item of items) {
+        const itemPrice = eventListItemPrice(item);
         const current =
           groups.get(
             item.providerId,
@@ -395,14 +398,15 @@ function CustomerEventListReviewSession() {
       }
 
       for (const item of items) {
+        const itemPrice = eventListItemPrice(item);
         if (
-          item.price === null
+          itemPrice === null
         ) {
           known = false;
         }
         else {
           total +=
-            item.price;
+            itemPrice;
         }
 
         if (
@@ -1786,11 +1790,11 @@ function CustomerEventListReviewSession() {
 
                           <div className="flex min-w-[8rem] flex-row items-center justify-between gap-3 sm:flex-col sm:items-end sm:justify-start">
                             <p className="whitespace-nowrap text-sm font-extrabold text-primary-strong">
-                              {item.price ===
+                              {eventListItemPrice(item) ===
                               null
                                 ? "Price unavailable"
                                 : money.format(
-                                    item.price,
+                                    eventListItemPrice(item) ?? 0,
                                   )}
                             </p>
 

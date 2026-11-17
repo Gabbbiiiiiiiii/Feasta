@@ -29,6 +29,7 @@ bool isDiscoverableProvider(ProviderModel provider) =>
 bool matchesProviderDiscovery(
   ProviderModel provider, {
   String keyword = '',
+  Map<String, String> categoryNames = const {},
   String? categoryCode,
   String eventType = 'All',
   String location = '',
@@ -41,11 +42,18 @@ bool matchesProviderDiscovery(
       !providerDiscoveryCategories(provider).contains(category)) {
     return false;
   }
-  final searchable =
-      '${provider.businessName} ${provider.providerServiceType} '
-              '${provider.providerCategory} ${providerCategoryLabel(provider.providerCategory)}'
-          .toLowerCase()
-          .replaceAll('_', ' ');
+  final categories = {
+    provider.providerCategory,
+    ...providerDiscoveryCategories(provider),
+  };
+  final searchable = [
+    provider.businessName,
+    provider.providerServiceType,
+    for (final code in categories) ...[
+      code,
+      providerCategoryLabel(code, categoryNames: categoryNames),
+    ],
+  ].join(' ').toLowerCase().replaceAll('_', ' ');
   final terms = keyword.trim().toLowerCase().split(RegExp(r'[\s_/&-]+'));
   if (!terms.every((term) => searchable.contains(term))) return false;
   if (eventType.toLowerCase() != 'all' &&

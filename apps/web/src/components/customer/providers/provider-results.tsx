@@ -8,7 +8,7 @@ import {
   Store,
 } from "lucide-react";
 import Link from "next/link";
-import {useEffect, useMemo, useRef, useState} from "react";
+import {type ComponentProps, useEffect, useMemo, useRef, useState} from "react";
 
 import {
   providerServiceTypeLabel,
@@ -27,20 +27,32 @@ import {
   type ServiceCategoryOption,
 } from "@/lib/service-categories/service-category-types";
 
+import {ProviderBudgetPanel} from "./provider-budget-panel";
+import {formatCustomerEventTime, MIN_PLANNING_BUDGET} from "@/lib/customer/planning/event-planning-context";
+import {budgetOffers} from "@/lib/customer/providers/provider-budget-fit";
+import type {PublicProviderDetail} from "@/lib/customer/providers/provider-detail-types";
 import {ProviderIndustrySelector} from "./provider-industry-selector";
 import {ProviderLogoCard} from "./provider-logo-card";
 
 export function ProviderResults({
   page,
+  reviewOnly = false,
+  budgetDetails = [],
+  incompleteBudgetCatalog = false,
   filters,
   favoriteProviderIds = new Set<string>(),
   authenticatedCustomer = false,
+  customerId,
   serviceCategoryOptions = [],
 }: {
   page: ProviderDiscoveryPage;
+  reviewOnly?: boolean;
+  budgetDetails?: readonly PublicProviderDetail[];
+  incompleteBudgetCatalog?: boolean;
   filters: ProviderDiscoveryFilters;
   favoriteProviderIds?: ReadonlySet<string>;
   authenticatedCustomer?: boolean;
+  customerId?: string;
   serviceCategoryOptions?: readonly ServiceCategoryOption[];
 }) {
   const providerIds = useMemo(
@@ -49,7 +61,7 @@ export function ProviderResults({
   );
   const [retryAttempt, setRetryAttempt] = useState(0);
   const requestKey = filters.eventContext
-    ? JSON.stringify([providerIds, filters.eventContext, authenticatedCustomer, retryAttempt])
+    ? JSON.stringify([providerIds, filters.eventContext, authenticatedCustomer, customerId, retryAttempt])
     : null;
   const generationRef = useRef(0);
   const [availabilityStatus, setAvailabilityStatus] = useState<
@@ -70,6 +82,20 @@ export function ProviderResults({
       return undefined;
     }
 
+    const storageKey = customerId && retryAttempt === 0 ? `feasta:best-fit:availability:${customerId}` : null;
+    if (storageKey) {
+      try {
+        const saved = JSON.parse(sessionStorage.getItem(storageKey) ?? "null");
+        if (saved?.requestKey === requestKey && Array.isArray(saved.results)) {
+          setAvailabilityByProvider(new Map(saved.results.map((result: CustomerProviderAvailability) => [result.providerId, result])));
+          setAvailabilityCheckedKey(requestKey);
+          setAvailabilityRequestKey(requestKey);
+          setAvailabilityStatus("ready");
+          return undefined;
+        }
+      } catch { /* Continue with the availability check when storage is unavailable. */ }
+    }
+
     const timeoutId = window.setTimeout(() => {
       if (generationRef.current !== generation) return;
       setAvailabilityStatus("loading");
@@ -83,6 +109,9 @@ export function ProviderResults({
         )
         .then((results) => {
           if (generationRef.current !== generation) return;
+          if (storageKey) {
+            try { sessionStorage.setItem(storageKey, JSON.stringify({requestKey, results})); } catch {}
+          }
           setAvailabilityByProvider(new Map(results.map((result) => [result.providerId, result])));
           setAvailabilityCheckedKey(requestKey);
           setAvailabilityStatus("ready");
@@ -98,7 +127,7 @@ export function ProviderResults({
       window.clearTimeout(timeoutId);
       if (generationRef.current === generation) generationRef.current += 1;
     };
-  }, [authenticatedCustomer, filters.eventContext, providerIds, requestKey]);
+  }, [authenticatedCustomer, filters.eventContext, providerIds, requestKey, customerId, retryAttempt]);
 
   const availabilityIsCurrent = authenticatedCustomer && availabilityStatus === "ready" &&
     availabilityCheckedKey === requestKey;
@@ -129,6 +158,70 @@ export function ProviderResults({
       : null,
   ].filter((value): value is string => value !== null);
 
+  const fits = rankProviderBestFits(page.providers, filters, availabilityIsCurrent ? availabilityByProvider : new Map());
+  const budget = filters.planningContext?.budgetMax ?? 0;
+  const categoryCodes = filters.categories?.length ? filters.categories : filters.category !== "all"
+    ? [filters.category] : serviceCategoryOptions.filter((option) => option.status === "active").map((option) => option.code);
+  const budgetStatus = !filters.eventContext || !filters.planningContext?.eventVenue || !filters.planningContext.eventType ? "details"
+    : !authenticatedCustomer ? "sign-in" : availabilityIsCurrent || !page.providers.length ? "ready"
+      : currentAvailabilityStatus === "error" ? "error" : "checking";
+  const resultsHref = providerDiscoveryHref(filters, filters.cursor);
+  const reviewHref = resultsHref.replace("/customer/providers", "/customer/providers/best-fit-review");
+  const budgetProps = {
+    cap: Math.round(budget * 100),
+    reviewOnly,
+    resultsHref,
+    reviewHref,
+    sessionKey: customerId ? JSON.stringify([customerId, resultsHref]) : undefined,
+    categories: categoryCodes.map((code) => {
+      const categoryFits = fits.filter(({provider}) => provider.primaryCategory === code || provider.categories.includes(code));
+      const available = categoryFits.filter((fit) => fit.availability === "available");
+      return {
+        code, name: serviceCategoryName(code, serviceCategoryOptions),
+        browseHref: providerDiscoveryHref({...filters, search: "", category: code, categories: undefined, serviceType: "all", cursor: null}),
+        venueUnconfirmed: available.length > 0 && available.every((fit) => fit.evidence.area !== "match"),
+        unavailable: categoryFits.length > 0 && categoryFits.every((fit) => fit.availability === "unavailable"),
+      };
+    }),
+    offers: budgetStatus === "ready" ? budgetOffers(budgetDetails, fits, filters, categoryCodes) : [],
+    status: budgetStatus,
+    incompleteCatalog: incompleteBudgetCatalog,
+    city: filters.planningContext?.eventVenue?.city,
+    guestCount: filters.eventContext?.guestCount,
+    eventDetails: filters.eventContext ? [
+      new Intl.DateTimeFormat("en-US", {dateStyle: "full", timeZone: "UTC"}).format(new Date(filters.eventContext.eventDate)),
+      `${formatCustomerEventTime(filters.eventContext.eventTime)} – ${formatCustomerEventTime(filters.eventContext.eventEndTime)}`,
+    ] : [],
+
+    editHref: providerDiscoveryHref({...filters, search: "", category: "all", categories: undefined, serviceType: "all", cursor: null}),
+  } satisfies ComponentProps<typeof ProviderBudgetPanel>;
+  useEffect(() => {
+    if (!customerId || budget < MIN_PLANNING_BUDGET || budgetStatus !== "ready") return;
+    try { sessionStorage.setItem(`feasta:best-fit:latest:${customerId}`, resultsHref); } catch {}
+  }, [budget, budgetStatus, customerId, resultsHref]);
+
+  const budgetContext = JSON.stringify([filters.eventContext, filters.planningContext, categoryCodes, filters.serviceType]);
+  const [lastBudget, setLastBudget] = useState<{
+    context: string;
+    request: string | null;
+    search: string;
+    props: ComponentProps<typeof ProviderBudgetPanel>;
+  } | null>(null);
+  if (budget >= MIN_PLANNING_BUDGET && budgetStatus === "ready" &&
+      (lastBudget?.context !== budgetContext || lastBudget.request !== requestKey || lastBudget.search !== filters.search)) {
+    setLastBudget({context: budgetContext, request: requestKey, search: filters.search, props: budgetProps});
+  }
+  const previousBudget = budgetStatus === "checking" && lastBudget?.context === budgetContext &&
+    lastBudget.search !== filters.search ? lastBudget : null;
+  const budgetPanel = budget >= MIN_PLANNING_BUDGET && categoryCodes.length > 0 ? <ProviderBudgetPanel
+    key={JSON.stringify([previousBudget?.request ?? requestKey, budgetContext])}
+    {...(previousBudget?.props ?? budgetProps)}
+    updating={Boolean(previousBudget)} /> : null;
+
+  if (reviewOnly) {
+    return budgetPanel ?? <Link href={resultsHref}>← Back to Best Fit Recommendations</Link>;
+  }
+
   /* ======================================================================
      EMPTY STATE
      ====================================================================== */
@@ -150,6 +243,7 @@ export function ProviderResults({
     );
     return (
       <section className="grid min-w-0 gap-5" aria-labelledby="provider-results-title">
+        {budgetPanel}
         <ProviderIndustrySelector
           filters={filters}
           serviceCategoryOptions={serviceCategoryOptions}
@@ -234,8 +328,6 @@ export function ProviderResults({
     filters.cursor,
   );
   const bestFitContext = hasEventPlanningContext || filters.category !== "all" || Boolean(filters.categories?.length);
-  const fits = rankProviderBestFits(page.providers, filters,
-    availabilityIsCurrent ? availabilityByProvider : new Map());
   const recommendations = bestFitContext ? fits.filter((fit) => fit.recommended).slice(0, 4) : [];
   const recommendedIds = new Set(recommendations.map((fit) => fit.provider.id));
   const {sections, remaining} = bestFitContext
@@ -278,6 +370,7 @@ export function ProviderResults({
       className="grid min-w-0 gap-5"
       aria-labelledby="provider-results-title"
     >
+      {budgetPanel}
       <ProviderIndustrySelector
         filters={filters}
         serviceCategoryOptions={serviceCategoryOptions}

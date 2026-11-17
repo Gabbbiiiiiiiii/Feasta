@@ -366,6 +366,15 @@ export function removeCustomerEventListItem(itemKey: string, session = currentSe
   writeCustomerEventList(next, session);
 }
 
+export function eventListItemPrice(item: CustomerEventListItem): number | null {
+  if (item.type === "custom_menu" || !item.configuration) return item.price;
+  const {estimatedTotal, selectedEventServices} = item.configuration;
+  if (estimatedTotal === null || selectedEventServices.some((service) => service.price === null)) return null;
+  const serviceSubtotal = selectedEventServices.reduce((sum, service) => sum + (service.price ?? 0), 0);
+  const packagePrice = Math.round((estimatedTotal - serviceSubtotal) * 100) / 100;
+  return packagePrice >= 0 ? packagePrice : null;
+}
+
 export function removeCustomerEventListService(packageId: string, serviceId: string, session = currentSession()): void {
   if (typeof window === "undefined" || !authorized(session)) return;
   const normalizedPackageId = safeText(packageId, 128);
@@ -384,6 +393,7 @@ export function removeCustomerEventListService(packageId: string, serviceId: str
     const selectedEventServices = item.configuration.selectedEventServices.filter(
       (service) => service.id !== normalizedServiceId,
     );
+    const packagePrice = eventListItemPrice(item);
     const serviceSubtotal = selectedEventServices.reduce(
       (total, service) => total + (service.price ?? 0),
       0,
@@ -394,7 +404,7 @@ export function removeCustomerEventListService(packageId: string, serviceId: str
       configuration: {
         ...item.configuration,
         selectedEventServices,
-        estimatedTotal: item.price === null ? null : item.price + serviceSubtotal,
+        estimatedTotal: packagePrice === null ? null : packagePrice + serviceSubtotal,
       },
     };
   });

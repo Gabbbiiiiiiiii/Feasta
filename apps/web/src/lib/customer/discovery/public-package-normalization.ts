@@ -119,6 +119,7 @@ export function normalizePublicPackage(
       occasionScope: value.occasionScope as "specific" | "all",
       occasionMatchIds: value.occasionMatchIds as string[], foodChoiceGroups,
       equipmentInclusions: safeTextList([value.equipmentInclusions], 50, 160)} : {}),
+    ...(safeText(value.serviceCategoryCode, 128) ? {serviceCategoryCode: safeText(value.serviceCategoryCode, 128)!} : {}),
     providerId,
     providerName: providerNames.get(providerId)!,
     name,

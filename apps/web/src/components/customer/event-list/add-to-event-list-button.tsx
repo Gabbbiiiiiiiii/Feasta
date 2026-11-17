@@ -15,9 +15,11 @@ import {
 export function AddToEventListButton({
   item,
   className = "",
+  label = "Add to List",
 }: {
   item: CustomerPackageEventListItem;
   className?: string;
+  label?: string;
 }) {
   const {items, addItem, readSchedule} = useCustomerEventList();
   const cloud = useCustomerEventListCloudAsync();
@@ -75,8 +77,8 @@ export function AddToEventListButton({
     }
   }
 
-  const label = added ? "Added to List" : pending ? "Saving to List…" :
-    uncertain ? "Retry Save" : "Add to List";
+  const displayLabel = added ? "Added to List" : pending ? "Saving to List…" :
+    uncertain ? "Retry Save" : label;
   return (
     <>
       <button
@@ -100,7 +102,7 @@ export function AddToEventListButton({
       >
         {added ? <Check aria-hidden="true" className="size-4" /> :
           <Plus aria-hidden="true" className="size-4" />}
-        {label}
+        {displayLabel}
       </button>
       {saveError && (
         <p role="alert" className="mt-2 text-sm text-destructive">

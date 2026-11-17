@@ -13,6 +13,7 @@ export function useLiveSearch(
   value: string,
   execute: (query: string) => void,
   invalidate?: () => void,
+  delayMs = LIVE_SEARCH_DELAY_MS,
 ) {
   const callbacks = useRef({execute, invalidate});
   const latestValue = useRef(value);
@@ -73,12 +74,12 @@ export function useLiveSearch(
       if (!mounted.current) return;
       applied.current = query;
       callbacks.current.execute(query);
-    }, LIVE_SEARCH_DELAY_MS);
+    }, delayMs);
 
     return () => {
       clearTimeout(timer.current);
     };
-  }, [value]);
+  }, [value, delayMs]);
 
   useEffect(() => {
     mounted.current = true;

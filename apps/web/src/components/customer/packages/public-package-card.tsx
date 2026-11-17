@@ -18,7 +18,8 @@ import {humanizeProviderValue} from "@/lib/customer/providers/provider-catalog";
 import {providerProfileHref} from "@/lib/customer/providers/provider-query";
 import {
   customerEventContextFromHref,
-  customerEventContextQuery,
+  customerBookingPlanningQuery,
+  parseCustomerPlanningContext,
 } from "@/lib/customer/planning/event-planning-context";
 
 export function PublicPackageCard({
@@ -36,9 +37,13 @@ export function PublicPackageCard({
   compactPreview?: boolean;
   layout?: "marketplace" | "provider-profile";
 }) {
-  const eventContextQuery = customerEventContextQuery(
+  const queryStart = marketplaceHref.indexOf("?");
+  const planningContext = queryStart === -1 ? null : parseCustomerPlanningContext(
+    Object.fromEntries(new URLSearchParams(marketplaceHref.slice(queryStart + 1))), "",
+  );
+  const eventContextQuery = customerBookingPlanningQuery(
     // Preserve supplied context across hydration; destination queries validate dates.
-    customerEventContextFromHref(marketplaceHref, ""),
+    customerEventContextFromHref(marketplaceHref, ""), planningContext,
   );
   const packagePath = `/customer/packages/${encodeURIComponent(packageRecord.id)}`;
   const packageHref = eventContextQuery

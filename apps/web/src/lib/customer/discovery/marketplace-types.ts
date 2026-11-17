@@ -11,6 +11,7 @@ import type {PublicProvider} from "@/lib/customer/providers/provider-types";
 
 
 export type PublicPackage = {
+  serviceCategoryCode?: string;
   offerStructure?: "fixed" | "customizable";
   paymentTermsSchemaVersion?: 2;
   balanceDueHoursBeforeEvent?: number | null;

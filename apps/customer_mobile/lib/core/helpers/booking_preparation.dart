@@ -1,3 +1,4 @@
+import 'best_fit_area.dart';
 import '../../shared/models/food_choice_v2.dart';
 import '../../shared/models/feasta_models.dart';
 import '../../shared/models/event_customization_data.dart';
@@ -134,8 +135,8 @@ String? validatePreparation({
       (maximum != null && guests > maximum)) {
     return "Guest count is outside this package's supported range.";
   }
-  if (city.trim().toLowerCase() != 'ormoc city') {
-    return 'Event location must be Ormoc City.';
+  if (normalizeBestFitArea(city) == null) {
+    return 'Enter the city or municipality for your event.';
   }
   if (address.trim().isEmpty) return 'Please enter the complete event address.';
   if (address.trim().length > 500 || city.trim().length > 180) {

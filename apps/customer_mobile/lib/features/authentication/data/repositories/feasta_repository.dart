@@ -578,6 +578,9 @@ class FeastaRepository {
     }).toList();
   }
 
+  Future<List<AddonModel>> bestFitEventServices(String providerId) =>
+      _loadEventServiceCatalog(providerId);
+
   Stream<List<AddonModel>> eventServiceCatalog(
     String providerId, {
     required bool own,

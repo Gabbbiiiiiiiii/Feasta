@@ -55,10 +55,14 @@ class ProviderGridCard extends StatelessWidget {
   const ProviderGridCard({
     required this.provider,
     required this.categoryNames,
+    this.availabilityLabel,
+    this.available,
     super.key,
   });
   final ProviderModel provider;
   final Map<String, String> categoryNames;
+  final String? availabilityLabel;
+  final bool? available;
   @override
   Widget build(BuildContext context) => Material(
     color: AppColors.surface,
@@ -90,6 +94,43 @@ class ProviderGridCard extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                if (availabilityLabel case final label?) ...[
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: available == true
+                          ? AppColors.primarySubtle
+                          : AppColors.surfaceMuted,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
+                      label,
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        color: switch (available) {
+                          true => AppColors.primaryStrong,
+                          false => AppColors.error,
+                          null => AppColors.secondaryTextAccessible,
+                        },
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                ],
+                Text(
+                  providerCategoryLabel(
+                    provider.providerCategory,
+                    categoryNames: categoryNames,
+                  ),
+                  style: const TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.primaryStrong,
+                  ),
+                ),
+                const SizedBox(height: 4),
                 Text(
                   provider.businessName,
                   maxLines: 2,
@@ -97,12 +138,12 @@ class ProviderGridCard extends StatelessWidget {
                   style: const TextStyle(
                     fontSize: 13,
                     fontWeight: FontWeight.w700,
-                    color: Color(0xFF0F4C3A),
+                    color: AppColors.primaryStrong,
                   ),
                 ),
                 const SizedBox(height: 6),
                 Text(
-                  '${providerCategoryLabel(provider.providerCategory, categoryNames: categoryNames)} · ${provider.location}',
+                  provider.location,
                   maxLines: 3,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(

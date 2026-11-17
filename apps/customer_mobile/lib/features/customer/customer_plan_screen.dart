@@ -1,3 +1,6 @@
+import '../../core/domain/service_category.dart';
+import '../authentication/data/repositories/feasta_repository.dart';
+import 'best_fit_controller.dart';
 import 'widgets/event_schedule_card.dart';
 import 'package:flutter/material.dart';
 
@@ -115,11 +118,68 @@ class _CustomerPlanScreenState extends State<CustomerPlanScreen> {
   bool _loadingPlanPreferences = true;
   final Set<String> _selectedThemes = <String>{};
 
+  List<ServiceCategory> _serviceCategories = [];
+  Set<String> _selectedServices = {};
+  bool _loadingServices = true;
+  bool _serviceLoadFailed = false;
+
+  Future<void> _loadServices() async {
+    setState(() {
+      _loadingServices = true;
+      _serviceLoadFailed = false;
+    });
+    try {
+      final services = (await FeastaRepository().getActiveServiceCategories())
+          .where((item) => item.isActive)
+          .toList();
+      if (!mounted) return;
+      final codes = services.map((item) => item.code).toSet();
+      final previous =
+          PlanMatchingServicesScreen.activeResult?.event.categories;
+      setState(() {
+        _serviceCategories = services;
+        _selectedServices = previous == null
+            ? codes
+            : codes.intersection(previous);
+        _loadingServices = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _loadingServices = false;
+        _serviceLoadFailed = true;
+      });
+    }
+  }
+
   @override
   void initState() {
     super.initState();
-    _loadSelectedAddress();
+    final previous = PlanMatchingServicesScreen.activeResult?.event;
+    if (previous != null) {
+      TimeOfDay time(String value) {
+        final parts = value.split(':').map(int.parse).toList();
+        return TimeOfDay(hour: parts[0], minute: parts[1]);
+      }
+
+      _savedEventType = previous.occasion;
+      _selectedEventType = previous.occasion;
+      _occasionSelectionTouched = true;
+      _eventDate = DateTime.parse(previous.schedule.eventDate);
+      _startTime = time(previous.schedule.eventTime);
+      _endTime = time(previous.schedule.eventEndTime);
+      _selectedAddress = previous.venue;
+      _loadingAddress = false;
+      _guestCountController.text = previous.schedule.guestCount.toString();
+      _minBudgetController.text = (previous.minimumBudgetCentavos / 100)
+          .toString();
+      _maxBudgetController.text = (previous.maximumBudgetCentavos / 100)
+          .toString();
+    } else {
+      _loadSelectedAddress();
+    }
     _loadOccasions();
+    _loadServices();
     _loadPlanPreferences();
   }
 
@@ -167,12 +227,13 @@ class _CustomerPlanScreenState extends State<CustomerPlanScreen> {
         ..clear()
         ..addAll(saved.themes.take(3));
 
-      if (saved.guestCount != null && saved.guestCount! > 0) {
+      if (_guestCountController.text.isEmpty &&
+          saved.guestCount != null &&
+          saved.guestCount! > 0) {
         _guestCountController.text = saved.guestCount.toString();
       }
 
       _customThemeController.text = saved.customTheme;
-
       _loadingPlanPreferences = false;
     });
   }
@@ -261,7 +322,7 @@ class _CustomerPlanScreenState extends State<CustomerPlanScreen> {
       return null;
     }
 
-    return double.tryParse(value);
+    return double.tryParse(value.replaceAll(',', ''));
   }
 
   Future<void> _pickEventDate() async {
@@ -393,41 +454,22 @@ class _CustomerPlanScreenState extends State<CustomerPlanScreen> {
       return 'Enter a valid maximum budget.';
     }
 
+    if (minBudget < minPlanningBudgetPesos ||
+        maxBudget < minPlanningBudgetPesos) {
+      return 'Amount entered is lower than the allowed budget.';
+    }
+
+    if (!minBudget.isFinite ||
+        !maxBudget.isFinite ||
+        minBudget > maxPlanningBudgetPesos ||
+        maxBudget > maxPlanningBudgetPesos) {
+      return 'Enter a budget of ₱1,000,000 or less.';
+    }
     if (maxBudget < minBudget) {
       return 'The maximum budget cannot be lower than the minimum budget.';
     }
 
     return null;
-  }
-
-  Future<void> _findServices() async {
-    FocusScope.of(context).unfocus();
-
-    final error = _validatePlan();
-
-    if (error != null) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(error)));
-      return;
-    }
-
-    await Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => PlanMatchingServicesScreen(
-          eventType: _selectedEventType,
-          address: _selectedAddress,
-          eventDate: _eventDate!,
-          startTime: _startTime!,
-          endTime: _endTime!,
-          minBudget: _parseBudget(_minBudgetController)!,
-          maxBudget: _parseBudget(_maxBudgetController)!,
-          guestCount: _guestCount!,
-          themes: _selectedThemes.toList(growable: false),
-          customTheme: _customThemeController.text.trim(),
-        ),
-      ),
-    );
   }
 
   void _openCategory(String query) {
@@ -442,6 +484,46 @@ class _CustomerPlanScreenState extends State<CustomerPlanScreen> {
         ),
       ),
     );
+  }
+
+  bool _editingBestFit = false;
+
+  Future<void> _findServices() async {
+    FocusScope.of(context).unfocus();
+
+    final error = _loadingServices
+        ? 'Wait for services to load.'
+        : _selectedServices.isEmpty
+        ? 'Select at least one service.'
+        : _validatePlan();
+
+    if (error != null) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error)));
+      return;
+    }
+
+    final edit = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        builder: (_) => PlanMatchingServicesScreen(
+          occasionLabel: _selectedEventLabel,
+          eventType: _selectedEventType,
+          address: _selectedAddress,
+          eventDate: _eventDate!,
+          startTime: _startTime!,
+          endTime: _endTime!,
+          minBudget: _parseBudget(_minBudgetController)!,
+          maxBudget: _parseBudget(_maxBudgetController)!,
+          guestCount: _guestCount!,
+          categories: _serviceCategories,
+          selectedCategories: Set.of(_selectedServices),
+        ),
+      ),
+    );
+    if (mounted) {
+      setState(() => _editingBestFit = edit == true);
+    }
   }
 
   @override
@@ -544,6 +626,48 @@ class _CustomerPlanScreenState extends State<CustomerPlanScreen> {
 
             const SizedBox(height: AppSpacing.lg),
 
+            Text('Services needed', style: AppTypography.sectionTitle),
+            const SizedBox(height: AppSpacing.sm),
+            if (_loadingServices)
+              const LinearProgressIndicator(semanticsLabel: 'Loading services')
+            else if (_serviceLoadFailed)
+              TextButton(
+                onPressed: _loadServices,
+                child: const Text('Could not load services. Retry'),
+              )
+            else if (_serviceCategories.isEmpty)
+              const Text('No active services are available.')
+            else
+              Wrap(
+                spacing: 8,
+                runSpacing: 4,
+                children: [
+                  FilterChip(
+                    label: const Text('Select All'),
+                    selected:
+                        _selectedServices.length == _serviceCategories.length,
+                    onSelected: (selected) => setState(() {
+                      _selectedServices = selected
+                          ? _serviceCategories.map((item) => item.code).toSet()
+                          : {};
+                    }),
+                  ),
+                  for (final service in _serviceCategories)
+                    FilterChip(
+                      label: Text(service.name),
+                      selected: _selectedServices.contains(service.code),
+                      onSelected: (selected) => setState(() {
+                        if (selected) {
+                          _selectedServices.add(service.code);
+                        } else {
+                          _selectedServices.remove(service.code);
+                        }
+                      }),
+                    ),
+                ],
+              ),
+            const SizedBox(height: AppSpacing.lg),
+
             _GuestCountCard(
               controller: _guestCountController,
               onChanged: (_) {
@@ -551,22 +675,19 @@ class _CustomerPlanScreenState extends State<CustomerPlanScreen> {
               },
             ),
 
-            const SizedBox(height: AppSpacing.xl),
-
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.end,
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Expanded(
-                  child: Text(
-                    'Do you have a theme?',
-                    style: AppTypography.sectionTitle.copyWith(
-                      color: AppColors.mainText,
-                      fontWeight: FontWeight.w900,
-                    ),
+                Text(
+                  'Do you have a theme?',
+                  style: AppTypography.sectionTitle.copyWith(
+                    color: AppColors.mainText,
+                    fontWeight: FontWeight.w900,
                   ),
                 ),
+                const SizedBox(height: 4),
                 Text(
-                  'Optional · Choose up to 3',
+                  'Optional - Choose up to 3',
                   style: AppTypography.caption.copyWith(
                     color: AppColors.secondaryTextAccessible,
                     fontWeight: FontWeight.w600,
@@ -723,13 +844,14 @@ class _CustomerPlanScreenState extends State<CustomerPlanScreen> {
                   ),
                 ),
                 icon: const Icon(Icons.search_rounded),
-                label: const Text(
-                  'Find matching services',
+                label: Text(
+                  _editingBestFit
+                      ? 'Save and update recommendations'
+                      : 'Find Best Fit Services',
                   style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16),
                 ),
               ),
             ),
-
             const SizedBox(height: AppSpacing.xl),
 
             Text(
@@ -1163,7 +1285,7 @@ class _ThemePreviewCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  labels.join(' · '),
+                  labels.join(' ┬╖ '),
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                   style: AppTypography.label.copyWith(
@@ -1173,7 +1295,7 @@ class _ThemePreviewCard extends StatelessWidget {
                 ),
                 const SizedBox(height: 3),
                 Text(
-                  'We’ll prioritize providers with matching portfolios.',
+                  'WeΓÇÖll prioritize providers with matching portfolios.',
                   style: AppTypography.caption.copyWith(
                     color: AppColors.secondaryTextAccessible,
                     height: 1.3,
@@ -1336,7 +1458,7 @@ class _BudgetCard extends StatelessWidget {
               Expanded(
                 child: _BudgetField(
                   controller: minController,
-                  hintText: 'Min ₱',
+                  label: 'Minimum budget',
                   textInputAction: TextInputAction.next,
                 ),
               ),
@@ -1344,12 +1466,21 @@ class _BudgetCard extends StatelessWidget {
               Expanded(
                 child: _BudgetField(
                   controller: maxController,
-                  hintText: 'Max ₱',
+                  label: 'Maximum budget',
                   textInputAction: TextInputAction.done,
                   onSubmitted: (_) => onSubmitted(),
                 ),
               ),
             ],
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          Text(
+            'Enter any range from ₱1,000 to ₱1,000,000. Best Fit uses your maximum.',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+          Text(
+            'Example: About ₱65,500 for a 100-guest birthday with catering, photography, and videography.',
+            style: Theme.of(context).textTheme.bodySmall,
           ),
         ],
       ),
@@ -1360,13 +1491,13 @@ class _BudgetCard extends StatelessWidget {
 class _BudgetField extends StatelessWidget {
   const _BudgetField({
     required this.controller,
-    required this.hintText,
+    required this.label,
     required this.textInputAction,
     this.onSubmitted,
   });
 
   final TextEditingController controller;
-  final String hintText;
+  final String label;
   final TextInputAction textInputAction;
   final ValueChanged<String>? onSubmitted;
 
@@ -1376,9 +1507,16 @@ class _BudgetField extends StatelessWidget {
       controller: controller,
       keyboardType: const TextInputType.numberWithOptions(decimal: true),
       textInputAction: textInputAction,
+      style: const TextStyle(
+        color: AppColors.primaryStrong,
+        fontWeight: FontWeight.w700,
+      ),
       onSubmitted: onSubmitted,
       decoration: InputDecoration(
-        hintText: hintText,
+        labelText: label,
+        labelStyle: const TextStyle(color: AppColors.secondaryTextAccessible),
+        floatingLabelBehavior: FloatingLabelBehavior.always,
+        prefixText: '₱ ',
         filled: true,
         fillColor: AppColors.background,
         contentPadding: const EdgeInsets.symmetric(

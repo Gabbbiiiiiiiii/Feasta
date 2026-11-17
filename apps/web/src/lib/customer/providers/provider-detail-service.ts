@@ -96,6 +96,8 @@ export async function getPublicProviderDetail(
       const price = typeof data.price === "number" && Number.isFinite(data.price) && data.price >= 0
         ? data.price : undefined;
       services.push({id: document.id,
+        ...(typeof data.category === "string" && provider.categories.some((category) => category === data.category)
+          ? {category: data.category} : {}),
         ...(pricingType ? {pricingType} : {}),
         ...(price !== undefined && pricingType !== "custom_quote" ? {price} : {}),
         ...(portfolio?.photos.length ? {portfolio} : {}), name: data.name.trim().slice(0, 160),

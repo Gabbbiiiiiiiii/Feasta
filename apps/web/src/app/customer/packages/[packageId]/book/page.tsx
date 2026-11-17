@@ -1,3 +1,5 @@
+import {normalizeCateringPackageServiceTier} from "@/lib/catering/catering-service-tier";
+import {parseProviderDirectoryReturnHref} from "@/lib/customer/providers/provider-query";
 import type {
   Metadata,
 } from "next";
@@ -24,7 +26,7 @@ import {
   readPublishedProviderSetups,
 } from "@/lib/provider/provider-setup-gallery-service";
 import {
-  customerEventContextQuery,
+  customerBookingPlanningQuery, parseCustomerPlanningContext,
   parseCustomerEventContext,
 } from "@/lib/customer/planning/event-planning-context";
 
@@ -65,6 +67,7 @@ export default async function CustomerPackageBookingPage({
     params,
     searchParams ?? Promise.resolve<Record<string, string | string[] | undefined>>({}),
   ]);
+  const planningContext = parseCustomerPlanningContext(query);
   const initialEventContext = parseCustomerEventContext(query);
   const editProvider = typeof query.eventListProvider === "string" && /^[A-Za-z0-9_-]{1,128}$/u.test(query.eventListProvider) ? query.eventListProvider : undefined;
 
@@ -76,7 +79,11 @@ export default async function CustomerPackageBookingPage({
   const bookingBasePath = `/customer/packages/${encodeURIComponent(
     packageId,
   )}/book`;
-  const routingQuery = new URLSearchParams(customerEventContextQuery(initialEventContext));
+  const routingQuery = new URLSearchParams(customerBookingPlanningQuery(initialEventContext, planningContext));
+  const bestFitReturnHref = query.returnTo ? parseProviderDirectoryReturnHref(query.returnTo) : undefined;
+  if (bestFitReturnHref) routingQuery.set("returnTo", bestFitReturnHref);
+  const initialServiceTier = bestFitReturnHref ? normalizeCateringPackageServiceTier(query.serviceTier) : null;
+  if (initialServiceTier) routingQuery.set("serviceTier", initialServiceTier);
   if (editProvider) routingQuery.set("eventListProvider", editProvider);
   const eventListReviewIntent = Boolean(editProvider) && query.eventListIntent === "review";
   if (eventListReviewIntent) routingQuery.set("eventListIntent", "review");
@@ -135,6 +142,7 @@ export default async function CustomerPackageBookingPage({
           eventServices.services
         }
         initialEventContext={initialEventContext}
+        initialPlanningContext={planningContext} bestFitReturnHref={bestFitReturnHref} initialServiceTier={initialServiceTier}
         publishedSetups={publishedSetups}
       />
     </div>

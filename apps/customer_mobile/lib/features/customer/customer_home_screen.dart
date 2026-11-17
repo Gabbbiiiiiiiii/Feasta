@@ -279,10 +279,13 @@ class _HomeHeader extends StatelessWidget {
               ),
               const SizedBox(width: AppSpacing.sm),
               AnimatedBuilder(
-                animation: EventListScope.of(context),
+                animation:
+                    EventListScope.maybeOf(context) ??
+                    const AlwaysStoppedAnimation<double>(0),
                 builder: (context, _) {
-                  final controller = EventListScope.of(context);
+                  final controller = EventListScope.maybeOf(context);
                   final authenticated =
+                      controller != null &&
                       controller.authentication.session.customerUid != null;
 
                   final selectionCount = authenticated

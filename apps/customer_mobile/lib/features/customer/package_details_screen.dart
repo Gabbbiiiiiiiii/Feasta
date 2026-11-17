@@ -18,6 +18,7 @@ import '../../shared/models/feasta_models.dart';
 import '../../shared/widgets/loading_skeleton.dart';
 import '../authentication/data/repositories/feasta_repository.dart';
 import 'event_customization_screen.dart';
+import 'best_fit_controller.dart';
 import '../../core/helpers/booking_preparation.dart';
 
 class PackageDetailsScreen extends StatefulWidget {
@@ -27,9 +28,17 @@ class PackageDetailsScreen extends StatefulWidget {
     this.repository,
     this.sessions,
     this.bookingEligibilityCheck,
+    this.bestFitEvent,
+    this.onReturnToBestFit,
+    this.openCustomizationOnLoad = false,
+    this.initialServiceTier,
     super.key,
   });
 
+  final BestFitEvent? bestFitEvent;
+  final VoidCallback? onReturnToBestFit;
+  final bool openCustomizationOnLoad;
+  final String? initialServiceTier;
   final FeastaRepository? repository;
   final CustomerSessionCoordinator? sessions;
 
@@ -56,6 +65,18 @@ class _PackageDetailsScreenState extends State<PackageDetailsScreen> {
     super.initState();
     _repository = widget.repository ?? FeastaRepository();
     _currentPackage = widget.eventPackage;
+    if (preparationServices(
+      _currentPackage,
+    ).containsKey(widget.initialServiceTier)) {
+      _selectedServiceTier = widget.initialServiceTier;
+    }
+    if (widget.openCustomizationOnLoad) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && (ModalRoute.of(context)?.isCurrent ?? false)) {
+          _customizeEvent();
+        }
+      });
+    }
   }
 
   bool _isUpdatingFavorite = false;
@@ -213,6 +234,8 @@ class _PackageDetailsScreenState extends State<PackageDetailsScreen> {
           repository: _repository,
           session: binding,
           initialServiceTier: _selectedServiceTier,
+          bestFitEvent: widget.bestFitEvent,
+          onReturnToBestFit: widget.onReturnToBestFit,
           onServiceChanged: (tier) {
             if (mounted && binding.authorized && route.isActive) {
               setState(() => _selectedServiceTier = tier);
@@ -242,6 +265,38 @@ class _PackageDetailsScreenState extends State<PackageDetailsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    if (widget.openCustomizationOnLoad) {
+      final checking = _checkingPackage || _checkingPhoneForBooking;
+      return Scaffold(
+        backgroundColor: AppColors.background,
+        appBar: AppBar(title: const Text('Event details')),
+        body: SafeArea(
+          child: Center(
+            child: Padding(
+              padding: const EdgeInsets.all(AppSpacing.screen),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (checking)
+                    const CircularProgressIndicator(
+                      semanticsLabel: 'Preparing event details',
+                    )
+                  else ...[
+                    if (_selectionError != null)
+                      Text(_selectionError!, textAlign: TextAlign.center),
+                    TextButton(
+                      onPressed: _customizeEvent,
+                      child: const Text('Try again'),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
     return Scaffold(
       backgroundColor: AppColors.background,
       body: SafeArea(
@@ -251,6 +306,7 @@ class _PackageDetailsScreenState extends State<PackageDetailsScreen> {
           slivers: [
             SliverToBoxAdapter(
               child: _PackageHero(
+                fromBestFit: widget.onReturnToBestFit != null,
                 provider: provider,
                 eventPackage: eventPackage,
                 repository: _repository,
@@ -382,6 +438,7 @@ class _PackageDetailsScreenState extends State<PackageDetailsScreen> {
 
 class _PackageHero extends StatefulWidget {
   const _PackageHero({
+    required this.fromBestFit,
     required this.provider,
     required this.eventPackage,
     required this.repository,
@@ -389,6 +446,7 @@ class _PackageHero extends StatefulWidget {
     required this.onToggleFavorite,
   });
 
+  final bool fromBestFit;
   final ProviderModel provider;
   final PackageModel eventPackage;
   final FeastaRepository repository;
@@ -448,13 +506,17 @@ class _PackageHeroState extends State<_PackageHero> {
           Positioned(
             top: AppSpacing.md,
             left: AppSpacing.screen,
-            child: _FloatingPackageButton(
-              tooltip: 'Back',
-              icon: Icons.arrow_back_rounded,
-              onPressed: () {
-                Navigator.pop(context);
-              },
-            ),
+            child: widget.fromBestFit
+                ? FilledButton.tonalIcon(
+                    onPressed: () => Navigator.pop(context),
+                    icon: const Icon(Icons.arrow_back_rounded),
+                    label: const Text('Back to Best Fit'),
+                  )
+                : _FloatingPackageButton(
+                    tooltip: 'Back',
+                    icon: Icons.arrow_back_rounded,
+                    onPressed: () => Navigator.pop(context),
+                  ),
           ),
           Positioned(
             top: AppSpacing.md,
@@ -781,8 +843,9 @@ class _PackageOverviewCard extends StatelessWidget {
               const SizedBox(height: AppSpacing.xxs),
               FeastaPriceText(
                 amount: eventPackage.price,
-                decimalDigits: 0,
-                semanticLabel: eventPackage.priceUnitLabel,
+                decimalDigits: eventPackage.price % 1 == 0 ? 0 : 2,
+                semanticLabel:
+                    "${FeastaPriceFormatter.format(eventPackage.price, decimalDigits: eventPackage.price % 1 == 0 ? 0 : 2)} ${eventPackage.priceUnitLabel}",
                 style: AppTypography.pageTitle.copyWith(
                   color: AppColors.primaryStrong,
                   fontWeight: FontWeight.w900,

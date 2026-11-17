@@ -70,6 +70,56 @@ Map<String, dynamic> form() => {
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  for (final city in [
+    'Ormoc City',
+    'Isabel',
+    'Palompon',
+    'Albuera',
+    'Kananga',
+    'Baybay City',
+    'Baguio City',
+    'Tagum City',
+  ]) {
+    test(
+      'Best Fit draft saves a full municipality label with a matching $city pin',
+      () async {
+        final persistence = EventDraftPersistence(
+          DraftStore(),
+          context: 'best-fit',
+        );
+        final province = switch (city) {
+          'Baguio City' => 'Benguet',
+          'Tagum City' => 'Davao del Norte',
+          _ => 'Leyte',
+        };
+        final address = CustomerAddressModel.defaultOrmoc.copyWith(
+          city: city,
+          province: province,
+          fullAddress: '$city, $province, Philippines',
+        );
+        final data = {
+          ...form(),
+          'city': '$city, $province',
+          'address': address.fullAddress,
+          'eventAddress': address,
+        };
+        expect(await persistence.save('u', 'p', 'k', data, () => 'u'), isTrue);
+        final restored = await persistence.read('u', 'p', 'k');
+        expect(restored!['city'], '$city, $province');
+        expect(
+          (restored['eventAddress'] as CustomerAddressModel).city,
+          address.city,
+        );
+        await expectLater(
+          persistence.save('u', 'p', 'k', {
+            ...data,
+            'city': city == 'Isabel' ? 'Ormoc City, Leyte' : 'Isabel, Leyte',
+          }, () => 'u'),
+          throwsFormatException,
+        );
+      },
+    );
+  }
   for (final source in ['catering_provider', 'feasta_addon_provider']) {
     test(
       'duplicate $source IDs are rejected and stored corruption retained',
