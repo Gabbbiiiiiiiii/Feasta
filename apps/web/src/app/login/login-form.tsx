@@ -1,4 +1,5 @@
 "use client";
+import {signInValidationError} from "@/lib/auth/sign-in-validation";
 import {CustomerConsentReview, useCustomerConsent} from "@/components/auth/customer-consent-review";
 
 
@@ -101,6 +102,12 @@ export function LoginForm({
     event: FormEvent<HTMLFormElement>,
   ) {
     event.preventDefault();
+    const validationError = signInValidationError(email, password);
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
+
 
     void completeSignIn("email", () =>
       signInWithEmail(
@@ -408,6 +415,7 @@ function EmailLoginForm({
       <form
         className="space-y-4"
         onSubmit={onSubmit}
+        noValidate
         aria-describedby={
           error
             ? "sign-in-error"

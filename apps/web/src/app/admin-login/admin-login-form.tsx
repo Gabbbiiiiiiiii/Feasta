@@ -5,12 +5,7 @@ import {
   useRef,
   useState,
 } from "react";
-import {
-  Eye,
-  EyeOff,
-  LockKeyhole,
-  Mail,
-} from "lucide-react";
+import {CalendarCheck2, ShieldCheck, Users} from "lucide-react";
 import {useRouter} from "next/navigation";
 import {FirebaseError} from "firebase/app";
 
@@ -19,7 +14,16 @@ import {Button} from "@/components/ui/button";
 import {Input} from "@/components/ui/input";
 import {signInAdmin} from "@/lib/auth/admin-client";
 import {WebAuthenticationError} from "@/lib/auth/client-session";
-import {cn} from "@/lib/utils";
+import {PortalSignInLayout} from "@/components/auth/portal-sign-in-layout";
+import {FormField} from "@/components/forms/form-field";
+import {PasswordInput} from "@/components/forms/password-input";
+import {signInValidationError} from "@/lib/auth/sign-in-validation";
+
+const adminBenefits = [
+  {icon: Users, title: "Manage accounts", description: "Review customer and provider accounts."},
+  {icon: ShieldCheck, title: "Review provider applications", description: "Verify providers before they join the marketplace."},
+  {icon: CalendarCheck2, title: "Oversee bookings", description: "Review booking activity and handle escalated concerns."},
+];
 
 export function AdminLoginForm({
   returnTo,
@@ -33,53 +37,11 @@ export function AdminLoginForm({
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
-
-  const [emailError, setEmailError] = useState<string | null>(null);
-  const [passwordError, setPasswordError] = useState<string | null>(
-    null,
-  );
   const [submitError, setSubmitError] = useState<string | null>(
     null,
   );
 
   const [loading, setLoading] = useState(false);
-
-  function validateEmail(value: string): string | null {
-    const normalizedEmail = value.trim();
-
-    if (!normalizedEmail) {
-      return "Administrator email is required.";
-    }
-
-    if (normalizedEmail.length > 254) {
-      return "Email address is too long.";
-    }
-
-    const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-    if (!emailPattern.test(normalizedEmail)) {
-      return "Please enter a valid email address.";
-    }
-
-    return null;
-  }
-
-  function validatePassword(value: string): string | null {
-    if (!value) {
-      return "Password is required.";
-    }
-
-    if (value.length > 128) {
-      return "Password is too long.";
-    }
-
-    if (value.length < 8) {
-      return "Password must be at least 8 characters long.";
-    }
-
-    return null;
-  }
 
   async function submit(
     event: FormEvent<HTMLFormElement>,
@@ -90,16 +52,9 @@ export function AdminLoginForm({
       return;
     }
 
-    const nextEmailError = validateEmail(email);
-    const nextPasswordError = validatePassword(password);
-
-    setEmailError(nextEmailError);
-    setPasswordError(nextPasswordError);
-    setSubmitError(null);
-
-    if (nextEmailError || nextPasswordError) {
-      return;
-    }
+    const validationError = signInValidationError(email, password);
+    setSubmitError(validationError);
+    if (validationError) return;
 
     submitting.current = true;
     setLoading(true);
@@ -122,246 +77,36 @@ export function AdminLoginForm({
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-background px-5 py-10">
-      <section
-        className={cn(
-          "w-full max-w-115",
-          "rounded-[18px] border border-black/4",
-          "bg-white p-7",
-          "shadow-[0_10px_30px_rgba(0,0,0,0.08)]",
-          "sm:p-8",
-        )}
-        aria-labelledby="admin-login-title"
-      >
-        <header className="text-center">
-          <p className="mb-3 inline-flex rounded-full bg-primary/10 px-3 py-1 text-xs font-bold uppercase tracking-[0.14em] text-primary">
-            Admin portal
-          </p>
-
-          <h1
-            id="admin-login-title"
-            className="text-[26px] font-bold tracking-tight text-foreground"
-          >
-            Administrator Login
-          </h1>
-
-          <p className="mx-auto mt-2 max-w-sm text-sm leading-6 text-muted-foreground">
-            Sign in with your authorized administrator
-            account.
-          </p>
-        </header>
-
-        <div className="mt-6">
-          {initialNotice ? (
-            <div className="mb-4">
-              <AuthStatus message={initialNotice} />
-            </div>
-          ) : null}
-
-          {submitError ? (
-            <div className="mb-4">
-              <AuthStatus
-                id="admin-login-error"
-                message={submitError}
-                tone="error"
-              />
-            </div>
-          ) : null}
-
-          <form
-            className="grid gap-4"
-            onSubmit={submit}
-            noValidate
-            aria-describedby={
-              submitError
-                ? "admin-login-error"
-                : undefined
-            }
-          >
-            <div className="grid gap-1.5">
-              <label
-                htmlFor="admin-email"
-                className="text-[13px] font-medium text-foreground"
-              >
-                Admin email
-                <span
-                  className="ml-1 text-destructive"
-                  aria-hidden="true"
-                >
-                  *
-                </span>
-              </label>
-
-              <div className="relative">
-                <Mail
-                  aria-hidden="true"
-                  className="pointer-events-none absolute left-3.5 top-1/2 size-5 -translate-y-1/2 text-muted-foreground"
-                />
-
-                <Input
-                  id="admin-email"
-                  name="email"
-                  type="email"
-                  inputMode="email"
-                  autoComplete="username"
-                  placeholder="Enter admin email"
-                  value={email}
-                  disabled={loading}
-                  aria-invalid={Boolean(emailError)}
-                  aria-describedby={
-                    emailError
-                      ? "admin-email-error"
-                      : undefined
-                  }
-                  className={cn(
-                    "h-12.5 rounded-[10px] bg-muted/60 pl-11",
-                    "focus-visible:border-primary",
-                    "focus-visible:ring-primary/20",
-                    emailError &&
-                      "border-destructive focus-visible:border-destructive focus-visible:ring-destructive/20",
-                  )}
-                  onChange={(event) => {
-                    const value = event.target.value;
-
-                    setEmail(value);
-                    setSubmitError(null);
-
-                    if (emailError) {
-                      setEmailError(validateEmail(value));
-                    }
-                  }}
-                  onBlur={() => {
-                    setEmailError(validateEmail(email));
-                  }}
-                />
-              </div>
-
-              {emailError ? (
-                <p
-                  id="admin-email-error"
-                  className="text-xs font-medium text-destructive"
-                  role="alert"
-                >
-                  {emailError}
-                </p>
-              ) : null}
-            </div>
-
-            <div className="grid gap-1.5">
-              <label
-                htmlFor="admin-password"
-                className="text-[13px] font-medium text-foreground"
-              >
-                Password
-                <span
-                  className="ml-1 text-destructive"
-                  aria-hidden="true"
-                >
-                  *
-                </span>
-              </label>
-
-              <div className="relative">
-                <LockKeyhole
-                  aria-hidden="true"
-                  className="pointer-events-none absolute left-3.5 top-1/2 size-5 -translate-y-1/2 text-muted-foreground"
-                />
-
-                <Input
-                  id="admin-password"
-                  name="password"
-                  type={showPassword ? "text" : "password"}
-                  autoComplete="current-password"
-                  placeholder="Enter your password"
-                  value={password}
-                  disabled={loading}
-                  aria-invalid={Boolean(passwordError)}
-                  aria-describedby={
-                    passwordError
-                      ? "admin-password-error"
-                      : undefined
-                  }
-                  className={cn(
-                    "h-12.5 rounded-[10px] bg-muted/60 pl-11 pr-12",
-                    "focus-visible:border-primary",
-                    "focus-visible:ring-primary/20",
-                    passwordError &&
-                      "border-destructive focus-visible:border-destructive focus-visible:ring-destructive/20",
-                  )}
-                  onChange={(event) => {
-                    const value = event.target.value;
-
-                    setPassword(value);
-                    setSubmitError(null);
-
-                    if (passwordError) {
-                      setPasswordError(
-                        validatePassword(value),
-                      );
-                    }
-                  }}
-                  onBlur={() => {
-                    setPasswordError(
-                      validatePassword(password),
-                    );
-                  }}
-                />
-
-                <button
-                  type="button"
-                  disabled={loading}
-                  className={cn(
-                    "absolute right-1.5 top-1/2",
-                    "flex size-10 -translate-y-1/2 items-center justify-center",
-                    "rounded-md text-muted-foreground",
-                    "transition-colors",
-                    "hover:bg-black/5 hover:text-foreground",
-                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30",
-                    "disabled:pointer-events-none disabled:opacity-50",
-                  )}
-                  aria-label={
-                    showPassword
-                      ? "Hide password"
-                      : "Show password"
-                  }
-                  aria-pressed={showPassword}
-                  onClick={() => {
-                    setShowPassword((current) => !current);
-                  }}
-                >
-                  {showPassword ? (
-                    <Eye className="size-5" />
-                  ) : (
-                    <EyeOff className="size-5" />
-                  )}
-                </button>
-              </div>
-
-              {passwordError ? (
-                <p
-                  id="admin-password-error"
-                  className="text-xs font-medium text-destructive"
-                  role="alert"
-                >
-                  {passwordError}
-                </p>
-              ) : null}
-            </div>
-
-            <Button
-              type="submit"
-              fullWidth
-              aria-label="Sign in as admin"
-              loading={loading}
-              loadingLabel="Signing in"
-              className="h-13 rounded-full text-[15px] font-semibold shadow-md shadow-primary/20"
-            >
-              Sign In
-            </Button>
-          </form>
-        </div>
-      </section>
-    </main>
+    <PortalSignInLayout
+      eyebrow="Feasta Admin"
+      portalLabel="FEASTA Admin Portal"
+      introTitle="Manage the FEASTA marketplace."
+      introDescription="Access your admin workspace to review accounts, providers, and booking activity."
+      title="Administrator Login"
+      description="Sign in with your authorized administrator account."
+      brandHref="/"
+      benefits={adminBenefits}
+    >
+      <form className="mt-10 grid gap-5" onSubmit={submit} noValidate
+        aria-describedby={submitError ? "admin-login-error" : undefined}>
+        {initialNotice && <AuthStatus message={initialNotice} />}
+        <FormField id="admin-email" label="Admin email" labelClassName="sr-only" required disabled={loading}>
+          <Input type="email" name="email" inputMode="email" autoComplete="username"
+            placeholder="Email" className="min-h-14 rounded-[10px]" value={email}
+            onChange={(event) => {setEmail(event.target.value); setSubmitError(null);}} />
+        </FormField>
+        <FormField id="admin-password" label="Password" labelClassName="sr-only" required disabled={loading}>
+          <PasswordInput name="password" autoComplete="current-password" placeholder="Password"
+            className="min-h-14 rounded-[10px]" value={password}
+            onChange={(event) => {setPassword(event.target.value); setSubmitError(null);}} />
+        </FormField>
+        {submitError && <AuthStatus id="admin-login-error" message={submitError} tone="error" />}
+        <Button type="submit" fullWidth aria-label="Sign in as admin" loading={loading}
+          loadingLabel="Logging in" className="min-h-14 rounded-[10px] text-base font-bold">
+          Log in
+        </Button>
+      </form>
+    </PortalSignInLayout>
   );
 }
 
