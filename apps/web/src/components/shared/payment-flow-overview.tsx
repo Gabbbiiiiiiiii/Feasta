@@ -13,7 +13,7 @@ export function PaymentFlowOverview({evidence}: {evidence?: PaymentDemoEvidence 
         <p className="text-sm font-bold">{title}</p><p className="mt-1 text-xs leading-5 text-muted-foreground">{description}</p>
       </li>)}
     </ol>
-    <div className="mt-4 rounded-xl border border-primary/20 bg-secondary/40 p-4">
+    {evidence !== undefined && <div className="mt-4 rounded-xl border border-primary/20 bg-secondary/40 p-4">
       <p className="text-xs font-bold uppercase tracking-wide text-primary-strong">Separate capstone test demonstration</p>
       <p className="mt-1 text-sm font-semibold">{evidence ? "PayMongo simulator transfer confirmed" : "Gateway test results are recorded separately"}</p>
       <p className="mt-1 text-sm text-muted-foreground">{evidence
@@ -24,6 +24,6 @@ export function PaymentFlowOverview({evidence}: {evidence?: PaymentDemoEvidence 
         <dl className="mt-2 grid gap-2 break-all"><div><dt className="font-bold">Gateway transfer ID</dt><dd>{evidence.transferId}</dd></div>
           <div><dt className="font-bold">Gateway reference</dt><dd>{evidence.gatewayReference}</dd></div></dl>
       </details> : null}
-    </div>
+    </div>}
   </section>;
 }
