@@ -12,16 +12,19 @@ async function libraryRef() {
   if (!account.provider || !providerContentCapabilities(account.provider.providerServiceType, account.provider.serviceCategories).catering) {
     throw new Error("Dish Library is available to catering providers.");
   }
-  return adminDb.collection("providers").doc(account.provider.id).collection("catalog").doc("dishLibrary");
+  const providerId = account.provider.id;
+  const ref = adminDb.collection("providers").doc(providerId).collection("catalog").doc("dishLibrary");
+  return {ref, providerId};
 }
 
 export async function loadDishLibrary(): Promise<{revision: number; dishes: LibraryDish[]; categories: string[]; parentGroups?: Record<string, string>; groupNames?: string[]}> {
-  const snapshot = await (await libraryRef()).get();
+  const {ref} = await libraryRef();
+  const snapshot = await ref.get();
   return {revision: snapshot.get("revision") ?? 0, dishes: snapshot.get("dishes") ?? [], categories: snapshot.get("categories") ?? [], parentGroups: snapshot.get("parentGroups") ?? {}, groupNames: snapshot.get("groupNames")};
 }
 
 export async function saveDishLibrary(revision: number, input: LibraryDish[], savedCategories: string[], categoryGroups: Record<string, string> = {}, groupNames?: string[], unassignedCategories: string[] = []) {
-  const ref = await libraryRef();
+  const {ref, providerId} = await libraryRef();
   if (!Number.isSafeInteger(revision) || revision < 0 || !Array.isArray(input) || input.length > 500) {
     throw new Error("A dish library can have at most 500 dishes.");
   }
@@ -102,6 +105,42 @@ export async function saveDishLibrary(revision: number, input: LibraryDish[], sa
       }
     }
     const storedGroups = groupNames ?? snapshot.get("groupNames");
+    const previousAssignments = Object.entries(
+      (snapshot.get("parentGroups") ?? {}) as Record<string, string>,
+    );
+    for (const dish of previous.values()) {
+      if (dish.parentGroup) previousAssignments.push([categoryKey(dish.category), dish.parentGroup]);
+    }
+    const previousGroups = new Set([
+      ...((snapshot.get("groupNames") ?? []) as string[]),
+      ...previousAssignments.map(([, group]) => group),
+    ].map(categoryKey));
+    const remainingGroups = new Set([
+      ...((storedGroups ?? []) as string[]),
+      ...Object.values(parentGroups),
+      ...dishes.map((dish) => dish.parentGroup),
+    ].map(categoryKey));
+    const removedGroups = new Set([...previousGroups].filter((group) => group && !remainingGroups.has(group)));
+    if (removedGroups.size) {
+      const packages = await transaction.get(
+        adminDb.collection("packages").where("providerId", "==", providerId),
+      );
+      const inUse = packages.docs.some((doc) => {
+        const data = doc.data();
+        if (data.isDeleted === true || data.status === "archived") return false;
+        return [data.foodChoiceGroups, data.v2?.foodChoiceGroups].some((rules) =>
+          Array.isArray(rules) && rules.some((rule) =>
+            typeof rule?.title === "string" && removedGroups.has(categoryKey(rule.title)),
+          ),
+        );
+      });
+      if (inUse) throw new Error("This Parent Group is used by a package. Update the package’s Food menu before removing it.");
+      const needsReassignment = previousAssignments.some(([category, group]) =>
+        removedGroups.has(categoryKey(group)) && submittedCategories.has(category) &&
+        !Object.hasOwn(parentGroups, category) && !categories.has(category),
+      );
+      if (needsReassignment) throw new Error("Reassign the categories and dishes before removing their Parent Group.");
+    }
     transaction.set(ref, {revision: revision + 1, dishes, categories: categoryNames, parentGroups,
       ...(storedGroups ? {groupNames: storedGroups} : {})});
 

@@ -61,3 +61,22 @@ it("keeps each category in a single parent group",async()=>{
  await expect(saveDishLibrary(0,[dish,{...dish,id:"22222222-2222-4222-8222-222222222222",name:"Chicken Soup",parentGroup:"Soups"}],["Chicken"])).rejects.toThrow("one parent group");
  expect(m.run).not.toHaveBeenCalled();
 });
+
+it.each([false, true])("checks package dependencies before reassigning and deleting a group (in use: %s)", async (inUse) => {
+  m.collection.mockReturnValue({doc: m.doc, where: vi.fn().mockReturnValue("package query")});
+  m.get.mockImplementation(async (ref) => ref === "package query"
+    ? {docs: inUse ? [{data: () => ({status: "draft", foodChoiceGroups: [{title: "meat dishes"}]})}] : []}
+    : {get: (field: string) => ({
+      categories: ["Chicken"], dishes: [dish], parentGroups: {chicken: "Meat Dishes"},
+      groupNames: ["Meat Dishes", "Mains"],
+    } as Record<string, unknown>)[field]});
+  const result = saveDishLibrary(0, [{...dish, parentGroup: "Mains"}], ["Chicken"],
+    {chicken: "Mains"}, ["Mains"]);
+  if (inUse) {
+    await expect(result).rejects.toThrow("used by a package");
+    expect(m.set).not.toHaveBeenCalled();
+  } else {
+    await expect(result).resolves.toMatchObject({parentGroups: {chicken: "Mains"}});
+    expect(m.set).toHaveBeenCalledOnce();
+  }
+});
