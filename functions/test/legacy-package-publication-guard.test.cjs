@@ -34,11 +34,34 @@ function fixture(patch = {}, options = {}) {
   ]);
   const writes = [], reads = [];
   const ref = p => ({path:p,id:p.split('/').at(-1)});
-  const db = {doc:ref, collection:p=>({doc:id=>ref(p+'/'+(id??'generated'))}),
+  const db = {doc:ref, collection:p=>({
+    doc:id=>ref(p+'/'+(id??'generated')),
+    where:(field,op,value)=>({
+      limit:n=>({queryPath:p,field,op,value,limit:n})
+    })
+  }),
     async runTransaction(fn) {
       const pending=[];
-      const tx={get:async r=>{assert.equal(pending.length,0,'read after write'); reads.push(r.path);
-        return {id:r.id,ref:r,exists:records.has(r.path),data:()=>records.get(r.path)};},
+      const tx={get:async r=>{
+        assert.equal(pending.length,0,'read after write');
+        if(r.queryPath){
+          assert.equal(r.op,'==');
+          const docs=[...records.entries()]
+            .filter(([key,data])=>
+              key.startsWith(r.queryPath+'/') &&
+              !key.slice(r.queryPath.length+1).includes('/') &&
+              data?.[r.field]===r.value)
+            .slice(0,r.limit)
+            .map(([key,data])=>({
+              id:key.split('/').at(-1),ref:ref(key),
+              exists:true,data:()=>data
+            }));
+          reads.push(r.queryPath+'?'+r.field);
+          return {size:docs.length,docs};
+        }
+        reads.push(r.path);
+        return {id:r.id,ref:r,exists:records.has(r.path),data:()=>records.get(r.path)};
+      },
         update:(r,d)=>pending.push([r,d]),create:(r,d)=>pending.push([r,d]),
         set:(r,d)=>pending.push([r,d]),delete:r=>pending.push([r,null])};
       const result=await fn(tx);
@@ -117,7 +140,7 @@ test('client structure cannot override persisted evidence',async()=>{
 test('V2 route rejects malformed customizable rules with all publication gates enabled',async()=>{
   const f=fixture({sharedContractVersion:2,offerSchemaVersion:2,occasionSchemaVersion:2,
     occasionScope:'specific',occasionIds:['birthday'],offerStructure:'customizable',pricingModel:'per_pax',
-    foodChoiceGroups:[{id:'main',title:'Main',selectionCount:1,options:[{id:'chicken',name:'Chicken'}]}]});
+    foodChoiceGroups:[{id:'main',title:'Main',selectionCount:2,options:[{id:'chicken',name:'Chicken'}]}]});
   f.records.get('users/owner').isBlocked=false;
   Object.assign(f.records.get('providers/provider'),{businessName:'Catering',description:'Catering business',
     address:'Address',city:'City',province:'Province',operatingDays:['monday'],bookingLeadTimeDays:1});

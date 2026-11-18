@@ -31,15 +31,23 @@ function fixture() {
   ]);
   const reads = []; let serial = 0;
   const ref = p => ({path: p, id: p.split('/').at(-1)});
-  const db = {doc: ref, collection: p => ({doc: id => ref(p + '/' + (id ?? 'generated_' + ++serial))}),
+  const db = {doc: ref, collection: p => ({
+    doc: id => ref(p + '/' + (id ?? 'generated_' + ++serial)),
+    where: (field, _op, value) => ({select: () => ({path: p, field, value})}),
+  }),
     async runTransaction(fn) {
       const writes = []; let writing = false;
       const tx = {async get(r) {
         assert.equal(writing, false, 'all reads precede writes'); reads.push(r.path);
         assert.equal(r.path.startsWith('maintenance'), false, 'no maintenance dependency');
+        if (r.field) {
+          const docs = [...records].filter(([key, data]) => key.startsWith(r.path + '/') && data[r.field] === r.value)
+            .map(([key, data]) => ({id: ref(key).id, data: () => data}));
+          return {docs};
+        }
         return {id: r.id, exists: records.has(r.path), data: () => records.get(r.path)};
       }};
-      for (const mode of ['create', 'update', 'delete']) tx[mode] = (r, data) => {
+      for (const mode of ['create', 'update', 'delete', 'set']) tx[mode] = (r, data) => {
         writing = true; assert.equal(r.path.startsWith('maintenance'), false); writes.push([mode, r, data]);
       };
       const result = await fn(tx);
@@ -92,6 +100,23 @@ test('private create and edit need no maintenance document and retain exact Bila
   assert.equal(f.records.get(entry('wedding')).occasionId, 'wedding');
   assert.ok(f.reads.includes('occasionCatalog/current'));
   assert.ok(f.reads.includes('occasions/wedding'));
+});
+
+test('legacy create and rename reject a service collision without writing a package or occasion dependency', async () => {
+  const f = fixture();
+  f.records.set('addons/service', {providerId: 'provider', name: ' WEDDING   PHOTOS '});
+  const conflicting = {...input, name: 'Wedding Photos'};
+  const alreadyExists = error => error.code === 'already-exists';
+  const beforeCreate = [...f.records];
+  await assert.rejects(f.create(conflicting), alreadyExists);
+  assert.deepEqual([...f.records], beforeCreate);
+  const {packageId} = await f.create();
+  const beforeRename = [...f.records];
+  await assert.rejects(f.update(packageId, {...conflicting, eventType: 'wedding'}), alreadyExists);
+  assert.deepEqual([...f.records], beforeRename);
+  f.records.set('addons/service', {...f.records.get('addons/service'), isDeleted: true});
+  await f.update(packageId, conflicting);
+  assert.equal(f.records.get('packages/' + packageId).name, conflicting.name);
 });
 
 test('provider authorization, ownership, draft status and invalid input still block', async () => {

@@ -265,16 +265,19 @@ function DishList({initialLibrary}: {initialLibrary: Library}) {
     });
   }
 
-  function saveGroup(remove = false, draftToSave = groupDraft) {
+  const [groupToDelete, setGroupToDelete] = useState("");
+  const [replacementGroup, setReplacementGroup] = useState("");
+  const deletionNeedsReplacement = !!groupToDelete && rows.some((row) => categoryKey(row.group) === categoryKey(groupToDelete));
+  function saveGroup(draftToSave = groupDraft) {
     if (!draftToSave || busy) return;
     const name = draftToSave.name.trim();
     const original = categoryKey(draftToSave.original);
-    if (!remove && (categoryNameError(name) || groupOptions.some((group) =>
-        categoryKey(group) === categoryKey(name) && categoryKey(group) !== original))) {
+    if (categoryNameError(name) || groupOptions.some((group) =>
+        categoryKey(group) === categoryKey(name) && categoryKey(group) !== original)) {
       setError(categoryNameError(name) ?? "That parent group already exists.");
       return;
     }
-    const selected = new Set(remove ? [] : draftToSave.categories);
+    const selected = new Set(draftToSave.categories);
     const parentGroups = {...library.parentGroups};
     const unassigned: string[] = [];
     for (const row of rows) {
@@ -292,18 +295,39 @@ function DishList({initialLibrary}: {initialLibrary: Library}) {
       return dish;
     });
     const nextGroups = groupOptions.filter((group) => categoryKey(group) !== original);
-    if (!remove) nextGroups.push(name);
+    nextGroups.push(name);
     void save(dishes, rows.map((row) => row.name), () => {
       setGroupDraft(null);
+      setGroupToDelete("");
       setFilter("");
-      setNotice(remove ? "Parent group deleted. Its categories and dishes were kept." : "Parent group saved.");
+      setNotice("Parent group saved.");
     }, parentGroups, nextGroups, unassigned);
   }
 
   function deleteGroup(group: string) {
-    if (window.confirm("Delete this parent group? Its categories and dishes will be kept under Assign parent group.")) {
-      saveGroup(true, {original: group, name: group, categories: []});
-    }
+    setError("");
+    setReplacementGroup("");
+    setGroupToDelete(group);
+  }
+
+  function confirmGroupDeletion() {
+    const original = categoryKey(groupToDelete);
+    const affected = new Set(rows.filter((row) => categoryKey(row.group) === original)
+      .map((row) => categoryKey(row.name)));
+    if (affected.size && (!replacementGroup || !groupOptions.includes(replacementGroup) ||
+        categoryKey(replacementGroup) === original)) return;
+
+    const parentGroups = {...library.parentGroups};
+    for (const category of affected) parentGroups[category] = replacementGroup;
+    const dishes = library.dishes.map((dish) => affected.has(categoryKey(dish.category))
+      ? {...dish, parentGroup: replacementGroup} : dish);
+    const nextGroups = groupOptions.filter((group) => categoryKey(group) !== original);
+    void save(dishes, rows.map((row) => row.name), () => {
+      setGroupToDelete("");
+      setGroupDraft(null);
+      setFilter("");
+      setNotice("Parent Group deleted.");
+    }, parentGroups, nextGroups);
   }
 
   const editingDish = draft && library.dishes.some((dish) => dish.id === draft.id);
@@ -328,10 +352,10 @@ function DishList({initialLibrary}: {initialLibrary: Library}) {
       </div>
     </header>
     <Dialog open={groupsOpen} onOpenChange={(open) => {
-      if (!busy) {setGroupsOpen(open); setGroupDraft(null); setError("");}
+      if (!busy) {setGroupsOpen(open); setGroupDraft(null); setGroupToDelete(""); setError("");}
     }}>
       <DialogContent className={groupDraft ? "max-h-[90dvh] max-w-xl overflow-y-auto" : "max-h-[90dvh] max-w-lg overflow-y-auto"}>
-        {groupDraft && <Button type="button" variant="link" disabled={busy}
+        {groupDraft && !groupToDelete && <Button type="button" variant="link" disabled={busy}
           className="w-fit px-0" onClick={() => {setGroupDraft(null); setError("");}}>
           <ArrowLeft size={16} aria-hidden="true" /> Back to all parent groups
         </Button>}
@@ -339,7 +363,25 @@ function DishList({initialLibrary}: {initialLibrary: Library}) {
           <DialogTitle>{groupDraft ? groupDraft.original ? "Edit Parent Group" : "Add Parent Group" : "Manage parent groups"}</DialogTitle>
           <DialogDescription>{groupDraft ? "Checked categories and their dishes will be assigned to this group." : "Organize your dishes by grouping related categories."}</DialogDescription>
         </DialogHeader>
-        {groupDraft ? <form className="grid gap-4" onSubmit={(event) => {
+        {groupToDelete ? <div className="grid gap-4">
+          <p>Delete {groupToDelete}?</p>
+          {deletionNeedsReplacement && <label className="grid gap-2">
+            Move its categories and dishes to another Parent Group
+            <Select value={replacementGroup} disabled={busy} onChange={(event) => setReplacementGroup(event.target.value)}>
+              <option value="">Choose a Parent Group</option>
+              {groupOptions.filter((group) => categoryKey(group) !== categoryKey(groupToDelete))
+                .map((group) => <option key={group} value={group}>{group}</option>)}
+            </Select>
+          </label>}
+          {deletionNeedsReplacement && groupOptions.length < 2 && <p>Create another Parent Group before deleting this one.</p>}
+          <DialogFooter>
+            <Button type="button" variant="secondary" disabled={busy} onClick={() => {setGroupToDelete(""); setError("");}}>Cancel</Button>
+            <Button type="button" variant="destructive" loading={busy}
+              disabled={deletionNeedsReplacement && !replacementGroup} onClick={confirmGroupDeletion}>
+              {deletionNeedsReplacement ? "Reassign & Delete" : "Delete Group"}
+            </Button>
+          </DialogFooter>
+        </div> : groupDraft ? <form className="grid gap-4" onSubmit={(event) => {
           event.preventDefault();
           saveGroup();
         }}>

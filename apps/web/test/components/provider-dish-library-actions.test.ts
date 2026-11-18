@@ -12,7 +12,7 @@ beforeEach(()=>{
  m.run.mockImplementation(async(callback:(tx:unknown)=>unknown)=>callback({get:m.get,set:m.set}));
 });
 it("loads only the authenticated provider library and supplies empty defaults",async()=>{
- expect(await loadDishLibrary()).toEqual({revision:0,dishes:[],categories:[]});
+ expect(await loadDishLibrary()).toEqual({revision:0,dishes:[],categories:[],parentGroups:{},groupNames:undefined});
  expect(m.collection).toHaveBeenNthCalledWith(1,"providers");expect(m.doc).toHaveBeenNthCalledWith(1,"provider-owner");
  expect(m.collection).toHaveBeenNthCalledWith(2,"catalog");expect(m.doc).toHaveBeenNthCalledWith(2,"dishLibrary");
 });
@@ -27,14 +27,29 @@ it("rejects providers without catering access before reading their catalog",asyn
  await expect(loadDishLibrary()).rejects.toThrow("catering providers");expect(m.collection).not.toHaveBeenCalled();
 });
 it("saves categories and dishes together with a new revision",async()=>{
- expect(await saveDishLibrary(0,[{...dish,name:" Chicken Adobo "}],[" Chicken ","chicken"])).toEqual({revision:1,dishes:[dish],categories:["chicken"]});
- expect(m.set).toHaveBeenCalledTimes(1);expect(m.set.mock.calls[0][1]).toEqual({revision:1,dishes:[dish],categories:["chicken"]});
+ expect(await saveDishLibrary(0,[{...dish,name:" Chicken Adobo "}],[" Chicken ","chicken"])).toEqual({revision:1,dishes:[dish],categories:["chicken"],parentGroups:{}});
+ expect(m.set).toHaveBeenCalledTimes(1);expect(m.set.mock.calls[0][1]).toEqual({revision:1,dishes:[dish],categories:["chicken"],parentGroups:{}});
 });
 it("rejects a stale revision without overwriting another edit",async()=>{
  m.revision=2;await expect(saveDishLibrary(1,[dish],["Chicken"])).rejects.toThrow("library changed");expect(m.set).not.toHaveBeenCalled();
 });
-it("preserves empty categories without requiring a dish",async()=>{
- expect(await saveDishLibrary(0,[],["Desserts"])).toEqual({revision:1,dishes:[],categories:["Desserts"]});
+it("rejects a new empty category without a Parent Group", async () => {
+  await expect(saveDishLibrary(0, [], ["Desserts"])).rejects.toThrow(
+    "Assign a Parent Group before saving a new category.",
+  );
+  expect(m.set).not.toHaveBeenCalled();
+});
+it("saves a new empty category with a valid Parent Group", async () => {
+  const result = await saveDishLibrary(0, [], ["Desserts"], {desserts: " Sweets "});
+  expect(result.parentGroups).toEqual({desserts: "Sweets"});
+  expect(m.set).toHaveBeenCalledWith(expect.anything(), result);
+});
+it("preserves a previously saved unassigned category", async () => {
+  m.get.mockResolvedValue({get: (field: string) => field === "categories" ? ["Desserts"] : undefined});
+  await expect(saveDishLibrary(0, [], [" desserts "])).resolves.toMatchObject({
+    categories: ["desserts"],
+    parentGroups: {},
+  });
 });
 it("rejects duplicate dishes, invalid names, and invalid IDs before a write",async()=>{
  for(const rows of [[dish,dish],[{...dish,id:"bad"}],[{...dish,name:"Bad\nname"}],[{...dish,category:"Bad:category"}]]){
@@ -45,4 +60,61 @@ it("rejects duplicate dishes, invalid names, and invalid IDs before a write",asy
 it("keeps each category in a single parent group",async()=>{
  await expect(saveDishLibrary(0,[dish,{...dish,id:"22222222-2222-4222-8222-222222222222",name:"Chicken Soup",parentGroup:"Soups"}],["Chicken"])).rejects.toThrow("one parent group");
  expect(m.run).not.toHaveBeenCalled();
+});
+
+it.each([
+  ["unused", {status: "draft", foodChoiceGroups: [{title: "Vegetables"}]}, false],
+  ["top-level reference", {status: "draft", foodChoiceGroups: [{title: "meat dishes"}]}, true],
+  ["nested reference", {status: "published", v2: {foodChoiceGroups: [{title: "Meat Dishes"}]}}, true],
+  ["deleted package", {isDeleted: true, foodChoiceGroups: [{title: "Meat Dishes"}]}, false],
+] as const)("checks the %s before reassigning and deleting a group", async (_label, packageData, inUse) => {
+  m.collection.mockReturnValue({doc: m.doc, where: vi.fn().mockReturnValue("package query")});
+  m.get.mockImplementation(async (ref) => ref === "package query"
+    ? {docs: [{data: () => packageData}]}
+    : {get: (field: string) => ({
+      categories: ["Chicken"], dishes: [dish], parentGroups: {chicken: "Meat Dishes"},
+      groupNames: ["Meat Dishes", "Mains"],
+    } as Record<string, unknown>)[field]});
+  const result = saveDishLibrary(0, [{...dish, parentGroup: "Mains"}], ["Chicken"],
+    {chicken: "Mains"}, ["Mains"]);
+  if (inUse) {
+    await expect(result).rejects.toThrow("used by a package");
+    expect(m.set).not.toHaveBeenCalled();
+  } else {
+    await expect(result).resolves.toMatchObject({
+      parentGroups: {chicken: "Mains"},
+      dishes: [{...dish, parentGroup: "Mains"}],
+      groupNames: ["Mains"],
+    });
+    expect(m.set).toHaveBeenCalledOnce();
+  }
+});
+
+it("rejects deletion when a package update adds the group before the deletion transaction retries", async () => {
+  const library: Record<string, unknown> = {
+    categories: ["Chicken"],
+    dishes: [dish],
+    parentGroups: {chicken: "Meat Dishes"},
+    groupNames: ["Meat Dishes", "Mains"],
+  };
+  m.collection.mockReturnValue({doc: m.doc, where: vi.fn().mockReturnValue("package query")});
+  const readLibrary = {get: (field: string) => library[field]};
+  const firstWrite = vi.fn();
+  m.run.mockImplementation(async (callback) => {
+    await callback({
+      get: async (ref: unknown) => ref === "package query" ? {docs: []} : readLibrary,
+      set: firstWrite,
+    });
+    // Discard the buffered deletion and retry with the changed package query result.
+    return callback({
+      get: async (ref: unknown) => ref === "package query"
+        ? {docs: [{data: () => ({status: "draft", foodChoiceGroups: [{title: "Meat Dishes"}]})}]}
+        : readLibrary,
+      set: m.set,
+    });
+  });
+  await expect(saveDishLibrary(0, [{...dish, parentGroup: "Mains"}], ["Chicken"],
+    {chicken: "Mains"}, ["Mains"])).rejects.toThrow("used by a package");
+  expect(firstWrite).toHaveBeenCalledOnce();
+  expect(m.set).not.toHaveBeenCalled();
 });

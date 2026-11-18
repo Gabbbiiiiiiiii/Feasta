@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import type {
   ServiceCategoryCode,
@@ -62,6 +62,7 @@ import {
   publishProviderService,
   type ProviderService,
 } from "@/lib/provider/provider-service-client";
+import {serviceGuestLimitsError} from "@/lib/provider/provider-offer-policy";
 
 import {
   ProviderServiceForm,
@@ -314,7 +315,7 @@ export function ProviderServicesClient({
             </DialogDescription>
           </DialogHeader>
 
-          <ProviderServiceForm
+          <ProviderServiceForm existingServices={services}
             isFreelancer={isFreelancer}
             inDialog
             onSubmittingChange={setCreating}
@@ -347,7 +348,7 @@ export function ProviderServicesClient({
             </p>
           </div>
 
-          <ProviderServiceForm
+          <ProviderServiceForm existingServices={services}
             isFreelancer={isFreelancer}
             key={editingService.id}
             serviceCategories={
@@ -489,6 +490,9 @@ export function ProviderServicesClient({
             const cover = service.portfolio?.photos.find((photo) => photo.id === service.portfolio?.coverAssetId);
             const imageUrl = cover?.thumbnailUrl || service.imageUrl;
             const category = serviceCategoryName(service.category);
+            const needsGuestLimits = serviceGuestLimitsError(
+              service.pricingType, service.minimumGuests, service.maximumGuests,
+            ) !== null;
             return (
               <article key={service.id} aria-label={service.name}
                 className="flex min-w-0 flex-col self-start overflow-hidden rounded-card border border-border bg-card shadow-card sm:flex-row">
@@ -516,19 +520,23 @@ export function ProviderServicesClient({
                   {service.status !== "archived" ? <div className="mt-auto flex flex-wrap items-center gap-1 border-t border-border p-1.5">
                     {service.status === "draft" ? <>
                       <Button type="button" variant="secondary" size="compact" className="mr-auto"
-                        aria-label={`Edit ${service.name}`} onClick={() => {
+                        aria-label={needsGuestLimits ? `Set guest limits for ${service.name}` : `Edit ${service.name}`} onClick={() => {
+                          setActionError(null);
                           setCreateOpen(false);
                           setEditingService(service);
                         }}>
-                        <Edit3 aria-hidden="true" className="size-4" />Edit
+                        <Edit3 aria-hidden="true" className="size-4" />
+                        {needsGuestLimits ? "Set guest limits" : "Edit"}
                       </Button>
-                      <Button type="button" variant="ghost" size="icon" title="Publish service"
-                        aria-label={`Publish ${service.name}`} onClick={() => {
-                          setActionError(null);
-                          setPublishService(service);
-                        }}>
-                        <Send aria-hidden="true" className="size-4" />
-                      </Button>
+                      {!needsGuestLimits && (
+                        <Button type="button" variant="ghost" size="icon" title="Publish service"
+                          aria-label={`Publish ${service.name}`} onClick={() => {
+                            setActionError(null);
+                            setPublishService(service);
+                          }}>
+                          <Send aria-hidden="true" className="size-4" />
+                        </Button>
+                      )}
                     </> : null}
                     {service.status === "published" ? <>
                       <Dialog>

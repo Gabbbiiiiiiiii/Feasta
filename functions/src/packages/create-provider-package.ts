@@ -1,4 +1,5 @@
 import {parsePackageClassification} from "./package-classification.js";
+import {preparePackageServiceName} from "../providers/service-name-uniqueness.js";
 import {requireLegacyPackageOccasionAuthority} from "./legacy-package-occasion-authority.js";
 import {occasionDependencyEntryPath} from "../admin/occasion-dependency-registry.js";
 import {BALANCE_DUE_HOURS_BEFORE_EVENT} from "../payments/canonical-balance-timing.js";
@@ -226,6 +227,10 @@ export const createProviderPackage = onCall(
           sourcePath: packageReference.path,
         };
 
+        const commitName = await preparePackageServiceName(
+          transaction, db, provider.providerId, validated.name,
+        );
+        commitName?.();
         transaction.create(
           db.doc(occasionDependencyEntryPath(occasionDependencyEntry)),
           occasionDependencyEntry,

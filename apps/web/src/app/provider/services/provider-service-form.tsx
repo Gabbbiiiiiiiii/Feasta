@@ -1,4 +1,7 @@
-﻿"use client";
+"use client";
+import {offerNameError, offerNameKey, offerDescriptionError, serviceGuestLimitsError} from "@/lib/provider/provider-offer-policy";
+import {ServicePriceInput} from "./service-price-input";
+import {parseServicePriceText, servicePriceError} from "@/lib/provider/provider-service-price";
 
 import {
   useEffect,
@@ -55,6 +58,7 @@ type ProviderServiceFormProps = {
     readonly ServiceCategoryOption[];
 
   initialService?: ProviderService;
+  existingServices?: readonly Pick<ProviderService,"id"|"name"|"isDeleted">[];
   inDialog?: boolean;
   onSubmittingChange?: (submitting: boolean) => void;
 
@@ -67,6 +71,7 @@ export function ProviderServiceForm({
   serviceCategories,
   serviceCategoryOptions,
   initialService,
+  existingServices = [],
   inDialog = false,
   onSubmittingChange,
   onSaved,
@@ -217,26 +222,21 @@ export function ProviderServiceForm({
   const simplePackage = media && showPackageDetails && !editing;
   const freelancePreview = showPackageDetails ? readFreelanceServiceDetails(freelanceDetails) : null;
 
+  const [priceInputError,setPriceInputError]=useState<string | undefined>();
+  const [minimumGuestText,setMinimumGuestText]=useState(String(initialService?.minimumGuests ?? ""));
+  const [maximumGuestText,setMaximumGuestText]=useState(String(initialService?.maximumGuests ?? ""));
+  const nameValidation=offerNameError(name) || (existingServices.some((item) => item.id!==initialService?.id && !item.isDeleted && offerNameKey(item.name)===offerNameKey(name)) ? "You already have a package with this name." : null);
+  const descriptionValidation=offerDescriptionError(description);
+  const guestValidation=serviceGuestLimitsError(pricingType,Number(minimumGuestText),Number(maximumGuestText));
   const parsedPrice =
     pricingType === "custom_quote"
       ? null
-      : Number(price);
+      : parseServicePriceText(price,pricingType);
 
   const validationError =
     useMemo(() => {
-      if (
-        name.trim().length < 2 ||
-        name.trim().length > 160
-      ) {
-        return name.trim() ? "Service name must be between 2 and 160 characters." : "Enter a service name.";
-      }
-
-      if (
-        description.trim().length > 1000
-      ) {
-        return "Service description must not exceed 1000 characters.";
-      }
-
+      if (nameValidation) return nameValidation;
+      if (descriptionValidation) return descriptionValidation;
       if (
         !serviceCategories.includes(
           category,
@@ -250,13 +250,8 @@ export function ProviderServiceForm({
           category,
         );
 
-      const keepingExistingCategory =
-        editing &&
-        category === initialService?.category;
-
       if (
-        !categoryIsActive &&
-        !keepingExistingCategory
+        !categoryIsActive
       ) {
         return "Select an active service category.";
       }
@@ -269,18 +264,20 @@ export function ProviderServiceForm({
         return "Select a valid pricing type.";
       }
 
+      if (pricingType !== "custom_quote" && priceInputError) return priceInputError;
       if (
         pricingType !== "custom_quote" &&
         (
           parsedPrice === null ||
           !Number.isFinite(parsedPrice) ||
           parsedPrice < 0 ||
-          parsedPrice > 100_000_000
+          parsedPrice > 9_999_999
         )
       ) {
-        return "Enter a valid service price.";
+        return !price.trim() ? "Enter a service price." : servicePriceError(pricingType);
       }
 
+      if (guestValidation) return guestValidation;
       if (usePortfolio && photos.some((photo) => !photo.altText.trim())) {
         return "Add a short image description for every portfolio photo.";
       }
@@ -293,32 +290,38 @@ export function ProviderServiceForm({
       }
       return null;
     }, [
+      nameValidation, descriptionValidation, guestValidation, priceInputError,
       showPackageDetails,
       usePortfolio,
       photos,
       freelanceDetails,
       category,
-      description,
-      name,
       parsedPrice,
+      price,
       pricingType,
       serviceCategories,
       activeServiceCategoryCodes,
-      editing,
-      initialService?.category,
     ]);
 
   const invalidCoverage = freelanceDetails.coverageMinutes !== undefined && (!Number.isSafeInteger(freelanceDetails.coverageMinutes) || freelanceDetails.coverageMinutes < 1 || freelanceDetails.coverageMinutes > 1440);
   const invalidCrewSize = freelanceDetails.crewSize !== undefined && (!Number.isSafeInteger(freelanceDetails.crewSize) || freelanceDetails.crewSize < 1 || freelanceDetails.crewSize > 100);
-  const validationField = (validationError?.startsWith("Service name") || validationError === "Enter a service name.") ? "name"
-    : validationError?.startsWith("Service description") ? "description"
+  const validationField = validationError && validationError===nameValidation ? "name"
+    : validationError && validationError===descriptionValidation ? "description"
+    : validationError && validationError===guestValidation ? "guests"
     : validationError?.includes("service category") ? "category"
     : validationError?.includes("pricing type") ? "pricing"
-    : validationError?.includes("service price") ? "price"
+    : validationError && (validationError===priceInputError || /price/i.test(validationError)) ? "price"
     : showPackageDetails && invalidCoverage ? "coverage"
     : showPackageDetails && invalidCrewSize ? "crewSize" : null;
-  const fieldError = (field: string) => validationField === field ? validationError ?? undefined : undefined;
-
+  const fieldError = (field: string) => {
+    if (field==="name") return error?.includes("You already have a package with this name.")
+      ? "You already have a package with this name." : nameValidation ?? undefined;
+    if (field==="description") return descriptionValidation ?? undefined;
+    if (field==="guests") return guestValidation ?? undefined;
+    if (field==="price" && pricingType!=="custom_quote") return priceInputError ||
+      (!price.trim()?"Enter a service price.":parsedPrice===null?servicePriceError(pricingType):undefined);
+    return validationField===field ? validationError ?? undefined : undefined;
+  };
   function handleImageChange(
     event: React.ChangeEvent<HTMLInputElement>,
   ) {
@@ -390,6 +393,7 @@ export function ProviderServiceForm({
       false;
 
     try {
+      if (guestValidation) return guestValidation;
       if (usePortfolio) {
         for (const [index, photo] of photos.entries()) {
           if (!photo.file || photo.uploaded) continue;
@@ -439,6 +443,8 @@ export function ProviderServiceForm({
         category,
 
         pricingType,
+        minimumGuests: pricingType==="per_guest" ? Number(minimumGuestText) : null,
+        maximumGuests: pricingType==="per_guest" ? Number(maximumGuestText) : null,
 
         price:
           pricingType === "custom_quote"
@@ -478,7 +484,7 @@ export function ProviderServiceForm({
       await onSaved();
     } catch (caught) {
       const backendNeedsUpdate = caught instanceof Error &&
-        /^Unknown field: (freelanceDetails|portfolio|expectedRevision)\.?$/.test(caught.message);
+        /^Unknown field: (freelanceDetails|portfolio|expectedRevision|minimumGuests|maximumGuests)\.?$/.test(caught.message);
 
       if (!backendNeedsUpdate) {
         console.error(
@@ -493,6 +499,10 @@ export function ProviderServiceForm({
         ).catch(() => undefined);
       }
 
+      if (caught instanceof Error && caught.message.includes("You already have a package with this name.")) {
+        setError("You already have a package with this name.");
+        return;
+      }
       if (backendNeedsUpdate) {
         setError("Your changes are still in this form. The FEASTA server needs an update before it can save this package.");
         return;
@@ -601,20 +611,21 @@ export function ProviderServiceForm({
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         <FormField
           label={simplePackage ? "Package name" : "Service name"}
+          className="relative" labelClassName="pr-20"
           error={fieldError("name")}
           required
         >
           <Input
+            onInput={() => setError(null)}
             placeholder={media ? "e.g., Wedding Photography Package" : "e.g., Wedding Event Service"}
             value={name}
             onChange={(event) =>
-              setName(
-                event.target.value,
-              )
+              (setError(null), setName(event.target.value))
             }
-            maxLength={160}
+            maxLength={80}
             autoComplete="off"
           />
+          <span className="absolute right-0 top-0 text-xs tabular-nums text-muted-foreground">{name.length} / 80</span>
         </FormField>
 
         <FormField
@@ -671,6 +682,7 @@ export function ProviderServiceForm({
                 event.target.value as
                   AddonPricingType;
 
+              setPriceInputError(undefined);
               setPricingType(
                 nextPricingType,
               );
@@ -708,18 +720,7 @@ export function ProviderServiceForm({
             )}
             required
           >
-            <Input
-              type="number"
-              min="0"
-              step="0.01"
-              value={price}
-              onChange={(event) =>
-                setPrice(
-                  event.target.value,
-                )
-              }
-              inputMode="decimal"
-            />
+            <ServicePriceInput value={price} onChange={(next,error) => {setPrice(next);setPriceInputError(error);}} />
           </FormField>
         ) : (
           <div className="rounded-lg border border-border bg-muted/40 p-4">
@@ -738,7 +739,7 @@ export function ProviderServiceForm({
       <FormField
         error={fieldError("description")}
         label={simplePackage ? "About this package (optional)" : showPackageDetails ? "Short description" : "Description"}
-        description="Tell customers what makes your service special."
+        description={`${description.length} / 500`}
       >
         <Textarea
           value={description}
@@ -747,11 +748,15 @@ export function ProviderServiceForm({
               event.target.value,
             )
           }
-          maxLength={1000}
+          maxLength={500}
           rows={simplePackage ? 2 : 5}
         />
       </FormField>
 
+      {pricingType==="per_guest" && <fieldset className="grid gap-3 rounded-lg border p-4 sm:grid-cols-2" aria-label="Guest capacity">
+        <FormField label="Minimum guests" required error={fieldError("guests")}><Input type="text" inputMode="numeric" value={minimumGuestText} onChange={(event) => {if (/^\d{0,5}$/u.test(event.target.value)) setMinimumGuestText(event.target.value);}} /></FormField>
+        <FormField label="Maximum guests" required><Input type="text" inputMode="numeric" value={maximumGuestText} onChange={(event) => {if (/^\d{0,5}$/u.test(event.target.value)) setMaximumGuestText(event.target.value);}} /></FormField>
+      </fieldset>}
       {showPackageDetails ? <FreelanceServiceFields simplePackage={simplePackage} category={category} value={freelanceDetails} onChange={setFreelanceDetails} /> : null}
 
       {simplePackage ? <details className="rounded-lg border border-border p-4">
@@ -780,7 +785,7 @@ export function ProviderServiceForm({
         </p>
       ) : null}
 
-      {error ? (
+      {error && !error.includes("You already have a package with this name.") ? (
         <p
           role="alert"
           className="text-sm text-destructive"

@@ -13,6 +13,7 @@ import {requireAuth} from "../shared/auth.js";
 import {requireRole} from "../shared/authorization.js";
 import {resolveBackendAccountState} from "../shared/account-state.js";
 import {db} from "../shared/firestore.js";
+import {preparePackageServiceName} from "../providers/service-name-uniqueness.js";
 import {appCheckCallableOptions} from "../shared/function-options.js";
 import {cloudinarySecrets} from "../shared/cloudinary.js";
 import {enforceCallableRateLimit} from "../shared/rate-limit.js";
@@ -708,6 +709,10 @@ function callable(mode: Mode) {
         packageId: packageRef.id, packageRevision: next, status: "draft"} :
         {success: true, packageId: packageRef.id, packageRevision: next, status: "draft",
           sharedContractVersion: isGlobal ? 3 : 2, discoveryProjection};
+      const commitName = await preparePackageServiceName(
+        tx, db, providerId, stored.name, old?.packageData.name,
+      );
+      commitName?.();
       // Apply only the registry changes validated above.
       // The registry remains non-authoritative until coverage is verified.
       for (const change of registryChanges) {

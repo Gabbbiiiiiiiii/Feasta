@@ -8,7 +8,7 @@ const input=(extra={})=>({sharedContractVersion:2,idempotencyKey:'simulated_requ
 function fixture({draftGate=true,publication=false}={}) {
  const records=new Map();const updateTimes=new Map();let serial=0;let commits=0;let external=0;
  function ref(p){return {path:p,id:p.split('/').at(-1),collection:name=>collection(p+'/'+name)};}
- function collection(p){const query={path:p,filters:[],maximum:Infinity,where(k,op,v){return {...this,filters:[...this.filters,[k,v]]};},limit(n){return {...this,maximum:n};},doc(id){return ref(p+'/'+(id??'generated_'+(++serial)));}};return query;}
+ function collection(p){const query={path:p,filters:[],maximum:Infinity,where(k,op,v){return {...this,filters:[...this.filters,[k,v]]};},select(){return this;},limit(n){return {...this,maximum:n};},doc(id){return ref(p+'/'+(id??'generated_'+(++serial)));}};return query;}
  const snapshot=(r)=>({id:r.id,ref:r,updateTime:updateTimes.get(r.path),exists:records.has(r.path),data:()=>records.get(r.path)});
  const db={doc:ref,collection,async runTransaction(fn){
   const writes=[];let writing=false;const reads=new Map();
@@ -52,6 +52,61 @@ function fixture({draftGate=true,publication=false}={}) {
  const readOwned=id=>domain.authorizeOwnedPackage({providerId:'provider',packageSnapshot:snapshot(ref('packages/'+id))}).packageData;
  return {env,domain,load,mocks,db,api,updateTimes,progressApi:load('provider-package-editor-progress',mocks),records,req,readOwned,counters:()=>({commits,external})};
 }
+
+for (const offerStructure of ['fixed', 'customizable']) {
+ test(`V2 ${offerStructure} publishes the captured menu after its source group was removed`, async () => {
+  const f = fixture({publication:true});
+  const libraryPath = 'providers/provider/catalog/dishLibrary';
+  f.records.set(libraryPath, {revision:2, groupNames:['Mains']});
+  const created = await f.api.createProviderPackageV2(f.req(input({offerStructure, foodInclusions:[]})));
+  assert.deepEqual(f.readOwned(created.packageId).foodChoiceGroups, choices);
+  const published = await f.api.publishProviderPackageV2Internal(f.req(publicationRequest(created.packageId)));
+  assert.equal(published.status, 'published');
+  const customer = f.load('customer-package-v2', {...f.mocks, './provider-package-drafts-v2.js':f.api});
+  const read = await customer.getCustomerPackageV2({data:{packageId:created.packageId}});
+  assert.deepEqual(read.package.foodChoiceGroups, choices);
+  assert.deepEqual(f.records.get(libraryPath), {revision:2, groupNames:['Mains']});
+ });
+}
+
+test('V2 draft update preserves its menu when an unused group is deleted before the update commits', async () => {
+ const f = fixture({publication:true});
+ const libraryRef = f.db.doc('providers/provider/catalog/dishLibrary');
+ f.records.set(libraryRef.path, {revision:1, groupNames:['Main dishes', 'Mains']});
+ const created = await f.api.createProviderPackageV2(f.req(input({offerStructure:'fixed', foodChoiceGroups:[]})));
+ const packageRef = f.db.doc('packages/' + created.packageId);
+ const runTransaction = f.db.runTransaction.bind(f.db);
+ let deletionCommitted = false;
+ f.db.runTransaction = callback => runTransaction(async tx => {
+  let updating = false;
+  const result = await callback({
+   ...tx,
+   update(ref, data) {
+    if (ref.path === packageRef.path) updating = true;
+    tx.update(ref, data);
+   },
+  });
+  if (updating && !deletionCommitted) {
+   // Simulate deletion committing while the package transaction's writes are buffered.
+   await runTransaction(async deletion => {
+    const library = (await deletion.get(libraryRef)).data();
+    const existing = (await deletion.get(packageRef)).data();
+    assert.deepEqual(existing.foodChoiceGroups, []);
+    deletion.update(libraryRef, {revision:library.revision + 1, groupNames:['Mains']});
+   });
+   deletionCommitted = true;
+  }
+  return result;
+ });
+ const request = input({offerStructure:'fixed', packageId:created.packageId, expectedRevision:1,
+  idempotencyKey:'menu_snapshot_update_001'});
+ const updated = await f.api.updateProviderPackageV2(f.req(request));
+ assert.equal(deletionCommitted, true);
+ assert.deepEqual(f.records.get(libraryRef.path).groupNames, ['Mains']);
+ assert.equal(updated.packageRevision, 2);
+ assert.deepEqual(f.readOwned(created.packageId).foodChoiceGroups, choices);
+ assert.deepEqual(await f.api.updateProviderPackageV2(f.req(request)), updated);
+});
 for(const pricingModel of ['per_pax','per_bundle'])test('compiled V2 '+pricingModel+' create commits and owner-domain read retains menu data',async()=>{
  const f=fixture();const request=input({pricingModel});const result=await f.api.createProviderPackageV2(f.req(request));
  assert.equal(result.status,'draft');assert.equal(result.packageRevision,1);const saved=f.readOwned(result.packageId);
@@ -68,6 +123,25 @@ for(const offerStructure of ['fixed','customizable'])for(const pricingModel of [
 });
 test('disabled policy gate rejects before transactions commit',async()=>{
  for(const options of [{draftGate:false}]){const f=fixture(options);await assert.rejects(f.api.createProviderPackageV2(f.req(input())),e=>e.details.reason==='FEATURE_DISABLED');assert.deepEqual(f.counters(),{commits:0,external:0});}
+});
+test('V2 create and rename share the service name lock and preserve the draft on collision', async () => {
+ const f = fixture();
+ f.records.set('addons/service', {providerId:'provider', name:'WEDDING   PHOTOS'});
+ const colliding = input({name:'Wedding Photos'});
+ const alreadyExists = error => error.code === 'already-exists';
+ await assert.rejects(f.api.createProviderPackageV2(f.req(colliding)), alreadyExists);
+ assert.equal(f.counters().commits, 0);
+ const created = await f.api.createProviderPackageV2(f.req(input()));
+ const rename = {...colliding, packageId:created.packageId, expectedRevision:1,
+   idempotencyKey:'simulated_rename_key_001'};
+ await assert.rejects(f.api.updateProviderPackageV2(f.req(rename)), alreadyExists);
+ assert.equal(f.readOwned(created.packageId).revision, 1);
+ f.records.set('addons/service', {...f.records.get('addons/service'), isDeleted:true});
+ const updated = await f.api.updateProviderPackageV2(f.req(rename));
+ assert.equal(updated.packageRevision, 2);
+ assert.equal(f.readOwned(created.packageId).name, 'Wedding Photos');
+ assert.deepEqual(await f.api.updateProviderPackageV2(f.req(rename)), updated);
+ assert.equal(f.counters().commits, 2);
 });
 test('ownership and stale revision denials never overwrite a saved draft',async()=>{
  const f=fixture();const created=await f.api.createProviderPackageV2(f.req(input()));const before=f.readOwned(created.packageId);

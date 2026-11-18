@@ -1,3 +1,8 @@
+import {
+  offerNameError, offerDescriptionError, serviceGuestLimitsError,
+} from "./service-offer-policy.js";
+import {prepareUniqueServiceName} from "./service-name-uniqueness.js";
+import {parseServicePrice as parsePrice} from "./service-price.js";
 import {requireMaintenanceOpen, recordMaintenanceAdmission} from "../shared/maintenance.js";
 import {
   HttpsError,
@@ -60,6 +65,8 @@ type AddonPricingType =
   (typeof ADDON_PRICING_TYPES)[number];
 
 type ServiceInput = {
+  minimumGuests: number | null;
+  maximumGuests: number | null;
   name: string;
   description: string;
   freelanceDetails?: FreelanceServiceDetails | null;
@@ -87,6 +94,7 @@ const CREATE_FIELDS = [
   "category",
   "pricingType",
   "price",
+  "minimumGuests", "maximumGuests",
   "imageUrl",
   "imagePublicId",
 ] as const;
@@ -182,6 +190,9 @@ export const createProviderService = onCall(
           "category",
         );
 
+        const commitName=await prepareUniqueServiceName(
+          transaction,db,provider.id,input.name,serviceId,
+        );
         const serviceData = {
           revision: 1,
           ...(portfolio ? {portfolio} : {}),
@@ -206,6 +217,7 @@ export const createProviderService = onCall(
 
           price:
             input.price,
+          minimumGuests: input.minimumGuests, maximumGuests: input.maximumGuests,
 
           imageUrl:
             input.imageUrl,
@@ -235,6 +247,7 @@ export const createProviderService = onCall(
             serverTimestamp(),
         };
 
+        commitName();
         transaction.create(
           reference,
           serviceData,
@@ -275,7 +288,7 @@ export const createProviderService = onCall(
                 input.pricingType,
 
               price:
-                input.price,
+                input.price, minimumGuests: input.minimumGuests, maximumGuests: input.maximumGuests,
             },
 
             metadata: {
@@ -409,25 +422,14 @@ export const updateProviderService = onCall(
           throw new HttpsError("aborted", "This service changed. Reopen the editor before saving.");
         }
         const preserveCover = !portfolio && current.portfolio !== undefined;
-        const currentCategory =
-          parseServiceCategory(
-            current.category,
-          );
-
-        if (input.category !== currentCategory) {
-          assertServiceCategoryEnabledForProvider(
-            provider,
-            input.category,
-          );
-
-          await requireActiveServiceCategoryInTransaction(
-            transaction,
-            input.category,
-            provider.providerServiceType,
-            "category",
-          );
-        }
-
+        assertServiceCategoryEnabledForProvider(provider,input.category);
+        await requireActiveServiceCategoryInTransaction(
+          transaction,input.category,provider.providerServiceType,"category",
+        );
+        const commitName=await prepareUniqueServiceName(
+          transaction,db,provider.id,input.name,serviceId,
+        );
+        commitName();
         transaction.update(
           reference,
           {
@@ -451,6 +453,7 @@ export const updateProviderService = onCall(
 
             price:
               input.price,
+            minimumGuests: input.minimumGuests, maximumGuests: input.maximumGuests,
 
             ...(preserveCover ? {} : {imageUrl: input.imageUrl, imagePublicId: input.imagePublicId}),
 
@@ -505,7 +508,7 @@ export const updateProviderService = onCall(
                 input.pricingType,
 
               price:
-                input.price,
+                input.price, minimumGuests: input.minimumGuests, maximumGuests: input.maximumGuests,
             },
 
             metadata: {
@@ -650,6 +653,9 @@ export const publishProviderService = onCall(
           current,
         );
 
+        const commitName=await prepareUniqueServiceName(
+          transaction,db,provider.id,String(current.name),serviceId,
+        );
         await requireMaintenanceOpen(transaction, db, "publication");
 
         // Catalog generation must be in this transaction's read set.
@@ -664,6 +670,7 @@ export const publishProviderService = onCall(
           );
         }
 
+        commitName();
         recordMaintenanceAdmission(transaction, db);
         transaction.update(
           reference,
@@ -1171,6 +1178,16 @@ function parseServiceInput(
       data.pricingType,
     );
 
+  const name=typeof data.name==="string"?data.name.trim():"";
+  if (data.description!==undefined && typeof data.description!=="string") {
+    throw new HttpsError("invalid-argument","About this package must be text.");
+  }
+  const description=typeof data.description==="string"?data.description.trim():"";
+  const minimumGuests=pricingType==="per_guest"?data.minimumGuests:null;
+  const maximumGuests=pricingType==="per_guest"?data.maximumGuests:null;
+  const invalid=offerNameError(name) || offerDescriptionError(description) ||
+    serviceGuestLimitsError(pricingType,minimumGuests,maximumGuests);
+  if (invalid) throw new HttpsError("invalid-argument",invalid);
   let freelanceDetails: FreelanceServiceDetails | null | undefined;
   if (Object.hasOwn(data, "freelanceDetails")) {
     if (!supportsServicePackageDetails(provider.data.businessRegistrationType, category)) {
@@ -1185,18 +1202,11 @@ function parseServiceInput(
 
   return {
     freelanceDetails,
-    name:
-      requireText(
-        data.name,
-        "name",
-        160,
-      ),
+    minimumGuests: minimumGuests as number | null,
+    maximumGuests: maximumGuests as number | null,
+    name,
 
-    description:
-      optionalText(
-        data.description,
-        1000,
-      ),
+    description,
 
     category,
 
@@ -1353,40 +1363,19 @@ function parsePricingType(
   );
 }
 
-function parsePrice(
-  value: unknown,
-  pricingType: AddonPricingType,
-): number | null {
-  if (
-    pricingType ===
-      "custom_quote"
-  ) {
-    return null;
-  }
-
-  if (
-    typeof value !== "number" ||
-    !Number.isFinite(value) ||
-    value < 0 ||
-    value > 100_000_000
-  ) {
-    throw new HttpsError(
-      "invalid-argument",
-      "The service price is invalid.",
-    );
-  }
-
-  return value;
-}
 
 function validatePublishableService(
   service: Record<string, unknown>,
 ): void {
-  requireText(
-    service.name,
-    "name",
-    160,
-  );
+  if (service.description!==undefined && typeof service.description!=="string") {
+    throw new HttpsError("failed-precondition","About this package must be text.");
+  }
+  const invalid=offerNameError(typeof service.name==="string"?service.name:"") ||
+    offerDescriptionError(typeof service.description==="string"?service.description:"") ||
+    serviceGuestLimitsError(
+      String(service.pricingType),service.minimumGuests,service.maximumGuests,
+    );
+  if (invalid) throw new HttpsError("failed-precondition",invalid);
 
   parseServiceCategory(
     service.category,
@@ -1488,56 +1477,4 @@ function requireDocumentId(
   }
 
   return normalized;
-}
-
-function requireText(
-  value: unknown,
-  field: string,
-  maximumLength: number,
-): string {
-  if (
-    typeof value !== "string"
-  ) {
-    throw new HttpsError(
-      "invalid-argument",
-      `${field} is required.`,
-    );
-  }
-
-  const normalized =
-    value
-      .trim()
-      .replace(/\s+/gu, " ");
-
-  if (
-    normalized.length < 1 ||
-    normalized.length >
-      maximumLength
-  ) {
-    throw new HttpsError(
-      "invalid-argument",
-      `${field} is invalid.`,
-    );
-  }
-
-  return normalized;
-}
-
-function optionalText(
-  value: unknown,
-  maximumLength: number,
-): string {
-  if (
-    typeof value !== "string"
-  ) {
-    return "";
-  }
-
-  return value
-    .trim()
-    .replace(/\s+/gu, " ")
-    .slice(
-      0,
-      maximumLength,
-    );
 }

@@ -1,4 +1,5 @@
 import {parsePackageClassification} from "./package-classification.js";
+import {preparePackageServiceName} from "../providers/service-name-uniqueness.js";
 import {requireLegacyPackageOccasionAuthority} from "./legacy-package-occasion-authority.js";
 import {occasionDependencyEntryPath, validOccasionDependencyEntry} from "../admin/occasion-dependency-registry.js";
 import {isLegacyPackageDraft} from "./legacy-occasion-publication-guard.js";
@@ -348,6 +349,10 @@ export const updateProviderPackage = onCall(
           requireMatchingEntry(nextSnapshot.data(), nextEntry);
         }
 
+        const commitName = await preparePackageServiceName(
+          transaction, db, provider.providerId, validated.name, packageRecord.packageData.name,
+        );
+        commitName?.();
         if (changedOccasion && previousSnapshot.exists) {
           transaction.delete(previousRef);
         }
