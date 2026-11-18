@@ -30,14 +30,9 @@ export default function AdminDashboardLoading() {
       </header>
 
       <section
-        className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5"
+        className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4"
         aria-label="Loading dashboard statistics"
       >
-        <SummaryCard
-          label="FEASTA revenue"
-          loading
-        />
-
         <SummaryCard
           label="Total users"
           loading

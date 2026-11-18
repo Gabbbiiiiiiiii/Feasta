@@ -188,15 +188,14 @@ describe("Admin dashboard financial and population metrics", () => {
     render(await AdminPage());
     const summary = screen.getByRole("region", { name: "Platform summary" });
     expect(within(summary).getAllByRole("region")).toHaveLength(4);
-    expect(within(summary).getByText("\u20b16,750.25 in the last 30 days")).toBeInTheDocument();
     expect(within(summary).getByText("2 customers / 2 providers")).toBeInTheDocument();
     expect(within(summary).getByText("1 active / 1 completed")).toBeInTheDocument();
     expect(within(summary).getByText("1 submitted / 1 under review")).toBeInTheDocument();
-    expect(within(summary).getByRole("link", { name: /FEASTA Revenue/i })).toHaveAttribute("href", "/admin/payments");
-    expect(within(summary).getByText("\u20b16,750.25")).toBeInTheDocument();
+    expect(within(summary).queryByText("FEASTA Revenue")).not.toBeInTheDocument();
     expect(within(summary).getByRole("link", { name: /Total users/ })).toHaveAttribute("href", "/admin/users");
     expect(within(summary).getByRole("link", { name: /Total bookings/ })).toHaveAttribute("href", "/admin/bookings");
     expect(within(summary).getByRole("link", { name: /Pending provider verifications/ })).toHaveAttribute("href", "/admin/providers");
+    expect(within(summary).getByRole("link", { name: /Open complaints/ })).toHaveAttribute("href", "/admin/complaints");
     expect(screen.getByText(/Platform and service fees earned through eligible FEASTA transactions\./)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "1M" })).toHaveAttribute("aria-pressed", "true");
     await user.click(screen.getByRole("button", { name: "7D" }));
