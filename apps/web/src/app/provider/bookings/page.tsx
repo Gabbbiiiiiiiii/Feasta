@@ -3,6 +3,7 @@ import type {ProviderBookingFilter} from "@/lib/provider/bookings/provider-booki
 import {bookingView} from "@/lib/provider/bookings/provider-booking-projection";
 import {dashboardView} from "@/lib/provider/dashboard/provider-dashboard-projection";
 
+import Link from "next/link";
 import {ProviderBookingsClient} from "./provider-bookings-client";
 
 type ProviderBookingsPageProps = {
@@ -45,11 +46,14 @@ export default async function ProviderBookingsPage({
   const initialPage = await getProviderBookingPage(initialFilters);
 
   return (
-    <ProviderBookingsClient
-      key={`${initialFilters.dashboard ?? "all"}:${status}:${typeof values.request === "string" ? values.request : "list"}`}
-      initialRequestId={typeof values.request === "string" ? values.request : undefined}
-      initialFilters={initialFilters}
-      initialPage={initialPage}
-    />
+    <>
+      <Link className="inline-block rounded-md border px-4 py-2" href="/provider/bookings/walk-in">Walk-in bookings</Link>
+      <ProviderBookingsClient
+        key={`${initialFilters.dashboard ?? "all"}:${status}:${typeof values.request === "string" ? values.request : "list"}`}
+        initialRequestId={typeof values.request === "string" ? values.request : undefined}
+        initialFilters={initialFilters}
+        initialPage={initialPage}
+      />
+    </>
   );
 }

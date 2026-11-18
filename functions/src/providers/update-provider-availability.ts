@@ -28,6 +28,7 @@ import {
 import {Timestamp} from "firebase-admin/firestore";
 import {
   AVAILABILITY_COUNTED_REQUEST_STATUSES,
+  hasWalkInReservation,
   manilaDateFromKey,
   manilaDateKey,
   manilaDateRange,
@@ -231,7 +232,7 @@ export const updateProviderAvailability =
               },
             );
 
-            if (hasExistingReservation) {
+            if (hasExistingReservation || hasWalkInReservation(providerData, date)) {
               throw new HttpsError(
                 "failed-precondition",
                 "This date already has a FEASTA reservation and cannot be manually blocked.",

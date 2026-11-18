@@ -27,6 +27,7 @@ async function ProviderDashboardContent() {
   ] as const;
   return <div className="grid min-w-0 gap-6">
     <PageHeading title="Dashboard" description="Your booking requests and upcoming events at a glance." />
+    <Link className="inline-block w-fit rounded-md border px-4 py-2" href="/provider/bookings/walk-in">Walk-in bookings</Link>
     <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4" aria-label="Booking overview">
       {cards.map(({key, label, href, icon: Icon}) => <Link key={key} href={href} className="rounded-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
         <SummaryCard label={label} value={dashboard.summary[key]} icon={<Icon className="size-5" aria-hidden="true" />} />

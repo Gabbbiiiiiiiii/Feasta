@@ -481,3 +481,12 @@ test("availability setting mutations preserve provider ownership and trusted fie
     /AVAILABILITY_SETTINGS_FIELDS[\s\S]{0,300}verificationStatus/u,
   );
 });
+
+test("a confirmed walk-in reserves the entire Manila date for online bookings", () => {
+  const providerData = provider({walkInReservedDates: ["2026-08-24"]});
+  assert.deepEqual(codes(validate({providerData})), ["MAX_EVENTS_REACHED"]);
+  assert.equal(validate({providerData, request: request({
+    eventDate: manilaDateFromKey("2026-08-25"),
+  })}).available, true);
+  assert.equal(validate({providerData: provider({walkInReservedDates: []})}).available, true);
+});

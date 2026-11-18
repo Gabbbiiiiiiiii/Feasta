@@ -55,6 +55,7 @@ Promise<ProviderCalendarData> {
 const [
   providerSnapshot,
   requestsSnapshot,
+  walkInsSnapshot,
 ] = await Promise.all([
   providerReference.get(),
 
@@ -81,6 +82,10 @@ const [
       [...ACTIVE_EVENT_STATUSES],
     )
     .get(),
+  providerReference.collection("walkInBookings")
+    .where("eventDate", ">=", Timestamp.fromDate(monthStart))
+    .where("eventDate", "<", Timestamp.fromDate(monthEnd))
+    .get(),
 ]);
 
 if (!providerSnapshot.exists) {
@@ -101,28 +106,21 @@ if (
 }
 
 const nowMs = Date.now();
-const events =
-  requestsSnapshot.docs
-    .filter((document) => calendarRequestOccupies(document.data(), nowMs))
-    .map(
-      (document) =>
-        mapCalendarEvent(
-          document.id,
-          document.data(),
-        ),
-    )
-      .filter(
-        (
-          event,
-        ): event is ProviderCalendarEvent =>
-          event !== null,
-      )
-      .sort(
-        (left, right) =>
-          left.event.eventDate.localeCompare(
-            right.event.eventDate,
-          ),
-      );
+const onlineEvents = requestsSnapshot.docs
+  .filter((document) => calendarRequestOccupies(document.data(), nowMs))
+  .map((document) => mapCalendarEvent(document.id, document.data()));
+const walkInEvents = walkInsSnapshot.docs.flatMap((document) => {
+  const data = document.data();
+  if (data.status !== "confirmed" && data.status !== "completed") return [];
+  return [mapCalendarEvent(document.id, {
+    ...data,
+    eventType: `${data.eventType} · Walk-in`,
+    packageName: data.serviceName,
+  })];
+});
+const events = [...onlineEvents, ...walkInEvents]
+  .filter((event): event is ProviderCalendarEvent => event !== null)
+  .sort((left, right) => left.event.eventDate.localeCompare(right.event.eventDate));
 
   return {
     providerId,
@@ -160,7 +158,7 @@ function timestampMs(value: unknown): number | null {
   return null;
 }
 
-function calendarRequestOccupies(
+export function calendarRequestOccupies(
   data: Record<string, unknown>,
   nowMs: number,
 ): boolean {

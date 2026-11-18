@@ -342,7 +342,7 @@ export function validateProviderAvailability(
 
   if (
     requestedRange !== null &&
-    occupyingBookings.length > 0 &&
+    (occupyingBookings.length > 0 || hasWalkInReservation(input.providerData, eventDateKey)) &&
     !issues.some((item) => item.code === "TIME_CONFLICT")
   ) {
     issues.push(issue(
@@ -353,6 +353,13 @@ export function validateProviderAvailability(
   }
 
   return result(issues);
+}
+
+export function hasWalkInReservation(
+  provider: Readonly<Record<string, unknown>>, dateKey: string,
+): boolean {
+  return Array.isArray(provider.walkInReservedDates) &&
+    provider.walkInReservedDates.includes(dateKey);
 }
 
 export function manilaDateRange(date: Date): {

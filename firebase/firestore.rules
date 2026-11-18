@@ -691,6 +691,7 @@ service cloud.firestore {
             'canonicalRatingTotal',
             'canonicalRatingDistribution',
             'refundPolicy',
+            'walkInReservedDates',
             'isDeleted',
             'deletedAt',
             'deletedBy',

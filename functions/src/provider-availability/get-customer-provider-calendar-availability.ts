@@ -8,7 +8,7 @@ import {db} from "../shared/firestore.js";
 import {enforceCallableRateLimit} from "../shared/rate-limit.js";
 import {requireObject, requireString} from "../shared/validation.js";
 import {
-  AVAILABILITY_COUNTED_REQUEST_STATUSES, manilaDateFromKey, manilaDateKey,
+  AVAILABILITY_COUNTED_REQUEST_STATUSES, hasWalkInReservation, manilaDateFromKey, manilaDateKey,
   providerRequestOccupiesAvailability, validateProviderAvailability,
 } from "./validate-provider-availability.js";
 
@@ -48,7 +48,7 @@ export function buildCalendarDates(month: string, providerData: Record<string, u
     const unavailable = key < manilaDateKey(now) || schedule.issues.some((issue) =>
       ["PROVIDER_NOT_OPERATIONAL", "PROVIDER_SCHEDULE_INVALID", "OUTSIDE_OPERATING_DAY",
         "BLOCKED_DATE", "LEAD_TIME_NOT_MET"].includes(issue.code));
-    const state: CalendarState | null = occupied.some((record) =>
+    const state: CalendarState | null = hasWalkInReservation(providerData, key) || occupied.some((record) =>
       ["confirmed", "in_progress", "completed"].includes(String(record.status))) ? "booked" :
       occupied.length ? "on_hold" : unavailable ? "unavailable" : null;
     if (state) dates.push({date: key, state});

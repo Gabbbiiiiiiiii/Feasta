@@ -93,3 +93,8 @@ test("bounded monthly query isolates providers, uses Manila boundaries and fails
     await assert.rejects(getCustomerProviderCalendarForInput({providerId: "provider_123", month: "2026-10"}, now), {code: "failed-precondition"});
   } finally {db.collection = original;}
 });
+
+test("customer calendar exposes walk-in dates only as booked", () => {
+  assert.equal(state([], {walkInReservedDates: ["2026-10-20"]}), "booked");
+  assert.equal(state([], {walkInReservedDates: []}), undefined);
+});
