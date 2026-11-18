@@ -807,7 +807,8 @@ service cloud.firestore {
     }
 
     match /agreementTemplates/{templateCode} {
-      allow read: if isActiveSignedInUser();
+      // Serve published agreement text through audience-gated server projections.
+      allow read: if false;
       allow create, update, delete: if false;
     }
 

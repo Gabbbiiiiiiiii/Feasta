@@ -184,6 +184,22 @@ describe("File Maintenance document catalog", () => {
     ));
   });
 
+  it("shows agreement audiences by type without displaying internal template codes", () => {
+    const terms = {
+      ...agreement,
+      code: "internal_terms_template",
+      agreementTypeCode: "terms_of_service",
+      name: "FEASTA Terms of Service",
+    };
+    render(<AgreementTemplateManagement initialAgreements={[agreement, terms]} agreementTypes={agreementTypes} />);
+
+    expect(screen.getByRole("columnheader", {name: "Audience"})).toBeInTheDocument();
+    expect(screen.getByRole("button", {name: "View Provider agreement"}).closest("tr")).toHaveTextContent("Providers only");
+    expect(screen.getByRole("button", {name: "View FEASTA Terms of Service"}).closest("tr")).toHaveTextContent("Platform-wide");
+    expect(screen.queryByText(agreement.code)).not.toBeInTheDocument();
+    expect(screen.queryByText(terms.code)).not.toBeInTheDocument();
+  });
+
   it("edits an agreement without an onboarding checkbox", async () => {
     const user = userEvent.setup();
     render(<AgreementTemplateManagement initialAgreements={[agreement]} agreementTypes={agreementTypes} />);

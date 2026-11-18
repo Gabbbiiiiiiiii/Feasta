@@ -37,6 +37,15 @@ test("provider routes split identity access from onboarding and operation gates"
   assert.doesNotMatch(packages, /requireApprovedProvider\(\)/u);
 });
 
+test("provider agreement pages enforce the provider and business-profile access gates", async () => {
+  const [standaloneAgreement, businessProfile] = await Promise.all([
+    source("app/provider-agreement/page.tsx"),
+    source("app/provider/business-profile/page.tsx"),
+  ]);
+  assert.match(standaloneAgreement, /await requireProvider\(\)[\s\S]*?getProviderOnboardingAgreement\(\)/u);
+  assert.match(businessProfile, /async function BusinessAgreementSection\(\)[\s\S]*?await requireApprovedProvider\(\)[\s\S]*?loadBusinessAgreementView\(/u);
+});
+
 test("draft catalog access requires a trusted linked provider profile", async () => {
   const session = await source("lib/auth/session.ts");
   assert.match(session, /requireProviderCatalogAccess/u);
