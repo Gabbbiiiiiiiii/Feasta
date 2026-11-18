@@ -1,5 +1,6 @@
 import {act, fireEvent, render, screen, waitFor, within} from "@testing-library/react";
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
+import {MAIN_EVENT_STATUSES} from "@feasta/shared-types";
 import type {AdminBooking, AdminBookingFilters, AdminBookingPage} from "@/lib/admin/bookings/admin-booking-types";
 import {adminBookingStatusLabels, adminBookingPaymentLabels} from "@/lib/admin/bookings/admin-booking-labels";
 import {BookingMonitoringClient} from "@/components/admin/bookings/booking-monitoring-client";
@@ -8,7 +9,7 @@ const mocks = vi.hoisted(() => ({load: vi.fn()}));
 vi.mock("@/app/admin/bookings/actions", () => ({loadAdminBookingsAction: mocks.load}));
 const page: AdminBookingPage = {
   bookings: [], hasMore: false, nextCursor: null,
-  statistics: {totalBookings: 0, pendingApproval: 0, waitingForPayment: 0, confirmed: 0,
+  statistics: {totalBookings: 9, availableStatuses: [...MAIN_EVENT_STATUSES], pendingApproval: 0, waitingForPayment: 0, confirmed: 0,
     inProgress: 0, completed: 0, needsProviderReplacement: 0, cancelledOrExpired: 0,
     totalProviderRequests: 0, pendingProviderRequests: 0, confirmedProviderRequests: 0,
     totalPaidAmount: 26000, totalRefundedAmount: 0},
@@ -48,6 +49,15 @@ async function select(label: string, value: string) {
 }
 
 describe("booking status filters", () => {
+  it("only offers statuses present across booking history, even when the current page is empty", () => {
+    render(<BookingMonitoringClient initialPage={{
+      ...page,
+      statistics: {...page.statistics, availableStatuses: ["confirmed", "completed"]},
+    }} />);
+    const options = within(screen.getByLabelText("Booking status")).getAllByRole("option");
+    expect(options.map((option) => option.textContent)).toEqual(["All booking statuses", "Confirmed", "Completed"]);
+  });
+
   it.each(Object.entries(adminBookingStatusLabels))("passes %s unchanged and consistently displays %s", async (value, label) => {
     show();
     expect(within(screen.getByLabelText("Booking status")).getByRole("option", {name: label})).toHaveValue(value);
@@ -98,7 +108,7 @@ it("keeps combined filters, unsent search text and current data through refresh 
   expect(mocks.load).toHaveBeenCalledTimes(readsBefore + 1);
   expect(mocks.load).toHaveBeenLastCalledWith(expected);
   expect(screen.getByLabelText("Search by booking code prefix")).toHaveValue("BK-unsent");
-  expect(screen.getByText(/Status: Waiting for payment/)).toBeInTheDocument();
+  expect(screen.getByText(/Status: Awaiting payment/)).toBeInTheDocument();
   expect(screen.getByText(/Payment: Awaiting payment confirmation/)).toBeInTheDocument();
   mocks.load.mockRejectedValueOnce(new Error("offline"));
   await act(async () => {await vi.advanceTimersByTimeAsync(5_000);});

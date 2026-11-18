@@ -30,7 +30,7 @@ import {
 } from "@/lib/customer/providers/provider-catalog";
 import type {PublicProviderDetail} from "@/lib/customer/providers/provider-detail-types";
 import {parseMarketplaceReturnHref} from "@/lib/customer/providers/provider-query";
-import {PUBLIC_PACKAGE_MARKETPLACE_PATH} from "@/lib/customer/providers/provider-route-policy";
+import {isMediaPackageCategory, mediaPackageHref, PUBLIC_PACKAGE_MARKETPLACE_PATH} from "@/lib/customer/providers/provider-route-policy";
 import {
   serviceCategoryName,
   type ServiceCategoryOption,
@@ -66,6 +66,8 @@ export function ProviderProfile({
     provider.operatingDays.length > 0,
   );
 
+  const mediaPackages = (detail.services ?? []).filter((service) => isMediaPackageCategory(service.category));
+  const otherServices = (detail.services ?? []).filter((service) => !isMediaPackageCategory(service.category));
   return (
     <article className="grid min-w-0 gap-5 sm:gap-6">
       <Link
@@ -548,14 +550,15 @@ export function ProviderProfile({
 
       <PackageSection
         packages={packages}
-        providerName={provider.businessName}
+        provider={provider}
+        mediaPackages={mediaPackages}
         marketplaceHref={safeBackHref}
       />
 
-      {detail.services && detail.services.length > 0 ? <section aria-labelledby="provider-offerings" className="rounded-[24px] border border-feasta-border-soft bg-card p-5 sm:p-6">
+      {otherServices.length > 0 ? <section aria-labelledby="provider-offerings" className="rounded-[24px] border border-feasta-border-soft bg-card p-5 sm:p-6">
         <h2 id="provider-offerings" className="text-2xl font-extrabold text-foreground">Service offerings</h2>
         <div className="mt-4 grid grid-cols-[repeat(auto-fill,minmax(min(100%,16rem),1fr))] gap-4">
-          {detail.services.map((service) => <article key={service.id} className="min-w-0 rounded-xl border border-feasta-border-soft p-4">
+          {otherServices.map((service) => <article key={service.id} className="min-w-0 rounded-xl border border-feasta-border-soft p-4">
             <h3 className="break-words text-base font-bold">{service.name}</h3>
             {service.pricingType === "custom_quote" ? (
               <p className="mt-1 text-sm font-semibold">Request a quote</p>
@@ -687,17 +690,20 @@ export function ProviderProfile({
 
 function PackageSection({
   packages,
-  providerName,
+  provider,
+  mediaPackages,
   marketplaceHref,
 }: {
   packages: readonly PublicPackage[];
-  providerName: string;
+  provider: PublicProviderDetail["provider"];
+  mediaPackages: NonNullable<PublicProviderDetail["services"]>;
   marketplaceHref: string;
 }) {
+  const packageCount = packages.length + mediaPackages.length;
   return (
     <section
       className="relative min-w-0 overflow-hidden rounded-[26px] border border-feasta-border-soft bg-white p-5 shadow-[0_8px_28px_rgb(0_75_59/0.04)] sm:p-6 lg:p-7"
-      aria-labelledby="provider-packages"
+      aria-labelledby={packages.length === 0 && mediaPackages.length ? "provider-packages-label" : "provider-packages"}
     >
       <div
         aria-hidden="true"
@@ -711,7 +717,7 @@ function PackageSection({
 
         <div className="flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
           <div className="max-w-3xl">
-            <p className="text-xs font-extrabold uppercase tracking-[0.13em] text-primary-strong">
+            <p id="provider-packages-label" className="text-xs font-extrabold uppercase tracking-[0.13em] text-primary-strong">
               Packages from this provider
             </p>
 
@@ -723,18 +729,18 @@ function PackageSection({
             </h2>
 
             <p className="mt-3 max-w-2xl text-sm leading-6 text-feasta-text-secondary sm:text-base sm:leading-7">
-              Review published packages from {providerName}, including
+              Review published packages from {provider.businessName}, including
               event type, guest capacity, and package price.
             </p>
           </div>
 
-          {packages.length > 0 ? (
+          {packageCount > 0 ? (
             <div className="shrink-0 rounded-xl bg-feasta-canvas px-3.5 py-2.5">
               <p className="text-xs font-semibold text-feasta-text-secondary">
                 <span className="font-extrabold text-foreground">
-                  {packages.length}
+                  {packageCount}
                 </span>{" "}
-                {packages.length === 1
+                {packageCount === 1
                   ? "published package"
                   : "published packages"}
               </p>
@@ -746,7 +752,7 @@ function PackageSection({
             PACKAGE RESULTS
            ================================================================ */}
 
-        {packages.length > 0 ? (
+        {packageCount > 0 ? (
           <div className="mt-5 grid min-w-0 auto-rows-fr grid-cols-[repeat(auto-fill,minmax(min(100%,16rem),1fr))] gap-4">
             {packages.map((packageRecord) => (
               <PublicPackageCard
@@ -758,6 +764,35 @@ function PackageSection({
                 layout="provider-profile"
               />
             ))}
+            {mediaPackages.map((service) => {
+              const cover = service.portfolio?.photos.find(({id}) => id === service.portfolio?.coverAssetId);
+              const fullPayment = service.pricingType === "fixed" &&
+                service.price !== undefined && service.price > 0 && service.revision !== undefined;
+              const priceSuffix = service.pricingType === "per_hour" ? "per hour"
+                : service.pricingType === "per_guest" ? "per guest"
+                  : service.pricingType === "per_unit" ? "per unit" : undefined;
+              return (
+                <PublicPackageCard key={`media-${service.id}`} marketplaceHref={marketplaceHref}
+                  headingLevel="h3" showProvider={false} layout="provider-profile"
+                  detailHref={mediaPackageHref(provider.id, service.id)} priceSuffix={priceSuffix}
+                  unknownPriceLabel={service.pricingType === "custom_quote" ? "Request a quote" : undefined}
+                  packageRecord={{
+                    id: service.id,
+                    providerId: provider.id,
+                    providerName: provider.businessName,
+                    name: service.name,
+                    description: service.description,
+                    imageUrl: cover?.thumbnailUrl ?? null,
+                    eventType: provider.eventTypes[0] ?? null,
+                    occasionMatchIds: provider.eventTypes,
+                    minimumGuests: provider.minimumGuests,
+                    maximumGuests: provider.maximumGuests,
+                    price: service.pricingType === "custom_quote" ? null : service.price ?? null,
+                    paymentPolicy: fullPayment ? "full_payment" : null,
+                    inclusions: [],
+                  }} />
+              );
+            })}
           </div>
         ) : (
           <div className="mt-5 grid place-items-center rounded-[20px] border border-dashed border-feasta-border-strong bg-feasta-canvas px-5 py-8 text-center">
@@ -774,7 +809,7 @@ function PackageSection({
               </h3>
 
               <p className="mt-2 text-sm leading-6 text-feasta-text-secondary">
-                You can still review {providerName}&apos;s services,
+                You can still review {provider.businessName}&apos;s services,
                 supported events, service areas, and planning information
                 above.
               </p>

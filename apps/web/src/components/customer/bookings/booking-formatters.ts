@@ -1,6 +1,7 @@
 
 import {formatEventTime} from "@/lib/presentation/event-time";
 import type {MainEventStatus} from "@feasta/shared-types";
+import {bookingStatusLabels} from "@/lib/presentation/booking-status-labels";
 
 import {
   CUSTOMER_BOOKING_STATUS_OPTIONS,
@@ -40,18 +41,6 @@ const currencyFormatter = new Intl.NumberFormat("en-PH", {
 const numberFormatter = new Intl.NumberFormat("en-PH");
 
 const BOOKING_STATUS_OPTIONS = CUSTOMER_BOOKING_STATUS_OPTIONS;
-
-const MAIN_EVENT_STATUS_LABELS: Record<MainEventStatus, string> = {
-  draft: "Draft",
-  pending_provider_approval: "Awaiting provider",
-  needs_provider_replacement: "Provider rejected",
-  waiting_for_down_payment: "Awaiting payment",
-  confirmed: "Confirmed",
-  in_progress: "In progress",
-  completed: "Completed",
-  cancelled: "Cancelled",
-  expired: "Expired",
-};
 
 function formatBookingDate(value: string | null): string {
   if (!value) return "Date not provided";
@@ -122,8 +111,8 @@ function boundedText(
 }
 
 function bookingStatusLabel(status: string): string {
-  if (status in MAIN_EVENT_STATUS_LABELS) {
-    return MAIN_EVENT_STATUS_LABELS[status as MainEventStatus];
+  if (status in bookingStatusLabels) {
+    return bookingStatusLabels[status as MainEventStatus];
   }
 
   if (isCustomerBookingStatusFilter(status)) {

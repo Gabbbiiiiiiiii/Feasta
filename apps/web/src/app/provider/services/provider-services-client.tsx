@@ -83,6 +83,8 @@ export function ProviderServicesClient({
   serviceCategories,
   serviceCategoryOptions,
 }: ProviderServicesClientProps) {
+  const createsMediaPackages = isFreelancer && serviceCategories.length > 0 &&
+    serviceCategories.every((category) => category === "photographer" || category === "videographer");
   const [
     services,
     setServices,
@@ -147,6 +149,18 @@ export function ProviderServicesClient({
   ] = useState(false);
 
   const [creating, setCreating] = useState(false);
+  const [draftExitOpen, setDraftExitOpen] = useState(false);
+
+  function closeCreateEditor() {
+    setDraftExitOpen(false);
+    setCreateOpen(false);
+  }
+
+  function requestCreateExit() {
+    if (creating) return;
+    if (createsMediaPackages) setDraftExitOpen(true);
+    else closeCreateEditor();
+  }
 
   const [
     editingService,
@@ -250,7 +264,8 @@ export function ProviderServicesClient({
     <Dialog
       open={createOpen}
       onOpenChange={(open) => {
-        if (!creating) setCreateOpen(open);
+        if (open) setCreateOpen(true);
+        else requestCreateExit();
       }}
     >
     <div className="@container grid gap-6">
@@ -272,7 +287,7 @@ export function ProviderServicesClient({
             }}
           >
             <Plus aria-hidden="true" />
-            New service
+            {createsMediaPackages ? "New package" : "New service"}
           </Button>
           </DialogTrigger>
         }
@@ -303,15 +318,18 @@ export function ProviderServicesClient({
 
       <DialogContent
         onInteractOutside={(event) => event.preventDefault()}
-        onEscapeKeyDown={(event) => event.preventDefault()}
+        onEscapeKeyDown={(event) => {
+          event.preventDefault();
+          if (createsMediaPackages) requestCreateExit();
+        }}
         className="flex max-h-[90dvh] max-w-4xl flex-col gap-0 overflow-hidden p-0">
           <DialogHeader className="shrink-0 border-b border-border px-6 py-5 pr-16">
             <DialogTitle>
-              Create event service
+              {createsMediaPackages ? "Create package" : "Create event service"}
             </DialogTitle>
 
             <DialogDescription>
-              Add the details customers need to understand your service.
+              {createsMediaPackages ? "Add the price, inclusions, and delivery details for your package." : "Add the details customers need to understand your service."}
             </DialogDescription>
           </DialogHeader>
 
@@ -325,11 +343,13 @@ export function ProviderServicesClient({
             serviceCategoryOptions={
               serviceCategoryOptions
             }
-            onCancel={() =>
-              setCreateOpen(false)
-            }
+            draftKey={createsMediaPackages ? `feasta:media-package-progress:v1:${providerId}` : undefined}
+            draftExitOpen={draftExitOpen}
+            onDraftExitOpenChange={setDraftExitOpen}
+            onCancel={requestCreateExit}
+            onDraftExit={closeCreateEditor}
             onSaved={async () => {
-              setCreateOpen(false);
+              closeCreateEditor();
               await loadServices();
             }}
           />
@@ -391,7 +411,7 @@ export function ProviderServicesClient({
         />
       </div>
 
-      {actionError ? (
+      {actionError && !publishService ? (
         <div
           role="alert"
           className="flex items-start gap-3 rounded-xl border border-destructive/30 bg-destructive/5 p-4"
@@ -614,12 +634,18 @@ export function ProviderServicesClient({
               caught,
             );
 
-            setActionError(
-              "The service could not be published. Check its details and try again.",
-            );
+            const code = caught instanceof Error && "code" in caught ? caught.code : null;
+            const actionable = code === "functions/failed-precondition" ||
+              code === "functions/invalid-argument" || code === "functions/already-exists" ||
+              code === "functions/permission-denied" || code === "functions/not-found";
+            setActionError(actionable && caught instanceof Error && caught.message.trim()
+              ? caught.message
+              : "Publishing failed. Try again in a moment.");
           }
         }}
-      />
+      >
+        {actionError && <p role="alert" className="text-sm text-destructive">{actionError}</p>}
+      </ConfirmationDialog>
 
       <ConfirmationDialog
         open={archiveService !== null}

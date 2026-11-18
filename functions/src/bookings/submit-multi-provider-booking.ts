@@ -190,7 +190,7 @@ export async function submitAuthorizedMultiProviderBooking(
           packageId: catering?.resolved.packageId ?? null, packageName: catering?.resolved.packageName ?? null,
           ...(catering?.resolved.offer ?? {}), packagePaymentTerms: financial.packagePaymentTerms,
           ...(marketplace ? {serviceId: marketplace.service.serviceId,
-            serviceRevision: marketplace.service.serviceData.revision, selectedAddOns} : {}),
+            serviceRevision: marketplace.service.serviceData.revision ?? 0, selectedAddOns} : {}),
           bookingPaymentPolicySnapshot: eligibility.bookingPaymentPolicySnapshot,
           bookingPaymentPolicyCapturedAt: serverTimestamp(), bookingPaymentPolicyCapturedAtStage: "submission",
           ...bookingPolicyV3Evidence(initial.eventStartAt, Timestamp.fromDate),
@@ -314,9 +314,16 @@ async function handle(request: CallableRequest, disclosureOnly: boolean) {
 }
 
 export const submitMultiProviderBookingRequest = onCall(
-  {...appCheckCallableOptions, maxInstances: 20, memory: "256MiB", concurrency: 80, timeoutSeconds: 30},
+  {...appCheckCallableOptions, preserveExternalChanges: true, maxInstances: 20, memory: "256MiB", concurrency: 80, timeoutSeconds: 30},
   request => handle(request, false),
 );
 export const getMultiProviderBookingDisclosures = onCall(
-  {...appCheckCallableOptions, timeoutSeconds: 30}, request => handle(request, true),
+  {
+    ...appCheckCallableOptions,
+    preserveExternalChanges: true,
+    memory: "256MiB",
+    concurrency: 80,
+    timeoutSeconds: 30,
+  },
+  request => handle(request, true),
 );

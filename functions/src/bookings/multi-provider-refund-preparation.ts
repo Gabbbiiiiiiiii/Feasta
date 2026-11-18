@@ -134,7 +134,7 @@ export function confirmMultiProviderRefundAcknowledgements<TTimestamp>(
 
   if (
     prepared.mode !== "required" ||
-    prepared.policies.size < 2 ||
+    prepared.policies.size < 1 ||
     prepared.policies.size > 4 ||
     prepared.disclosures.length !== prepared.policies.size
   ) {

@@ -347,6 +347,7 @@ export type MultiProviderMarketplaceSelection = {
 export function parseMultiProviderMarketplaceSelection(
   value: unknown,
   sharedEvent: Readonly<Record<string, unknown>>,
+  allowLegacyRevision = false,
 ): MultiProviderMarketplaceSelection {
   const selection = record(value);
 
@@ -369,7 +370,7 @@ export function parseMultiProviderMarketplaceSelection(
   if (
     typeof revision !== "number" ||
     !Number.isSafeInteger(revision) ||
-    revision < 1
+    revision < (allowLegacyRevision ? 0 : 1)
   ) {
     invalid("Invalid marketplace service revision.");
   }
@@ -515,12 +516,11 @@ export function parseMultiProviderMixedSubmissionEnvelope(
   const event = eventDetails(input.event);
   const raw = input.selections;
 
-  if (
-    !Array.isArray(raw) ||
-    raw.length < 2 ||
-    raw.length > MAX_MULTI_PROVIDER_SELECTIONS
-  ) {
-    invalid("Select between 2 and 4 configured providers.");
+  if (!Array.isArray(raw) || raw.length === 0) {
+    invalid("Select a provider.");
+  }
+  if (raw.length > MAX_MULTI_PROVIDER_SELECTIONS) {
+    invalid("Select between 2 and 4 configured providers for a mixed booking.");
   }
 
   const providers = new Set<string>();
@@ -613,6 +613,7 @@ export function parseMultiProviderMixedSubmissionEnvelope(
       parsed = parseMultiProviderMarketplaceSelection(
         selection,
         event,
+        raw.length === 1,
       );
 
       marketplaceCount++;
@@ -628,9 +629,10 @@ export function parseMultiProviderMixedSubmissionEnvelope(
     selections.push(parsed);
   }
 
-  // Schema v2 is explicitly for mixed categories.
+  // Schema v2 also admits a standalone marketplace service. The trusted reader checks its category.
   // Catering-only bookings retain the proven schema-v1 path.
-  if (cateringCount === 0 || marketplaceCount === 0) {
+  if (!(marketplaceCount === 1 && cateringCount === 0) &&
+      (cateringCount === 0 || marketplaceCount === 0)) {
     invalid("Mixed booking requires Catering and an event service.");
   }
 

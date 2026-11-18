@@ -26,7 +26,7 @@ function reject(message: string): never {
 }
 
 /**
- * Pure provider-availability preflight for 2-4 selections.
+ * Pure provider-availability preflight for mixed and standalone bookings.
  *
  * The transaction caller must supply trusted providerData,
  * server-generated request IDs, and occupancy rows retrieved
@@ -39,12 +39,13 @@ function reject(message: string): never {
 export function prepareMultiProviderAvailability(input: {
   candidates: readonly MultiProviderAvailabilityCandidate[];
   now: Date;
+  standaloneMarketplace?: boolean;
 }): readonly MultiProviderAvailabilityAssessment[] {
   const {candidates, now} = input;
 
   if (
     !Array.isArray(candidates) ||
-    candidates.length < 2 ||
+    candidates.length < (input.standaloneMarketplace ? 1 : 2) ||
     candidates.length > 4 ||
     !(now instanceof Date) ||
     !Number.isFinite(now.getTime())

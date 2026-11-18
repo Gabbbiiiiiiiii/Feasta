@@ -90,7 +90,7 @@ function addSafe(left: number, right: number): number {
 export function prepareMixedProviderFinancials(
   rows: readonly TrustedMixedProviderRow[],
 ): PreparedMixedFinancials {
-  if (!Array.isArray(rows) || rows.length < 2 || rows.length > 4) {
+  if (!Array.isArray(rows) || rows.length < 1 || rows.length > 4) {
     return reject("Mixed financial selection is invalid.");
   }
 
@@ -179,7 +179,7 @@ export function prepareMixedProviderFinancials(
   }
 
   if (
-    cateringSubtotalInCentavos <= 0 ||
+    (rows.length > 1 && cateringSubtotalInCentavos <= 0) ||
     marketplaceSubtotalInCentavos <= 0
   ) {
     return reject(

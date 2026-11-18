@@ -11,6 +11,7 @@ import {
   XCircle,
   FileSpreadsheet,
 } from "lucide-react";
+import Link from "next/link";
 import {useState, useTransition} from "react";
 import type {ReactNode} from "react";
 
@@ -37,7 +38,7 @@ import {PhilippineDateInput} from "@/components/forms/philippine-date-input";
 import {
   PageHeading,
 } from "@/components/layout/page-heading";
-import {Button} from "@/components/ui/button";
+import {Button, buttonVariants} from "@/components/ui/button";
 import {
   createAdminReportExcel,
 } from "@/lib/admin/reports/admin-report-excel";
@@ -210,6 +211,9 @@ export function AdminReportsExecutiveClient({
           description="Review bookings, customer payments, FEASTA revenue, and provider activity."
         />
         <div className="grid w-full shrink-0 gap-2 sm:flex sm:w-auto sm:flex-wrap sm:justify-end">
+          <Link href="/admin/reports/customer-directory" prefetch={false} className={buttonVariants({variant: "secondary"})}>
+            Customer Directory
+          </Link>
             <Button
             type="button"
             variant="secondary"

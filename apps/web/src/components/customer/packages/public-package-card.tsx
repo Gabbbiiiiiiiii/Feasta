@@ -29,6 +29,9 @@ export function PublicPackageCard({
   showProvider = true,
   compactPreview = false,
   layout = "marketplace",
+  detailHref,
+  priceSuffix,
+  unknownPriceLabel,
 }: {
   packageRecord: PublicPackage;
   marketplaceHref: string;
@@ -36,6 +39,9 @@ export function PublicPackageCard({
   showProvider?: boolean;
   compactPreview?: boolean;
   layout?: "marketplace" | "provider-profile";
+  detailHref?: string;
+  priceSuffix?: string;
+  unknownPriceLabel?: string;
 }) {
   const queryStart = marketplaceHref.indexOf("?");
   const planningContext = queryStart === -1 ? null : parseCustomerPlanningContext(
@@ -46,9 +52,7 @@ export function PublicPackageCard({
     customerEventContextFromHref(marketplaceHref, ""), planningContext,
   );
   const packagePath = `/customer/packages/${encodeURIComponent(packageRecord.id)}`;
-  const packageHref = eventContextQuery
-    ? `${packagePath}?${eventContextQuery}`
-    : packagePath;
+  const packageHref = detailHref ?? (eventContextQuery ? `${packagePath}?${eventContextQuery}` : packagePath);
   const primaryImage = packageRecord.imageUrls?.[0] ?? packageRecord.imageUrl;
   const Heading = headingLevel;
   const guestRange = packageGuestRange(packageRecord);
@@ -64,7 +68,8 @@ export function PublicPackageCard({
   return (
     <article
       className={[
-        "group relative flex w-full max-w-[300px] min-w-0 flex-col overflow-hidden",
+        "group relative flex w-full min-w-0 flex-col overflow-hidden",
+        layout === "marketplace" && "max-w-[300px]",
         "rounded-[22px] border border-feasta-border-soft bg-white",
         "shadow-[0_4px_18px_rgb(0_75_59/0.035)]",
         "transition-[transform,border-color,box-shadow,filter] duration-300 ease-in-out",
@@ -257,7 +262,7 @@ export function PublicPackageCard({
 
         {/* Price */}
 
-        <div className="mt-auto pt-2">
+        <div className={layout === "provider-profile" ? "mt-auto pt-8" : "mt-auto pt-2"}>
           {!compact && serviceTiers.length > 0 ? (
             <ul className="mb-3 flex flex-wrap gap-1.5">
               {serviceTiers.map((tier) => (
@@ -270,7 +275,7 @@ export function PublicPackageCard({
               ))}
             </ul>
           ) : null}
-          <div className="flex flex-wrap items-end justify-between gap-3 border-t border-feasta-divider pt-3">
+          <div className={`flex gap-3 border-t border-feasta-divider pt-3 ${layout === "provider-profile" ? "flex-col" : "flex-wrap items-end justify-between"}`}>
             <div>
               <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-feasta-text-tertiary">
                 {serviceTiers.length > 0
@@ -280,6 +285,8 @@ export function PublicPackageCard({
 
               <PriceDisplay
                 amount={packageRecord.price}
+                suffix={priceSuffix}
+                unknownLabel={unknownPriceLabel}
                 className="mt-1"
               />
               <div className="mt-2"><PackagePaymentTerms source={packageRecord} /></div>

@@ -81,6 +81,7 @@ import {
 export const acceptProviderRequest = onCall(
   {
     ...appCheckCallableOptions,
+    preserveExternalChanges: true,
     maxInstances: 20,
     memory: "256MiB",
     concurrency: 80,

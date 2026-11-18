@@ -21,5 +21,13 @@ export async function handleCustomerEventListMutation(request: CallableRequest<u
     {scope: "customer-event-list-mutation", limit: 120, windowSeconds: 60});
   return mutateAuthorizedEventList(db, uid, request.data);
 }
-export const mutateCustomerEventList = onCall(appCheckCallableOptions,
-  handleCustomerEventListMutation);
+export const mutateCustomerEventList = onCall(
+  {
+    ...appCheckCallableOptions,
+    preserveExternalChanges: true,
+    memory: "256MiB",
+    concurrency: 80,
+    timeoutSeconds: 60,
+  },
+  handleCustomerEventListMutation,
+);

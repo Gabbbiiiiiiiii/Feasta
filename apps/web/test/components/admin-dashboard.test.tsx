@@ -112,7 +112,7 @@ describe("Admin dashboard financial and population metrics", () => {
     expect(dashboard.statistics).toEqual({
       feastaRevenueInCentavos: 50000, totalUsers: 4, totalBookings: 3, verificationQueue: 2,
       revenueLast30DaysInCentavos: 50000, customerAccounts: 2, providerAccounts: 2,
-      activeBookings: 1, completedBookings: 1, submittedApprovals: 1, underReviewApprovals: 1,
+      submittedApprovals: 1, underReviewApprovals: 1,
     });
     expect(dashboard.operationsOverview).toMatchObject({
       pendingProcessingPayments: 1, failedExpiredPayments: 1,
@@ -182,20 +182,20 @@ describe("Admin dashboard financial and population metrics", () => {
     await expect(getAdminDashboardData()).rejects.toThrow("invalid financial ledger entry");
   });
 
-  it("renders five linked cards including open complaints and switches revenue ranges", async () => {
+  it("renders four linked cards and switches revenue ranges", async () => {
     database.rows.financialLedgerEntries.push(entry("earlier-fee", "2026-09-01T00:00:00Z", 625025));
     const user = userEvent.setup();
     render(await AdminPage());
     const summary = screen.getByRole("region", { name: "Platform summary" });
-    expect(within(summary).getAllByRole("region")).toHaveLength(5);
-    expect(within(summary).getByText("\u20b16,750.25 in the last 30 days")).toBeInTheDocument();
+    expect(within(summary).getAllByRole("region")).toHaveLength(4);
     expect(within(summary).getByText("2 customers / 2 providers")).toBeInTheDocument();
-    expect(within(summary).getByText("1 active / 1 completed")).toBeInTheDocument();
+    const bookings = within(summary).getByRole("link", { name: /Total bookings/ });
+    expect(within(bookings).getByText("3")).toBeInTheDocument();
+    expect(bookings).toHaveTextContent("View bookings by status");
     expect(within(summary).getByText("1 submitted / 1 under review")).toBeInTheDocument();
-    expect(within(summary).getByRole("link", { name: /FEASTA Revenue/i })).toHaveAttribute("href", "/admin/payments");
-    expect(within(summary).getByText("\u20b16,750.25")).toBeInTheDocument();
+    expect(within(summary).queryByRole("link", { name: /FEASTA Revenue/i })).not.toBeInTheDocument();
     expect(within(summary).getByRole("link", { name: /Total users/ })).toHaveAttribute("href", "/admin/users");
-    expect(within(summary).getByRole("link", { name: /Total bookings/ })).toHaveAttribute("href", "/admin/bookings");
+    expect(bookings).toHaveAttribute("href", "/admin/bookings");
     expect(within(summary).getByRole("link", { name: /Pending provider verifications/ })).toHaveAttribute("href", "/admin/providers");
     expect(within(summary).getByRole("link", { name: /Open complaints/i })).toHaveAttribute("href", "/admin/complaints");
     expect(screen.getByText(/Platform and service fees earned through eligible FEASTA transactions\./)).toBeInTheDocument();
@@ -295,7 +295,7 @@ describe("Admin dashboard financial and population metrics", () => {
     expect(screen.getByText("User account enabled")).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Platform Health" })).not.toBeInTheDocument();
     for (let i = 0; i < 4; i++) await user.tab();
-    expect(screen.getByRole("link", { name: /Pending provider verifications/ })).toHaveFocus();
+    expect(complaintLink).toHaveFocus();
   });
 
 });

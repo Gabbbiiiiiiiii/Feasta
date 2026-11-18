@@ -984,6 +984,7 @@ async function queryAdminBookingStatistics(): Promise<AdminBookingStatistics> {
 
   const [
     totalBookings,
+    draft,
     pendingApproval,
     waitingForPayment,
     confirmed,
@@ -998,6 +999,7 @@ async function queryAdminBookingStatistics(): Promise<AdminBookingStatistics> {
     financialTotals,
   ] = await Promise.all([
     mainEvents.count().get(),
+    mainEvents.where("status", "==", "draft").count().get(),
 
     mainEvents
       .where(
@@ -1066,9 +1068,22 @@ async function queryAdminBookingStatistics(): Promise<AdminBookingStatistics> {
     queryBookingFinancialStatistics(payments),
   ]);
 
+  const statusCounts = {
+    draft: draft.data().count,
+    pending_provider_approval: pendingApproval.data().count,
+    needs_provider_replacement: needsReplacement.data().count,
+    waiting_for_down_payment: waitingForPayment.data().count,
+    confirmed: confirmed.data().count,
+    in_progress: inProgress.data().count,
+    completed: completed.data().count,
+    cancelled: cancelled.data().count,
+    expired: expired.data().count,
+  };
+
   return {
     totalBookings:
       totalBookings.data().count,
+    availableStatuses: MAIN_EVENT_STATUSES.filter((status) => statusCounts[status] > 0),
 
     pendingApproval:
       pendingApproval.data().count,

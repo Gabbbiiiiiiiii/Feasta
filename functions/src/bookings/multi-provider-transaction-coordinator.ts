@@ -61,7 +61,7 @@ function validId(value: unknown): value is string {
 
 function validRequestIds(value: unknown): value is string[] {
   return Array.isArray(value) &&
-    value.length >= 2 &&
+    value.length >= 1 &&
     value.length <= 4 &&
     new Set(value).size === value.length &&
     value.every((id) =>

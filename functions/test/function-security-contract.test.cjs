@@ -543,7 +543,7 @@ for (const name of ["searchPlaces", "getPlaceDetails"]) {
   });
 }
 
-test("all deployed exports remain in the reviewed inventory", () => {
+test("all source exports remain in the reviewed inventory", () => {
   const index = source("index.ts");
   const names = new Set();
   for (const match of index.matchAll(/export const\s+(\w+)\s*=/gu)) names.add(match[1]);
@@ -574,13 +574,23 @@ test("all deployed exports remain in the reviewed inventory", () => {
       );
     }
   }
-  // Inventory existing source exports; this does not authorize deployment or activation.
+  // Includes deployed exports and reviewed source-only functions. Deployment is scoped separately.
   assert.equal(names.has("updateProviderOccasionCapabilities"), false);
   assert.equal(names.has("activateGlobalOccasion"), false);
   assert.equal(names.has("deactivateGlobalOccasion"), false);
   assert.equal(names.has("getOccasionTransition"), false);
   assert.equal(names.has("prepareBlockedOccasionTransition"), false);
   assert.deepEqual([...names].sort(), [
+  "adjudicateExpiredCustomerBooking",
+  "getAdminCustomerViolations",
+  "getCustomerBookingStanding",
+  "getCustomerProviderTaxPreview",
+  "getMultiProviderBookingDisclosures",
+  "mutateCustomerEventList",
+  "notifyEndedCustomerBookingRestrictions",
+  "retryAdminCustomerViolationAdjudication",
+  "reverseAdminCustomerViolation",
+  "submitMultiProviderBookingRequest",
   "addAdminOccasionApplicableServices",
   "getCustomerPackageV2",
   "inspectIntakeMaintenance",

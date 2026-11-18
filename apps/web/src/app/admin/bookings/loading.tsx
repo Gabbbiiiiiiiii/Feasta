@@ -42,12 +42,12 @@ export default function AdminBookingsLoading() {
         />
 
         <SummaryCard
-          label="Waiting for provider"
+          label="Awaiting provider"
           loading
         />
 
         <SummaryCard
-          label="Waiting for payment"
+          label="Awaiting payment"
           loading
         />
 

@@ -58,7 +58,10 @@ import {
 export const rejectProviderRequest = onCall(
   {
     ...appCheckCallableOptions,
+    preserveExternalChanges: true,
     maxInstances: 20,
+    memory: "256MiB",
+    concurrency: 80,
     timeoutSeconds: 30,
   },
   async (request) => {

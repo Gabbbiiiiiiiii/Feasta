@@ -1,5 +1,6 @@
 "use client";
 import {offerNameError, offerNameKey, offerDescriptionError, serviceGuestLimitsError} from "@/lib/provider/provider-offer-policy";
+import {ConfirmationDialog} from "@/components/shared/confirmation-dialog";
 import {ServicePriceInput} from "./service-price-input";
 import {parseServicePriceText, servicePriceError} from "@/lib/provider/provider-service-price";
 
@@ -50,6 +51,35 @@ import {FreelanceServiceSummary} from "@/components/shared/freelance-service-sum
 import {ServicePortfolioFields, type PortfolioDraftPhoto} from "./service-portfolio-fields";
 import {FreelanceServiceFields} from "./freelance-service-fields";
 
+type MediaPackageProgress = {
+  name: string;
+  description: string;
+  category: ServiceCategoryCode;
+  pricingType: AddonPricingType;
+  price: string;
+  minimumGuestText: string;
+  maximumGuestText: string;
+  freelanceDetails: FreelanceServiceDetails;
+};
+
+function readPackageProgress(key: string | undefined, categories: readonly ServiceCategoryCode[]) {
+  if (!key || typeof window === "undefined") return null;
+  try {
+    const progress = JSON.parse(window.localStorage.getItem(key) ?? "null") as MediaPackageProgress | null;
+    if (!progress || !categories.includes(progress.category) ||
+        !ADDON_PRICING_TYPES.includes(progress.pricingType) ||
+        ![progress.name, progress.description, progress.price, progress.minimumGuestText, progress.maximumGuestText]
+          .every((value) => typeof value === "string")) return null;
+    const details = progress.freelanceDetails;
+    if (!details || !Array.isArray(details.deliverables) || !Array.isArray(details.addOns) ||
+        !Array.isArray(details.travelZones) || (details.inclusions !== undefined && !Array.isArray(details.inclusions)) ||
+        typeof details.collaborationNotes !== "string") return null;
+    return progress;
+  } catch {
+    return null;
+  }
+}
+
 type ProviderServiceFormProps = {
   isFreelancer?: boolean;
   serviceCategories:
@@ -61,6 +91,11 @@ type ProviderServiceFormProps = {
   existingServices?: readonly Pick<ProviderService,"id"|"name"|"isDeleted">[];
   inDialog?: boolean;
   onSubmittingChange?: (submitting: boolean) => void;
+
+  draftKey?: string;
+  draftExitOpen?: boolean;
+  onDraftExitOpenChange?: (open: boolean) => void;
+  onDraftExit?: () => void;
 
   onSaved: () => void | Promise<void>;
   onCancel: () => void;
@@ -74,16 +109,22 @@ export function ProviderServiceForm({
   existingServices = [],
   inDialog = false,
   onSubmittingChange,
+  draftKey,
+  draftExitOpen,
+  onDraftExitOpenChange,
+  onDraftExit,
   onSaved,
   onCancel,
 }: ProviderServiceFormProps) {
   const fieldId = useId();
+  const [progress] = useState(() => readPackageProgress(draftKey, serviceCategories));
+  const [draftError, setDraftError] = useState("");
   const [photos, setPhotos] = useState<PortfolioDraftPhoto[]>(initialService?.portfolio?.photos ?? []);
   const [coverAssetId, setCoverAssetId] = useState(initialService?.portfolio?.coverAssetId ?? null);
   const [portfolioProgress, setPortfolioProgress] = useState("");
   const usePortfolio = isFreelancer && (photos.length > 0 || Boolean(initialService?.portfolio?.photos.length));
   const [freelanceDetails, setFreelanceDetails] = useState<FreelanceServiceDetails>(() =>
-    initialService?.freelanceDetails ?? {deliverables: [], collaboration: "", collaborationNotes: "", addOns: [], travelZones: []});
+    initialService?.freelanceDetails ?? progress?.freelanceDetails ?? {deliverables: [], collaboration: "", collaborationNotes: "", addOns: [], travelZones: []});
   const editing =
     initialService !== undefined;
 
@@ -128,24 +169,24 @@ export function ProviderServiceForm({
 
   const [name, setName] =
     useState(
-      initialService?.name ?? "",
+      initialService?.name ?? progress?.name ?? "",
     );
 
   const [description, setDescription] =
     useState(
-      initialService?.description ?? "",
+      initialService?.description ?? progress?.description ?? "",
     );
 
   const [category, setCategory] =
   useState<ServiceCategoryCode>(
-    initialService?.category ??
+    initialService?.category ?? progress?.category ??
       activeServiceCategoryCodes[0] ??
       "",
   );
 
   const [pricingType, setPricingType] =
     useState<AddonPricingType>(
-      initialService?.pricingType ??
+      initialService?.pricingType ?? progress?.pricingType ??
         "fixed",
     );
 
@@ -154,7 +195,7 @@ export function ProviderServiceForm({
       initialService?.price !== null &&
       initialService?.price !== undefined
         ? String(initialService.price)
-        : "",
+        : progress?.price ?? "",
     );
 
   const [serviceId] =
@@ -223,8 +264,8 @@ export function ProviderServiceForm({
   const freelancePreview = showPackageDetails ? readFreelanceServiceDetails(freelanceDetails) : null;
 
   const [priceInputError,setPriceInputError]=useState<string | undefined>();
-  const [minimumGuestText,setMinimumGuestText]=useState(String(initialService?.minimumGuests ?? ""));
-  const [maximumGuestText,setMaximumGuestText]=useState(String(initialService?.maximumGuests ?? ""));
+  const [minimumGuestText,setMinimumGuestText]=useState(String(initialService?.minimumGuests ?? progress?.minimumGuestText ?? ""));
+  const [maximumGuestText,setMaximumGuestText]=useState(String(initialService?.maximumGuests ?? progress?.maximumGuestText ?? ""));
   const nameValidation=offerNameError(name) || (existingServices.some((item) => item.id!==initialService?.id && !item.isDeleted && offerNameKey(item.name)===offerNameKey(name)) ? "You already have a package with this name." : null);
   const descriptionValidation=offerDescriptionError(description);
   const guestValidation=serviceGuestLimitsError(pricingType,Number(minimumGuestText),Number(maximumGuestText));
@@ -369,6 +410,32 @@ export function ProviderServiceForm({
     setError(null);
   }
 
+  function clearProgress() {
+    if (!draftKey) return;
+    try {
+      window.localStorage.removeItem(draftKey);
+    } catch {
+      // Storage may be unavailable even when the server save succeeds.
+    }
+  }
+
+  function saveProgressAndExit() {
+    if (!draftKey) return;
+    if (selectedImageFile || photos.length > 0) {
+      setDraftError("Remove selected images to save unfinished progress, or use Create draft to save the package with images.");
+      return;
+    }
+    try {
+      const snapshot: MediaPackageProgress = {
+        name, description, category, pricingType, price, minimumGuestText, maximumGuestText, freelanceDetails,
+      };
+      window.localStorage.setItem(draftKey, JSON.stringify(snapshot));
+      onDraftExit?.();
+    } catch {
+      setDraftError("Draft progress could not be saved on this browser. Keep editing and try again.");
+    }
+  }
+
   async function handleSubmit(
     event: React.FormEvent<HTMLFormElement>,
   ) {
@@ -481,6 +548,7 @@ export function ProviderServiceForm({
         });
       }
 
+      clearProgress();
       await onSaved();
     } catch (caught) {
       const backendNeedsUpdate = caught instanceof Error &&
@@ -797,7 +865,7 @@ export function ProviderServiceForm({
       </div>
 
       <div className={inDialog ? "flex shrink-0 flex-wrap justify-end gap-3 border-t border-border px-6 py-4" : "flex flex-wrap justify-end gap-3"}>
-        {!inDialog ? <Button
+        {(!inDialog || draftKey) ? <Button
         type="button"
         variant="secondary"
         disabled={
@@ -826,6 +894,22 @@ export function ProviderServiceForm({
               : "Create draft"}
         </Button>
       </div>
+      {draftKey && (
+        <ConfirmationDialog open={draftExitOpen} onOpenChange={(open) => {
+          setDraftError("");
+          onDraftExitOpenChange?.(open);
+        }} title="Save this package as a draft?"
+          description="Save your progress and finish this package later."
+          confirmLabel="Save Draft & Exit" cancelLabel="Keep editing"
+          stackedActions stopEscapePropagation
+          contentClassName="z-[70] max-w-md" overlayClassName="z-[60] backdrop-blur-sm"
+          onConfirm={saveProgressAndExit} onDiscard={() => {
+            clearProgress();
+            onDraftExit?.();
+          }}>
+          {draftError && <p role="alert" className="text-sm text-destructive">{draftError}</p>}
+        </ConfirmationDialog>
+      )}
     </form>
   );
 }

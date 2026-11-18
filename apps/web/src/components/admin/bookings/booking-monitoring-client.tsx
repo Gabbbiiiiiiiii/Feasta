@@ -564,7 +564,7 @@ function BookingMonitoringClient({
         />
 
         <SummaryCard
-          label="Waiting for provider"
+          label={adminBookingStatusLabels.pending_provider_approval}
           value={page.statistics.pendingApproval.toLocaleString(
             "en-PH",
           )}
@@ -575,7 +575,7 @@ function BookingMonitoringClient({
         />
 
         <SummaryCard
-          label="Waiting for payment"
+          label={adminBookingStatusLabels.waiting_for_down_payment}
           value={page.statistics.waitingForPayment.toLocaleString(
             "en-PH",
           )}
@@ -626,7 +626,12 @@ function BookingMonitoringClient({
               <option value="all">
                 All booking statuses
               </option>
-              {Object.entries(adminBookingStatusLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+              {filters.status !== "all" && !page.statistics.availableStatuses.includes(filters.status) && (
+                <option value={filters.status} disabled>Selected status no longer available</option>
+              )}
+              {page.statistics.availableStatuses.map((status) => (
+                <option key={status} value={status}>{adminBookingStatusLabels[status]}</option>
+              ))}
             </FilterSelect>
 
             <FilterSelect

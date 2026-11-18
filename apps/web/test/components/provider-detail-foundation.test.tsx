@@ -19,6 +19,11 @@ vi.mock("@/app/customer/favorites/actions", () => ({
   setProviderFavoriteAction: vi.fn(),
 }));
 
+vi.mock("next/navigation", async (importOriginal) => ({
+  ...await importOriginal<typeof import("next/navigation")>(),
+  useRouter: () => ({refresh: vi.fn()}),
+}));
+
 const provider = {
   id: "provider-one",
   businessName: "Ana Events and Celebrations with a Very Long Business Name",
@@ -78,6 +83,34 @@ describe("public provider profile presentation", () => {
         expect(card.querySelector("p")).toBeNull();
       }
     });
+  });
+
+  it("links media cards to their package detail pages", () => {
+    render(<ProviderProfile
+      detail={{
+        ...detail,
+        packages: [],
+        provider: {...provider, primaryCategory: "photographer", categories: ["photographer"]},
+        services: [
+          {id: "photo-package", name: "Wedding Photography", description: null, category: "photographer",
+            pricingType: "fixed", price: 12000, revision: 0},
+          {id: "photo-quote", name: "Custom Photography", description: null, category: "photographer",
+            pricingType: "custom_quote", revision: 1},
+        ],
+      }}
+      favoriteState={{authenticated: true, favorited: false, loginReturnTo: "/customer/providers/provider-one"}}
+    />);
+
+    const section = within(screen.getByRole("region", {name: "Packages from this provider"}));
+    expect(section.getByRole("link", {name: "View Wedding Photography package details"}))
+      .toHaveAttribute("href", "/customer/packages/media/provider-one/photo-package");
+    expect(section.getByRole("link", {name: "View Custom Photography package details"}))
+      .toHaveAttribute("href", "/customer/packages/media/provider-one/photo-quote");
+    expect(section.getAllByRole("article")).toHaveLength(2);
+    expect(section.getByText("Full payment")).toBeVisible();
+    expect(section.getByText("Request a quote")).toBeVisible();
+    expect(section.getAllByText("View package")).toHaveLength(2);
+    expect(screen.queryByRole("region", {name: "Service offerings"})).not.toBeInTheDocument();
   });
 
   it.each(["empty", "absent"] as const)("omits the Service offerings section when services is %s", (state) => {
@@ -414,8 +447,10 @@ describe("public provider detail security contracts", () => {
       /adminDb\.collection\(FIRESTORE_COLLECTIONS\.addons\)\s*\.where\("providerId", "==", provider\.id\)\.limit\(20\)\.get\(\)/u,
     );
     expect(offerings).toContain("for (const document of offerings.docs)");
-    expect(offerings).toContain("const data = document.data()");
-    const rejection = offerings.match(/if \(([\s\S]*?)\) continue;/u);
+    expect(offerings).toContain("normalizePublicService(document.id, document.data(), result)");
+    expect(service).toContain("normalizePublicService(snapshot.id, data, result)");
+    const normalization = service.split("function normalizePublicService(")[1] ?? "";
+    const rejection = normalization.match(/if \(([\s\S]*?)\) return null;/u);
     expect(rejection?.[1]?.replace(/\s+/gu, " ").split(" || ")).toEqual([
       "data.providerId !== provider.id",
       "data.ownerId !== ownerId",
@@ -427,7 +462,7 @@ describe("public provider detail security contracts", () => {
       'typeof data.name !== "string"',
       "!data.name.trim()",
     ]);
-    expect(offerings).toMatch(/continue;\s*services\.push\(/u);
+    expect(normalization).toMatch(/return null;\s*const freelanceDetails[\s\S]*?return \{id,/u);
     expect(service).toContain("return {provider, packages, menuImages, setups, services}");
   });
 

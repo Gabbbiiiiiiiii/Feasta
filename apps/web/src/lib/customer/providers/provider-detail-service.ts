@@ -1,6 +1,7 @@
+import "server-only";
+
 import {readServicePortfolio} from "@/lib/provider/service-portfolio";
 import {readFreelanceServiceDetails, supportsServicePackageDetails} from "@feasta/shared-types/freelance-service-details";
-import "server-only";
 import {loadActiveLegacyOccasionIds} from "@/lib/customer/discovery/active-legacy-occasion-guard";
 import {verifiedPublicPackageV2} from "@/lib/customer/discovery/verified-package-v2";
 
@@ -13,14 +14,12 @@ import {publicMenuImages} from "@/lib/provider/provider-menu";
 import {publicProviderSetups} from "@/lib/provider/provider-setup-gallery";
 
 import {normalizePublicProvider} from "./provider-normalization";
-import {isPublicProviderId} from "./provider-route-policy";
+import {isMediaPackageCategory, isPublicProviderId} from "./provider-route-policy";
 import type {PublicProviderDetail} from "./provider-detail-types";
 
 export const PROVIDER_DETAIL_PACKAGE_LIMIT = 12;
 
-export async function getPublicProviderDetail(
-  providerId: string,
-): Promise<PublicProviderDetail | null> {
+async function loadPublicProvider(providerId: string) {
   if (!isPublicProviderId(providerId)) return null;
 
   const providerSnapshot = await adminDb
@@ -43,6 +42,14 @@ export async function getPublicProviderDetail(
     ownerSnapshot.exists ? ownerSnapshot.data() ?? {} : {},
   );
   if (!provider) return null;
+
+  return {provider, providerSnapshot, providerData, ownerId};
+}
+
+export async function getPublicProviderDetail(providerId: string): Promise<PublicProviderDetail | null> {
+  const result = await loadPublicProvider(providerId);
+  if (!result) return null;
+  const {provider, providerSnapshot, ownerId} = result;
 
   const packageSnapshot = await adminDb
     .collection(FIRESTORE_COLLECTIONS.packages)
@@ -84,28 +91,49 @@ export async function getPublicProviderDetail(
     const offerings = await adminDb.collection(FIRESTORE_COLLECTIONS.addons)
       .where("providerId", "==", provider.id).limit(20).get();
     for (const document of offerings.docs) {
-      const data = document.data();
-      if (data.providerId !== provider.id || data.ownerId !== ownerId || data.status !== "published" ||
-        data.isPublished !== true || data.isActive !== true || data.isAvailable !== true || data.isDeleted === true ||
-        typeof data.name !== "string" || !data.name.trim()) continue;
-      const freelanceDetails = supportsServicePackageDetails(providerData.businessRegistrationType, data.category)
-        ? readFreelanceServiceDetails(data.freelanceDetails) : null;
-      const portfolio = providerData.businessRegistrationType === "individual"
-        ? readServicePortfolio(data.portfolio) : null;
-      const pricingType = ADDON_PRICING_TYPES.find((type) => type === data.pricingType);
-      const price = typeof data.price === "number" && Number.isFinite(data.price) && data.price >= 0
-        ? data.price : undefined;
-      services.push({id: document.id,
-        ...(typeof data.category === "string" && provider.categories.some((category) => category === data.category)
-          ? {category: data.category} : {}),
-        ...(pricingType ? {pricingType} : {}),
-        ...(price !== undefined && pricingType !== "custom_quote" ? {price} : {}),
-        ...(portfolio?.photos.length ? {portfolio} : {}), name: data.name.trim().slice(0, 160),
-        ...(freelanceDetails ? {freelanceDetails} : {}),
-        description: typeof data.description === "string" ? data.description.trim().slice(0, 600) : null});
+      const service = normalizePublicService(document.id, document.data(), result);
+      if (service) services.push(service);
     }
   }
   return {provider, packages, menuImages, setups, services};
+}
+
+export async function getPublicMediaPackage(providerId: string, serviceId: string) {
+  if (!isPublicProviderId(serviceId)) return null;
+  const result = await loadPublicProvider(providerId);
+  if (!result || result.provider.serviceType === "catering") return null;
+  const snapshot = await adminDb.collection(FIRESTORE_COLLECTIONS.addons).doc(serviceId).get();
+  const data = snapshot.data();
+  const service = data && normalizePublicService(snapshot.id, data, result);
+  if (!service || !isMediaPackageCategory(service.category)) return null;
+  return {provider: result.provider, service};
+}
+
+function normalizePublicService(
+  id: string,
+  data: FirebaseFirestore.DocumentData,
+  {provider, providerData, ownerId}: NonNullable<Awaited<ReturnType<typeof loadPublicProvider>>>,
+): NonNullable<PublicProviderDetail["services"]>[number] | null {
+  if (data.providerId !== provider.id || data.ownerId !== ownerId || data.status !== "published" ||
+    data.isPublished !== true || data.isActive !== true || data.isAvailable !== true || data.isDeleted === true ||
+    typeof data.name !== "string" || !data.name.trim()) return null;
+  const freelanceDetails = supportsServicePackageDetails(providerData.businessRegistrationType, data.category)
+    ? readFreelanceServiceDetails(data.freelanceDetails) : null;
+  const portfolio = providerData.businessRegistrationType === "individual"
+    ? readServicePortfolio(data.portfolio) : null;
+  const pricingType = ADDON_PRICING_TYPES.find((type) => type === data.pricingType);
+  const price = typeof data.price === "number" && Number.isFinite(data.price) && data.price >= 0
+    ? data.price : undefined;
+  return {id,
+    ...(data.revision == null ? {revision: 0} :
+      Number.isSafeInteger(data.revision) && data.revision >= 0 ? {revision: data.revision as number} : {}),
+    ...(typeof data.category === "string" && provider.categories.some((category) => category === data.category)
+      ? {category: data.category} : {}),
+    ...(pricingType ? {pricingType} : {}),
+    ...(price !== undefined && pricingType !== "custom_quote" ? {price} : {}),
+    ...(portfolio?.photos.length ? {portfolio} : {}), name: data.name.trim().slice(0, 160),
+    ...(freelanceDetails ? {freelanceDetails} : {}),
+    description: typeof data.description === "string" ? data.description.trim().slice(0, 600) : null};
 }
 
 function safeDocumentId(value: unknown): string | null {

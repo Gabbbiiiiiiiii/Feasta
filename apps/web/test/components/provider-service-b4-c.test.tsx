@@ -232,3 +232,25 @@ it.each(["photographer", "videographer"])("shows accessible crew errors and clea
     expect(screen.getByRole("button", {name: "Create draft"})).toBeEnabled();
   }
 });
+
+it("keeps unfinished package details on this browser when saving and exiting", async () => {
+  const draftKey = "test-media-package-progress";
+  localStorage.removeItem(draftKey);
+  const onDraftExit = vi.fn();
+  const form = (draftExitOpen: boolean) => <ProviderServiceForm isFreelancer inDialog
+    serviceCategories={["photographer"]} serviceCategoryOptions={[categories[0]]}
+    draftKey={draftKey} draftExitOpen={draftExitOpen} onDraftExit={onDraftExit}
+    onSaved={onSaved} onCancel={vi.fn()} />;
+  const view = render(form(false));
+  change(/Package name/, "Unfinished wedding coverage");
+  view.rerender(form(true));
+  const dialog = screen.getByRole("dialog", {name: "Save this package as a draft?"});
+  fireEvent.click(within(dialog).getByRole("button", {name: "Save Draft & Exit"}));
+  await waitFor(() => expect(onDraftExit).toHaveBeenCalledOnce());
+  expect(mocks.create).not.toHaveBeenCalled();
+  view.unmount();
+
+  render(form(false));
+  expect(screen.getByLabelText(/Package name/)).toHaveValue("Unfinished wedding coverage");
+  localStorage.removeItem(draftKey);
+});

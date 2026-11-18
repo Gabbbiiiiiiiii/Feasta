@@ -56,9 +56,9 @@ describe("FEASTA booking submission deadline", () => {
     ).toBeNull();
   });
 
-  it("uses a customer-friendly declined label", () => {
+  it("identifies bookings that need a replacement provider", () => {
     expect(
       bookingStatusLabel("needs_provider_replacement"),
-    ).toBe("Provider rejected");
+    ).toBe("Provider replacement needed");
   });
 });

@@ -1,21 +1,12 @@
-import type {MainEventStatus, PaymentStatus} from "@feasta/shared-types";
+import type {PaymentStatus} from "@feasta/shared-types";
+import {bookingStatusLabels} from "@/lib/presentation/booking-status-labels";
 import type {AdminBookingOverallPaymentStatus} from "./admin-booking-types";
 
 export function adminBookingNumber(booking: {id: string; reference: string}): string | null {
   return booking.reference && booking.reference !== booking.id ? booking.reference : null;
 }
 
-export const adminBookingStatusLabels: Record<MainEventStatus, string> = {
-  draft: "Draft",
-  pending_provider_approval: "Waiting for provider response",
-  needs_provider_replacement: "Provider replacement needed",
-  waiting_for_down_payment: "Waiting for payment",
-  confirmed: "Confirmed",
-  in_progress: "In progress",
-  completed: "Completed",
-  cancelled: "Cancelled",
-  expired: "Expired",
-};
+export {bookingStatusLabels as adminBookingStatusLabels};
 
 export const adminBookingPaymentLabels: Record<AdminBookingOverallPaymentStatus | PaymentStatus, string> = {
   unavailable: "Unavailable",
@@ -31,8 +22,8 @@ export const adminBookingPaymentLabels: Record<AdminBookingOverallPaymentStatus 
 };
 
 export function adminBookingStatusLabel(status: string): string {
-  return (adminBookingStatusLabels as Record<string, string>)[status] ??
-    (status === "waiting_payment" ? "Waiting for payment" : "Unknown status");
+  return (bookingStatusLabels as Record<string, string>)[status] ??
+    (status === "waiting_payment" ? bookingStatusLabels.waiting_for_down_payment : "Unknown status");
 }
 
 export function adminBookingPaymentLabel(status: string): string {

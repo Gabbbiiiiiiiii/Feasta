@@ -21,7 +21,10 @@ for (const [file, name, timeout, secrets] of functions) {
     assert.equal(endpoint.timeoutSeconds, timeout);
     assert.equal(endpoint.concurrency, 80);
     assert.deepEqual((endpoint.secretEnvironmentVariables ?? []).map(secret => secret.key), secrets);
-    for (const field of ["serviceAccountEmail", "ingressSettings", "vpc", "minInstances"]) assert.equal(endpoint[field], null);
+    // preserveExternalChanges omits ResetValue sentinels entirely; others still serialize as null.
+    for (const field of ["serviceAccountEmail", "ingressSettings", "vpc", "minInstances"]) {
+      assert.equal(endpoint[field] ?? null, null);
+    }
     if (name === "reconcileBookingPolicyV3") {
       assert.deepEqual(endpoint.scheduleTrigger, {schedule: "every 1 minutes", timeZone: "Asia/Manila", retryConfig: {retryCount: 2}});
       assert.equal(endpoint.callableTrigger, undefined);

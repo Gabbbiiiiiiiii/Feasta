@@ -9,7 +9,6 @@ import {
   Users,
 } from "lucide-react";
 import Link from "next/link";
-import { PhilippinePeso } from "lucide-react";
 
 import { SummaryCard } from "@/components/data";
 import {
@@ -18,21 +17,6 @@ import {
 import { PageHeading } from "@/components/layout/page-heading";
 import { requireRole } from "@/lib/auth/session";
 import { getAdminDashboardData, type AdminDashboardData } from "../../lib/admin/dashboard/admin-dashboard-data";
-
-const pesoFormatter = new Intl.NumberFormat("en-PH", {
-  style: "currency",
-  currency: "PHP",
-  minimumFractionDigits: 2,
-  maximumFractionDigits: 2,
-});
-
-function formatCentavos(
-  valueInCentavos: number,
-): string {
-  return pesoFormatter.format(
-    valueInCentavos / 100,
-  );
-}
 
 const numberFormatter = new Intl.NumberFormat("en-US");
 
@@ -152,26 +136,9 @@ export default async function AdminPage() {
       />
 
       <section
-        className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5"
+        className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4"
         aria-label="Platform summary"
       >
-        <Link href="/admin/payments" className="grid min-w-0 rounded-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-          <SummaryCard
-            label="FEASTA Revenue"
-            supportingMetric={formatCentavos(dashboard.statistics.revenueLast30DaysInCentavos) + " in the last 30 days"}
-            value={formatCentavos(
-              dashboard.statistics
-                .feastaRevenueInCentavos,
-            )}
-            icon={
-              <PhilippinePeso
-                aria-hidden="true"
-                className="size-6"
-              />
-            }
-          />
-        </Link>
-
         <Link href="/admin/users" className="grid min-w-0 rounded-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
           <SummaryCard
             label="Total users"
@@ -186,10 +153,8 @@ export default async function AdminPage() {
         <Link href="/admin/bookings" className="grid min-w-0 rounded-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
           <SummaryCard
             label="Total bookings"
-            supportingMetric={numberFormatter.format(dashboard.statistics.activeBookings) + " active / " + numberFormatter.format(dashboard.statistics.completedBookings) + " completed"}
-            value={numberFormatter.format(
-              dashboard.statistics.totalBookings,
-            )}
+            supportingMetric="View bookings by status"
+            value={numberFormatter.format(dashboard.statistics.totalBookings)}
             icon={
               <CalendarDays aria-hidden="true" className="size-6" />
             }
