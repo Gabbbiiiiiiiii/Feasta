@@ -223,7 +223,16 @@ for(const offerStructure of ['fixed','customizable'])for(const pricingModel of [
  f.records.get('occasions/birthday').active=false;
  await assert.rejects(customer.getCustomerPackageV2({data:{packageId:f.id}}));
  });
-for(const patch of [{revision:2},{status:'published'},{foodInclusions:[]},{serviceOptions:{}},{minimumGuests:51},
+test('publication preserves empty included dishes with valid customer choices',async()=>{
+ const f=await productionDraft({foodInclusions:[]});
+ const result=await f.publish();
+ assert.equal(result.status,'published');
+ const saved=f.records.get('packages/'+f.id);
+ assert.deepEqual(saved.foodInclusions,[]);
+ assert.deepEqual(saved.foodChoiceGroups,choices);
+ assert.equal(f.counters().commits,2);
+});
+for(const patch of [{revision:2},{status:'published'},{serviceOptions:{}},{minimumGuests:51},
  {themeOptions:[{id:'bad',name:'Bad',description:'',imageUrls:['http://bad.test']}]},
  {foodChoiceGroups:[{...choices[0],selectionCount:3}]},{isActive:true},{individualFoodDraft:{}},
  {paymentTermsSchemaVersion:1}])test('production publication rejects invalid saved package '+JSON.stringify(patch),async()=>{

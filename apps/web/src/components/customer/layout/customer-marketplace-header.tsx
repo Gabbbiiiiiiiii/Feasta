@@ -126,11 +126,11 @@ export function CustomerMarketplaceHeader({
     <>
       <header ref={headerRef} className="sticky top-0 z-40 border-b border-muted bg-white/95 shadow-[0_6px_24px_rgb(0_75_59/0.04)] backdrop-blur-xl supports-[backdrop-filter]:bg-white/90">
         <div className="mx-auto w-full max-w-[90rem] px-4 sm:px-6 lg:px-8">
-          <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] grid-rows-[4rem_auto_auto] items-center gap-x-3 md:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] md:grid-rows-[4rem_auto] md:gap-x-4">
+          <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] grid-rows-[4rem_auto_auto] items-center gap-x-3 md:grid-cols-[minmax(0,1fr)_auto_minmax(max-content,1fr)_auto] md:grid-rows-[4rem_auto] md:gap-x-4">
             <MarketplaceBrand pathname={pathname} />
 
             {authenticated && accountLabel ? (
-              <div className="col-start-2 row-start-1 ml-auto flex shrink-0 items-center gap-1 md:col-start-3">
+              <div className="col-start-2 row-start-1 ml-auto flex shrink-0 items-center gap-1 md:col-start-4">
                 <CustomerEventListMenu key={accountEmail || accountLabel} authenticated={authenticated} />
                 <NotificationMenu role="customer" />
                 <CustomerAccountMenu
@@ -227,20 +227,35 @@ function MarketplaceNavigationContent({
   occasionOptions: readonly ActiveOccasionOption[];
 }) {
   const [open, setOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const providerSearchButton = useRef<HTMLButtonElement>(null);
+  const providerSearchInput = useRef<HTMLInputElement>(null);
+  const providerSearchParams = new URLSearchParams(
+    pathname === PUBLIC_PROVIDER_MARKETPLACE_PATH ? query : "",
+  );
+  const keyword = providerSearchParams.get("q") ?? "";
+  providerSearchParams.delete("q");
+  providerSearchParams.delete("cursor");
 
-  // The compact event summary opens this shared editor.
   useEffect(() => {
-    const openFromSummary = () => {
+    if (searchOpen) providerSearchInput.current?.focus();
+  }, [searchOpen]);
+
+  // The marketplace banner and event summary open the shared editor.
+  useEffect(() => {
+    const openFromMarketplace = () => {
+      setSearchOpen(false);
       setOpen(true);
-      searchButton.current?.scrollIntoView({
+      plannerButton.current?.focus({preventScroll: true});
+      plannerButton.current?.scrollIntoView({
         behavior: "smooth",
         block: "start",
       });
     };
 
-    window.addEventListener("feasta:open-event-finder", openFromSummary);
+    window.addEventListener("feasta:open-event-finder", openFromMarketplace);
     return () => {
-      window.removeEventListener("feasta:open-event-finder", openFromSummary);
+      window.removeEventListener("feasta:open-event-finder", openFromMarketplace);
     };
   }, []);
   const [savedBestFitHref, setSavedBestFitHref] = useState<string | null>(null);
@@ -257,7 +272,7 @@ function MarketplaceNavigationContent({
     return () => { cancelled = true; };
   }, [open]);
 
-  const searchButton = useRef<HTMLButtonElement>(null);
+  const plannerButton = useRef<HTMLButtonElement>(null);
   const items = [
     {label: "Event Services", href: PUBLIC_PROVIDER_MARKETPLACE_PATH},
     {label: "Packages", href: PUBLIC_PACKAGE_MARKETPLACE_PATH},
@@ -266,7 +281,7 @@ function MarketplaceNavigationContent({
   function close() {
     setSavedBestFitHref(null);
     setOpen(false);
-    searchButton.current?.focus();
+    plannerButton.current?.focus();
   }
 
   useEffect(() => {
@@ -282,55 +297,99 @@ function MarketplaceNavigationContent({
 
   return (
     <>
-      <nav aria-label="Marketplace sections" className="col-span-full row-start-2 flex min-h-11 items-center justify-center gap-1 border-t border-feasta-divider py-0.5 md:col-span-1 md:col-start-2 md:row-start-1 md:border-t-0">
-        {items.map((item) => {
-          const active = isNavigationItemActive(pathname, item.href);
-          return (
-            <Link key={item.href} href={item.href} aria-current={active ? "page" : undefined} className={marketplaceNavigationClass(active)}>
-              {item.label}
-            </Link>
-          );
-        })}
-        <div className="relative ml-1 shrink-0">
-          <button
-            ref={searchButton}
-            type="button"
-            aria-label={open ? "Close Event Finder" : "Open Event Finder"}
-            title={open ? "Close Event Finder" : "Open Event Finder"}
-            aria-expanded={open}
-            aria-controls="marketplace-event-finder"
-            onClick={() => setOpen((current) => !current)}
-            className={cn(
-              "grid size-10 shrink-0 place-items-center rounded-xl border border-transparent bg-white shadow-sm transition-[background-color,color,box-shadow] duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 motion-reduce:transition-none",
-              open
-                ? "bg-primary-tint text-primary-strong"
-                : "text-feasta-text-secondary hover:bg-primary-tint hover:text-primary-strong",
-            )}
-          >
-            {open
-              ? <X aria-hidden="true" className="size-[18px]" />
-              : <Search aria-hidden="true" className="size-[18px]" />}
-          </button>
-
-          {!open && (
+      <div className="relative col-span-full row-start-2 flex min-w-0 items-center justify-end gap-2 border-t border-feasta-divider md:col-span-2 md:col-start-2 md:row-start-1 md:border-t-0">
+        <div inert={searchOpen} className={cn(
+          "mr-auto transition-opacity duration-150 motion-reduce:transition-none md:mx-auto",
+          searchOpen && "pointer-events-none opacity-0",
+        )}>
+          <nav aria-label="Marketplace sections" className="flex min-h-11 items-center justify-center gap-0 sm:gap-1">
+            {items.map((item) => {
+              const active = isNavigationItemActive(pathname, item.href);
+              return (
+                <Link key={item.href} href={item.href} aria-current={active ? "page" : undefined} className={marketplaceNavigationClass(active)}>
+                  {item.label}
+                </Link>
+              );
+            })}
             <button
+              ref={plannerButton}
               type="button"
-              onClick={() => setOpen(true)}
-              className="absolute left-[calc(50%+4.25rem)] -translate-x-1/2 top-[calc(100%+0.8rem)] z-50 hidden max-w-[min(20rem,calc(100vw-2rem))] items-center gap-2.5 whitespace-nowrap rounded-full border border-emerald-200 bg-white px-4 py-3 text-sm font-bold text-primary-strong shadow-[0_14px_34px_rgba(3,72,52,0.12)] transition-[background-color,transform,box-shadow] duration-200 hover:-translate-y-0.5 hover:bg-primary-tint hover:shadow-[0_18px_38px_rgba(3,72,52,0.16)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 motion-reduce:transform-none motion-reduce:transition-none md:inline-flex"
+              aria-label={open ? "Plan your event, close planner" : undefined}
+              aria-expanded={open}
+              aria-controls="marketplace-event-finder"
+              onClick={() => {
+                setSearchOpen(false);
+                setOpen((current) => !current);
+              }}
+              className={cn(
+                "group inline-flex min-h-10 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-transparent bg-primary-strong px-2 text-white shadow-sm sm:px-4 transition-[background-color,color,box-shadow] duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 motion-reduce:transition-none",
+                open
+                  ? "ring-2 ring-primary/30"
+                  : "hover:bg-primary",
+              )}
             >
-              <span
-                aria-hidden="true"
-                className="pointer-events-none absolute -top-[7px] left-[30px] size-3 rotate-45 border-l border-t border-emerald-200 bg-white"
-              />
-              <Sparkles
-                aria-hidden="true"
-                className="size-5 shrink-0 text-emerald-500"
-              />
-              <span>Plan your event here!</span>
+              {open
+                ? <X aria-hidden="true" className="size-[18px]" />
+                : <Sparkles aria-hidden="true" className="size-[18px] motion-safe:transition-transform motion-safe:duration-200 motion-safe:group-hover:rotate-12 motion-safe:group-hover:scale-110 motion-safe:group-focus-visible:rotate-12 motion-safe:group-focus-visible:scale-110" />}
+              <span className="text-xs font-bold sm:text-sm">Plan your event</span>
             </button>
-          )}
+          </nav>
         </div>
-      </nav>
+          <button
+            ref={providerSearchButton}
+            type="button"
+            aria-label={searchOpen ? "Close provider search" : "Search providers"}
+            title={searchOpen ? "Close provider search" : "Search providers"}
+            aria-expanded={searchOpen}
+            aria-controls="marketplace-provider-search"
+            onClick={() => {
+              setOpen(false);
+              setSearchOpen((current) => !current);
+            }}
+            className="grid size-10 place-items-center rounded-xl bg-white text-feasta-text-secondary shadow-sm hover:bg-primary-tint hover:text-primary-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            {searchOpen ? <X aria-hidden="true" className="size-[18px]" /> : <Search aria-hidden="true" className="size-[18px]" />}
+          </button>
+        <form
+          id="marketplace-provider-search"
+          role="search"
+          aria-label="Marketplace provider search"
+          action={PUBLIC_PROVIDER_MARKETPLACE_PATH}
+          inert={!searchOpen}
+          aria-hidden={!searchOpen}
+          className={cn(
+            "absolute right-12 top-1/2 z-10 -translate-y-1/2 overflow-hidden transition-[width,opacity,visibility] duration-200 motion-reduce:transition-none",
+            searchOpen ? "visible w-[calc(100%-3rem)] opacity-100" : "invisible w-0 opacity-0",
+          )}
+          onKeyDown={(event) => {
+            if (event.key !== "Escape") return;
+            event.preventDefault();
+            setSearchOpen(false);
+            providerSearchButton.current?.focus();
+          }}
+        >
+          {[...providerSearchParams].map(([name, value], index) => (
+            <input key={index} type="hidden" name={name} value={value} />
+          ))}
+          <div className="flex gap-2 p-0.5">
+            <input
+              key={keyword}
+              ref={providerSearchInput}
+              type="search"
+              name="q"
+              defaultValue={keyword}
+              minLength={2}
+              maxLength={80}
+              aria-label="Search by provider or service name"
+              placeholder="Provider or service name"
+              className="min-w-0 flex-1 rounded-xl border border-border bg-white px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            />
+            <button type="submit" className="min-h-10 rounded-xl bg-primary-strong px-4 text-sm font-bold text-white">
+              Search
+            </button>
+          </div>
+        </form>
+      </div>
       <div
         id="marketplace-event-finder"
         inert={!open}
@@ -362,7 +421,7 @@ function MarketplaceNavigationContent({
 
 function marketplaceNavigationClass(active: boolean): string {
   return cn(
-    "inline-flex min-h-10 shrink-0 items-center rounded-full border border-transparent px-4 text-sm font-bold transition-[background-color,color,box-shadow] duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none",
+    "inline-flex min-h-10 shrink-0 items-center rounded-full border border-transparent px-2 text-xs font-bold sm:px-4 sm:text-sm transition-[background-color,color,box-shadow] duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none",
     active
       ? "bg-primary-tint text-primary-strong shadow-[0_3px_12px_rgba(3,72,52,0.06)]"
       : "bg-white text-foreground hover:bg-primary-tint hover:text-primary-strong",
@@ -380,7 +439,7 @@ function GuestAccountActions({
   return (
     <nav
       aria-label="Guest marketplace account"
-      className="col-start-2 row-start-1 ml-auto flex shrink-0 items-center gap-1 sm:gap-2 md:col-start-3"
+      className="col-start-2 row-start-1 ml-auto flex shrink-0 items-center gap-1 sm:gap-2 md:col-start-4"
     >
       <CustomerEventListMenu authenticated={false} />
       <button

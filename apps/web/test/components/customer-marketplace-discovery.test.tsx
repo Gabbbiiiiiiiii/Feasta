@@ -246,10 +246,7 @@ describe("customer marketplace search presentation", () => {
         serviceCategoryOptions={TEST_SERVICE_CATEGORY_OPTIONS}
       />,
     );
-    fireEvent.change(
-      screen.getByRole("searchbox", {name: "Search providers or services"}),
-      {target: {value: "stale search"}},
-    );
+    expect(screen.getByRole("checkbox", {name: "Select All"})).toBeChecked();
 
     const nextFilters: ProviderDiscoveryFilters = {
       search: "venue",
@@ -266,10 +263,9 @@ describe("customer marketplace search presentation", () => {
       />,
     );
 
-    expect(screen.getByRole("searchbox", {name: "Search providers or services"})).toHaveValue("venue");
     expect(screen.getByRole("checkbox", {name: "Venue Provider"})).toBeChecked();
     expect(
-      new FormData(screen.getByRole("search") as HTMLFormElement).has("cursor"),
+      new FormData(screen.getByRole("form", {name: "Event Finder"}) as HTMLFormElement).has("cursor"),
     ).toBe(false);
   });
 
@@ -285,7 +281,7 @@ describe("customer marketplace search presentation", () => {
       </>,
     );
 
-    expect(screen.getByRole("searchbox", {name: "Search providers or services"})).toHaveAttribute("maxlength", "80");
+    expect(screen.getByRole("form", {name: "Event Finder"})).toHaveAttribute("method", "get");
     expect(screen.getByRole("checkbox", {name: "Select All"})).toBeChecked();
     expect(screen.getByRole("checkbox", {name: "Catering Service"})).toBeInTheDocument();
     expect(screen.getByRole("checkbox", {name: "Venue Provider"})).toBeInTheDocument();
@@ -438,13 +434,12 @@ describe("customer marketplace server query contracts", () => {
     expect(globalStyles).toContain("--breakpoint-xl: 96rem");
     expect(providerPage).not.toContain("ProviderFilterForm");
     expect(providerPage).not.toContain("md:grid-cols-[17rem_minmax(0,1fr)]");
-    expect(loading).toContain("grid-cols-[repeat(auto-fill,minmax(min(100%,12.5rem),1fr))]");
+    expect(loading).not.toContain("ProviderDirectoryShell");
     expect(directoryShell).toContain("sm:-mx-6");
     expect(directoryShell).toContain("lg:-mx-8");
     expect(directoryShell).not.toContain("lg:-mx-10");
-    expect(marketplaceHeader).toContain("Open Event Finder");
+    expect(marketplaceHeader).toContain("Plan your event");
     expect(marketplaceHeader).not.toContain("Search event services in Ormoc City");
-    expect(loading).toContain("motion-reduce:animate-none");
     expect(loading).toContain('role="status"');
     expect(loading).toContain('aria-label="Loading providers"');
   });

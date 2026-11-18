@@ -45,7 +45,7 @@ export function parseFoodChoiceGroupsV2(value: unknown, allowIncomplete = false)
       seenTitles.add(key);
     }
     if (!Array.isArray(row.options) ||
-        (!allowIncomplete && row.options.length < 2)) return invalid();
+        (!allowIncomplete && row.options.length < 1)) return invalid();
     if (typeof row.selectionCount !== "number" || !Number.isSafeInteger(row.selectionCount) || row.selectionCount < 1 ||
         row.selectionCount > 10 ||
         (!allowIncomplete && row.selectionCount > row.options.length)) return invalid();
@@ -146,7 +146,7 @@ function publicationDescriptionText(
   max: number,
 ): boolean {
   if (typeof value !== "string" ||
-      value.trim().length < min ||
+      (value !== "" && value.trim().length < min) ||
       value.length > max) {
     return false;
   }
@@ -161,12 +161,12 @@ export function isPublishablePackageV2(p: Row, maxThemeImages: unknown): boolean
       (p.offerStructure !== undefined && p.offerStructure !== "fixed" && p.offerStructure !== "customizable") ||
       ["individualFoodDraft", "individualFoodItems", "individualPricing"].some(k => Object.hasOwn(p,k)) ||
       !text(p.name,2,80) || !publicationDescriptionText(p.description, 10, 5000) ||
-      !list(p.foodInclusions) || !(p.foodInclusions as string[]).length) return false;
+      !list(p.foodInclusions)) return false;
   try {
     const groups = p.foodChoiceGroups === undefined ? [] : parseFoodChoiceGroupsV2(p.foodChoiceGroups);
+    if (!groups.length && !(p.foodInclusions as string[]).length) return false;
     if (p.offerStructure === "customizable" && (!groups.length ||
-        (p.pricingModel !== "per_pax" && p.pricingModel !== "per_bundle")) ||
-        p.offerStructure === "fixed" && groups.length) return false;
+        (p.pricingModel !== "per_pax" && p.pricingModel !== "per_bundle"))) return false;
   } catch {return false;}
   if (p.paymentTermsSchemaVersion !== 2 ||
       (p.balanceDueDaysBeforeEvent !== undefined && p.balanceDueDaysBeforeEvent !== null) ||

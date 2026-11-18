@@ -33,6 +33,8 @@ type ConfirmationDialogProps = {
   cancelLabel?: string;
 
   destructive?: boolean;
+  stackedActions?: boolean;
+  onDiscard?: () => void;
   loading?: boolean;
   confirmDisabled?: boolean;
   loadingLabel?: string;
@@ -55,6 +57,8 @@ function ConfirmationDialog({
   confirmLabel = "Confirm",
   cancelLabel = "Cancel",
   destructive = false,
+  stackedActions = false,
+  onDiscard,
   loading = false,
   confirmDisabled = false,
   loadingLabel = "Submitting",
@@ -87,6 +91,20 @@ function ConfirmationDialog({
     }
   };
 
+  const cancelButton = (
+    <Button
+      type="button"
+      variant={stackedActions ? "ghost" : "secondary"}
+      className={stackedActions ? "order-3 w-full rounded-full" : undefined}
+      disabled={isBusy}
+      onClick={() =>
+        onOpenChange?.(false)
+      }
+    >
+      {cancelLabel}
+    </Button>
+  );
+
   return (
     <Dialog
       open={open}
@@ -105,7 +123,7 @@ function ConfirmationDialog({
       <DialogContent
         className={contentClassName}
         overlayClassName={overlayClassName}
-        showCloseButton={!isBusy}
+        showCloseButton={!isBusy && !stackedActions}
         onCloseAutoFocus={(event) => {
           onCloseAutoFocus?.(event);
           if (event.defaultPrevented) return;
@@ -152,20 +170,11 @@ function ConfirmationDialog({
           </div>
         ) : null}
 
-        <DialogFooter>
+        <DialogFooter className={stackedActions ? "flex flex-col gap-3 sm:flex-col" : undefined}>
+          {!stackedActions && cancelButton}
           <Button
             type="button"
-            variant="secondary"
-            disabled={isBusy}
-            onClick={() =>
-              onOpenChange?.(false)
-            }
-          >
-            {cancelLabel}
-          </Button>
-
-          <Button
-            type="button"
+            className={stackedActions ? "order-1 w-full rounded-full" : undefined}
             variant={
               destructive
                 ? "destructive"
@@ -180,6 +189,14 @@ function ConfirmationDialog({
           >
             {confirmLabel}
           </Button>
+          {onDiscard ? (
+            <Button type="button" variant="secondary"
+              className="order-2 w-full rounded-full"
+              disabled={isBusy} onClick={onDiscard}>
+              Discard changes
+            </Button>
+          ) : null}
+          {stackedActions && cancelButton}
         </DialogFooter>
       </DialogContent>
     </Dialog>

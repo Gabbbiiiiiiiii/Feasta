@@ -7,7 +7,7 @@ const DISMISSAL_KEY = "feasta:marketplace-introduction-dismissed";
 const DISMISSAL_EVENT = "feasta:marketplace-introduction-change";
 
 function createDismissalStore() {
-  let savedDismissal = false;
+  let savedDismissal: boolean | null = null;
   return {
     getSnapshot: () => savedDismissal,
     subscribe(onChange: () => void) {
@@ -31,8 +31,8 @@ function sessionDismissed() {
   }
 }
 
-// Both SSR and the first hydration render show the same banner.
-const serverSnapshot = () => false;
+// Wait for the browser dismissal preference before showing the banner.
+const serverSnapshot = () => null;
 
 export function MarketplaceWelcomeBanner() {
   const [store] = useState(createDismissalStore);
@@ -50,7 +50,7 @@ export function MarketplaceWelcomeBanner() {
     document.getElementById("provider-results-title")?.focus();
   }
 
-  if (dismissed || savedDismissal) return null;
+  if (dismissed || savedDismissal !== false) return null;
 
   return (
     <section aria-label="Marketplace introduction" className="relative overflow-hidden rounded-[28px] border border-feasta-border-soft bg-card px-5 py-5 shadow-card sm:px-7">
@@ -59,16 +59,18 @@ export function MarketplaceWelcomeBanner() {
         <X aria-hidden="true" className="size-4" />
       </button>
       <div className="relative pr-9">
-        <p className="inline-flex items-center gap-2 text-xs font-extrabold uppercase tracking-[0.13em] text-primary-strong">
-          <Sparkles aria-hidden="true" className="size-4" />
-          FEASTA Marketplace
-        </p>
-        <h2 className="mt-2 text-2xl font-extrabold tracking-[-0.035em] text-foreground sm:text-3xl">
-          Find services that fit <span className="text-primary">your celebration.</span>
-        </h2>
-        <p className="mt-2 max-w-3xl text-sm leading-6 text-feasta-text-secondary">
-          Browse approved public providers, compare services, and continue planning your event with FEASTA.
-        </p>
+        <div>
+          <p className="inline-flex items-center gap-2 text-xs font-extrabold uppercase tracking-[0.13em] text-primary-strong">
+            <Sparkles aria-hidden="true" className="size-4" />
+            FEASTA Marketplace
+          </p>
+          <h2 className="mt-2 text-2xl font-extrabold tracking-[-0.035em] text-foreground sm:text-3xl">
+            Find services that fit <span className="text-primary">your celebration.</span>
+          </h2>
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-feasta-text-secondary">
+            Browse approved public providers, compare services, and continue planning your event with FEASTA.
+          </p>
+        </div>
       </div>
     </section>
   );

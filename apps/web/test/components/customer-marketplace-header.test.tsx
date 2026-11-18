@@ -46,16 +46,46 @@ vi.mock("@/components/auth/logout-button", () => ({
 }));
 
 describe("customer marketplace header", () => {
-  it("resets the open drawer when the signed-in account changes and disables the guest layout", () => {
-    const {rerender} = render(<CustomerMarketplaceHeader accountLabel="Alice" accountEmail="alice@example.test" />);
-    fireEvent.click(screen.getByRole("button", {name: /Open Event List/}));
-    expect(screen.getByRole("dialog", {name: "Event List"})).toBeInTheDocument();
-    rerender(<CustomerMarketplaceHeader accountLabel="Bob" accountEmail="bob@example.test" />);
-    expect(screen.queryByRole("dialog", {name: "Event List"})).not.toBeInTheDocument();
-    expect(screen.getByRole("button", {name: /Open Event List/})).toBeEnabled();
+  it("keeps Event List unavailable without an authenticated session across account changes", () => {
+    const {rerender} = render(
+      <CustomerMarketplaceHeader
+        accountLabel="Alice"
+        accountEmail="alice@example.test"
+      />,
+    );
+
+    expect(screen.getByRole("button", {
+      name: /Event List unavailable/,
+    })).toBeDisabled();
+
+    expect(
+      screen.queryByRole("dialog", {name: "Event List"}),
+    ).not.toBeInTheDocument();
+
+    rerender(
+      <CustomerMarketplaceHeader
+        accountLabel="Bob"
+        accountEmail="bob@example.test"
+      />,
+    );
+
+    expect(screen.getByRole("button", {
+      name: /Event List unavailable/,
+    })).toBeDisabled();
+
+    expect(
+      screen.queryByRole("dialog", {name: "Event List"}),
+    ).not.toBeInTheDocument();
+
     rerender(<CustomerMarketplaceHeader />);
-    expect(screen.getByRole("button", {name: /Event List unavailable/})).toBeDisabled();
-    expect(document.getElementById("customer-event-list-panel")).toBeNull();
+
+    expect(screen.getByRole("button", {
+      name: /Event List unavailable/,
+    })).toBeDisabled();
+
+    expect(
+      document.getElementById("customer-event-list-panel"),
+    ).toBeNull();
   });
 
   beforeEach(() => {
@@ -103,126 +133,98 @@ describe("customer marketplace header", () => {
     fireEvent.pointerDown(document.body);
     expect(screen.getByLabelText("Open customer account menu").closest("details")).not.toHaveAttribute("open");
   });
-  it("centers marketplace links beside an accessible search icon and preserves guest actions", () => {
+  it("renders accessible marketplace navigation with separate search and planner", () => {
     query = new URLSearchParams("service=catering");
-    render(<CustomerMarketplaceHeader serviceCategoryOptions={TEST_SERVICE_CATEGORY_OPTIONS} authReturnTo="/customer/providers?service=catering" />);
-    expect(screen.getByRole("link", {name: "FEASTA home"})).toHaveAttribute("href", "/customer/providers");
-    expect(screen.queryByLabelText("Event location: Ormoc City, Leyte")).not.toBeInTheDocument();
-    expect(screen.getByRole("img", {name: "Feasta"})).toHaveAttribute("src", expect.stringContaining("feasta_logo.svg"));
-    const nav = screen.getByRole("navigation", {name: "Marketplace sections"});
-    expect(nav).toHaveClass("justify-center");
-    expect(nav).not.toHaveClass("hidden");
-    const headerGrid = nav.parentElement;
-    expect(headerGrid).toBe(screen.getByRole("link", {name: "FEASTA home"}).parentElement);
-    expect(headerGrid).toBe(screen.getByRole("navigation", {name: "Guest marketplace account"}).parentElement);
-    expect(headerGrid).toHaveClass("md:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]", "md:grid-rows-[4rem_auto]");
-    expect(nav).toHaveClass("col-span-full", "row-start-2", "md:col-start-2", "md:row-start-1", "md:border-t-0");
-    expect(document.getElementById("marketplace-event-finder")).toHaveClass("col-span-full", "row-start-3", "md:row-start-2");
-    expect(within(nav).getByRole("link", {name: "Event Services"})).toHaveAttribute("href", "/customer/providers");
-    expect(within(nav).getByRole("link", {name: "Event Services"})).toHaveAttribute("aria-current", "page");
-    expect(within(nav).getByRole("link", {name: "Packages"})).toHaveAttribute("href", "/customer/packages");
-    expect(within(nav).queryByText("Categories")).not.toBeInTheDocument();
-    expect(screen.queryByRole("searchbox", {name: "Search event services"})).not.toBeInTheDocument();
-    const trigger = within(nav).getByRole("button", {name: "Open Event Finder"});
-    expect(trigger).toHaveAttribute("aria-expanded", "false");
-    expect(trigger).toHaveClass("focus-visible:ring-2");
-    expect(trigger.querySelector("svg")).toHaveAttribute("aria-hidden", "true");
-    expect(screen.queryByRole("search", {name: "Event Finder"})).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", {name: "Sign up"}));
-    expect(screen.getByRole("dialog", {name: "Customer login"})).toHaveAttribute("data-mode", "register");
-    fireEvent.click(screen.getByRole("button", {name: "Log in"}));
-    expect(screen.getByRole("dialog", {name: "Customer login"})).toHaveAttribute("data-return-to", "/customer/providers?service=catering");
-  });
 
-  it("displays the FEASTA finder hint below search and opens the existing finder", () => {
+    render(
+      <CustomerMarketplaceHeader
+        serviceCategoryOptions={TEST_SERVICE_CATEGORY_OPTIONS}
+        authReturnTo="/customer/providers?service=catering"
+      />,
+    );
+
+    expect(screen.getByRole("link", {name: "FEASTA home"}))
+      .toHaveAttribute("href", "/customer/providers");
+
+    expect(screen.getByRole("img", {name: "Feasta"}))
+      .toHaveAttribute("src", expect.stringContaining("feasta_logo.svg"));
+
+    const nav = screen.getByRole("navigation", {name: "Marketplace sections"});
+
+    expect(nav).toHaveClass("justify-center");
+
+    expect(within(nav).getByRole("link", {name: "Event Services"}))
+      .toHaveAttribute("aria-current", "page");
+
+    expect(within(nav).getByRole("link", {name: "Packages"}))
+      .toHaveAttribute("href", "/customer/packages");
+
+    expect(within(nav).getByRole("button", {name: "Plan your event"}))
+      .toHaveAttribute("aria-expanded", "false");
+
+    expect(screen.getByRole("button", {name: "Search providers"}))
+      .toHaveAttribute("aria-controls", "marketplace-provider-search");
+
+    fireEvent.click(screen.getByRole("button", {name: "Sign up"}));
+
+    expect(screen.getByRole("dialog", {name: "Customer login"}))
+      .toHaveAttribute("data-mode", "register");
+
+    fireEvent.click(screen.getByRole("button", {name: "Log in"}));
+
+    expect(screen.getByRole("dialog", {name: "Customer login"}))
+      .toHaveAttribute("data-return-to", "/customer/providers?service=catering");
+  });
+  it("opens and closes the updated planner and independent provider search", () => {
     render(
       <CustomerMarketplaceHeader
         serviceCategoryOptions={TEST_SERVICE_CATEGORY_OPTIONS}
       />,
     );
 
-    const nav = screen.getByRole("navigation", {
-      name: "Marketplace sections",
-    });
+    const nav = screen.getByRole("navigation", {name: "Marketplace sections"});
 
-    const hint = within(nav).getByRole("button", {
-      name: "Plan your event here!",
-    });
+    const searchForm = document.getElementById("marketplace-provider-search");
 
-    expect(hint).toBeVisible();
-    expect(hint).toHaveClass("absolute");
-    expect(hint).toHaveClass("top-[calc(100%+0.8rem)]");
+    expect(searchForm).toHaveAttribute("inert");
 
-    const services = within(nav).getByRole("link", {
-      name: "Event Services",
-    });
+    fireEvent.click(within(nav).getByRole("button", {name: "Plan your event"}));
 
-    const packages = within(nav).getByRole("link", {
-      name: "Packages",
-    });
+    const finder = screen.getByRole("form", {name: "Event Finder"});
 
-    expect(services).toHaveAttribute("href", "/customer/providers");
-    expect(packages).toHaveAttribute("href", "/customer/packages");
+    expect(finder).toBeVisible();
 
-    // Clicking the bubble opens the finder and hides the bubble.
-    fireEvent.click(hint);
+    expect(within(finder).getByRole("heading", {name: "Plan your event"}))
+      .toBeVisible();
 
-    expect(
-      within(nav).queryByRole("button", {
-        name: "Plan your event here!",
-      }),
-    ).not.toBeInTheDocument();
-
-    expect(
-      screen.getByRole("search", {name: "Event Finder"}),
-    ).toBeInTheDocument();
-
-    // Clicking X closes the finder and restores the bubble.
     fireEvent.click(
-      within(nav).getByRole("button", {
-        name: "Close Event Finder",
-      }),
+      within(nav).getByRole("button", {name: "Plan your event, close planner"}),
     );
 
-    expect(
-      within(nav).getByRole("button", {
-        name: "Plan your event here!",
-      }),
-    ).toBeVisible();
+    expect(screen.queryByRole("form", {name: "Event Finder"}))
+      .not.toBeInTheDocument();
 
-    // Clicking the search icon also hides the bubble.
-    fireEvent.click(
-      within(nav).getByRole("button", {
-        name: "Open Event Finder",
-      }),
-    );
+    fireEvent.click(screen.getByRole("button", {name: "Search providers"}));
 
-    expect(
-      within(nav).queryByRole("button", {
-        name: "Plan your event here!",
-      }),
-    ).not.toBeInTheDocument();
+    expect(screen.getByRole("search", {name: "Marketplace provider search"}))
+      .toBeVisible();
 
-    // Closing through the search icon restores it again.
-    fireEvent.click(
-      within(nav).getByRole("button", {
-        name: "Close Event Finder",
-      }),
-    );
+    expect(searchForm).not.toHaveAttribute("inert");
 
-    expect(
-      within(nav).getByRole("button", {
-        name: "Plan your event here!",
-      }),
-    ).toBeVisible();
+    fireEvent.click(screen.getByRole("button", {name: "Close provider search"}));
+
+    expect(screen.queryByRole("search", {name: "Marketplace provider search"}))
+      .not.toBeInTheDocument();
+
+    expect(searchForm).toHaveAttribute("inert");
   });
   it("opens with the keyboard, exposes labeled fields, and closes on Escape with focus returned", async () => {
     const user = userEvent.setup();
     render(<CustomerMarketplaceHeader serviceCategoryOptions={TEST_SERVICE_CATEGORY_OPTIONS} />);
-    const trigger = screen.getByRole("button", {name: "Open Event Finder"});
+    const trigger = screen.getByRole("button", {name: "Plan your event"});
     trigger.focus();
     await user.keyboard("{Enter}");
-    const finder = screen.getByRole("search", {name: "Event Finder"});
+    const finder = screen.getByRole("form", {name: "Event Finder"});
     expect(finder).toBeVisible();
     expect(within(finder).getByRole("heading", {name: "Plan your event"})).toBeVisible();
     expect(within(finder).getByRole("heading", {name: "What are you celebrating?"})).toBeVisible();
@@ -244,17 +246,18 @@ describe("customer marketplace header", () => {
     expect(within(finder).getByLabelText("Event Date")).toHaveAttribute("type", "date");
     expect(within(finder).getByText("Select event date")).toBeVisible();
     expect(within(finder).queryByRole("combobox", {name: "Type of Service"})).not.toBeInTheDocument();
-    await user.tab();
-    expect(within(finder).getByRole("combobox", {name: "Event type"})).toHaveFocus();
+    const eventType = within(finder).getByRole("combobox", {name: "Event type"});
+    eventType.focus();
+    expect(eventType).toHaveFocus();
     await user.keyboard("{Escape}");
-    expect(screen.queryByRole("search", {name: "Event Finder"})).not.toBeInTheDocument();
+    expect(screen.queryByRole("form", {name: "Event Finder"})).not.toBeInTheDocument();
     expect(trigger).toHaveAttribute("aria-expanded", "false");
     expect(trigger).toHaveFocus();
   });
 
   it("opens the existing map picker for the event location", () => {
     render(<CustomerMarketplaceHeader serviceCategoryOptions={TEST_SERVICE_CATEGORY_OPTIONS} />);
-    fireEvent.click(screen.getByRole("button", {name: "Open Event Finder"}));
+    fireEvent.click(screen.getByRole("button", {name: "Plan your event"}));
     fireEvent.click(screen.getByRole("button", {name: "Choose on map"}));
     expect(screen.getByRole("button", {name: "Close map"})).toHaveAttribute("aria-expanded", "true");
     expect(screen.getByLabelText("Adjust event location map")).toBeVisible();
@@ -292,7 +295,7 @@ describe("customer marketplace header", () => {
       } else {
         expect(within(container).getByLabelText("Open customer account menu")).toBeVisible();
       }
-      expect(within(container).getByRole("button", {name: "Open Event Finder"})).toHaveAttribute("aria-expanded", "false");
+      expect(within(container).getByRole("button", {name: "Plan your event"})).toHaveAttribute("aria-expanded", "false");
       expect(within(container).queryByRole("dialog")).not.toBeInTheDocument();
     } finally {
       await act(async () => root?.unmount());
@@ -305,7 +308,7 @@ describe("customer marketplace header", () => {
   it("uses the real category catalog and preserves drafts when toggled closed", () => {
     query = new URLSearchParams("category=photographer");
     render(<CustomerMarketplaceHeader serviceCategoryOptions={TEST_SERVICE_CATEGORY_OPTIONS} />);
-    fireEvent.click(screen.getByRole("button", {name: "Open Event Finder"}));
+    fireEvent.click(screen.getByRole("button", {name: "Plan your event"}));
     expect(screen.getByRole("checkbox", {name: "Photography"})).toBeChecked();
     expect(screen.getByRole("checkbox", {name: "Select All"})).not.toBeChecked();
 
@@ -314,9 +317,9 @@ describe("customer marketplace header", () => {
     }
     expect(screen.getByRole("link", {name: "Event Services"})).toHaveAttribute("aria-current", "page");
     fireEvent.click(screen.getByRole("checkbox", {name: "Venue Provider"}));
-    fireEvent.click(screen.getByRole("button", {name: "Close Event Finder"}));
+    fireEvent.click(screen.getByRole("button", {name: "Plan your event, close planner"}));
     expect(screen.queryByRole("search", {name: "Event Finder"})).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", {name: "Open Event Finder"}));
+    fireEvent.click(screen.getByRole("button", {name: "Plan your event"}));
     expect(screen.getByRole("checkbox", {name: "Venue Provider"})).toBeChecked();
   });
 
@@ -328,7 +331,7 @@ describe("customer marketplace header", () => {
     );
 
     fireEvent.click(
-      screen.getByRole("button", {name: "Open Event Finder"}),
+      screen.getByRole("button", {name: "Plan your event"}),
     );
 
     const selectAll = screen.getByRole("checkbox", {
@@ -407,7 +410,7 @@ describe("customer marketplace header", () => {
     );
 
     fireEvent.click(
-      screen.getByRole("button", {name: "Open Event Finder"}),
+      screen.getByRole("button", {name: "Plan your event"}),
     );
 
     expect(
@@ -444,7 +447,7 @@ describe("customer marketplace header", () => {
         occasionOptions={[{id: "wedding", label: "Wedding"}]}
       />,
     );
-    fireEvent.click(screen.getByRole("button", {name: "Open Event Finder"}));
+    fireEvent.click(screen.getByRole("button", {name: "Plan your event"}));
     fireEvent.change(screen.getByLabelText("Event Date"), {target: {value: "2099-09-10"}});
     fireEvent.click(screen.getByRole("checkbox", {name: "Select All"}));
     fireEvent.click(screen.getByRole("checkbox", {name: "Photography"}));
@@ -464,7 +467,7 @@ describe("customer marketplace header", () => {
     }]);
     mocks.getEventVenueDetails.mockResolvedValue({address: "Superdome, Ormoc City, Leyte", city: "Ormoc City", province: "Leyte", latitude: 11.005, longitude: 124.608});
     const view = render(<CustomerMarketplaceHeader serviceCategoryOptions={TEST_SERVICE_CATEGORY_OPTIONS} />);
-    fireEvent.click(screen.getByRole("button", {name: "Open Event Finder"}));
+    fireEvent.click(screen.getByRole("button", {name: "Plan your event"}));
     fireEvent.change(screen.getByRole("combobox", {name: "Location"}), {target: {value: "Superdome"}});
     fireEvent.click(await screen.findByRole("option", {name: /Ormoc City Superdome/}));
     await waitFor(() => expect(screen.getByText(/Event venue selected:/)).toBeVisible());
@@ -474,7 +477,7 @@ describe("customer marketplace header", () => {
     expect(query.get("eventVenueLat")).toBe("11.005");
     expect(query.get("eventVenueLng")).toBe("124.608");
     view.rerender(<CustomerMarketplaceHeader serviceCategoryOptions={TEST_SERVICE_CATEGORY_OPTIONS} />);
-    fireEvent.click(screen.getByRole("button", {name: "Open Event Finder"}));
+    fireEvent.click(screen.getByRole("button", {name: "Plan your event"}));
     expect(screen.getByRole("combobox", {name: "Location"})).toHaveValue("Superdome, Ormoc City, Leyte");
     fireEvent.click(screen.getByRole("button", {name: "Clear event venue"}));
     fireEvent.click(screen.getByRole("button", {name: "Find Services"}));
@@ -484,7 +487,7 @@ describe("customer marketplace header", () => {
   it("preserves an existing complete availability context when the date changes", () => {
     query = new URLSearchParams("eventDate=2099-09-10&eventTime=18%3A00&eventEndTime=22%3A00&guestCount=100&category=photographer");
     render(<CustomerMarketplaceHeader serviceCategoryOptions={TEST_SERVICE_CATEGORY_OPTIONS} />);
-    fireEvent.click(screen.getByRole("button", {name: "Open Event Finder"}));
+    fireEvent.click(screen.getByRole("button", {name: "Plan your event"}));
     expect(screen.getByLabelText("Event Date")).toHaveValue("2099-09-10");
     fireEvent.change(screen.getByLabelText("Event Date"), {target: {value: "2099-09-11"}});
     fireEvent.click(screen.getByRole("button", {name: "Find Services"}));
@@ -492,23 +495,52 @@ describe("customer marketplace header", () => {
     expect(Object.fromEntries(url.searchParams)).toEqual({eventDate: "2099-09-11", eventTime: "18:00", eventEndTime: "22:00", guestCount: "100", category: "photographer"});
   });
 
-  it("keeps keyword and existing provider-type filtering in the compact finder", () => {
-    query = new URLSearchParams("service=addon");
-    render(<CustomerMarketplaceHeader serviceCategoryOptions={TEST_SERVICE_CATEGORY_OPTIONS} />);
-    fireEvent.click(screen.getByRole("button", {name: "Open Event Finder"}));
-    expect(screen.queryByText("More filters")).not.toBeInTheDocument();
-    expect(screen.queryByRole("combobox", {name: "Provider Type"})).not.toBeInTheDocument();
-    fireEvent.change(screen.getByRole("searchbox", {name: "Search providers or services"}), {target: {value: "garden venue"}});
-    fireEvent.click(screen.getByRole("checkbox", {name: "Select All"}));
-    fireEvent.click(screen.getByRole("checkbox", {name: "Venue Provider"}));
-    fireEvent.click(screen.getByRole("button", {name: "Find Services"}));
-    expect(mocks.push).toHaveBeenCalledWith("/customer/providers?q=garden+venue&service=addon&category=venue_provider");
-  });
+  it("preserves the existing keyword and provider type when planning services", () => {
+    query = new URLSearchParams("q=garden+venue&service=addon");
 
+    render(
+      <CustomerMarketplaceHeader
+        serviceCategoryOptions={TEST_SERVICE_CATEGORY_OPTIONS}
+      />,
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", {name: "Plan your event"}),
+    );
+
+    expect(screen.queryByText("More filters")).not.toBeInTheDocument();
+    expect(screen.queryByRole("combobox", {name: "Provider Type"}))
+      .not.toBeInTheDocument();
+
+    fireEvent.click(
+      screen.getByRole("checkbox", {name: "Select All"}),
+    );
+
+    fireEvent.click(
+      screen.getByRole("checkbox", {name: "Venue Provider"}),
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", {name: "Find Services"}),
+    );
+
+    expect(mocks.push).toHaveBeenCalledTimes(1);
+
+    const url = new URL(
+      mocks.push.mock.calls[0][0],
+      "https://feasta.test",
+    );
+
+    expect(url.pathname).toBe("/customer/providers");
+    expect(url.searchParams.get("q")).toBe("garden venue");
+    expect(url.searchParams.get("service")).toBe("addon");
+    expect(url.searchParams.get("category")).toBe("venue_provider");
+    expect(url.searchParams.has("cursor")).toBe(false);
+  });
   it("preserves planning context and current filters while resetting pagination", () => {
     query = new URLSearchParams("q=garden&service=addon&category=venue_provider&cursor=old&eventDate=2099-09-10&eventTime=18%3A00&eventEndTime=22%3A00&guestCount=100");
     render(<CustomerMarketplaceHeader serviceCategoryOptions={TEST_SERVICE_CATEGORY_OPTIONS} />);
-    fireEvent.click(screen.getByRole("button", {name: "Open Event Finder"}));
+    fireEvent.click(screen.getByRole("button", {name: "Plan your event"}));
     fireEvent.click(screen.getByRole("button", {name: "Find Services"}));
     const url = new URL(mocks.push.mock.calls[0][0], "https://feasta.test");
     expect(Object.fromEntries(url.searchParams)).toEqual({
@@ -523,18 +555,93 @@ describe("customer marketplace header", () => {
     expect(url.searchParams.has("cursor")).toBe(false);
   });
 
-  it("cancels pending live search after submit while the finder remains mounted", () => {
+  it("keeps provider keyword search separate and removes stale pagination", () => {
+    query = new URLSearchParams(
+      "q=old&service=addon&category=venue_provider&cursor=stale",
+    );
+
+    render(
+      <CustomerMarketplaceHeader
+        serviceCategoryOptions={TEST_SERVICE_CATEGORY_OPTIONS}
+      />,
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", {name: "Search providers"}),
+    );
+
+    const form = screen.getByRole("search", {
+      name: "Marketplace provider search",
+    }) as HTMLFormElement;
+
+    expect(form).toBeVisible();
+    expect(form.action).toContain("/customer/providers");
+    expect(form.method.toLowerCase()).toBe("get");
+
+    const keyword = within(form).getByRole("searchbox", {
+      name: "Search by provider or service name",
+    });
+
+    expect(keyword).toHaveAttribute("minlength", "2");
+    expect(keyword).toHaveAttribute("maxlength", "80");
+    expect(keyword).toHaveValue("old");
+
+    fireEvent.change(keyword, {
+      target: {value: "garden venue"},
+    });
+
+    const values = new FormData(form);
+
+    expect(values.get("q")).toBe("garden venue");
+    expect(values.get("service")).toBe("addon");
+    expect(values.get("category")).toBe("venue_provider");
+    expect(values.has("cursor")).toBe(false);
+
+    expect(
+      within(form).getByRole("button", {name: "Search"}),
+    ).toBeVisible();
+
+    fireEvent.keyDown(form, {key: "Escape"});
+
+    expect(
+      screen.getByRole("button", {name: "Search providers"}),
+    ).toHaveFocus();
+  });
+
+  it("submits event planning without delayed keyword navigation", () => {
     vi.useFakeTimers();
+
     try {
-      render(<EventFinder query="q=garden&service=addon&category=venue_provider&cursor=old&eventDate=2099-09-10&eventTime=18%3A00&eventEndTime=22%3A00&guestCount=100" onFind={() => {}} serviceCategoryOptions={TEST_SERVICE_CATEGORY_OPTIONS} />);
-      fireEvent.change(screen.getByRole("searchbox", {name: "Search providers or services"}), {target: {value: "new keyword"}});
-      fireEvent.click(screen.getByRole("button", {name: "Find Services"}));
+      render(
+        <EventFinder
+          query="q=garden&service=addon&category=venue_provider&cursor=old&eventDate=2099-09-10&eventTime=18%3A00&eventEndTime=22%3A00&guestCount=100"
+          onFind={() => {}}
+          serviceCategoryOptions={TEST_SERVICE_CATEGORY_OPTIONS}
+        />,
+      );
+
+      expect(
+        screen.queryByRole("searchbox", {
+          name: "Search providers or services",
+        }),
+      ).not.toBeInTheDocument();
+
+      fireEvent.click(
+        screen.getByRole("button", {name: "Find Services"}),
+      );
+
       act(() => vi.advanceTimersByTime(1000));
+
       expect(mocks.push).toHaveBeenCalledTimes(1);
       expect(mocks.replace).not.toHaveBeenCalled();
-      const url = new URL(mocks.push.mock.calls[0][0], "https://feasta.test");
+
+      const url = new URL(
+        mocks.push.mock.calls[0][0],
+        "https://feasta.test",
+      );
+
       expect(url.searchParams.has("cursor")).toBe(false);
-      expect(url.searchParams.get("q")).toBe("new keyword");
+      expect(url.searchParams.get("q")).toBe("garden");
       expect(url.searchParams.get("service")).toBe("addon");
       expect(url.searchParams.get("category")).toBe("venue_provider");
       expect(url.searchParams.get("eventTime")).toBe("18:00");
@@ -546,11 +653,11 @@ describe("customer marketplace header", () => {
   });
   it("resets disclosure and defaults after route or URL navigation", () => {
     const view = render(<CustomerMarketplaceHeader serviceCategoryOptions={TEST_SERVICE_CATEGORY_OPTIONS} />);
-    fireEvent.click(screen.getByRole("button", {name: "Open Event Finder"}));
+    fireEvent.click(screen.getByRole("button", {name: "Plan your event"}));
     query = new URLSearchParams("category=venue_provider&eventDate=2099-09-12");
     view.rerender(<CustomerMarketplaceHeader serviceCategoryOptions={TEST_SERVICE_CATEGORY_OPTIONS} />);
     expect(screen.queryByRole("search", {name: "Event Finder"})).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", {name: "Open Event Finder"}));
+    fireEvent.click(screen.getByRole("button", {name: "Plan your event"}));
     expect(screen.getByRole("checkbox", {name: "Venue Provider"})).toBeChecked();
     expect(screen.getByLabelText("Event Date")).toHaveValue("2099-09-12");
     pathname = "/customer/packages";
@@ -708,8 +815,8 @@ describe("customer marketplace header", () => {
       expect(industries.className).not.toContain("4.75rem");
       expect(screen.getByRole("link", {name: "All services"})).toHaveAttribute("aria-current", "page");
 
-      fireEvent.click(screen.getByRole("button", {name: "Open Event Finder"}));
-      expect(screen.getByRole("button", {name: "Close Event Finder"}))
+      fireEvent.click(screen.getByRole("button", {name: "Plan your event"}));
+      expect(screen.getByRole("button", {name: "Plan your event, close planner"}))
         .toHaveAttribute("aria-expanded", "true");
       heights.header = 247.2;
       act(() => {
@@ -734,7 +841,7 @@ describe("customer marketplace header", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", {name: "Open Event Finder"}));
+    fireEvent.click(screen.getByRole("button", {name: "Plan your event"}));
 
     const selector = screen.getByRole("combobox", {name: "Event type"});
 
@@ -758,7 +865,7 @@ describe("customer marketplace header", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", {name: "Open Event Finder"}));
+    fireEvent.click(screen.getByRole("button", {name: "Plan your event"}));
 
     const selector = screen.getByRole("combobox", {name: "Event type"});
 
@@ -775,7 +882,7 @@ describe("customer marketplace header", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", {name: "Open Event Finder"}));
+    fireEvent.click(screen.getByRole("button", {name: "Plan your event"}));
 
     const selector = screen.getByRole("combobox", {name: "Event type"});
 

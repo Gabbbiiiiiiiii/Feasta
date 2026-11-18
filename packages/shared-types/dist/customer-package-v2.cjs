@@ -58,7 +58,7 @@ function parseFoodChoiceGroupsV2(value, allowIncomplete = false) {
             seenTitles.add(key);
         }
         if (!Array.isArray(row.options) ||
-            (!allowIncomplete && row.options.length < 2))
+            (!allowIncomplete && row.options.length < 1))
             return invalid();
         if (typeof row.selectionCount !== "number" || !Number.isSafeInteger(row.selectionCount) || row.selectionCount < 1 ||
             row.selectionCount > 10 ||
@@ -156,7 +156,7 @@ function customerPackageEstimate(unit, guests, model) {
  */
 function publicationDescriptionText(value, min, max) {
     if (typeof value !== "string" ||
-        value.trim().length < min ||
+        (value !== "" && value.trim().length < min) ||
         value.length > max) {
         return false;
     }
@@ -170,13 +170,14 @@ function isPublishablePackageV2(p, maxThemeImages) {
         (p.offerStructure !== undefined && p.offerStructure !== "fixed" && p.offerStructure !== "customizable") ||
         ["individualFoodDraft", "individualFoodItems", "individualPricing"].some(k => Object.hasOwn(p, k)) ||
         !text(p.name, 2, 80) || !publicationDescriptionText(p.description, 10, 5000) ||
-        !list(p.foodInclusions) || !p.foodInclusions.length)
+        !list(p.foodInclusions))
         return false;
     try {
         const groups = p.foodChoiceGroups === undefined ? [] : parseFoodChoiceGroupsV2(p.foodChoiceGroups);
+        if (!groups.length && !p.foodInclusions.length)
+            return false;
         if (p.offerStructure === "customizable" && (!groups.length ||
-            (p.pricingModel !== "per_pax" && p.pricingModel !== "per_bundle")) ||
-            p.offerStructure === "fixed" && groups.length)
+            (p.pricingModel !== "per_pax" && p.pricingModel !== "per_bundle")))
             return false;
     }
     catch {

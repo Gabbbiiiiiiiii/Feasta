@@ -261,8 +261,9 @@ function CoverageField({minutes, onChange}: {minutes?: number; onChange: (minute
   </div>;
 }
 
-export function FreelanceServiceFields({value, onChange, category}: {
+export function FreelanceServiceFields({value, onChange, category, simplePackage = false}: {
   category?: string;
+  simplePackage?: boolean;
   value: FreelanceServiceDetails;
   onChange: (details: FreelanceServiceDetails) => void;
 }) {
@@ -279,6 +280,7 @@ export function FreelanceServiceFields({value, onChange, category}: {
   const alreadyIncluded = (label: string) => (value.inclusions ?? []).some((row) => normalize(row.label) === normalize(label)) ||
     value.deliverables.some((row) => normalize(row.name) === normalize(label));
   return <section aria-label="Coverage & deliverables" className="grid gap-5 border-t border-border pt-5">
+    {!simplePackage && <>
     <div>
       <h3 className="font-semibold">Event Coverage &amp; Team</h3>
       <p className="text-sm text-muted-foreground">Tell customers how long you’ll be there, what they’ll receive, and who they’ll work with.</p>
@@ -334,7 +336,9 @@ export function FreelanceServiceFields({value, onChange, category}: {
       </div>
     </details>
 
-    <RowSection<NonNullable<FreelanceServiceDetails["inclusions"]>[number]> title="What's Included?" item="included item" rowKey="inclusions"
+    </>}
+
+    <RowSection<NonNullable<FreelanceServiceDetails["inclusions"]>[number]> title={simplePackage ? "Package inclusions" : "What's Included?"} item="included item" rowKey="inclusions"
       rows={value.inclusions ?? []}
       customEntry={media ? {label: (row) => row.label, duplicate: (label, id) => (value.inclusions ?? []).some((row) => row.id !== id && normalize(row.label) === normalize(label)) || value.deliverables.some((row) => normalize(row.name) === normalize(label))} : undefined}
       create={() => ({id: crypto.randomUUID(), kind: "session", label: ""})}
@@ -350,7 +354,7 @@ export function FreelanceServiceFields({value, onChange, category}: {
             placeholder={row.kind === "keepsake" ? "Hardcover photobook" : "Pre-debut session"}
             onChange={(event) => change({label: event.target.value})} /></Field>
       </>}>
-      {(remove) => media ? <div className="grid gap-2">
+      {(remove) => media && !simplePackage ? <div className="grid gap-2">
         <p className="text-sm text-muted-foreground">Choose what comes with your service, or add your own.</p>
         <div role="radiogroup" aria-label="Inclusion suggestions" className="flex w-fit max-w-full flex-wrap gap-1 rounded-lg bg-muted p-1">
           {([["photographer", "Photography"], ["videographer", "Videography"]] as const).map(([key, label]) =>
@@ -376,15 +380,16 @@ export function FreelanceServiceFields({value, onChange, category}: {
       </div> : null}
     </RowSection>
 
-    <RowSection<FreelanceServiceDetails["deliverables"][number]> title={media ? "Photo & Video Delivery" : "Service Delivery"} item="delivery item" dialogItem={media ? "photos or videos to deliver" : undefined} rowKey="deliverables"
+    <RowSection<FreelanceServiceDetails["deliverables"][number]> title={simplePackage ? "Output details" : media ? "Photo & Video Delivery" : "Service Delivery"} item="delivery item" dialogItem={media ? "photos or videos to deliver" : undefined} rowKey="deliverables"
       rows={value.deliverables}
-      create={() => ({id: crypto.randomUUID(), name: "", min: 0, max: 0, unit: "hours", method: "digital_files"})}
+      create={() => ({id: crypto.randomUUID(), name: "", min: 0, max: 0, unit: simplePackage ? "days" : "hours", method: "digital_files"})}
       onChange={(deliverables) => onChange({...value, deliverables})}
       summarize={(row) => ({name: row.name, detail: (row.min === row.max ? "Within " + row.max : row.min + " to " + row.max) + " " + row.unit + " after the event - " + (row.method === "in_person" ? "Physical delivery in person" : row.method === "gallery" ? "Private online gallery" : "Online delivery")})}
-      fields={(row, change) => <DeliveryFields row={row} change={change} media={media} />}>
+      fields={(row, change) => <DeliveryFields row={row} change={change} media={media} simplePackage={simplePackage} />}>
       <p className="text-sm text-muted-foreground">Providing both online and physical copies? Add a delivery item for each.</p>
     </RowSection>
 
+    {!simplePackage && <>
     <details>
       <summary className="cursor-pointer font-semibold">Additional Services (Optional)</summary>
       <div className="grid gap-3 pt-3">
@@ -457,11 +462,12 @@ export function FreelanceServiceFields({value, onChange, category}: {
       <h4 className="font-semibold">Booking payment</h4>
       <p className="text-sm text-muted-foreground">Feasta collects full payment for this event service. Payment methods appear at checkout.</p>
     </div>
+    </>}
   </section>;
 }
 
 type DeliveryRow = FreelanceServiceDetails["deliverables"][number];
-function DeliveryFields({row, change, media}: {row: DeliveryRow; change: (patch: Partial<DeliveryRow>) => void; media: boolean}) {
+function DeliveryFields({row, change, media, simplePackage}: {row: DeliveryRow; change: (patch: Partial<DeliveryRow>) => void; media: boolean; simplePackage: boolean}) {
   const [range, setRange] = useState(row.min !== row.max);
   const [savedRange, setWindow] = useState({min: row.min, max: row.max});
   const [deadline, setDeadline] = useState(row.max);
@@ -474,11 +480,11 @@ function DeliveryFields({row, change, media}: {row: DeliveryRow; change: (patch:
         <option value="digital_files">Online link or digital files</option><option value="gallery">Private online gallery</option><option value="in_person">USB or physical item (in person)</option>
       </select>
     </Field>
-    <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={range} onChange={(event) => {
+    {(!simplePackage || range) && <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={range} onChange={(event) => {
       if (event.target.checked) { setRange(true); change(savedRange); setConfirmSingle(false); }
       else if (row.min !== row.max) setConfirmSingle(true);
       else { setRange(false); change({min: deadline, max: deadline}); }
-    }} />Give a delivery time range instead</label>
+    }} />Give a delivery time range instead</label>}
     {confirmSingle ? <div className="grid gap-2" role="group" aria-label="Choose a single deadline">
       <p className="text-sm">Replace this range with a single deadline? The latest delivery time will be used. Your range is kept while this editor stays open.</p>
       <Button type="button" variant="secondary" onClick={() => {setDeadline(row.max); change({min: row.max, max: row.max}); setRange(false); setConfirmSingle(false);}}>Use latest time as deadline</Button>

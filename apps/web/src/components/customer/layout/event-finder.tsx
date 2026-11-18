@@ -14,7 +14,6 @@ import {
   useEffect,
   useRef,
   useState,
-  useTransition,
   type FormEvent,
   type ReactNode,
 } from "react";
@@ -22,9 +21,7 @@ import {
 import {EventVenueInput} from "@/components/landing/event-venue-input";
 import {PhilippineDateInput} from "@/components/forms/philippine-date-input";
 import {Button} from "@/components/ui/button";
-import {SearchInput} from "@/components/forms/search-input";
 import {Select} from "@/components/ui/select";
-import {useLiveSearch} from "@/lib/search/use-live-search";
 
 import {
   MAX_EVENT_GUESTS,
@@ -157,58 +154,11 @@ export function EventFinder({
       ? selectedCategories.join(",")
       : "";
 
-  const [search, setSearch] = useState(
-    parameters.get("q") ?? "",
-  );
-
   const [eventDate, setEventDate] = useState(
     planning?.eventDate ?? "",
   );
 
   const dateInput = useRef<HTMLInputElement>(null);
-  const formRef = useRef<HTMLFormElement>(null);
-
-  const [searchPending, startSearchTransition] = useTransition();
-  const live = useLiveSearch(search, (value) => {
-    if (category === "none") return;
-    const next = new URLSearchParams(query);
-    next.delete("categories");
-
-    const selectedType = serviceCategoryOptions.find((option) => option.code === category)?.serviceType;
-    if (selectedCategories.length !== 1 ||
-      (selectedType && next.has("service") && next.get("service") !== selectedType)) {
-      next.delete("service");
-    }
-
-    for (const name of Array.from(next.keys())) {
-      if (name.startsWith("eventVenue")) {
-        next.delete(name);
-      }
-    }
-
-    if (formRef.current) {
-      for (const [name, entry] of new FormData(formRef.current)) {
-        if (typeof entry === "string") {
-          next.set(name, entry);
-        }
-      }
-    }
-
-    const trimmed = value.trim();
-
-    if (trimmed) {
-      next.set("q", trimmed);
-    } else {
-      next.delete("q");
-    }
-
-    next.delete("cursor");
-
-    const href = providerDiscoveryHref(parseProviderDiscoveryFilters(Object.fromEntries(next)));
-    const currentHref = providerDiscoveryHref(parseProviderDiscoveryFilters(Object.fromEntries(new URLSearchParams(query))));
-    if (href === currentHref) return;
-    startSearchTransition(() => router.replace(href, {scroll: false}));
-  }, undefined, 400);
 
   useEffect(() => {
     if (dateInput.current) {
@@ -232,7 +182,6 @@ export function EventFinder({
         ? "Maximum budget must be at least the starting budget."
         : "",
     );
-    live.acknowledge();
 
     if (dateInput.current) {
       dateInput.current.min = manilaDateValue();
@@ -273,14 +222,12 @@ export function EventFinder({
 
   return (
     <form
-      ref={formRef}
       action="/customer/providers"
       method="get"
-      role="search"
       aria-label="Event Finder"
       onSubmit={submit}
-      onInput={() => {
-        const input = formRef.current?.elements.namedItem("budgetMax") as HTMLInputElement | null;
+      onInput={(event) => {
+        const input = event.currentTarget.elements.namedItem("budgetMax") as HTMLInputElement | null;
         input?.setCustomValidity("");
       }}
       className="mx-auto grid w-full min-w-0 gap-x-5 rounded-[24px] border border-feasta-border-soft bg-white px-4 pb-4 pt-4 shadow-[0_12px_32px_rgba(4,53,39,0.07)] sm:px-6 lg:grid-cols-12 lg:px-6 lg:py-4"
@@ -582,37 +529,6 @@ export function EventFinder({
             ) : null}
         </fieldset>
 
-        <div className="mt-2">
-          <label
-            htmlFor="event-finder-search"
-            className="mb-2 block text-xs font-bold text-feasta-text-secondary"
-          >
-            Search providers or services
-          </label>
-
-          <SearchInput
-            value={search}
-            onChange={(event) => {
-              live.change(event.target.value);
-              setSearch(event.target.value);
-            }}
-            onClear={
-              search
-                ? () => {
-                    live.change("");
-                    setSearch("");
-                  }
-                : undefined
-            }
-            pending={searchPending}
-            id="event-finder-search"
-            name="q"
-            minLength={1}
-            maxLength={80}
-            placeholder="Search by provider or service name"
-            className={`${controlClass} pl-11`}
-          />
-        </div>
       </FinderSection>
 
       <div className="border-t border-feasta-divider pt-4 sm:pl-[3.25rem] lg:col-span-3 lg:flex lg:items-end lg:pl-0 lg:pt-3">

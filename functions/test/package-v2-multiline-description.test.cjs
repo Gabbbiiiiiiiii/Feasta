@@ -20,7 +20,7 @@ function validateDescription(value) {
   // Mirrors the reviewed expression in parseV2DraftWrite.
   plainText(
     value.replace(/\r\n|\n/gu, ""),
-    10,
+    value === "" ? 0 : 10,
     5000,
     "INVALID_NAME"
   );
@@ -31,11 +31,14 @@ function validateDescription(value) {
 test("V2 draft parser contains the reviewed description validation", () => {
   assert.ok(
     source.includes(
-      'plainText(input.description.replace(/\\r\\n|\\n/gu, ""), 10, 5000, "INVALID_NAME");'
+      'plainText(input.description.replace(/\\r\\n|\\n/gu, ""), input.description === "" ? 0 : 10, 5000, "INVALID_NAME");'
     )
   );
 });
 
+test("empty description is accepted", () => {
+  assert.equal(validateDescription(""), "");
+});
 test("single-line description remains valid", () => {
   const value = "A complete catering package.";
   assert.equal(validateDescription(value), value);
