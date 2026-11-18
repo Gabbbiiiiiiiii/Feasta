@@ -188,12 +188,17 @@ function DishPicker({onAdd, disabled, destination = "Food product", limitLabel, 
   </Dialog>;
 }
 
+const MINIMUM_DISH_PAGE_SIZE = 10;
+
 function DishList({initialLibrary}: {initialLibrary: Library}) {
   const [library, setLibrary] = useState(initialLibrary);
   const [draft, setDraft] = useState<LibraryDish | null>(null);
   const [categoryDraft, setCategoryDraft] = useState<{original: string; name: string; parentGroup: string; newGroup?: string} | null>(null);
   const [search, setSearch] = useState("");
-  const [filter, setFilter] = useState("");
+  const [groupFilter, setGroupFilter] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState("");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(MINIMUM_DISH_PAGE_SIZE);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const rows = categoryRows(library, true);
@@ -201,16 +206,46 @@ function DishList({initialLibrary}: {initialLibrary: Library}) {
     .map((group) => [categoryKey(group), group])).values()];
   const [groupsOpen, setGroupsOpen] = useState(false);
   const [groupDraft, setGroupDraft] = useState<{original: string; name: string; categories: string[]} | null>(null);
-  const filters = [...new Set([...groups, ...rows.map((row) => row.name)])];
+
   const groupOptions = [...new Map([...groups, ...(library.groupNames === undefined ? ["Main Dish", "Side Dish", "Dessert"] : [])].reverse().map((group) => [categoryKey(group), group])).values()];
   const [notice, setNotice] = useState("");
-  const active = filters.includes(filter) ? filter : "";
+  const activeGroup = groupFilter === "unassigned" || groups.some((group) => `group:${group}` === groupFilter) ? groupFilter : "";
+  const groupRows = rows.filter((row) => !activeGroup || (row.group ? `group:${row.group}` : "unassigned") === activeGroup);
+  const activeCategory = groupRows.some((row) => row.name === categoryFilter) ? categoryFilter : "";
+  function filterGroup(value: string) {
+    setGroupFilter(value);
+    setCategoryFilter("");
+    setPage(1);
+  }
   const query = categoryKey(search);
-  const visible = rows.flatMap((row) => {
-    if (active && row.group !== active && row.name !== active) return [];
+  const visible = groupRows.flatMap((row) => {
+    if (activeCategory && row.name !== activeCategory) return [];
     if (categoryKey(row.name).includes(query) || categoryKey(row.group).includes(query)) return [row];
     const dishes = row.dishes.filter((dish) => categoryKey(dish.name).includes(query));
     return dishes.length ? [{...row, dishes}] : [];
+  });
+
+  const orderedRows = [...new Set(visible.map((row) => row.group))]
+    .flatMap((group) => visible.filter((row) => row.group === group));
+  const totalDishes = orderedRows.reduce((total, row) => total + row.dishes.length, 0);
+  const showPagination = totalDishes > MINIMUM_DISH_PAGE_SIZE;
+  const filterName = activeCategory || (activeGroup === "unassigned" ? "Unassigned" : activeGroup.slice("group:".length));
+  const dishCount = `${totalDishes} ${totalDishes === 1 ? "dish" : "dishes"}`;
+  const filterContext = filterName ? ` in ${filterName}` : "";
+  const pageCount = Math.max(1, Math.ceil(totalDishes / pageSize));
+  const currentPage = Math.min(page, pageCount);
+  const start = (currentPage - 1) * pageSize;
+  const end = Math.min(start + pageSize, totalDishes);
+  let offset = 0;
+  const pageRows = orderedRows.flatMap((row) => {
+    const rowStart = offset;
+    offset += row.dishes.length;
+    if (!row.dishes.length) {
+      const emptyRowPage = Math.min(pageCount, Math.floor(rowStart / pageSize) + 1);
+      return emptyRowPage === currentPage ? [{...row, count: 0}] : [];
+    }
+    const dishes = row.dishes.slice(Math.max(0, start - rowStart), Math.max(0, end - rowStart));
+    return dishes.length ? [{...row, dishes, count: row.dishes.length}] : [];
   });
 
   async function save(dishes: LibraryDish[], categories: string[], complete: () => void = () => {}, parentGroups = library.parentGroups ?? {}, groupNames?: string[], unassigned?: string[]) {
@@ -299,7 +334,7 @@ function DishList({initialLibrary}: {initialLibrary: Library}) {
     void save(dishes, rows.map((row) => row.name), () => {
       setGroupDraft(null);
       setGroupToDelete("");
-      setFilter("");
+      filterGroup("");
       setNotice("Parent group saved.");
     }, parentGroups, nextGroups, unassigned);
   }
@@ -325,7 +360,7 @@ function DishList({initialLibrary}: {initialLibrary: Library}) {
     void save(dishes, rows.map((row) => row.name), () => {
       setGroupToDelete("");
       setGroupDraft(null);
-      setFilter("");
+      filterGroup("");
       setNotice("Parent Group deleted.");
     }, parentGroups, nextGroups);
   }
@@ -339,16 +374,9 @@ function DishList({initialLibrary}: {initialLibrary: Library}) {
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div><h1 className="text-2xl font-bold">Dish List</h1>
           <p className="text-sm text-muted-foreground">Manage the dishes, categories, and parent groups available for your packages.</p></div>
-        <div className="flex flex-wrap gap-2">
-          <Button type="button" variant="secondary" disabled={busy} onClick={() => {
-            setError(""); setGroupsOpen(true);
-          }}>Manage parent groups</Button>
-          <Button type="button" variant="secondary" disabled={busy || Boolean(categoryDraft)}
-            onClick={() => setCategoryDraft({original: "", name: "", parentGroup: ""})}><Plus size={16} aria-hidden="true" /> Add category</Button>
           <Button type="button" disabled={busy} onClick={() => {setAssignmentGroup(""); setNewAssignmentGroup(null); setDraft({id: crypto.randomUUID(), name: "", category: ""});}}>
             <Plus size={16} aria-hidden="true" /> Add dish
           </Button>
-        </div>
       </div>
     </header>
     <Dialog open={groupsOpen} onOpenChange={(open) => {
@@ -538,7 +566,7 @@ function DishList({initialLibrary}: {initialLibrary: Library}) {
             [...library.categories.filter((category) => !matches(category)), name], () => {
               setCategoryDraft(null);
               setSearch("");
-              setFilter("");
+              filterGroup("");
               setDraft((current) => current && (!categoryDraft.original || matches(current.category)) ? {...current, category: name, parentGroup} : current);
               setNotice(count ? `${count} ${count === 1 ? "dish" : "dishes"} assigned to ${parentGroup}.` : `Category assigned to ${parentGroup}.`);
             }, {...parentGroups, [categoryKey(name)]: parentGroup}, creatingGroup ? [...groupOptions, parentGroup] : undefined);
@@ -575,27 +603,38 @@ function DishList({initialLibrary}: {initialLibrary: Library}) {
     {notice && !groupsOpen && !draft && !categoryDraft && <p role="status" className="text-sm text-primary-strong">{notice}</p>}
     {error && !categoryDraft && !draft && <p role="alert" className="text-sm text-destructive">{error}</p>}
     <div className="space-y-5 rounded-2xl border border-border bg-card p-4 shadow-sm sm:p-5">
-      <div className="flex flex-wrap items-center gap-3">
-        <div className="relative w-full sm:w-60">
+      <div className="grid items-center gap-2 sm:grid-cols-2 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)_minmax(0,1fr)_auto_auto]">
+        <div className="relative min-w-0">
           <Search size={16} aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-          <Input type="search" aria-label="Search dishes" placeholder="Search dishes..." className="pl-9"
-            value={search} onChange={(event) => setSearch(event.target.value)} />
+          <Input type="search" aria-label="Search dishes" placeholder="Search dishes..." className="h-10 rounded-lg pl-9 text-sm"
+            value={search} onChange={(event) => {setSearch(event.target.value); setPage(1);}} />
         </div>
-        <div role="group" aria-label="Filter dishes" className="flex w-full min-w-0 select-none gap-2 overflow-x-auto px-1 pb-2 pt-1">
-          {["", ...filters].map((name) => <Button key={name} type="button" size="compact" className="shrink-0 whitespace-nowrap rounded-full"
-            variant={active === name ? "primary" : "secondary"} aria-pressed={active === name}
-            onClick={() => setFilter(name)}>{name || "All"}</Button>)}
-        </div>
+        <Select aria-label="Parent Group filter" className="h-10 min-w-0 rounded-lg text-sm" value={activeGroup}
+          onChange={(event) => filterGroup(event.target.value)}>
+          <option value="">All Parent Groups</option>
+          {groups.map((group) => <option key={group} value={`group:${group}`}>{group}</option>)}
+          {rows.some((row) => !row.group) && <option value="unassigned">Unassigned</option>}
+        </Select>
+        <Select aria-label="Category filter" className="h-10 min-w-0 rounded-lg text-sm" value={activeCategory}
+          onChange={(event) => {setCategoryFilter(event.target.value); setPage(1);}}>
+          <option value="">All Categories</option>
+          {groupRows.map((row) => <option key={row.name} value={row.name}>{row.name}</option>)}
+        </Select>
+          <Button type="button" variant="secondary" size="compact" className="h-10 whitespace-nowrap rounded-full border-primary-strong px-3 text-sm" disabled={busy || Boolean(categoryDraft)}
+            onClick={() => setCategoryDraft({original: "", name: "", parentGroup: ""})}><Plus size={16} aria-hidden="true" /> Add category</Button>
+          <Button type="button" variant="secondary" size="compact" className="h-10 whitespace-nowrap rounded-full border-primary-strong px-3 text-sm" disabled={busy} onClick={() => {
+            setError(""); setGroupsOpen(true);
+          }}>Manage parent groups</Button>
       </div>
       {!visible.length && <p className="py-6 text-center text-sm text-muted-foreground">
         {rows.length ? "No dishes or categories match your search." : "No saved dishes yet."}
       </p>}
-      {[...new Set(visible.map((row) => row.group))].map((group) => <section key={group} className="space-y-3">
+      {[...new Set(pageRows.map((row) => row.group))].map((group) => <section key={group} className="space-y-3">
         <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{group || "Assign parent group"}</h2>
-        {visible.filter((row) => row.group === group).map(({name, dishes}) => <section key={name} className="overflow-hidden rounded-xl border border-border">
-          <div className="flex flex-wrap items-center justify-between gap-2 bg-muted/40 px-3 py-2">
+        {pageRows.filter((row) => row.group === group).map(({name, dishes, count}) => <section key={name} className="overflow-hidden rounded-xl border border-border">
+          <div className="flex flex-wrap items-center justify-between gap-2 bg-muted/40 px-3 py-0.5">
             <h3 className="flex items-center gap-2 text-sm font-semibold">{name}
-              <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">{dishes.length}</span>
+              <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">{count}</span>
             </h3>
             <div className="flex gap-1">
               <Button type="button" variant="ghost" size="icon" disabled={busy || Boolean(categoryDraft)}
@@ -612,21 +651,45 @@ function DishList({initialLibrary}: {initialLibrary: Library}) {
             </div>
           </div>
           {!dishes.length && <p className="border-t px-3 py-3 text-sm text-muted-foreground">No dishes in this category yet.</p>}
-          {dishes.map((dish) => <div key={dish.id} className="flex flex-wrap items-center justify-between gap-2 border-t border-border px-3 py-2">
+          {dishes.map((dish) => <div key={dish.id} className="flex flex-wrap items-center justify-between gap-2 border-t border-border px-3 py-1">
             <span className="min-w-0 break-words text-sm">{dish.name}</span>
             <div className="flex gap-2">
-              <Button type="button" size="compact" disabled={busy} aria-label={`Edit ${dish.name}`}
-                onClick={() => {setAssignmentGroup(""); setNewAssignmentGroup(null); setDraft({...dish, category: name, parentGroup: group});}}>Edit</Button>
-              <Button type="button" variant="destructive" size="compact" disabled={busy} aria-label={`Delete ${dish.name}`} onClick={() => {
+              <Button type="button" variant="ghost" size="compact" disabled={busy} aria-label={`Edit ${dish.name}`}
+                onClick={() => {setAssignmentGroup(""); setNewAssignmentGroup(null); setDraft({...dish, category: name, parentGroup: group});}}><Pencil size={14} aria-hidden="true" /> Edit</Button>
+              <Button type="button" variant="ghost" className="text-destructive" size="compact" disabled={busy} aria-label={`Delete ${dish.name}`} onClick={() => {
                 if (window.confirm(`Delete ${dish.name} from your Dish List?`)) {
                   void save(library.dishes.filter((row) => row.id !== dish.id), library.categories,
                     () => setDraft((current) => current?.id === dish.id ? null : current));
                 }
-              }}>Delete</Button>
+              }}><Trash2 size={14} aria-hidden="true" /> Delete</Button>
             </div>
           </div>)}
         </section>)}
       </section>)}
+      <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-3">
+        <div className="flex flex-wrap items-center gap-3">
+          <p role="status" className="text-sm text-muted-foreground">
+            {showPagination
+              ? `Showing ${start + 1}–${end} of ${dishCount}${filterContext}`
+              : `Showing ${totalDishes > 0 && !filterName && !query ? "all " : ""}${dishCount}${filterContext}`}
+          </p>
+          {showPagination && <Select aria-label="Dishes per page" className="w-auto" value={pageSize}
+            onChange={(event) => {setPageSize(Number(event.target.value)); setPage(1);}}>
+            {[MINIMUM_DISH_PAGE_SIZE, 20, 50].map((size) => <option key={size} value={size}>Show {size}</option>)}
+          </Select>}
+        </div>
+        {showPagination && pageCount > 1 && <nav aria-label="Dish List pagination" className="flex flex-wrap items-center gap-1">
+          <Button type="button" variant="ghost" size="compact" disabled={currentPage === 1}
+            onClick={() => setPage(currentPage - 1)}>Previous</Button>
+          {Array.from({length: Math.min(5, pageCount)}, (_, index) =>
+            Math.min(Math.max(1, currentPage - 2), Math.max(1, pageCount - 4)) + index
+          ).map((number) => <Button key={number} type="button" size="compact"
+            variant={number === currentPage ? "primary" : "ghost"} aria-current={number === currentPage ? "page" : undefined}
+            aria-label={`Page ${number}`} onClick={() => setPage(number)}>{number}</Button>)}
+          <Button type="button" variant="ghost" size="compact" disabled={currentPage === pageCount}
+            onClick={() => setPage(currentPage + 1)}>Next</Button>
+        </nav>}
+      </footer>
     </div>
   </section>;
 }

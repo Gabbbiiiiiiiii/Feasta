@@ -28,10 +28,10 @@ it("filters saved dishes by parent group and search text", () => {
     {id: "3", category: "Desserts", name: "Buko Pandan"},
     {id: "4", category: "Chicken Dishes", parentGroup: "Meat Dishes", name: "Chicken Joy"},
   ]}} />);
-  fireEvent.click(screen.getByRole("button", {name: "Meat Dishes"}));
+  fireEvent.change(screen.getByRole("combobox", {name: "Parent Group filter"}), {target: {value: "group:Meat Dishes"}});
   expect(screen.queryByText("Buko Pandan")).not.toBeInTheDocument();
   expect(screen.getByText("Chicken Joy")).toBeVisible();
-  fireEvent.click(screen.getByRole("button", {name: "Beef"}));
+  fireEvent.change(screen.getByRole("combobox", {name: "Category filter"}), {target: {value: "Beef"}});
   expect(screen.queryByText("Chicken Joy")).not.toBeInTheDocument();
   fireEvent.change(screen.getByRole("searchbox"), {target: {value: "kare"}});
   expect(screen.getByText("Beef Kare-Kare")).toBeVisible();
@@ -96,4 +96,22 @@ it("assigns an ungrouped category without losing the pending dish name", async (
   expect(saveDishLibrary).toHaveBeenCalledWith(0, [{...existing, parentGroup: "Main Dish"}], ["Noodles"], {noodles: "Main Dish"});
   expect(screen.getByLabelText("Dish Name")).toHaveValue("Bihon");
   expect(screen.getByRole("button", {name: "Save dish"})).toBeEnabled();
+});
+
+it("paginates dishes within a category and resets to the first page on search", () => {
+  const dishes = Array.from({length: 12}, (_, index) => ({
+    id: String(index), name: `Dish ${index + 1}`, category: "Rice", parentGroup: "Side Dish",
+  }));
+  render(<ProviderDishLibrary initialLibrary={{revision: 0, dishes, categories: ["Rice"]}} />);
+  expect(screen.getByText("Showing 1–10 of 12 dishes")).toBeVisible();
+  expect(screen.queryByText("Dish 12")).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", {name: "Next"}));
+  expect(screen.getByText("Showing 11–12 of 12 dishes")).toBeVisible();
+  expect(screen.getByText("Dish 12")).toBeVisible();
+  fireEvent.change(screen.getByRole("searchbox"), {target: {value: "Dish 12"}});
+  expect(screen.getByText("Showing 1 dish")).toBeVisible();
+  expect(screen.queryByRole("combobox", {name: "Dishes per page"})).not.toBeInTheDocument();
+  fireEvent.change(screen.getByRole("combobox", {name: "Parent Group filter"}), {target: {value: "group:Side Dish"}});
+  expect(screen.getByText("Showing 1 dish in Side Dish")).toBeVisible();
+  expect(screen.queryByRole("navigation", {name: "Dish List pagination"})).not.toBeInTheDocument();
 });
