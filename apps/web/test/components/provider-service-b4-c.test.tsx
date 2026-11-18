@@ -28,6 +28,37 @@ function record(id: string, input: ProviderServiceInput) {
     status: "draft", isActive: false, isAvailable: false, isPublished: false, isDeleted: false});
   return Promise.resolve({success: true, serviceId: id, status: "draft"});
 }
+function draftService(category: "photographer" | "videographer", overrides: Partial<ProviderService> = {}): ProviderService {
+  return {
+    id: "draft-service",
+    providerId: "fictional-b4-c",
+    name: "Fictional event coverage",
+    description: "Coverage and separate delivery terms",
+    category,
+    pricingType: "per_hour",
+    price: 2500.5,
+    imageUrl: "",
+    imagePublicId: "",
+    revision: 1,
+    status: "draft",
+    isActive: false,
+    isAvailable: false,
+    isPublished: false,
+    isDeleted: false,
+    freelanceDetails: {
+      deliverables: [
+        {id: "delivery-1", name: "Digital collection", min: 7, max: 7, unit: "days", method: "gallery"},
+        {id: "delivery-2", name: "Physical USB", min: 14, max: 21, unit: "days", method: "in_person"},
+      ],
+      inclusions: [{id: "inclusion-1", kind: "other", label: "Behind-the-scenes photos"}],
+      collaboration: "",
+      collaborationNotes: "",
+      addOns: [],
+      travelZones: [],
+    },
+    ...overrides,
+  };
+}
 beforeEach(() => {
   saved = undefined;
   vi.clearAllMocks();
@@ -45,39 +76,26 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-it.each(["photographer", "videographer"])("creates, remounts and edits %s without duplicate rows or supported field loss", async (category) => {
+it.each(["photographer", "videographer"] as const)("creates, remounts and edits %s without duplicate rows or supported field loss", async (category) => {
+  // New media packages use the simplified create labels; Parent Group fields appear after save/remount.
   const view = mount();
-  change(/Service category/, category);
-  change(/Service name/, "Fictional event coverage");
-  change("Short description", "Coverage and separate delivery terms");
+  change(/Package type/, category);
+  change(/Package name/, "Fictional event coverage");
+  change("About this package (optional)", "Coverage and separate delivery terms");
   change(/Pricing type/, "per_hour");
   change(/Price per hour/, "2500.50");
-  change("How many hours will you cover the event? (optional)", "custom");
-  change("Custom coverage (hours)", "6.5");
-  change("How many people will work? (optional)", "3");
-  change("Who will handle the event?", "named_lead");
-  change("Main photographer/videographer or special arrangements", "Alex leads the team");
-  fireEvent.click(screen.getByLabelText("Pre-event consultation call"));
-  fireEvent.click(screen.getByLabelText("Help planning which moments to capture"));
-  const inclusion = category === "photographer" ? "Edited Photos" : "Highlight Video";
-  fireEvent.click(screen.getByRole("button", {name: "Add " + inclusion}));
-  expect(screen.getByRole("button", {name: "Add " + inclusion})).toBeEnabled();
-  fireEvent.click(screen.getByRole("radio", {name: category === "photographer" ? "Videography" : "Photography"}));
-  expect(screen.getByLabelText(/Service category/)).toHaveValue(category);
-  fireEvent.click(screen.getByRole("radio", {name: category === "photographer" ? "Photography" : "Videography"}));
-  expect(screen.getByRole("button", {name: "Add " + inclusion})).toHaveAttribute("aria-pressed", "true");
+  expect(screen.queryByLabelText("How many people will work? (optional)")).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", {name: "Add Edited Photos"})).not.toBeInTheDocument();
   change("Custom included item", "Behind-the-scenes photos");
   fireEvent.keyDown(screen.getByLabelText("Custom included item"), {key: "Enter"});
-  for (const [name, method, range] of [["Digital collection", "gallery", false], ["Physical USB", "in_person", true]] as const) {
+  expect(screen.getByText("Included in your service (1)")).toBeInTheDocument();
+  for (const [name, method, days] of [["Digital collection", "gallery", "7"], ["Physical USB", "in_person", "14"]] as const) {
     fireEvent.click(screen.getByRole("button", {name: "Add delivery item"}));
-    expect(screen.getByLabelText("Give a delivery time range instead")).not.toBeChecked();
+    expect(screen.queryByLabelText("Give a delivery time range instead")).not.toBeInTheDocument();
     change("What will you give the customer?", name);
     change("How will customers receive it?", method);
     change("Time unit", "days");
-    if (range) {
-      fireEvent.click(screen.getByLabelText("Give a delivery time range instead"));
-      change("Earliest delivery", "14"); change("Latest delivery", "21");
-    } else change("When will it be ready after the event?", "7");
+    change("When will it be ready after the event?", days);
     saveRow();
   }
   const createObjectURL = vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:removed-portfolio-photo");
@@ -97,29 +115,42 @@ it.each(["photographer", "videographer"])("creates, remounts and edits %s withou
   expect(mocks.create.mock.calls[0][1]).not.toHaveProperty("portfolio");
   const first = structuredClone(saved!);
   expect(first).toMatchObject({category, price: 2500.5, pricingType: "per_hour", freelanceDetails: {
-    coverageMinutes: 390, crewSize: 3, collaboration: "named_lead", collaborationNotes: "Alex leads the team",
-    planning: {consultationIncluded: true, customShotListIncluded: true},
-    deliverables: [{name: "Digital collection", min: 7, max: 7, unit: "days", method: "gallery"}, {name: "Physical USB", min: 14, max: 21, unit: "days", method: "in_person"}],
+    deliverables: [
+      {name: "Digital collection", min: 7, max: 7, unit: "days", method: "gallery"},
+      {name: "Physical USB", min: 14, max: 14, unit: "days", method: "in_person"},
+    ],
   }});
-  expect(first.freelanceDetails?.inclusions?.map((row) => row.label)).toEqual([inclusion, "Behind-the-scenes photos"]);
-  view.unmount(); mount(first);
-  expect(screen.getByRole("button", {name: "Remove Behind-the-scenes photos"})).toBeInTheDocument();
-  expect(screen.getByText("Included in your service (2)")).toBeInTheDocument();
+  expect(first.freelanceDetails?.inclusions?.map((row) => row.label)).toEqual(["Behind-the-scenes photos"]);
+
+  view.unmount();
+  mount(first);
+  // Edit mode restores the full service form, including Parent Group protections.
   expect(screen.getByLabelText(/Service name/)).toHaveValue(first.name);
   expect(screen.getByLabelText("Short description")).toHaveValue(first.description);
   expect(screen.getByLabelText(/Service category/)).toHaveValue(category);
   expect(screen.getByLabelText(/Pricing type/)).toHaveValue("per_hour");
-  expect(screen.getByLabelText(/Price per hour/)).toHaveValue(2500.5);
-  expect(screen.getByLabelText("Custom coverage (hours)")).toHaveValue("6.5");
-  expect(screen.getByLabelText("How many people will work? (optional)")).toHaveValue(3);
-  expect(screen.getByLabelText("Main photographer/videographer or special arrangements")).toHaveValue("Alex leads the team");
-  expect(screen.getByLabelText("Pre-event consultation call")).toBeChecked();
+  expect(screen.getByLabelText(/Price per hour/)).toHaveValue("2,500.50");
+  expect(screen.getByRole("button", {name: "Remove Behind-the-scenes photos"})).toBeInTheDocument();
+  expect(screen.getByText("Included in your service (1)")).toBeInTheDocument();
+  change("How many hours will you cover the event? (optional)", "custom");
+  change("Custom coverage (hours)", "6.5");
+  change("How many people will work? (optional)", "3");
+  change("Who will handle the event?", "named_lead");
+  change("Main photographer/videographer or special arrangements", "Alex leads the team");
+  fireEvent.click(screen.getByLabelText("Pre-event consultation call"));
+  fireEvent.click(screen.getByLabelText("Help planning which moments to capture"));
+  const inclusion = category === "photographer" ? "Edited Photos" : "Highlight Video";
+  fireEvent.click(screen.getByRole("button", {name: "Add " + inclusion}));
+  expect(screen.getByRole("button", {name: "Add " + inclusion})).toBeEnabled();
+  fireEvent.click(screen.getByRole("radio", {name: category === "photographer" ? "Videography" : "Photography"}));
+  expect(screen.getByLabelText(/Service category/)).toHaveValue(category);
+  fireEvent.click(screen.getByRole("radio", {name: category === "photographer" ? "Photography" : "Videography"}));
+  expect(screen.getByRole("button", {name: "Add " + inclusion})).toHaveAttribute("aria-pressed", "true");
   fireEvent.click(screen.getByRole("button", {name: "Edit Physical USB"}));
-  expect(screen.getByLabelText("Give a delivery time range instead")).toBeChecked();
-  expect(screen.getByLabelText("Earliest delivery")).toHaveValue(14);
-  expect(screen.getByLabelText("Latest delivery")).toHaveValue(21);
-  expect(screen.getByLabelText("How will customers receive it?")).toHaveValue("in_person");
-  fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", {name: "Cancel"}));
+  expect(screen.getByLabelText("Give a delivery time range instead")).not.toBeChecked();
+  fireEvent.click(screen.getByLabelText("Give a delivery time range instead"));
+  change("Earliest delivery", "14"); change("Latest delivery", "21");
+  saveRow();
   fireEvent.click(screen.getByRole("button", {name: "Edit Digital collection"}));
   expect(screen.getByLabelText("Give a delivery time range instead")).not.toBeChecked();
   expect(screen.getByLabelText("When will it be ready after the event?")).toHaveValue(7);
@@ -136,31 +167,55 @@ it.each(["photographer", "videographer"])("creates, remounts and edits %s withou
   await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(2));
   expect(mocks.update).toHaveBeenCalledTimes(1);
   expect(mocks.update).toHaveBeenCalledWith(first.id, expect.objectContaining({expectedRevision: 1}));
-  expect(saved).toEqual({...first, expectedRevision: 1, revision: 2, name: "Revised fictional coverage", price: 2800,
-    freelanceDetails: {...first.freelanceDetails, inclusions: first.freelanceDetails!.inclusions!.map((row, index) => index === 1 ? {...row, label: "Behind-the-scenes gallery"} : row), deliverables: first.freelanceDetails!.deliverables.map((row, index) => index === 0 ? {...row, min: 10, max: 10} : row)}});
+  expect(saved).toMatchObject({
+    name: "Revised fictional coverage",
+    price: 2800,
+    revision: 2,
+    freelanceDetails: {
+      coverageMinutes: 390,
+      crewSize: 3,
+      collaboration: "named_lead",
+      collaborationNotes: "Alex leads the team",
+      planning: {consultationIncluded: true, customShotListIncluded: true},
+    },
+  });
+  expect(saved!.freelanceDetails!.inclusions!.map((row) => row.label).sort()).toEqual([inclusion, "Behind-the-scenes gallery"].sort());
+  expect(saved!.freelanceDetails!.deliverables).toEqual(expect.arrayContaining([
+    expect.objectContaining({name: "Digital collection", min: 10, max: 10, unit: "days", method: "gallery"}),
+    expect.objectContaining({name: "Physical USB", min: 14, max: 21, unit: "days", method: "in_person"}),
+  ]));
   expect(new Set(saved!.freelanceDetails!.deliverables.map((row) => row.id)).size).toBe(2);
   expect(saved!.freelanceDetails!.inclusions).toHaveLength(2);
 });
 
 it("places name, price and coverage validation beside their fields and blocks saving", () => {
-  mount();
-  expect(screen.getByLabelText(/Service name/)).toHaveAccessibleDescription("Enter a service name.");
+  const createView = mount();
+  expect(screen.getByLabelText(/Package name/)).toHaveAccessibleDescription("Package name must contain 3 to 80 characters.");
   expect(screen.getByRole("button", {name: "Create draft"})).toBeDisabled();
-  change(/Service name/, "Valid name"); change(/^Price/, "-1");
-  expect(screen.getByLabelText(/^Price/)).toHaveAccessibleDescription("Enter a valid service price.");
-  expect(screen.getAllByText("Enter a valid service price.")).toHaveLength(1);
-  change(/^Price/, "100");
+  change(/Package name/, "Valid name"); change(/^Price/, "-1");
+  expect(screen.getByLabelText(/^Price/)).toHaveAccessibleDescription("Use up to 7 integer digits and 2 decimal places. Exponents and signs are not allowed.");
+  expect(screen.getAllByText("Use up to 7 integer digits and 2 decimal places. Exponents and signs are not allowed.")).toHaveLength(1);
+  change(/^Price/, "1");
+  expect(screen.getByLabelText(/^Price/)).toHaveAccessibleDescription("Enter a price from PHP 500.00 to PHP 9,999,999.00 with at most two decimal places.");
+  change(/^Price/, "500");
+  expect(screen.getByRole("button", {name: "Create draft"})).toBeEnabled();
+  createView.unmount();
+  // Coverage controls belong to the full edit form, not the simplified media create flow.
+  mount(draftService("photographer", {name: "Valid name", price: 500, pricingType: "fixed", freelanceDetails: {
+    deliverables: [], collaboration: "", collaborationNotes: "", addOns: [], travelZones: [],
+  }}));
   change("How many hours will you cover the event? (optional)", "custom");
   change("Custom coverage (hours)", "0.001");
   expect(screen.getByLabelText("Custom coverage (hours)")).toHaveAccessibleDescription("Enter coverage between 1 minute and 24 hours, in whole minutes.");
-  expect(screen.getByRole("button", {name: "Create draft"})).toBeDisabled();
+  expect(screen.getByRole("button", {name: "Save changes"})).toBeDisabled();
   change("Custom coverage (hours)", "6");
-  expect(screen.getByRole("button", {name: "Create draft"})).toBeEnabled();
+  expect(screen.getByRole("button", {name: "Save changes"})).toBeEnabled();
   expect(mocks.create).not.toHaveBeenCalled();
 });
 
 it("validates delivery fields locally and rejects reversed ranges without adding a row", () => {
-  mount(); fireEvent.click(screen.getByRole("button", {name: "Add delivery item"}));
+  const createView = mount();
+  fireEvent.click(screen.getByRole("button", {name: "Add delivery item"}));
   const dialog = within(screen.getByRole("dialog"));
   for (const [label, error] of [["What will you give the customer?", "Enter an item name."], ["When will it be ready after the event?", "Enter when this item will be ready."]]) {
     const input = dialog.getByLabelText(label); fireEvent.invalid(input);
@@ -169,16 +224,21 @@ it("validates delivery fields locally and rejects reversed ranges without adding
   }
   fireEvent.input(screen.getByLabelText("What will you give the customer?"), {target: {value: "Photos"}});
   change("What will you give the customer?", "Photos");
+  createView.unmount();
+  // Range editing is available on the full service form (edit mode / non-simple package).
+  mount(draftService("photographer"));
+  fireEvent.click(screen.getByRole("button", {name: "Add delivery item"}));
+  const editDialog = within(screen.getByRole("dialog"));
   fireEvent.click(screen.getByLabelText("Give a delivery time range instead"));
   change("Earliest delivery", "14"); change("Latest delivery", "7");
   // Submit directly to exercise parser validation independently of native constraint validation.
-  fireEvent.submit(dialog.getByRole("button", {name: /^Save$/}).closest("form")!);
-  expect(dialog.getByText(/Check the package details/)).toHaveAttribute("role", "alert");
+  fireEvent.submit(editDialog.getByRole("button", {name: /^Save$/}).closest("form")!);
+  expect(editDialog.getByText(/Check the package details/)).toHaveAttribute("role", "alert");
   expect(mocks.create).not.toHaveBeenCalled();
 });
 
 it("uses category-specific labels and native collapsible sections without altering draft terms", () => {
-  mount();
+  mount(draftService("photographer"));
   for (const title of ["Planning with the customer (optional)", "Additional Services (Optional)", "Travel Terms (Optional)"]) {
     const summary = screen.getByText(title); const details = summary.closest("details")!;
     expect(details.open).toBe(false);
@@ -193,19 +253,28 @@ it("uses category-specific labels and native collapsible sections without alteri
   change(/Service category/, "makeup_artist"); expect(screen.getByText("Service Delivery")).toBeInTheDocument();
 });
 
-it.each([["fixed", "Price"], ["per_guest", "Price per guest"], ["per_hour", "Price per hour"], ["per_unit", "Price per unit"], ["custom_quote", null]])("saves %s pricing with its supported value", async (pricingType, label) => {
-  mount(); change(/Service name/, "Pricing example"); change(/Pricing type/, pricingType!);
-  if (label) change(new RegExp("^" + label), "125.50");
+it.each([
+  ["fixed", "Price", "500.00", 500],
+  ["per_guest", "Price per guest", "150.00", 150],
+  ["per_hour", "Price per hour", "125.50", 125.5],
+  ["per_unit", "Price per unit", "125.50", 125.5],
+  ["custom_quote", null, null, null],
+] as const)("saves %s pricing with its supported value", async (pricingType, label, amount, expectedPrice) => {
+  mount(); change(/Package name/, "Pricing example"); change(/Pricing type/, pricingType);
+  if (label && amount) change(new RegExp("^" + label), amount);
   else expect(screen.queryByRole("spinbutton", {name: /^Price/})).not.toBeInTheDocument();
+  if (pricingType === "per_guest") {
+    change(/Minimum guests/, "10");
+    change(/Maximum guests/, "50");
+  }
   fireEvent.click(screen.getByRole("button", {name: "Create draft"}));
   await waitFor(() => expect(onSaved).toHaveBeenCalledOnce());
-  expect(saved).toMatchObject({pricingType, price: label ? 125.5 : null});
+  expect(saved).toMatchObject({pricingType, price: expectedPrice});
 });
 
 
-it.each(["photographer", "videographer"])("shows accessible crew errors and clears them after correction for %s", (category) => {
-  mount(); change(/Service category/, category);
-  change(/Service name/, "Crew example"); change(/^Price/, "100");
+it.each(["photographer", "videographer"] as const)("shows accessible crew errors and clears them after correction for %s", (category) => {
+  mount(draftService(category, {name: "Crew example", price: 500, pricingType: "fixed"}));
   const crew = screen.getByLabelText("How many people will work? (optional)");
   const message = "Enter a whole number from 1 to 100 people, or leave this blank.";
   for (const invalid of ["0", "1.5", "101"]) {
@@ -217,19 +286,19 @@ it.each(["photographer", "videographer"])("shows accessible crew errors and clea
     expect(crew).toHaveAttribute("aria-describedby", error.id);
     expect(crew).toHaveAccessibleDescription(message);
     expect(screen.queryByText(/Check the package details/)).not.toBeInTheDocument();
-    expect(screen.getByRole("button", {name: "Create draft"})).toBeDisabled();
+    expect(screen.getByRole("button", {name: "Save changes"})).toBeDisabled();
     fireEvent.submit(crew.closest("form")!);
-    expect(mocks.create).not.toHaveBeenCalled();
+    expect(mocks.update).not.toHaveBeenCalled();
     change("How many people will work? (optional)", "3");
     expect(screen.queryByText(message)).not.toBeInTheDocument();
     expect(crew).not.toHaveAttribute("aria-invalid");
     expect(crew).not.toHaveAttribute("aria-describedby");
-    expect(screen.getByRole("button", {name: "Create draft"})).toBeEnabled();
+    expect(screen.getByRole("button", {name: "Save changes"})).toBeEnabled();
   }
   for (const valid of ["1", "100", ""]) {
     change("How many people will work? (optional)", valid);
     expect(screen.queryByText(message)).not.toBeInTheDocument();
-    expect(screen.getByRole("button", {name: "Create draft"})).toBeEnabled();
+    expect(screen.getByRole("button", {name: "Save changes"})).toBeEnabled();
   }
 });
 
