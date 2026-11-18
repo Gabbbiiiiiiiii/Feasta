@@ -1,4 +1,5 @@
 "use client";
+import {signInValidationError} from "@/lib/auth/sign-in-validation";
 import {CustomerConsentReview, useCustomerConsent} from "@/components/auth/customer-consent-review";
 
 
@@ -127,6 +128,12 @@ function CustomerAuthenticationContent({returnTo = "/customer/providers", initia
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const validationError = signInValidationError(email, password);
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
+
 
     void completeSignIn("email", () =>
       signInWithEmail(email, password, returnTo)
@@ -327,6 +334,7 @@ function EmailLoginForm({
       <form
         className="space-y-4"
         onSubmit={onSubmit}
+        noValidate
         aria-describedby={error ? "sign-in-error" : undefined}
       >
         <FormField label="Email address" required disabled={loading}>
