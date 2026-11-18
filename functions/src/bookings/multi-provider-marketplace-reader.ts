@@ -18,6 +18,7 @@ type Input = {
   providerData: UnknownRecord;
   serviceId: string;
   expectedRevision: number;
+  allowLegacyRevision?: boolean;
 };
 
 function reject(message: string): never {
@@ -56,7 +57,7 @@ export async function readTrustedMarketplaceService(
     !firestore ||
     typeof firestore.collection !== "function" ||
     !Number.isSafeInteger(expectedRevision) ||
-    expectedRevision < 1
+    expectedRevision < (input.allowLegacyRevision ? 0 : 1)
   ) {
     return reject("Marketplace service read input is invalid.");
   }
@@ -94,7 +95,8 @@ export async function readTrustedMarketplaceService(
     return reject("Marketplace service record is invalid.");
   }
 
-  if (stored.revision !== expectedRevision) {
+  const revision = input.allowLegacyRevision ? (stored.revision ?? 0) : stored.revision;
+  if (revision !== expectedRevision) {
     throw new HttpsError(
       "aborted",
       "Marketplace service changed. Reload your selections.",

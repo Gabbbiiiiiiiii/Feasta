@@ -127,3 +127,64 @@ for(const [label,mutate] of [
  const f=mixed(); await f.disclose(); mutate(f);
  await assert.rejects(submit(f.firestore,identity,f.input)); assert.equal(bookings(f).length,0);
 });
+
+test('standalone photography package supports review, booking and replay', async () => {
+  const f = mixed();
+  f.input.submission.selections.shift();
+  const review = await f.disclose();
+  assert.equal(review.agreements.length, 1);
+  assert.equal(review.agreements[0].grossAmountInCentavos, 1200000);
+  assert.equal(bookings(f).length, 0);
+
+  const result = await submit(f.firestore, identity, f.input);
+  const event = f.records['mainEvents/' + result.mainEventId];
+  assert.equal(event.cateringSubtotal, 0);
+  assert.equal(event.totalAmount, 12000);
+  assert.equal(result.providerRequestIds.length, 1);
+  const request = f.records['providerRequests/' + result.providerRequestIds[0]];
+  assert.equal(request.assignmentKind, 'independent_marketplace_service');
+  assert.equal(request.downPaymentAmount, 12000);
+  assert.equal(request.remainingBalance, 0);
+  assert.equal((await submit(f.firestore, identity, f.input)).created, false);
+});
+
+test('standalone purchase rejects other event service categories', async () => {
+  const f = mixed();
+  f.input.submission.selections.shift();
+  f.records['addons/photography_001'].category = 'photobooth';
+  await assert.rejects(f.disclose(), /Standalone booking/);
+  assert.equal(bookings(f).length, 0);
+});
+
+test('standalone legacy videography requires the disclosed refund policy', async () => {
+  const f = mixed();
+  f.input.submission.selections.shift();
+  f.input.submission.selections[0].expectedRevision = 0;
+  const service = f.records['addons/photography_001'];
+  delete service.revision;
+  service.category = 'videographer';
+  const provider = f.records['providers/provider_002'];
+  provider.serviceCategories = ['videographer'];
+  f.records['serviceCategories/videographer'] = {
+    code: 'videographer', name: 'Videography', serviceType: 'addon', status: 'active',
+  };
+  f.records['appSettings/refundPolicyBookingAgreement'] = {
+    schemaVersion: 1, isPublic: false, enforcementMode: 'required',
+  };
+  provider.refundPolicy = {
+    schemaVersion: 1, policyVersion: 1,
+    effectiveAt: require('firebase-admin/firestore').Timestamp.fromMillis(0),
+    terms: null,
+    rules: ['preparation_not_started', 'preparation_started', 'service_started']
+      .map((stage, index) => ({stage, refundBasisPoints: [10000, 5000, 0][index]})),
+  };
+
+  const {refundPolicies} = await f.disclose();
+  assert.equal(refundPolicies.acknowledgementsRequired, true);
+  await assert.rejects(submit(f.firestore, identity, f.input));
+  assert.equal(bookings(f).length, 0);
+  f.input.submission.clientRequestId = "videography_refund_retry";
+  f.input.policyAcknowledgements = refundPolicies.policies
+    .map(({providerId, effectivePolicyKey}) => ({providerId, effectivePolicyKey}));
+  assert.equal((await submit(f.firestore, identity, f.input)).created, true);
+});

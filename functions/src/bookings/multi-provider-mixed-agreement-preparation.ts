@@ -45,6 +45,7 @@ type Input = {
   refunds: PreparedMultiProviderRefundPolicies;
   guestCount: number;
   eventEndTime: string;
+  standaloneEventStart?: Date;
 };
 
 function reject(message: string): never {
@@ -106,7 +107,7 @@ export function prepareMixedProviderBookingAgreements(
     typeof customerId !== "string" ||
     !/^[A-Za-z0-9_-]{2,160}$/.test(customerId) ||
     !Array.isArray(rows) ||
-    rows.length < 2 ||
+    rows.length < 1 ||
     rows.length > 4 ||
     !Array.isArray(financials?.items) ||
     financials.items.length !== rows.length ||
@@ -153,7 +154,11 @@ export function prepareMixedProviderBookingAgreements(
     return reject("Catering eligibility set is incomplete.");
   }
 
-  let sharedEventStart: Date | null = null;
+  let sharedEventStart: Date | null =
+    rows.length === 1 && rows[0].kind === "marketplace_service" &&
+      input.standaloneEventStart instanceof Date && Number.isFinite(input.standaloneEventStart.getTime())
+      ? input.standaloneEventStart
+      : null;
 
   for (const eligibility of cateringEligibility.values()) {
     const start = eligibility.initialPaymentEligibility.eventStartAt;
@@ -333,7 +338,7 @@ export function confirmMixedProviderBookingAgreements(
   if (
     !prepared ||
     !Array.isArray(prepared.agreements) ||
-    prepared.agreements.length < 2 ||
+    prepared.agreements.length < 1 ||
     prepared.agreements.length > 4 ||
     !Array.isArray(prepared.disclosures) ||
     prepared.disclosures.length !== prepared.agreements.length

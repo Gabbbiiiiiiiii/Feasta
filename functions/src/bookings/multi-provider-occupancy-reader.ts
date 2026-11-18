@@ -19,6 +19,7 @@ export type MultiProviderOccupancySelection = {
 };
 
 type Input = {
+  standaloneMarketplace?: boolean;
   transaction: Transaction;
   firestore: Firestore;
   selections: readonly MultiProviderOccupancySelection[];
@@ -55,7 +56,7 @@ export async function readMultiProviderOccupancy(
     !firestore ||
     typeof firestore.collection !== "function" ||
     !Array.isArray(selections) ||
-    selections.length < 2 ||
+    selections.length < (input.standaloneMarketplace ? 1 : 2) ||
     selections.length > 4
   ) {
     return reject("Multi-provider occupancy input is invalid.");

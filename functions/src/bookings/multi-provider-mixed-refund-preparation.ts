@@ -39,7 +39,7 @@ export function prepareMixedProviderRefundPolicies(input: {
   const {rows, rollout} = input;
 
   if (!Array.isArray(rows) ||
-      rows.length < 2 ||
+      rows.length < 1 ||
       rows.length > 4) {
     return reject("Mixed refund relationships are invalid.");
   }
@@ -114,7 +114,8 @@ export function prepareMixedProviderRefundPolicies(input: {
       };
     });
 
-  if (cateringCount === 0 || marketplaceCount === 0) {
+  if (!(marketplaceCount === 1 && cateringCount === 0) &&
+      (cateringCount === 0 || marketplaceCount === 0)) {
     return reject(
       "Mixed booking requires Catering and an event service.",
     );

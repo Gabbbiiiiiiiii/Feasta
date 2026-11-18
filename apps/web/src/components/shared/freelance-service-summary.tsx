@@ -14,16 +14,31 @@ const collaboration = {
 
 const pesos = new Intl.NumberFormat("en-PH", {style: "currency", currency: "PHP"});
 
-export function FreelanceServiceSummary({details}: {details: FreelanceServiceDetails}) {
+export function freelanceServiceInclusions(details: FreelanceServiceDetails): string[] {
+  const items: string[] = [];
+  if (details.coverageMinutes) {
+    const minutes = details.coverageMinutes;
+    const coverage = minutes % 60 === 0
+      ? `${minutes / 60} ${minutes === 60 ? "hour" : "hours"}`
+      : `${minutes} minutes`;
+    items.push(`${coverage} of event-day coverage`);
+  }
+  if (details.crewSize) {
+    items.push(`${details.crewSize} crew ${details.crewSize === 1 ? "member" : "members"}`);
+  }
+  return [...items, ...(details.inclusions ?? []).map(({label}) => label)];
+}
+
+export function FreelanceServiceSummary({details, showInclusions = true}: {
+  details: FreelanceServiceDetails;
+  showInclusions?: boolean;
+}) {
+  const inclusions = showInclusions ? freelanceServiceInclusions(details) : [];
   return <div className="mt-3 space-y-3 text-sm">
-    {details.coverageMinutes || details.crewSize || details.inclusions?.length ? <div>
+    {inclusions.length > 0 ? <div>
       <p className="font-semibold">What’s included</p>
       <ul className="list-disc space-y-1 pl-5">
-        {details.coverageMinutes ? <li>{details.coverageMinutes % 60 === 0
-          ? (details.coverageMinutes / 60) + (details.coverageMinutes === 60 ? " hour" : " hours")
-          : details.coverageMinutes + " minutes"} of event-day coverage</li> : null}
-        {details.crewSize ? <li>{details.crewSize} crew {details.crewSize === 1 ? "member" : "members"}</li> : null}
-        {details.inclusions?.map((item) => <li key={item.id} className="break-words">{item.label}</li>)}
+        {[...new Set(inclusions)].map((item) => <li key={item} className="break-words">{item}</li>)}
       </ul>
     </div> : null}
     {details.collaboration || details.collaborationNotes || details.planning?.consultationIncluded ||

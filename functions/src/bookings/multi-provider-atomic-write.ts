@@ -81,8 +81,11 @@ export function validateMultiProviderAtomicWritePlan(
     typeof plan.submissionFingerprint !== "string" ||
     !/^[a-f0-9]{64}$/.test(plan.submissionFingerprint) ||
     !Array.isArray(plan.requests) ||
-    plan.requests.length < 2 ||
+    plan.requests.length < 1 ||
     plan.requests.length > 4 ||
+    (plan.requests.length === 1 &&
+      (plan.requests[0]?.type !== "addon" ||
+        plan.requests[0]?.data?.assignmentKind !== "independent_marketplace_service")) ||
     !validReference(plan.booking?.reference) ||
     !record(plan.booking.data) ||
     (plan.additionalCreates !== undefined &&

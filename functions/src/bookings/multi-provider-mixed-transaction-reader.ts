@@ -98,7 +98,7 @@ export async function readTrustedMixedProviderSelections(
     !envelope ||
     envelope.schemaVersion !== 2 ||
     !Array.isArray(envelope.selections) ||
-    envelope.selections.length < 2 ||
+    envelope.selections.length < 1 ||
     envelope.selections.length > 4
   ) {
     return reject("Mixed-provider submission is invalid.");
@@ -187,7 +187,13 @@ export async function readTrustedMixedProviderSelections(
           providerData: provider,
           serviceId: marketplaceSelection.serviceId,
           expectedRevision: marketplaceSelection.expectedRevision,
+          allowLegacyRevision: envelope.selections.length === 1,
         });
+
+        if (envelope.selections.length === 1 &&
+            service.category !== "photographer" && service.category !== "videographer") {
+          return reject("Standalone booking is available for photography and videography packages.");
+        }
 
         const row: TrustedMixedMarketplaceRow = {
           kind: "marketplace_service",
@@ -200,7 +206,7 @@ export async function readTrustedMixedProviderSelections(
         return row;
       }
 
-      if (selection.kind !== "catering_package") {
+      if (selection.kind !== "catering_package" || envelope.selections.length === 1) {
         return reject("Mixed-provider selection kind is invalid.");
       }
 

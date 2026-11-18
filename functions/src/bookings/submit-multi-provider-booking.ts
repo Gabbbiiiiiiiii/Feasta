@@ -190,7 +190,7 @@ export async function submitAuthorizedMultiProviderBooking(
           packageId: catering?.resolved.packageId ?? null, packageName: catering?.resolved.packageName ?? null,
           ...(catering?.resolved.offer ?? {}), packagePaymentTerms: financial.packagePaymentTerms,
           ...(marketplace ? {serviceId: marketplace.service.serviceId,
-            serviceRevision: marketplace.service.serviceData.revision, selectedAddOns} : {}),
+            serviceRevision: marketplace.service.serviceData.revision ?? 0, selectedAddOns} : {}),
           bookingPaymentPolicySnapshot: eligibility.bookingPaymentPolicySnapshot,
           bookingPaymentPolicyCapturedAt: serverTimestamp(), bookingPaymentPolicyCapturedAtStage: "submission",
           ...bookingPolicyV3Evidence(initial.eventStartAt, Timestamp.fromDate),

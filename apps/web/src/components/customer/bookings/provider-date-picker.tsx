@@ -27,14 +27,14 @@ function shiftMonth(month: string, offset: number) {
   return new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5)) - 1 + offset, 1)).toISOString().slice(0, 7);
 }
 export type ProviderCalendarCache = Map<string, {promise: Promise<ProviderCalendarMonth>; expires: number}>;
-type Props = {providerId: string; value: string; onChange: (value: string) => void; planningOnly: boolean; invalid?: boolean; revision: string | number; sessionCache?: ProviderCalendarCache; onAvailability?: (date: string, blocked: boolean) => void};
+type Props = {providerId: string; value: string; onChange: (value: string) => void; planningOnly: boolean; invalid?: boolean; revision: string | number; sessionCache?: ProviderCalendarCache; portalContainer?: HTMLElement | null; onAvailability?: (date: string, blocked: boolean) => void};
 
 export function ProviderDatePicker(props: Props) {
   // Remount on provider changes to isolate each booking session's cache.
   return props.planningOnly ? <PhilippineDateInput aria-label="Event date" value={props.value} min={tomorrowKey()} onChange={(event) => props.onChange(event.target.value)} /> :
     <CalendarPicker key={props.providerId} {...props} />;
 }
-function CalendarPicker({providerId, value, onChange, invalid, revision, onAvailability, sessionCache}: Props) {
+function CalendarPicker({providerId, value, onChange, invalid, revision, onAvailability, sessionCache, portalContainer}: Props) {
   const [open, setOpen] = useState(false);
   const [month, setMonth] = useState(visibleMonth(value));
   const [attempt, setAttempt] = useState(0);
@@ -101,8 +101,12 @@ function CalendarPicker({providerId, value, onChange, invalid, revision, onAvail
       const above = anchor.top - topEdge - 8;
       const preferredTop = below < popupHeight && above > below
         ? anchor.top - popupHeight - 8 : anchor.bottom + 8;
-      popup.style.left = Math.max(leftEdge + gutter, Math.min(anchor.left, leftEdge + width - popupWidth - gutter)) + "px";
-      popup.style.top = Math.max(topEdge + gutter, Math.min(preferredTop, topEdge + height - popupHeight - gutter)) + "px";
+      // A transformed booking dialog is the containing block for its portaled calendar.
+      const origin = portalContainer?.getBoundingClientRect();
+      const originLeft = origin ? origin.left + (portalContainer?.clientLeft ?? 0) : 0;
+      const originTop = origin ? origin.top + (portalContainer?.clientTop ?? 0) : 0;
+      popup.style.left = (Math.max(leftEdge + gutter, Math.min(anchor.left, leftEdge + width - popupWidth - gutter)) - originLeft) + "px";
+      popup.style.top = (Math.max(topEdge + gutter, Math.min(preferredTop, topEdge + height - popupHeight - gutter)) - originTop) + "px";
     }
     position();
     const observer = typeof ResizeObserver !== "undefined" ? new ResizeObserver(position) : null;
@@ -119,7 +123,7 @@ function CalendarPicker({providerId, value, onChange, invalid, revision, onAvail
       window.visualViewport?.removeEventListener("resize", position);
       window.visualViewport?.removeEventListener("scroll", position);
     };
-  }, [open]);
+  }, [open, portalContainer]);
   useEffect(() => {
     if (!open) return;
     function outside(event: Event) {
@@ -177,7 +181,7 @@ function CalendarPicker({providerId, value, onChange, invalid, revision, onAvail
       <CalendarDays aria-hidden="true" className="size-5 shrink-0 text-primary" />
     </button>
     {open ? createPortal(
-      <div ref={panel} id={dialogId} role="dialog" aria-label="Choose event date" aria-describedby={descriptionId}
+      <div ref={panel} id={dialogId} data-provider-calendar-popup role="dialog" aria-label="Choose event date" aria-describedby={descriptionId}
         className="fixed z-[80] overflow-y-auto overscroll-contain rounded-2xl border border-feasta-border-soft bg-card p-3 text-card-foreground shadow-xl sm:p-4"
         style={{width: "min(352px, calc(100vw - 24px))", maxHeight: "calc(100dvh - 24px)"}}
         onKeyDown={(event) => {
@@ -251,7 +255,7 @@ function CalendarPicker({providerId, value, onChange, invalid, revision, onAvail
           </span>)}
         </div>
         <p id={descriptionId} className="sr-only">Use arrow keys to browse dates, Home or End to move within a week, and Escape to close. Only available dates can be selected. Availability is checked again before booking.</p>
-      </div>, document.body,
+      </div>, portalContainer ?? document.body,
     ) : null}
     {selectedState ? <p id={warningId} role="alert" className="mt-2 text-sm text-destructive">This date is {labels[selectedState].toLowerCase()}. Choose another available date.</p> : null}
   </div>;

@@ -341,19 +341,15 @@ export function FreelanceServiceFields({value, onChange, category, simplePackage
     <RowSection<NonNullable<FreelanceServiceDetails["inclusions"]>[number]> title={simplePackage ? "Package inclusions" : "What's Included?"} item="included item" rowKey="inclusions"
       rows={value.inclusions ?? []}
       customEntry={media ? {label: (row) => row.label, duplicate: (label, id) => (value.inclusions ?? []).some((row) => row.id !== id && normalize(row.label) === normalize(label)) || value.deliverables.some((row) => normalize(row.name) === normalize(label))} : undefined}
-      create={() => ({id: crypto.randomUUID(), kind: "session", label: ""})}
+      create={() => ({id: crypto.randomUUID(), kind: "other", label: ""})}
       onChange={(inclusions) => onChange({...value, inclusions})}
       summarize={(row) => ({name: row.label, detail: row.kind === "session" ? "Session" :
         row.kind === "keepsake" ? "Keepsake" : "Other inclusion"})}
-      fields={(row, change) => <>
-          <Field label="What kind of item is included?"><select className="min-h-11 rounded-md border bg-background px-3" value={row.kind}
-            onChange={(event) => change({kind: event.target.value as typeof row.kind})}>
-            <option value="session">{media ? "Photo or video session" : "Session"}</option><option value="keepsake">Printed item or keepsake</option><option value="other">Other</option>
-          </select></Field>
-          <Field label="Included item"><Input required maxLength={120} value={row.label}
-            placeholder={row.kind === "keepsake" ? "Hardcover photobook" : "Pre-debut session"}
-            onChange={(event) => change({label: event.target.value})} /></Field>
-      </>}>
+      fields={(row, change) => (
+        <Field label="Included item"><Input required maxLength={120} value={row.label}
+          placeholder="e.g. Pre-debut session"
+          onChange={(event) => change({label: event.target.value})} /></Field>
+      )}>
       {(remove) => media && !simplePackage ? <div className="grid gap-2">
         <p className="text-sm text-muted-foreground">Choose what comes with your service, or add your own.</p>
         <div role="radiogroup" aria-label="Inclusion suggestions" className="flex w-fit max-w-full flex-wrap gap-1 rounded-lg bg-muted p-1">

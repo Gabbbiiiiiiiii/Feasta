@@ -61,7 +61,8 @@ export async function prepareTrustedMixedProviderSubmission(input: {
   }
   const refunds = prepareMixedProviderRefundPolicies({rows, rollout: await input.loadRefundRollout(transaction)});
   const agreements = prepareMixedProviderBookingAgreements({customerId, rows, financials,
-    cateringEligibility, refunds, guestCount, eventEndTime});
+    cateringEligibility, refunds, guestCount, eventEndTime,
+    standaloneEventStart: rows.length === 1 ? items[0].initialPaymentEligibility.eventStartAt : undefined});
   const requests = rows.map(row => {
     const type = row.kind === "catering_package" ? "catering" as const : "addon" as const;
     const services = row.kind === "catering_package"
@@ -72,9 +73,10 @@ export async function prepareTrustedMixedProviderSubmission(input: {
     return {providerId: row.providerId, type, services, providerData: row.providerData,
       providerRequestId: createHash("sha256").update(`${bookingId}:${type}:${row.providerId}`).digest("hex").slice(0, 40)};
   });
-  const occupancy = await readMultiProviderOccupancy({transaction, firestore,
+  const standaloneMarketplace = rows.length === 1;
+  const occupancy = await readMultiProviderOccupancy({transaction, firestore, standaloneMarketplace,
     selections: requests.map(request => ({providerId: request.providerId, providerRequestId: request.providerRequestId, eventDate}))});
-  const availability = prepareMultiProviderAvailability({now: submissionTime, candidates: requests.map(request => {
+  const availability = prepareMultiProviderAvailability({now: submissionTime, standaloneMarketplace, candidates: requests.map(request => {
     const existingBookings = occupancy.get(request.providerId);
     if (!existingBookings) throw new HttpsError("failed-precondition", "Provider occupancy evidence is incomplete.");
     return {providerId: request.providerId, providerData: request.providerData,

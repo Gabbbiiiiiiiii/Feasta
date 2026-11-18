@@ -1044,7 +1044,7 @@ function mixedProviderAssignmentEvent(
   if (
     !Array.isArray(assignments) ||
     !Array.isArray(requestIds) ||
-    assignments.length < 2 ||
+    assignments.length < 1 ||
     assignments.length > 4 ||
     requestIds.length !== assignments.length ||
     new Set(requestIds).size !== requestIds.length
@@ -1064,7 +1064,8 @@ function mixedProviderAssignmentEvent(
       seenRequests.has(entry.providerRequestId) ||
       seenProviders.has(entry.providerId) ||
       (entry.kind !== "catering_package" &&
-        entry.kind !== "marketplace_service")
+        entry.kind !== "marketplace_service") ||
+      (assignments.length === 1 && entry.kind !== "marketplace_service")
     ) {
       throw invalidServiceLinkage();
     }

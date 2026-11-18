@@ -34,8 +34,21 @@ export function isPublicMarketplacePath(pathname: string): boolean {
     isPublicPackageMarketplacePath(pathname);
 }
 
+export function isMediaPackageCategory(category: string | undefined): boolean {
+  return category === "photographer" || category === "videographer";
+}
+
+export function mediaPackageHref(providerId: string, serviceId: string): string {
+  return `${PUBLIC_PACKAGE_MARKETPLACE_PATH}/media/${encodeURIComponent(providerId)}/${encodeURIComponent(serviceId)}`;
+}
+
 export function isPublicPackageMarketplacePath(pathname: string): boolean {
   if (pathname === PUBLIC_PACKAGE_MARKETPLACE_PATH) return true;
+  const mediaPrefix = `${PUBLIC_PACKAGE_MARKETPLACE_PATH}/media/`;
+  if (pathname.startsWith(mediaPrefix)) {
+    const ids = pathname.slice(mediaPrefix.length).split("/");
+    return ids.length === 2 && ids.every(isPublicProviderId);
+  }
   const prefix = `${PUBLIC_PACKAGE_MARKETPLACE_PATH}/`;
   if (pathname.startsWith(prefix) && pathname.endsWith("/plan")) {
     return isPublicProviderId(pathname.slice(prefix.length, -"/plan".length));
