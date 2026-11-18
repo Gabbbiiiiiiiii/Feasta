@@ -67,7 +67,6 @@ import {
 import {ConfirmationDialog} from "@/components/shared/confirmation-dialog";
 import {PageHeading} from "@/components/layout/page-heading";
 import {PaymentFlowOverview} from "@/components/shared/payment-flow-overview";
-import type {PaymentDemoEvidence} from "@/lib/payments/payment-demo-evidence";
 import {Button} from "@/components/ui/button";
 import {Select} from "@/components/ui/select";
 import type {
@@ -84,7 +83,6 @@ import type {
 } from "@/lib/admin/payments/admin-payment-types";
 
 type PaymentMonitoringClientProps = {
-  demoEvidence?: PaymentDemoEvidence | null;
   initialPage: AdminPaymentPage;
 
   initialAttention:
@@ -110,7 +108,6 @@ const FIRST_PAGE_CURSOR = "__first_page__";
 function PaymentMonitoringClient({
   initialPage,
   initialAttention,
-  demoEvidence,
 }: PaymentMonitoringClientProps) {
   const [page, setPage] =
     useState<AdminPaymentPage>(initialPage);
@@ -662,7 +659,7 @@ function PaymentMonitoringClient({
         />
       </section>
 
-      <PaymentFlowOverview evidence={demoEvidence} />
+      <PaymentFlowOverview />
       <PaymentFinanceAttention
         statistics={page.statistics}
         queue={attentionQueue}

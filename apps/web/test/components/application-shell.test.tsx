@@ -285,6 +285,7 @@ describe("ApplicationShell", () => {
 
     expect(roleNavigation.admin.map((item) => item.kind === "link" ? item.href : item.label)).toEqual([
       "/admin",
+      "/admin/file-maintenance",
       "/admin/users",
       "/admin/providers",
       "/admin/bookings",
@@ -294,11 +295,11 @@ describe("ApplicationShell", () => {
       "/admin/announcements",
       "/admin/reports",
       "/admin/audit-logs",
-      "/admin/file-maintenance",
       "/admin/settings",
     ]);
     expect(roleNavigation.admin.map((item) => item.section)).toEqual([
       "Overview",
+      "Master Data",
       "People",
       "People",
       "Transactions",
@@ -306,7 +307,6 @@ describe("ApplicationShell", () => {
       "Support",
       "Support",
       "Support",
-      "System",
       "System",
       "System",
       "System",
@@ -326,6 +326,7 @@ describe("ApplicationShell", () => {
     const headings = within(desktopNav).getAllByRole("heading").map((heading) => heading.textContent);
     expect(headings).toEqual([
       "Overview",
+      "Master Data",
       "People",
       "Transactions",
       "Support",
@@ -333,6 +334,7 @@ describe("ApplicationShell", () => {
     ]);
     expect(within(desktopNav).getAllByRole("link").map((link) => link.textContent)).toEqual([
       "Dashboard",
+      "File Maintenance",
       "User Management",
       "Provider Verification",
       "Bookings",
@@ -342,9 +344,11 @@ describe("ApplicationShell", () => {
       "Announcements",
       "Reports",
       "Activity logs",
-      "File Maintenance",
       "Settings",
     ]);
+    const masterData = within(desktopNav).getByRole("region", {name: "Master Data"});
+    expect(within(masterData).getByRole("link", {name: "File Maintenance"}))
+      .toHaveAttribute("href", "/admin/file-maintenance");
     expect(within(desktopNav).getByRole("link", {name: "Dashboard"})).toHaveClass("h-10");
   });
 

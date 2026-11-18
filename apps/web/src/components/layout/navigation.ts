@@ -201,6 +201,7 @@ const providerLinkedRestrictedNavigation: readonly NavigationItem[] = [
 
 const adminNavigation: readonly NavigationItem[] = [
   {kind: "link", section: "Overview", label: "Dashboard", href: "/admin", icon: LayoutDashboard},
+  {kind: "link", section: "Master Data", label: "File Maintenance", href: "/admin/file-maintenance", icon: FolderCog},
   {kind: "link", section: "People", label: "User Management", href: "/admin/users", icon: Users},
   {kind: "link", section: "People", label: "Provider Verification", href: "/admin/providers", icon: ShieldCheck},
   {kind: "link", section: "Transactions", label: "Bookings", href: "/admin/bookings", icon: CalendarDays},
@@ -210,7 +211,6 @@ const adminNavigation: readonly NavigationItem[] = [
   {kind: "link", section: "Support", label: "Announcements", href: "/admin/announcements", icon: Megaphone},
   {kind: "link", section: "System", label: "Reports", href: "/admin/reports", icon: ChartNoAxesCombined},
   {kind: "link", section: "System", label: "Activity logs", href: "/admin/audit-logs", icon: ScrollText},
-  {kind: "link", section: "System", label: "File Maintenance", href: "/admin/file-maintenance", icon: FolderCog},
   {kind: "link", section: "System", label: "Settings", href: "/admin/settings", icon: Settings2},
 ];
 

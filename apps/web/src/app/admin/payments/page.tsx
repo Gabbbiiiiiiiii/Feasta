@@ -7,7 +7,6 @@ import {
 } from "@/lib/admin/payments/admin-payment-service";
 
 import {requireRole} from "@/lib/auth/session";
-import {readPaymentDemoEvidence} from "@/lib/payments/payment-demo-evidence-server";
 
 export default async function AdminPaymentsPage() {
   await requireRole(["admin"]);
@@ -34,7 +33,6 @@ export default async function AdminPaymentsPage() {
     <PaymentMonitoringClient
       initialPage={initialPage}
       initialAttention={initialAttention}
-      demoEvidence={await readPaymentDemoEvidence()}
     />
   );
 }

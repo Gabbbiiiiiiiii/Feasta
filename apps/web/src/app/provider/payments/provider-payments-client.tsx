@@ -224,7 +224,7 @@ export function ProviderPaymentsClient({
         description="Track customer payments, manage your earnings, and check payout status."
       />
 
-      <PaymentFlowOverview evidence={demoEvidence} />
+      <PaymentFlowOverview evidence={demoEvidence ?? null} />
       <ProviderFinancePanel
         initialFinance={initialFinance}
       />

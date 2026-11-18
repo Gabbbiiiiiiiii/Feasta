@@ -33,8 +33,18 @@ describe("payment demonstration evidence", () => {
     expect(screen.getByText(/₱900.00/)).toBeVisible();
   });
   it("does not display a success claim when no receipt is available", () => {
-    render(<PaymentFlowOverview />);
+    render(<PaymentFlowOverview evidence={null} />);
+    expect(screen.getByText("Separate capstone test demonstration")).toBeVisible();
     expect(screen.queryByText("PayMongo simulator transfer confirmed")).toBeNull();
     expect(screen.getByText(/No confirmed test receipt is loaded/)).toBeVisible();
+  });
+  it("keeps all payment steps and omits the capstone panel when evidence is omitted", () => {
+    render(<PaymentFlowOverview />);
+    expect(screen.getAllByRole("listitem").map((step) => step.firstElementChild?.textContent)).toEqual([
+      "1. Customer payment",
+      "2. Provider earnings",
+      "3. Provider transfer",
+    ]);
+    expect(screen.queryByText("Separate capstone test demonstration")).not.toBeInTheDocument();
   });
 });
