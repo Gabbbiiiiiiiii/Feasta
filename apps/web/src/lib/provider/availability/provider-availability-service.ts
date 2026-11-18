@@ -71,8 +71,8 @@ Promise<ProviderAvailabilitySettings> {
       365,
       0,
     ),
-    acceptsMultipleEventsPerDay: false,
-    maxEventsPerDay: 1,
+    acceptsMultipleEventsPerDay: integer(provider.maxEventsPerDay, 1, 100, 1) > 1,
+    maxEventsPerDay: integer(provider.maxEventsPerDay, 1, 100, 1),
     guestCapacity: capacityCapabilities.requiresGuestCapacity
       ? {
           minimum: minimumGuests,

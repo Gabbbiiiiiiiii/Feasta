@@ -8,12 +8,13 @@ import {db} from "../shared/firestore.js";
 import {enforceCallableRateLimit} from "../shared/rate-limit.js";
 import {requireObject, requireString} from "../shared/validation.js";
 import {
-  AVAILABILITY_COUNTED_REQUEST_STATUSES, hasWalkInReservation, manilaDateFromKey, manilaDateKey,
+  AVAILABILITY_COUNTED_REQUEST_STATUSES, countOnlineEvents, dailyEventCapacity,
+  manilaDateFromKey, manilaDateKey, walkInReservationCount,
   providerRequestOccupiesAvailability, validateProviderAvailability,
 } from "./validate-provider-availability.js";
 
 export type CalendarState = "booked" | "on_hold" | "unavailable";
-const MAX_RECORDS = 1000;
+const MAX_RECORDS = 10_000;
 
 export function parseCalendarInput(value: unknown, now = new Date()) {
   const input = requireObject(value);
@@ -32,25 +33,35 @@ export function parseCalendarInput(value: unknown, now = new Date()) {
 export function buildCalendarDates(month: string, providerData: Record<string, unknown>,
   records: readonly Record<string, unknown>[], now: Date) {
   const dates: Array<{date: string; state: CalendarState}> = [];
+  const today = manilaDateKey(now);
+  const occupiedByDate = new Map<string, Record<string, unknown>[]>();
+  for (const record of records) {
+    const eventDate = record.eventDate instanceof Date ? record.eventDate :
+      (record.eventDate as {toDate?: () => Date} | undefined)?.toDate?.();
+    if (!eventDate || !providerRequestOccupiesAvailability({...record, status: record.status, now})) continue;
+    const key = manilaDateKey(eventDate);
+    const occupied = occupiedByDate.get(key) ?? [];
+    occupied.push(record);
+    occupiedByDate.set(key, occupied);
+  }
   for (let day = 1; day <= 31; day++) {
     const key = `${month}-${String(day).padStart(2, "0")}`;
     const date = manilaDateFromKey(key);
     if (!date) break;
-    const occupied = records.filter((record) => {
-      const eventDate = record.eventDate instanceof Date ? record.eventDate :
-        (record.eventDate as {toDate?: () => Date} | undefined)?.toDate?.();
-      return eventDate && manilaDateKey(eventDate) === key &&
-        providerRequestOccupiesAvailability({...record, status: record.status, now});
-    });
+    const occupied = occupiedByDate.get(key) ?? [];
     const schedule = validateProviderAvailability({providerData, now, existingBookings: [],
       request: {providerRequestId: "calendar", type: "catering", eventDate: date,
         eventTime: "12:00", eventEndTime: "13:00", guestCount: 1, services: []}});
-    const unavailable = key < manilaDateKey(now) || schedule.issues.some((issue) =>
+    const unavailable = key < today || schedule.issues.some((issue) =>
       ["PROVIDER_NOT_OPERATIONAL", "PROVIDER_SCHEDULE_INVALID", "OUTSIDE_OPERATING_DAY",
         "BLOCKED_DATE", "LEAD_TIME_NOT_MET"].includes(issue.code));
-    const state: CalendarState | null = hasWalkInReservation(providerData, key) || occupied.some((record) =>
-      ["confirmed", "in_progress", "completed"].includes(String(record.status))) ? "booked" :
-      occupied.length ? "on_hold" : unavailable ? "unavailable" : null;
+    const walkIns = walkInReservationCount(providerData, key);
+    const capacity = dailyEventCapacity(providerData);
+    const committed = occupied.filter((record) =>
+      ["confirmed", "in_progress", "completed"].includes(String(record.status)));
+    const state: CalendarState | null = countOnlineEvents(committed) + walkIns >= capacity ? "booked" :
+      countOnlineEvents(occupied) + walkIns >= capacity ? "on_hold" :
+      unavailable ? "unavailable" : null;
     if (state) dates.push({date: key, state});
   }
   return dates;

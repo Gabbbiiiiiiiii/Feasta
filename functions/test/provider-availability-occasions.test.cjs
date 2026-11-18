@@ -131,3 +131,16 @@ test('schedule-only saves preserve event preferences when catalog policy is disa
   assert.equal(f.records.get('providers/provider').bookingLeadTimeDays, 5);
   assert.deepEqual(f.records.get('providers/provider').supportedOccasionIds, ['birthday']);
 });
+
+test('capacity settings change only the provider and retain existing reservations on reduction', async () => {
+  const f = fixture();
+  const booking = {providerId: 'provider', status: 'confirmed'};
+  f.records.set('providerRequests/confirmed', booking);
+  const result = await f.save({maxEventsPerDay: 3, acceptsMultipleEventsPerDay: true});
+  assert.equal(result.settings.maxEventsPerDay, 3);
+  assert.equal(f.records.get('providers/provider').availabilityCapacityReducedAt, undefined);
+  await f.save({expectedSettingsRevision: 1});
+  assert.equal(f.records.get('providers/provider').availabilityCapacityReducedAt, 'server-time');
+  assert.equal(f.records.get('providerRequests/confirmed'), booking);
+  assert.deepEqual(f.writes, ['providers/provider', 'providers/provider']);
+});

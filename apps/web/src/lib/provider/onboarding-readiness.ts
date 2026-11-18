@@ -144,8 +144,9 @@ export function providerProfileCompletedSteps(
       !capabilities.usesEquipmentCapacity ||
       validCount(profile.availableEquipmentCount)
     ) &&
-    profile.maxEventsPerDay === 1 &&
-    profile.acceptsMultipleEventsPerDay !== true &&
+    typeof profile.maxEventsPerDay === "number" &&
+    Number.isInteger(profile.maxEventsPerDay) &&
+    profile.maxEventsPerDay >= 1 && profile.maxEventsPerDay <= 100 &&
     (profile.operatingDays?.length ?? 0) > 0 &&
     Number.isInteger(profile.bookingLeadTimeDays) &&
     (profile.bookingLeadTimeDays ?? -1) >= 0 &&

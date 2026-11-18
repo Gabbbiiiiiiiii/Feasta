@@ -1,0 +1,108 @@
+import {fireEvent, render, screen, waitFor} from "@testing-library/react";
+import {beforeEach, expect, it, vi} from "vitest";
+
+const actions = vi.hoisted(() => ({checkWalkInDayAction: vi.fn(), saveWalkIn: vi.fn(), push: vi.fn()}));
+vi.mock("@/app/provider/bookings/walk-in/actions", () => actions);
+vi.mock("next/navigation", () => ({useRouter: () => ({push: actions.push})}));
+
+import {WalkInForm} from "@/app/provider/bookings/walk-in/walk-in-form";
+
+const eventDate = (offset: number) => new Date(Date.now() + (8 + offset * 24) * 3600000).toISOString().slice(0, 10);
+
+beforeEach(() => {
+  actions.checkWalkInDayAction.mockReset().mockResolvedValue({remaining: 1});
+  actions.saveWalkIn.mockReset();
+  actions.push.mockReset();
+});
+
+it("checks availability automatically and shows one free slot", async () => {
+  render(<WalkInForm packages={[]} />);
+  expect(actions.checkWalkInDayAction).not.toHaveBeenCalled();
+  expect(screen.queryByRole("button", {name: "Check availability"})).not.toBeInTheDocument();
+  const date = screen.getByLabelText("Event date");
+  fireEvent.change(date, {target: {value: eventDate(1)}});
+  expect(await screen.findByText("Available (1 slot free)")).toBeVisible();
+  expect(actions.checkWalkInDayAction).toHaveBeenCalledWith(eventDate(1));
+  actions.checkWalkInDayAction.mockResolvedValueOnce({remaining: 0});
+  fireEvent.change(date, {target: {value: eventDate(2)}});
+  expect(await screen.findByText("Date Fully Booked")).toBeVisible();
+});
+
+it("pre-fills the agreement, defaults to custom service for empty catalogs, and offers Other event type", () => {
+  render(<WalkInForm packages={[]} agreementDefaults={{date: "2026-11-19", time: "09:30"}} />);
+  expect(screen.getByLabelText("Date of agreement")).toHaveValue("2026-11-19");
+  expect(screen.getByLabelText("Time of agreement")).toHaveValue("09:30");
+  expect(screen.getAllByRole("checkbox")).toHaveLength(1);
+  expect(screen.getByLabelText("Service selection")).toHaveValue("custom");
+  expect(screen.getByLabelText("Service name")).toBeRequired();
+  fireEvent.change(screen.getByLabelText("Event type"), {target: {value: "other"}});
+  expect(screen.getByLabelText("Specify event type")).toBeRequired();
+});
+
+it("shows invalid names and guest counts before submitting", () => {
+  render(<WalkInForm packages={[]} />);
+  const name = screen.getByLabelText("Full name");
+  const guests = screen.getByLabelText("Expected guests (where applicable)");
+  fireEvent.change(name, {target: {value: "1111111111"}});
+  fireEvent.blur(name);
+  expect(name).toHaveAccessibleDescription("Enter a name that includes letters.");
+  fireEvent.change(guests, {target: {value: "100001"}});
+  fireEvent.submit(screen.getByRole("button", {name: "Confirm walk-in booking"}).closest("form")!);
+  expect(guests).toHaveAccessibleDescription("Enter a whole number from 1 to 100,000.");
+  expect(actions.saveWalkIn).not.toHaveBeenCalled();
+});
+
+it("returns to the walk-in list with the saved reference", async () => {
+  const reference = "abcdefghijklmnopqrst";
+  actions.saveWalkIn.mockResolvedValueOnce({message: "Walk-in booking recorded successfully.", reference});
+  const tomorrow = new Date(Date.now() + 32 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  render(<WalkInForm packages={[]} />);
+  fireEvent.change(screen.getByLabelText("Service selection"), {target: {value: "custom"}});
+  for (const [label, value] of [
+    ["Full name", "Sample Customer"], ["Contact number", "09123456789"],
+    ["Event type", "Birthday"], ["Event date", tomorrow], ["Start time", "09:00"],
+    ["End time", "12:00"], ["Venue name", "Sample Hall"], ["Complete venue address", "Ormoc City"],
+    ["Service name", "Catering"], ["Date of agreement", "2025-01-01"], ["Time of agreement", "10:00"],
+  ]) {
+    fireEvent.change(screen.getByLabelText(label), {target: {value}});
+  }
+  for (const checkbox of screen.getAllByRole("checkbox")) fireEvent.click(checkbox);
+  fireEvent.submit(screen.getByRole("button", {name: "Confirm walk-in booking"}).closest("form")!);
+  await waitFor(() => expect(actions.push).toHaveBeenCalledWith(`/provider/bookings/walk-in?saved=${reference}`));
+});
+
+it("shows published details and pricing options and supports switching to a custom service", () => {
+  render(<WalkInForm packages={[
+    {id: "wedding", kind: "packages", name: "Wedding catering", category: "catering_service",
+      description: "Wedding buffet", inclusions: ["Rice and entrées"], publishedPriceCentavos: 1500000,
+      pricingModel: "per_bundle", minimumGuests: 40, maximumGuests: 100, freelanceDetails: null,
+      options: [
+        {id: "drop_off", label: "Drop-off", priceCentavos: 1500000, inclusions: []},
+        {id: "full_service", label: "Full service", priceCentavos: 2000000, inclusions: ["Buffet staff"]},
+      ]},
+    {id: "photos", kind: "addons", name: "Wedding photography", category: "photographer",
+      description: "Wedding coverage", inclusions: [], publishedPriceCentavos: 800000,
+      pricingModel: "fixed", minimumGuests: null, maximumGuests: null, options: [],
+      freelanceDetails: {coverageMinutes: 240, deliverables: [
+        {id: "gallery", name: "Edited gallery", min: 2, max: 3, unit: "weeks", method: "gallery"},
+      ], collaboration: "", collaborationNotes: "", addOns: [], travelZones: []}},
+  ]} />);
+  const select = screen.getByLabelText("Service selection");
+  expect(screen.getAllByRole("option").at(-1)).toHaveTextContent("+ Custom Walk-In Service");
+  fireEvent.change(select, {target: {value: "packages/wedding"}});
+  expect(screen.getByText("Wedding buffet")).toBeVisible();
+  expect(screen.getByLabelText(/Agreed price in/)).toBeRequired();
+  fireEvent.change(screen.getByLabelText("Pricing option"), {target: {value: "full_service"}});
+  const price = screen.getByLabelText(/Agreed price in/);
+  expect(price).toHaveValue("20000.00");
+  fireEvent.change(price, {target: {value: "18500"}});
+  expect(price).toHaveValue("18500");
+  fireEvent.change(select, {target: {value: "addons/photos"}});
+  expect(screen.queryByText("Wedding buffet")).not.toBeInTheDocument();
+  expect(screen.getByText("Coverage: 240 minutes")).toBeVisible();
+  expect(screen.getByLabelText(/Agreed price in/)).toHaveValue("8000.00");
+  fireEvent.change(select, {target: {value: "custom"}});
+  expect(screen.getByLabelText("Service name")).toBeRequired();
+  expect(screen.getByLabelText("Service description (optional)")).toBeVisible();
+  expect(screen.getByLabelText(/Agreed price in/)).toHaveValue("");
+});

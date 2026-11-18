@@ -538,6 +538,7 @@ export const acceptProviderRequest = onCall(
                 authorized.providerData,
               request: {
                 providerRequestId,
+                mainEventId,
                 type: authorized.type,
                 eventDate:
                   acceptanceSnapshot

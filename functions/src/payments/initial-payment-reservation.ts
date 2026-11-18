@@ -52,8 +52,14 @@ export async function requireInitialPaymentReservation(transaction: Transaction,
       .where("eventDate", "<", Timestamp.fromDate(range.end))
       .where("status", "in", [...AVAILABILITY_COUNTED_REQUEST_STATUSES])),
   ]);
-  const availability = validateProviderAvailability({providerData: provider.data() ?? {},
-    request: {providerRequestId, type,
+  const providerData = provider.data() ?? {};
+  const reducedAt = providerData.availabilityCapacityReducedAt;
+  const acceptedAt = request.acceptedAt;
+  const preserveExistingReservation = reducedAt instanceof Timestamp && acceptedAt instanceof Timestamp &&
+    acceptedAt.toMillis() <= reducedAt.toMillis() && reducedAt.toMillis() <= now.getTime() &&
+    bookings.docs.some((document) => document.id === providerRequestId);
+  const availability = validateProviderAvailability({providerData, preserveExistingReservation,
+    request: {providerRequestId, mainEventId: request.mainEventId, type,
       eventDate: eventDate.toDate(), eventTime: request.eventTime, eventEndTime: request.eventEndTime,
       guestCount: request.guestCount, services: request.services},
     existingBookings: bookings.docs.map(document => ({...document.data(), providerRequestId: document.id,

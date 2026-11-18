@@ -103,7 +103,7 @@ export function ProviderBookingsClient({
     {
       id: "event",
       header: "Event",
-      cell: (booking) => formatLabel(booking.eventType),
+      cell: (booking) => <>{formatLabel(booking.eventType)}<span className="block text-xs text-muted-foreground">Online Booking</span></>,
     },
     {
       id: "date",
@@ -424,7 +424,7 @@ function BookingMobileCard({
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <h3 className="truncate font-bold">{booking.customerDisplayName}</h3>
-          <p className="mt-1 text-sm text-muted-foreground">{formatLabel(booking.eventType)}</p>
+          <p className="mt-1 text-sm text-muted-foreground">{formatLabel(booking.eventType)} · Online Booking</p>
         </div>
         <ProviderBookingStatus booking={booking} />
       </div>

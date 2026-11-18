@@ -1,16 +1,28 @@
 "use server";
 
 import {revalidatePath} from "next/cache";
-import {mutateWalkIn} from "@/lib/provider/bookings/walk-in-booking-service";
+import {checkWalkInDay, mutateWalkIn} from "@/lib/provider/bookings/walk-in-booking-service";
+
+export type WalkInActionState = {
+  message?: string;
+  error?: string;
+  reference?: string;
+  remaining?: number | null;
+};
 
 export async function saveWalkIn(
-  _previous: {message?: string; error?: string},
+  _previous: WalkInActionState,
   form: FormData,
-): Promise<{message?: string; error?: string}> {
+): Promise<WalkInActionState> {
   const result = await mutateWalkIn(form);
   if (result.message) {
+    revalidatePath("/provider/bookings");
     revalidatePath("/provider/bookings/walk-in");
     revalidatePath("/provider/calendar");
   }
   return result;
+}
+
+export async function checkWalkInDayAction(date: string) {
+  return checkWalkInDay(date);
 }

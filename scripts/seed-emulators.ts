@@ -104,6 +104,9 @@ const documents: Record<string, Record<string, unknown>> = {
   "providerVerifications/verification-submitted/documents/business_permit": verificationDocument("verification-submitted", "provider-submitted", "dev-provider-submitted", "business_permit"),
   "providerVerifications/verification-submitted/documents/valid_id": verificationDocument("verification-submitted", "provider-submitted", "dev-provider-submitted", "valid_id"),
   "packages/package-approved-wedding": {
+    status: "published",
+    isPublished: true,
+    isDeleted: false,
     providerId: "provider-approved",
     name: "Classic Wedding Package",
     description: "A complete seeded wedding catering package.",
@@ -129,6 +132,9 @@ const documents: Record<string, Record<string, unknown>> = {
     updatedAt: now,
   },
   "addons/addon-approved-photo": {
+    status: "published",
+    isPublished: true,
+    isDeleted: false,
     providerId: "provider-approved",
     providerBusinessName: "Approved Feasta Catering",
     providerType: "catering_provider",

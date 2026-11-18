@@ -39,11 +39,12 @@ it.skipIf(!fixture.host || !/^127\.0\.0\.1:\d+$/.test(fixture.host))(
       Object.entries(values).forEach(([key, value]) => form.set(key, value));
       return form;
     };
-    const create = () => fields({
+    const create = (key = randomUUID()) => fields({
       action: "create", "full name": "Sample Customer", "contact number": "09123456789",
       "event type": "Wedding", "event date": date, "start time": "09:00",
-      "end time": "12:00", location: "Manila", "number of guests": "50",
-      "custom service": "Photography", "agreement date": dateKey(0), acknowledgment: "on",
+      "end time": "12:00", "venue name": "Hall", "venue address": "Manila", "number of guests": "50",
+      "custom service": "Photography", "agreement date": dateKey(-1), "agreement time": "10:00",
+      acknowledgment: "on", "submission key": key,
     });
     await provider.set({ownerId: "walk-in-owner", verificationStatus: "approved", isActive: true});
     try {
@@ -54,20 +55,33 @@ it.skipIf(!fixture.host || !/^127\.0\.0\.1:\d+$/.test(fixture.host))(
       expect(records.size).toBe(1);
       const record = records.docs[0];
       expect(record.get("status")).toBe("confirmed");
-      expect((await provider.get()).get("walkInReservedDates")).toEqual([date]);
-      expect(await mutateWalkIn(fields({action: "cancelled", reference: record.id}))).toHaveProperty("message");
+      expect((await provider.get()).get("walkInReservedCounts")).toEqual({[date]: 1});
+      expect(await mutateWalkIn(fields({action: "cancelled", reference: record.id, "cancellation reason": "Customer request"}))).toHaveProperty("message");
       expect((await record.ref.get()).get("status")).toBe("cancelled");
-      expect((await provider.get()).get("walkInReservedDates")).toEqual([]);
+      expect((await provider.get()).get("walkInReservedCounts")).toEqual({});
 
       await online.set({
         providerId: fixture.providerId, status: "confirmed",
         eventDate: Timestamp.fromDate(new Date(`${date}T12:00:00+08:00`)),
       });
-      expect(await mutateWalkIn(create())).toEqual({error: "You already have an active booking on this date."});
-      expect((await walkIns.get()).size).toBe(1);
+      expect(await mutateWalkIn(create())).toEqual({error: "Your business has reached its booking capacity for this date."});
+      await provider.update({maxEventsPerDay: 3, acceptsMultipleEventsPerDay: true});
+      const key = randomUUID();
+      expect(await mutateWalkIn(create(key))).toMatchObject({reference: key, remaining: 1});
+      expect(await mutateWalkIn(create(key))).toMatchObject({reference: key, remaining: null});
+      expect(await mutateWalkIn(create())).toMatchObject({remaining: 0});
+      await provider.update({maxEventsPerDay: 1, acceptsMultipleEventsPerDay: false});
+      expect((await walkIns.where("status", "==", "confirmed").get()).size).toBe(2);
+      expect(await mutateWalkIn(create())).toHaveProperty("error");
+      const payments = await adminDb.collection("payments").where("providerId", "==", fixture.providerId).get();
+      expect(payments.empty).toBe(true);
+      const privateRead = await fetch(`http://${fixture.host}/v1/projects/${fixture.projectId}/databases/(default)/documents/${walkIns.doc(key).path}`);
+      expect(privateRead.status).toBe(403);
     } finally {
       const records = await walkIns.get();
-      await Promise.all([...records.docs.map((doc) => doc.ref.delete()), online.delete(), provider.delete()]);
+      const audits = await adminDb.collection("adminLogs").where("metadata.providerId", "==", fixture.providerId).get();
+      await Promise.all([...records.docs.map((doc) => doc.ref.delete()),
+        ...audits.docs.map((doc) => doc.ref.delete()), online.delete(), provider.delete()]);
     }
   },
   30000,

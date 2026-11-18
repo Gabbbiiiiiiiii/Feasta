@@ -76,7 +76,7 @@ test("bounded monthly query isolates providers, uses Manila boundaries and fails
     limit(value) {limit = value; return this;},
     async get() {
       const docs = records.filter((r) => r.providerId === filters.find((f) => f[0] === "providerId")[2]).map((r) => ({data: () => r}));
-      return {size: overflow ? 1001 : docs.length, docs};
+      return {size: overflow ? 10_001 : docs.length, docs};
     },
   };
   db.collection = (name) => name === "providerRequests" ? query : {doc: () => ({get: async () => ({exists: true, data: () => name === "providers" ? eligible : owner})})};
@@ -84,7 +84,7 @@ test("bounded monthly query isolates providers, uses Manila boundaries and fails
     const result = await getCustomerProviderCalendarForInput({providerId: "provider_123", month: "2026-10"}, now);
     assert.equal(result.dates.find((d) => d.date === "2026-10-20").state, "booked");
     assert.equal(result.dates.find((d) => d.date === "2026-10-21"), undefined);
-    assert.equal(limit, 1001);
+    assert.equal(limit, 10_001);
     assert.equal(filters.find((f) => f[0] === "eventDate" && f[1] === ">=")[2].toDate().toISOString(), "2026-09-30T16:00:00.000Z");
     assert.equal(filters.find((f) => f[0] === "eventDate" && f[1] === "<")[2].toDate().toISOString(), "2026-10-31T16:00:00.000Z");
     overflow = true;
@@ -97,4 +97,10 @@ test("bounded monthly query isolates providers, uses Manila boundaries and fails
 test("customer calendar exposes walk-in dates only as booked", () => {
   assert.equal(state([], {walkInReservedDates: ["2026-10-20"]}), "booked");
   assert.equal(state([], {walkInReservedDates: []}), undefined);
+});
+
+test("a partially occupied date stays selectable until its shared capacity is full", () => {
+  const settings = {maxEventsPerDay: 3, walkInReservedCounts: {"2026-10-20": 1}};
+  assert.equal(state([booking("confirmed", {mainEventId: "first"})], settings), undefined);
+  assert.equal(state([booking("confirmed", {mainEventId: "first"}), booking("confirmed", {mainEventId: "second"})], settings), "booked");
 });

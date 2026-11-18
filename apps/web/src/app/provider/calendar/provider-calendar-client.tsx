@@ -186,7 +186,9 @@ export function ProviderCalendarClient({
       selectedDate,
     );
 
-  const capacity = 1;
+  const capacity = initialData.settings.maxEventsPerDay;
+  const selectedOccupancy = occupiedEventCount(selectedEvents);
+  const selectedRemaining = Math.max(0, capacity - selectedOccupancy);
 
   const canManageAvailability =
     selectedDate >= today;
@@ -380,10 +382,9 @@ export function ProviderCalendarClient({
                     const dayCapacity =
                       capacity;
 
-                    const full =
-                      dayEvents.length >=
-                      dayCapacity;
-                    const reservationLabel = dayEvents.some((event) =>
+                    const occupied = occupiedEventCount(dayEvents);
+                    const full = occupied >= dayCapacity;
+                    const reservationLabel = !full ? `${dayCapacity - occupied} open` : dayEvents.some((event) =>
                       event.status === "completed") ? "Completed" :
                       dayEvents.some((event) => event.status === "confirmed" ||
                         event.status === "in_progress") ? "Booked" :
@@ -554,7 +555,7 @@ export function ProviderCalendarClient({
 
                 <InfoRow
                   label="Reservations shown"
-                  value={String(selectedEvents.length)}
+                  value={`${selectedOccupancy} of ${capacity} · ${selectedRemaining} open`}
                 />
                 <InfoRow
                   label="Manual status"
@@ -959,4 +960,10 @@ function calendarErrorMessage(
     "We could not update your " +
     "availability. Please try again."
   );
+}
+
+
+function occupiedEventCount(events: ProviderCalendarEvent[]): number {
+  return new Set(events.map((event) =>
+    event.mainEventId ? `event:${event.mainEventId}` : `request:${event.id}`)).size;
 }

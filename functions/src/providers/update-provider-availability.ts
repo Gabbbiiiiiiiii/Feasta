@@ -28,6 +28,7 @@ import {
 import {Timestamp} from "firebase-admin/firestore";
 import {
   AVAILABILITY_COUNTED_REQUEST_STATUSES,
+  dailyEventCapacity,
   hasWalkInReservation,
   manilaDateFromKey,
   manilaDateKey,
@@ -397,12 +398,11 @@ export const updateProviderAvailabilitySettings =
         );
 
       if (
-        acceptsMultipleEventsPerDay ||
-        maxEventsPerDay !== 1
+        acceptsMultipleEventsPerDay !== (maxEventsPerDay > 1)
       ) {
         throw new HttpsError(
           "invalid-argument",
-          "FEASTA currently permits only one event per provider per day.",
+          "The daily capacity and multiple-events setting must agree.",
         );
       }
 
@@ -526,6 +526,8 @@ export const updateProviderAvailabilitySettings =
             providerReference,
             {
               ...settings,
+              ...(maxEventsPerDay < dailyEventCapacity(providerData)
+                ? {availabilityCapacityReducedAt: serverTimestamp()} : {}),
               updatedAt:
                 serverTimestamp(),
             },

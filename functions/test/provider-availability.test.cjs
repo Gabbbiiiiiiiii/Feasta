@@ -293,7 +293,7 @@ test("unresolved payment evidence protects capacity without renewing an unpaid h
   }
 });
 
-test("daily booking limit is independent of configurable capacity and staff counts", () => {
+test("daily booking limit respects business capacity independently of staff and equipment", () => {
   const now = new Date("2026-08-20T12:00:00+08:00");
   const blocked = validate({
     now,
@@ -320,8 +320,8 @@ test("daily booking limit is independent of configurable capacity and staff coun
     })],
   });
 
-  assert.deepEqual(codes(blocked), codes(sameWithoutCapacity));
-  assert.deepEqual(codes(blocked), ["TIME_CONFLICT"]);
+  assert.equal(blocked.available, true);
+  assert.deepEqual(codes(sameWithoutCapacity), ["TIME_CONFLICT"]);
 
   const source = readFileSync(
     join(sourceRoot, "provider-availability/validate-provider-availability.ts"),
@@ -329,7 +329,7 @@ test("daily booking limit is independent of configurable capacity and staff coun
   );
   assert.doesNotMatch(
     source,
-    /maxEventsPerDay|acceptsMultipleEventsPerDay|availableStaffCount|availableEquipmentCount/u,
+    /availableStaffCount|availableEquipmentCount/u,
   );
   assert.deepEqual(AVAILABILITY_COUNTED_REQUEST_STATUSES, [
     "accepted",
@@ -489,4 +489,20 @@ test("a confirmed walk-in reserves the entire Manila date for online bookings", 
     eventDate: manilaDateFromKey("2026-08-25"),
   })}).available, true);
   assert.equal(validate({providerData: provider({walkInReservedDates: []})}).available, true);
+});
+
+test("daily capacity is shared by walk-ins and distinct online events", () => {
+  const providerData = provider({
+    maxEventsPerDay: 3, acceptsMultipleEventsPerDay: true,
+    walkInReservedCounts: {"2026-08-24": 1},
+  });
+  const confirmed = (providerRequestId, mainEventId) => ({
+    providerRequestId, mainEventId, status: "confirmed", eventTime: "12:00", eventEndTime: "13:00",
+  });
+  const sameEvent = [confirmed("one", "wedding"), confirmed("two", "wedding")];
+  assert.equal(validate({providerData, existingBookings: sameEvent}).available, true);
+  const existingBookings = [...sameEvent, confirmed("three", "birthday")];
+  assert.deepEqual(codes(validate({providerData, existingBookings})), ["MAX_EVENTS_REACHED"]);
+  assert.equal(validate({providerData, existingBookings, request: request({mainEventId: "wedding"})}).available, true);
+  assert.deepEqual(codes(validate({providerData: {...providerData, maxEventsPerDay: 1}, existingBookings})), ["TIME_CONFLICT"]);
 });

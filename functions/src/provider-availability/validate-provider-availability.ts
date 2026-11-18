@@ -73,6 +73,7 @@ export type ProviderAvailabilityResult = {
 
 export type ProviderAvailabilityRequest = {
   providerRequestId: string;
+  mainEventId?: unknown;
   type: ProviderRequestType;
   eventDate: Date;
   eventTime: string;
@@ -175,6 +176,7 @@ type ValidateProviderAvailabilityInput = {
   request: ProviderAvailabilityRequest;
   existingBookings: readonly ExistingProviderBooking[];
   now?: Date;
+  preserveExistingReservation?: boolean;
 };
 
 const OPERATING_DAY_BY_UTC_DAY = [
@@ -307,11 +309,13 @@ export function validateProviderAvailability(
     })
   );
 
-  /*
-   * Callers load occupancy for one Asia/Manila calendar date.
-   * A provider may serve only one FEASTA event on that date.
-   * Preserve specific time-overlap errors for existing callers.
-   */
+  const eventAlreadyReserved = typeof input.request.mainEventId === "string" &&
+    input.request.mainEventId !== "" &&
+    occupyingBookings.some((booking) => booking.mainEventId === input.request.mainEventId);
+  const occupiedSlots = countOnlineEvents(occupyingBookings) +
+    walkInReservationCount(input.providerData, eventDateKey);
+  const capacityReached = !input.preserveExistingReservation && !eventAlreadyReserved &&
+    occupiedSlots >= dailyEventCapacity(input.providerData);
   const requestedRange = parseTimeRange(
     input.request.eventTime,
     input.request.eventEndTime,
@@ -323,7 +327,8 @@ export function validateProviderAvailability(
       "The event time range is invalid.",
       "eventTime",
     ));
-  } else if (occupyingBookings.some((booking) => {
+  } else if (capacityReached && dailyEventCapacity(input.providerData) === 1 &&
+    occupyingBookings.some((booking) => {
     const existingRange = parseTimeRange(
       booking.eventTime,
       booking.eventEndTime,
@@ -342,12 +347,12 @@ export function validateProviderAvailability(
 
   if (
     requestedRange !== null &&
-    (occupyingBookings.length > 0 || hasWalkInReservation(input.providerData, eventDateKey)) &&
+    capacityReached &&
     !issues.some((item) => item.code === "TIME_CONFLICT")
   ) {
     issues.push(issue(
       "MAX_EVENTS_REACHED",
-      "This provider already has an active booking on this date.",
+      "This provider has reached daily booking capacity.",
       "eventDate",
     ));
   }
@@ -358,8 +363,35 @@ export function validateProviderAvailability(
 export function hasWalkInReservation(
   provider: Readonly<Record<string, unknown>>, dateKey: string,
 ): boolean {
+  return walkInReservationCount(provider, dateKey) > 0;
+}
+
+export function dailyEventCapacity(provider: Readonly<Record<string, unknown>>): number {
+  return boundedInteger(provider.maxEventsPerDay, 1, 100) ?? 1;
+}
+
+export function walkInReservationCount(
+  provider: Readonly<Record<string, unknown>>, dateKey: string,
+): number {
+  const counts = provider.walkInReservedCounts;
+  if (counts && typeof counts === "object" && !Array.isArray(counts)) {
+    return boundedInteger((counts as Record<string, unknown>)[dateKey], 1, 100) ?? 0;
+  }
   return Array.isArray(provider.walkInReservedDates) &&
-    provider.walkInReservedDates.includes(dateKey);
+    provider.walkInReservedDates.includes(dateKey) ? 1 : 0;
+}
+
+export function countOnlineEvents(bookings: readonly Record<string, unknown>[]): number {
+  const eventIds = new Set<string>();
+  let legacyBookings = 0;
+  for (const booking of bookings) {
+    if (typeof booking.mainEventId === "string" && booking.mainEventId) {
+      eventIds.add(booking.mainEventId);
+    } else {
+      legacyBookings++;
+    }
+  }
+  return eventIds.size + legacyBookings;
 }
 
 export function manilaDateRange(date: Date): {

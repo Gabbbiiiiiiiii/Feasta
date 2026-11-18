@@ -248,3 +248,14 @@ test("independent lifecycle allows unresolved parents and rejects terminal paren
       mainEvent: {status}, paymentChoice: "remaining_balance"}), null);
   }
 });
+
+test("an active reservation predating a capacity reduction can still pay", async () => {
+  seed();
+  records.get("providers/provider_0").availabilityCapacityReducedAt = Timestamp.now();
+  records.set("providerRequests/request_conflict", {...request(ids[0]),
+    providerRequestId: "request_conflict", mainEventId: "other_event", bookingId: "other_event", status: "confirmed"});
+  const result = await checkout();
+  assert.ok(result.paymentId);
+  assert.equal(dispatches, 1);
+  assert.equal(request("request_conflict").status, "confirmed");
+});

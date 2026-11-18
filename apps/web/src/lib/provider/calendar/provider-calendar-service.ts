@@ -143,8 +143,8 @@ const events = [...onlineEvents, ...walkInEvents]
           provider.unavailableDates,
         ),
 
-      acceptsMultipleEventsPerDay: false,
-      maxEventsPerDay: 1,
+      acceptsMultipleEventsPerDay: dailyEventCapacity(provider) > 1,
+      maxEventsPerDay: dailyEventCapacity(provider),
     },
 
     events,
@@ -156,6 +156,12 @@ function timestampMs(value: unknown): number | null {
   if (value instanceof Timestamp) return value.toMillis();
   if (value instanceof Date && Number.isFinite(value.getTime())) return value.getTime();
   return null;
+}
+
+export function dailyEventCapacity(data: Record<string, unknown>): number {
+  const value = data.maxEventsPerDay;
+  return typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= 100
+    ? value : 1;
 }
 
 export function calendarRequestOccupies(

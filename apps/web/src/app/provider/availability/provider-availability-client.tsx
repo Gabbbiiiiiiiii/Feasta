@@ -43,6 +43,7 @@ type AvailabilityFormState = {
   supportedOccasionIds: string[];
   operatingDays: ProviderOperatingDay[];
   bookingLeadTimeDays: string;
+  maxEventsPerDay: string;
   minGuestsPerEvent: string;
   maxGuestsPerEvent: string;
 };
@@ -311,6 +312,15 @@ export function ProviderAvailabilityClient({
           title="Event Capacity"
           description="Only capacity settings that apply to your verified service categories are shown."
         >
+          <FormField id="maxEventsPerDay" label="Maximum events per day" required>
+            <Input type="number" inputMode="numeric" min={1} max={100} step={1}
+              value={form.maxEventsPerDay} disabled={savingSettings}
+              onChange={(event) => {
+                const value = event.currentTarget.value;
+                setForm((current) => ({...current, maxEventsPerDay: value}));
+              }} />
+          </FormField>
+          <p className="mb-4 text-sm text-muted-foreground">Online and walk-in bookings share this limit across your business.</p>
           {capabilities.requiresGuestCapacity ? (
             <div className="grid gap-4 sm:grid-cols-2">
               <CapacityInput
@@ -648,6 +658,7 @@ function formFromSettings(
     supportedOccasionIds: [...(settings.supportedOccasionIds ?? [])].sort(),
     operatingDays: [...settings.operatingDays],
     bookingLeadTimeDays: String(settings.bookingLeadTimeDays),
+    maxEventsPerDay: String(settings.maxEventsPerDay),
     minGuestsPerEvent: String(settings.guestCapacity?.minimum ?? 0),
     maxGuestsPerEvent: String(settings.guestCapacity?.maximum ?? 0),
   };
@@ -659,6 +670,7 @@ function formFromMutation(
   return {
     operatingDays: [...settings.operatingDays],
     bookingLeadTimeDays: String(settings.bookingLeadTimeDays),
+    maxEventsPerDay: String(settings.maxEventsPerDay),
     supportedOccasionIds: [...(settings.supportedOccasionIds ?? [])].sort(),
     minGuestsPerEvent: String(settings.minGuestsPerEvent),
     maxGuestsPerEvent: String(settings.maxGuestsPerEvent),
@@ -683,6 +695,7 @@ function settingsInput(
     0,
     365,
   );
+  const maxEventsPerDay = boundedInteger(form.maxEventsPerDay, "Daily event capacity", 1, 100);
   const capabilities = settings.capacityCapabilities;
   const minGuestsPerEvent = capabilities.requiresGuestCapacity
     ? boundedInteger(form.minGuestsPerEvent, "Minimum guests", 1, 100_000)
@@ -698,8 +711,8 @@ function settingsInput(
   return {
     operatingDays: form.operatingDays,
     bookingLeadTimeDays,
-    acceptsMultipleEventsPerDay: false,
-    maxEventsPerDay: 1,
+    acceptsMultipleEventsPerDay: maxEventsPerDay > 1,
+    maxEventsPerDay,
     minGuestsPerEvent,
     maxGuestsPerEvent,
     availableStaffCount: settings.availableStaffCount ?? 0,
