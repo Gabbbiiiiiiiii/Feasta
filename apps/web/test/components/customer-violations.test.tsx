@@ -22,7 +22,7 @@ it("shows rolling observation, strikes, booking references and Manila expiry", a
   expect(screen.getByText(/Rolling 30-day window/)).toBeInTheDocument();
   expect(screen.getByText(/Restricted until/)).toHaveTextContent("Nov 21, 2026");
   expect(screen.getByText(/Provider requests:/)).toHaveTextContent("request_002");
-  expect(screen.getByText(/Restriction cycle ID/)).toBeInTheDocument();
+  expect(screen.queryByText(/Restriction cycle ID/)).not.toBeInTheDocument();
 });
 
 it("requires a private reason and submits the current revision, then reloads", async () => {

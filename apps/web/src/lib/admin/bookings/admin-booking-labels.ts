@@ -1,6 +1,10 @@
 import type {MainEventStatus, PaymentStatus} from "@feasta/shared-types";
 import type {AdminBookingOverallPaymentStatus} from "./admin-booking-types";
 
+export function adminBookingNumber(booking: {id: string; reference: string}): string | null {
+  return booking.reference && booking.reference !== booking.id ? booking.reference : null;
+}
+
 export const adminBookingStatusLabels: Record<MainEventStatus, string> = {
   draft: "Draft",
   pending_provider_approval: "Waiting for provider response",

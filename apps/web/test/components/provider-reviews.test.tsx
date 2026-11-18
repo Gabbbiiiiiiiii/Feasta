@@ -258,7 +258,7 @@ describe("provider reviews workspace", () => {
       "review-event_customer",
     ));
     const drawer = await screen.findByRole("dialog", {name: "Review details"});
-    expect(within(drawer).getByText("review-event_customer")).toBeVisible();
+    expect(drawer).not.toHaveTextContent("review-event_customer");
     expect(within(drawer).getByText("Ana Reyes")).toBeVisible();
     expect(within(drawer).getByText("Birthday Party")).toBeVisible();
     expect(within(drawer).getByText("Celebration Package")).toBeVisible();

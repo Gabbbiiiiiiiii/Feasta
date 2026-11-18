@@ -10,8 +10,8 @@ vi.mock("@/lib/provider/fixed-package-recovery-client", () => ({
 }));
 const preview = {packageId:"original", sourceFingerprint:"a".repeat(64),
   proposalFingerprint:"b".repeat(64), eligible:true, blockers:[],
-  original:{name:"Saved catering", price:1850, minimumGuests:8, maximumGuests:10},
-  proposed:{name:"Saved catering", price:1850, minimumGuests:8, maximumGuests:10, revision:1}};
+  original:{name:"Saved catering", price:1850, minimumGuests:8, maximumGuests:10, providerId:"provider-doc", createdBy:"creator-uid"},
+  proposed:{name:"Saved catering", price:1850, minimumGuests:8, maximumGuests:10, revision:1, providerId:"provider-doc", updatedBy:"editor-uid"}};
 beforeEach(() => {
   vi.clearAllMocks(); api.preview.mockResolvedValue(preview);
   api.confirm.mockResolvedValue({packageId:"original",status:"draft"});
@@ -21,6 +21,7 @@ it("shows the original and proposal without mutation, then requires explicit pro
   const saved=vi.fn();render(<ProviderPackageRecovery packageId="original" onRecovered={saved}/>);
   fireEvent.click(screen.getByRole("button",{name:"Review recovery"}));
   expect(await screen.findByRole("region",{name:"Original saved draft"})).toHaveTextContent("1850");
+  expect(screen.getByRole("dialog")).not.toHaveTextContent(/Package ID: original|provider-doc|creator-uid|editor-uid/);
   expect(screen.getByRole("region",{name:"Proposed V2 draft"})).toHaveTextContent('"revision": 1');
   expect(api.confirm).not.toHaveBeenCalled();
   expect(screen.getByRole("button",{name:"Confirm recovery"})).toBeDisabled();

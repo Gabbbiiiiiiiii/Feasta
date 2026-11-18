@@ -1,5 +1,7 @@
 "use client";
 
+import {adminBookingNumber} from "@/lib/admin/bookings/admin-booking-labels";
+
 import {formatEventTime} from "@/lib/presentation/event-time";
 
 import {
@@ -45,7 +47,7 @@ function BookingMobileCard({
       <div className="flex min-w-0 items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="truncate text-sm font-bold text-primary-strong">
-            {booking.reference}
+            {adminBookingNumber(booking) ?? "Booking number unavailable"}
           </p>
 
           <h2 className="mt-1 truncate text-lg font-black">

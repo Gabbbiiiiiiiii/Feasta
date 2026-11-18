@@ -8,6 +8,14 @@ import {confirmFixedRecovery, fixedRecoveryError, hasPendingFixedRecovery,
   previewFixedRecovery, recoveryInventory, retryFixedRecovery,
   type FixedRecoveryPreview} from "@/lib/provider/fixed-package-recovery-client";
 
+const recoveryIdentityFields = new Set(["id", "packageId", "providerId", "createdBy", "updatedBy", "deletedBy"]);
+
+function recoveryDisplayInventory(value: unknown) {
+  const inventory = recoveryInventory(value);
+  if (!inventory || typeof inventory !== "object" || Array.isArray(inventory)) return inventory;
+  return Object.fromEntries(Object.entries(inventory).filter(([key]) => !recoveryIdentityFields.has(key)));
+}
+
 export function ProviderPackageRecovery({packageId, onRecovered}: {
   packageId: string; onRecovered?: () => void | Promise<void>;
 }) {
@@ -53,7 +61,6 @@ export function ProviderPackageRecovery({packageId, onRecovered}: {
         <DialogTitle>Review Fixed package recovery</DialogTitle>
         <DialogDescription>Compare all saved details with the proposed contract. Recovery keeps the same package ID and leaves it as a private Draft. Publishing is a separate action.</DialogDescription>
       </DialogHeader>
-      <p className="break-all text-sm">Package ID: {packageId}</p>
       <p className="text-sm text-muted-foreground">Image ownership and current business eligibility will be checked again when you confirm. The saved creation details stay unchanged; the last-updated time will reflect recovery.</p>
       {busy ? <p role="status">Checking recovery…</p> : null}
       {recovered ? <p role="status">Recovery confirmed. The original package remains a private Draft. Close this review and reopen the package to check its saved details.</p> : null}
@@ -63,9 +70,9 @@ export function ProviderPackageRecovery({packageId, onRecovered}: {
           <ul>{preview.blockers.map((blocker, i) => <li key={i}>{blocker}</li>)}</ul></div> : null}
         <div className="grid min-w-0 gap-4 md:grid-cols-2">
           <section aria-label="Original saved draft"><h3 className="font-semibold">Original saved draft</h3>
-            <pre className="max-h-96 overflow-auto whitespace-pre-wrap break-words text-xs">{JSON.stringify(recoveryInventory(preview.original), null, 2)}</pre></section>
+            <pre className="max-h-96 overflow-auto whitespace-pre-wrap break-words text-xs">{JSON.stringify(recoveryDisplayInventory(preview.original), null, 2)}</pre></section>
           <section aria-label="Proposed V2 draft"><h3 className="font-semibold">Proposed V2 draft</h3>
-            <pre className="max-h-96 overflow-auto whitespace-pre-wrap break-words text-xs">{preview.proposed ? JSON.stringify(recoveryInventory(preview.proposed), null, 2) : "No lossless proposal is available."}</pre></section>
+            <pre className="max-h-96 overflow-auto whitespace-pre-wrap break-words text-xs">{preview.proposed ? JSON.stringify(recoveryDisplayInventory(preview.proposed), null, 2) : "No lossless proposal is available."}</pre></section>
         </div>
         {preview.eligible ? <label className="flex gap-2 text-sm">
           <input type="checkbox" checked={reviewed} disabled={busy || pending}

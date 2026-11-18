@@ -1,6 +1,6 @@
 "use client";
 import {CustomerViolationsPanel} from "@/components/admin/users/customer-violations-panel";
-import {adminBookingStatusLabel, adminBookingPaymentLabel, adminProviderRequestLabel} from "@/lib/admin/bookings/admin-booking-labels";
+import {adminBookingNumber, adminBookingStatusLabel, adminBookingPaymentLabel, adminProviderRequestLabel} from "@/lib/admin/bookings/admin-booking-labels";
 import {accountAccessLabel} from "@/lib/admin/users/admin-account-labels";
 
 import {
@@ -9,7 +9,6 @@ import {
   CalendarDays,
   CheckCircle2,
   Clock3,
-  Copy,
   Download,
   ExternalLink,
   FileText,
@@ -17,7 +16,6 @@ import {
   LoaderCircle,
   Mail,
   Phone,
-  ShieldCheck,
   XCircle,
 } from "lucide-react";
 import { useState } from "react";
@@ -300,7 +298,7 @@ function BookingDetailsTab({
             <div className="flex flex-wrap items-start justify-between gap-2">
               <div className="min-w-0">
                 <p className="truncate font-semibold">
-                  {booking.reference}
+                  {adminBookingNumber(booking) ?? "Booking number unavailable"}
                 </p>
 
                 <p className="mt-1 text-sm capitalize text-muted-foreground">
@@ -599,9 +597,6 @@ function UserDetailsContent({
       : []),
   ];
 
-  const copyUserId = async () => {
-    await navigator.clipboard.writeText(user.id);
-  };
 
   return (
     <div className="grid gap-5">
@@ -689,29 +684,7 @@ function UserDetailsContent({
             </span>
           </p>
 
-          <div className="flex items-center gap-2">
-            <ShieldCheck
-              aria-hidden="true"
-              className="size-4 shrink-0 text-violet-500"
-            />
 
-            <span className="truncate">
-              User ID: {user.id.slice(0, 12)}…
-            </span>
-
-            <button
-              type="button"
-              onClick={copyUserId}
-              title="Copy complete user ID"
-              aria-label="Copy complete user ID"
-              className="grid size-7 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
-            >
-              <Copy
-                aria-hidden="true"
-                className="size-3.5"
-              />
-            </button>
-          </div>
         </div>
       </section>
 

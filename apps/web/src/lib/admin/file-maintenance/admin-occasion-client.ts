@@ -44,7 +44,7 @@ export function adminOccasionErrorMessage(error: unknown): string {
   const messages: Record<string, string> = {
     REVISION_CONFLICT: "The catalog changed. Close the editor and refresh before trying again.",
     CATALOG_NAME_CONFLICT: "This name or alias is already reserved. Choose another name.",
-    OCCASION_ID_EXISTS: "This permanent ID already exists. Choose another ID.",
+    OCCASION_ID_EXISTS: "The catalog changed. Refresh the catalog before adding this event type again.",
     INVALID_SERVICE_CATEGORY: "Select valid, active service categories.",
     OCCASION_APPLICABILITY_REQUIRES_RELEASE_EVIDENCE: "Active occasion changes and service removals require additional release safeguards. No changes were saved.",
     OCCASION_LIFECYCLE_UNAVAILABLE: "Applicability changes are unavailable until release safeguards are verified.",

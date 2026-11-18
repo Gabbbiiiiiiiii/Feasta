@@ -31,6 +31,7 @@ describe("occasion callable errors", () => {
   it.each([
     ["CONFIG_UNAVAILABLE", "not initialized or is not stable"],
     ["REVISION_CONFLICT", "catalog changed"],
+    ["OCCASION_ID_EXISTS", "Refresh the catalog"],
     ["CATALOG_CAPACITY_EXCEEDED", "cannot be loaded completely"],
     ["OCCASION_NOT_FOUND", "no longer available"],
   ])("preserves the meaning of %s", async (reason, expected) => {

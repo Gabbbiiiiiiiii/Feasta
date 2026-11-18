@@ -49,7 +49,7 @@ import {
 import {useAdminAutoRefresh} from "@/lib/admin/use-admin-auto-refresh";
 import {CancellationManagementClient} from "@/components/admin/bookings/cancellation-management-client";
 import type {AdminCancellationQueue} from "@/lib/admin/cancellations/admin-cancellation-types";
-import {adminBookingStatusLabels, adminBookingPaymentLabels, adminBookingStatusLabel, adminBookingPaymentLabel} from "@/lib/admin/bookings/admin-booking-labels";
+import {adminBookingNumber, adminBookingStatusLabels, adminBookingPaymentLabels, adminBookingStatusLabel, adminBookingPaymentLabel} from "@/lib/admin/bookings/admin-booking-labels";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
 import type {
@@ -244,7 +244,7 @@ function BookingMonitoringClient({
         cell: (booking) => (
           <div className="min-w-[9rem]">
             <p className="font-bold text-primary-strong">
-              {booking.reference}
+              {adminBookingNumber(booking) ?? "Booking number unavailable"}
             </p>
 
             <p className="mt-1 text-muted-foreground">
@@ -699,7 +699,7 @@ function BookingMonitoringClient({
             onClick={() =>
               openBooking(booking)
             }
-            aria-label={`View booking ${booking.reference}`}
+            aria-label={`View booking ${adminBookingNumber(booking) ?? `for ${booking.customer.fullName}`}`}
           >
             <Eye
               aria-hidden="true"

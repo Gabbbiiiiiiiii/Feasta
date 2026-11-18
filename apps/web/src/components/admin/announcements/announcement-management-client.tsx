@@ -587,7 +587,6 @@ function AnnouncementDetails({announcement}: {announcement: AdminAnnouncement}) 
         </p>
       </section>
       <dl className="grid gap-4 rounded-card border border-border bg-muted/40 p-4 text-sm">
-        <Detail label="Announcement ID" value={announcement.id} />
         <Detail label="Created" value={formatDate(announcement.createdAt)} />
         <Detail label="Created by" value={announcement.createdBy ?? "Unavailable"} />
         <Detail label="Last updated" value={formatDate(announcement.updatedAt)} />

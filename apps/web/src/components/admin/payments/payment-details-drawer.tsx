@@ -900,14 +900,6 @@ function ProviderFinanceDetails({
         {earning.recordState ===
         "valid" ? (
           <DetailsGrid>
-            <DetailField
-              label="Earning ID"
-              value={
-                earning.earningId ??
-                "Not recorded"
-              }
-              code
-            />
 
             <DetailField
               label="Status"
@@ -1003,14 +995,6 @@ function ProviderFinanceDetails({
             ) : null}
 
             <DetailsGrid>
-              <DetailField
-                label="Settlement ID"
-                value={
-                  settlement.settlementId ??
-                  "Not recorded"
-                }
-                code
-              />
 
               <DetailField
                 label="Settlement status"
@@ -1227,14 +1211,6 @@ function PayoutAttemptCard({
       </p>
 
       <DetailsGrid>
-        <DetailField
-          label="Attempt ID"
-          value={
-            attempt.payoutAttemptId ??
-            "Not recorded"
-          }
-          code
-        />
 
         <DetailField
           label="Status"

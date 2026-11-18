@@ -296,6 +296,8 @@ it("has one overview, a labelled dialog, and collapsed technical history", async
   const advanced = summary.closest("details")!;
   expect(advanced).not.toHaveAttribute("open");
   expect(within(advanced).getByText(payment.paymentId)).toBeInTheDocument();
+  expect(within(advanced).getByText(payment.gatewayResourceId!)).toBeInTheDocument();
+  expect(within(advanced).getByText(payment.gatewayCheckoutId!)).toBeInTheDocument();
   expect(within(advanced).getByText(payment.providerRequestId!)).toBeInTheDocument();
   expect(within(advanced).getByText("payment.status_changed")).toBeInTheDocument();
   await userEvent.click(summary);

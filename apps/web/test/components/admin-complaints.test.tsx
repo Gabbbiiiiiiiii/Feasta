@@ -142,12 +142,15 @@ describe(
           />,
         );
 
+        expect(screen.queryByText("complaint_test")).not.toBeInTheDocument();
+        expect(screen.queryByRole("button", {name: /complaint_test/})).not.toBeInTheDocument();
+
         const viewButtons =
           screen.getAllByRole(
             "button",
             {
               name:
-                "View complaint complaint_test",
+                "View complaint from Test Customer",
             },
           );
 
@@ -210,7 +213,7 @@ describe(
             "button",
             {
               name:
-                "View complaint complaint_test",
+                "View complaint from Test Customer",
             },
           )[0],
         );

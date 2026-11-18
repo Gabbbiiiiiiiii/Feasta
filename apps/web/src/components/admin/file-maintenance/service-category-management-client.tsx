@@ -185,9 +185,6 @@ function ServiceCategoryManagementClient({
               <p className="break-words font-bold">
                 {category.name}
               </p>
-              <p className="mt-1 break-all text-xs text-muted-foreground">
-                {category.code}
-              </p>
             </div>
           ),
         },
@@ -637,17 +634,7 @@ function ServiceCategoryManagementClient({
               required
               error={formError}
               disabled={isPending}
-              description={
-                editing
-                  ? `Code: ${editing.code}`
-                  : draft.name.trim()
-                    ? `Code: ${
-                        normalizeServiceCategoryCode(
-                          draft.name,
-                        ) || "—"
-                      }`
-                    : "A permanent code will be generated from the category name."
-              }
+
             >
               <Input
                 value={draft.name}
@@ -869,9 +856,6 @@ function CategoryMobileCard({
           <h2 className="break-words font-bold">
             {category.name}
           </h2>
-          <p className="mt-1 break-all text-xs text-muted-foreground">
-            {category.code}
-          </p>
         </div>
 
         <Badge

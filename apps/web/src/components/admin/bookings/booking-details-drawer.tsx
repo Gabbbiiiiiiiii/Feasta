@@ -1,6 +1,7 @@
 "use client";
 
 import {formatEventTime} from "@/lib/presentation/event-time";
+import {adminBookingNumber} from "@/lib/admin/bookings/admin-booking-labels";
 
 import {
   CalendarDays,
@@ -58,11 +59,12 @@ function BookingDetailsDrawer({
     return null;
   }
 
+  const bookingNumber = adminBookingNumber(booking);
   return (
     <DetailDrawer
       open={open}
       onOpenChange={onOpenChange}
-      title={`Booking ${booking.reference}`}
+      title={bookingNumber ? `Booking ${bookingNumber}` : "Booking details"}
       description="Review the event, providers, and payment activity."
       footer={
         <Button
@@ -305,10 +307,6 @@ function BookingDetailsDrawer({
           </h2>
 
           <dl className="grid gap-2 text-sm">
-            <RecordItem
-              label="Booking ID"
-              value={booking.id}
-            />
 
             <RecordItem
               label="Created"
@@ -483,10 +481,6 @@ function PaymentCard({
       </div>
 
       <dl className="grid gap-2 border-t border-border pt-3 text-sm">
-        <RecordItem
-          label="Payment ID"
-          value={payment.id}
-        />
 
         <RecordItem
           label="Created"

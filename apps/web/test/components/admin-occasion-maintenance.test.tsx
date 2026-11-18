@@ -293,7 +293,8 @@ describe("Admin occasion maintenance", () => {
   });
   it.each([
     ["Corporate Event", "corporate_event"], ["Caf\u00e9 Party!", "cafe_party"],
-    ["  Garden -- Party  ", "garden_party"], ["\u751f\u65e5", ""], ["!!!", ""], ["1 Party", "1_party"],
+    ["  Garden -- Party  ", "garden_party"], ["\u751f\u65e5", "event"], ["!!!", "event"], ["1 Party", "event_1_party"],
+    ["X!", "event_x"], ["A".repeat(80), "a".repeat(64)],
   ])("normalizes %s deterministically", (name, id) => {
     expect(generateOccasionId(name)).toBe(id);
   });
@@ -321,18 +322,23 @@ describe("Admin occasion maintenance", () => {
     expect(screen.getByLabelText("Reason for adding")).toHaveValue("");
     expect(screen.getByLabelText("Catering Service")).not.toBeChecked();
   });
-  it("rejects collisions and invalid generated IDs and preserves an intentional override", async () => {
-    mount(); await ready(); await userEvent.click(screen.getByRole("button", {name: "Add Occasion"}));
-    fireEvent.change(screen.getByLabelText("Event Type Name"), {target: {value: "Wedding"}});
-    expect(screen.getByRole("alert")).toHaveTextContent("already exists");
-    fireEvent.change(screen.getByLabelText("Event Type Name"), {target: {value: "\u751f\u65e5"}});
-    expect(screen.getByRole("alert")).toHaveTextContent("Enter a valid permanent ID");
-    await userEvent.click(screen.getByText("Advanced options"));
-    fireEvent.change(screen.getByLabelText("Canonical ID override"), {target: {value: "custom_event"}});
-    fireEvent.change(screen.getByLabelText("Event Type Name"), {target: {value: "Garden Party"}});
-    expect(screen.getByLabelText("Canonical ID override")).toHaveValue("custom_event");
-    expect(screen.getByText("custom_event", {selector: "code"})).toBeInTheDocument();
+  it("blocks duplicate names and aliases, but resolves a distinct name's ID collision", async () => {
+    mount(); await ready(); const dialog = await fillCreate();
+    const name = within(dialog).getByLabelText("Event Type Name");
+    for (const duplicate of [" Wedding ", "Birthday  PARTY"]) {
+      fireEvent.change(name, {target: {value: duplicate}});
+      expect(screen.getByRole("alert")).toHaveTextContent("already exists");
+    }
+    fireEvent.submit(dialog.querySelector("form")!);
     expect(api.saveAdminOccasion).not.toHaveBeenCalled();
+    expect(within(dialog).queryByLabelText("Canonical ID override")).not.toBeInTheDocument();
+    fireEvent.change(name, {target: {value: "Wedding!"}});
+    await userEvent.click(screen.getByRole("button", {name: "Review Occasion"}));
+    expect(screen.queryByText(/wedding_2/i)).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", {name: "Save occasion"}));
+    await waitFor(() => expect(api.saveAdminOccasion).toHaveBeenCalledWith(expect.objectContaining({
+      occasion: expect.objectContaining({id: "wedding_2", label: "Wedding!"}),
+    }), true));
   });
   it("requires an active service and safe sort order before review", async () => {
     mount(); await ready(); const dialog = await fillCreate();
@@ -367,13 +373,12 @@ describe("Admin occasion maintenance", () => {
   it("sends explicit advanced metadata without changing the mutation shape", async () => {
     mount(); await ready(); await fillCreate();
     await userEvent.click(screen.getByText("Advanced options"));
-    fireEvent.change(screen.getByLabelText("Canonical ID override"), {target: {value: "garden_festival"}});
     fireEvent.change(screen.getByLabelText("Aliases (comma separated)"), {target: {value: "Garden Gathering"}});
     fireEvent.change(screen.getByLabelText("Sort order"), {target: {value: "42"}});
     await userEvent.click(screen.getByRole("button", {name: "Review Occasion"}));
     await userEvent.click(screen.getByRole("button", {name: "Save occasion"}));
     await waitFor(() => expect(api.saveAdminOccasion).toHaveBeenCalledWith(expect.objectContaining({
-      occasion: {id: "garden_festival", label: "Garden Party", aliases: ["Garden Gathering"], sortOrder: 42,
+      occasion: {id: "garden_party", label: "Garden Party", aliases: ["Garden Gathering"], sortOrder: 42,
         applicableServiceCategoryCodes: ["catering_service"]}, expectedCatalogRevision: 7,
     }), true));
   });
@@ -440,7 +445,7 @@ describe("Admin occasion maintenance", () => {
   it("locks permanent ID and applicability when editing and preserves expected revision", async () => {
     mount(); await ready(); await userEvent.click(within(screen.getByText("Birthday", {selector: "h3"}).closest("article")!).getByRole("button", {name: "Edit"}));
     const dialog = screen.getByRole("dialog", {name: "Edit Occasion"});
-    expect(within(dialog).getByLabelText("Canonical ID")).toBeDisabled();
+    expect(within(dialog).queryByLabelText("Canonical ID")).not.toBeInTheDocument();
     expect(within(dialog).getByLabelText("Catering Service")).toBeEnabled();
     fireEvent.change(within(dialog).getByLabelText("Event Type Name", {exact: true}), {target: {value: "Birthday Celebration"}});
     fireEvent.change(within(dialog).getByLabelText("Reason for change"), {target: {value: "Update occasion label"}});
@@ -642,7 +647,7 @@ describe("Admin occasion maintenance", () => {
       return {
         decision: "approve_new",
         status: "approved",
-        resolvedOccasionId: "baby_shower",
+        resolvedOccasionId: "event_1st_baby_shower",
         catalogRevision: 9,
         targetActive: false,
       };
@@ -668,8 +673,10 @@ describe("Admin occasion maintenance", () => {
     expect(screen.getByLabelText("New occasion name"))
       .toHaveValue("Baby Shower");
 
-    expect(screen.getByLabelText("New occasion ID"))
-      .toHaveValue("baby_shower");
+    expect(screen.queryByLabelText("New occasion ID")).not.toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("New occasion name"), {target: {value: "Wedding"}});
+    expect(screen.getByRole("alert")).toHaveTextContent("already exists");
+    fireEvent.change(screen.getByLabelText("New occasion name"), {target: {value: "1st Baby Shower"}});
 
     const fieldset = screen.getByRole("group", {
       name: "Applicable service categories",
@@ -688,7 +695,7 @@ describe("Admin occasion maintenance", () => {
     }));
 
     expect(await screen.findByRole("dialog", {
-      name: "Create & Approve Baby Shower?",
+      name: "Create & Approve 1st Baby Shower?",
     })).toBeInTheDocument();
 
     expect(api.reviewOccasionSuggestion).not.toHaveBeenCalled();
@@ -703,8 +710,8 @@ describe("Admin occasion maintenance", () => {
       expect.objectContaining({
         decision: "approve_new",
         newOccasion: expect.objectContaining({
-          id: "baby_shower",
-          label: "Baby Shower",
+          id: "event_1st_baby_shower",
+          label: "1st Baby Shower",
           aliases: [],
         }),
       })
@@ -776,7 +783,7 @@ describe("Admin occasion maintenance", () => {
       name: "Edit Occasion",
     });
 
-    expect(within(dialog).getByLabelText("Canonical ID")).toBeDisabled();
+    expect(within(dialog).queryByLabelText("Canonical ID")).not.toBeInTheDocument();
 
     const photography = within(dialog).getByLabelText("Photography");
     expect(photography).toBeEnabled();

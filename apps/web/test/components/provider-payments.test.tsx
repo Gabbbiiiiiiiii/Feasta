@@ -341,9 +341,7 @@ describe("provider booking payments workspace", () => {
 
     await waitFor(() => expect(mocks.loadPayment).toHaveBeenCalledWith("payment-paid"));
     const drawer = await screen.findByRole("dialog", {name: "Payment details"});
-    expect(within(drawer).getByText("payment-paid")).toBeVisible();
-    expect(within(drawer).getByText("request-paid")).toBeVisible();
-    expect(within(drawer).getByText("event-paid")).toBeVisible();
+    expect(drawer).not.toHaveTextContent(/payment-paid|request-paid|event-paid/);
     expect(within(drawer).getByText("Down payment")).toBeVisible();
     expect(within(drawer).getByLabelText("Status: Refund pending")).toBeVisible();
     expect(within(drawer).getAllByLabelText("Status: Confirmed")).toHaveLength(2);

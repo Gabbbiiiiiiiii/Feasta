@@ -19,9 +19,23 @@ const empty = (): NewInactiveOccasionInput => ({id: "", label: "", aliases: [],
   sortOrder: 0, applicableServiceCategoryCodes: []});
 // Matches the backend occasion-v2-validation canonical ID contract.
 const validId = (id: string) => /^[a-z][a-z0-9_]{1,63}$/.test(id);
-export const generateOccasionId = (name: string) => name.normalize("NFKD")
-  .replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9\s_-]/g, "")
-  .trim().replace(/[\s_-]+/g, "_").replace(/^_+|_+$/g, "");
+export function generateOccasionId(name: string, items: readonly AdminOccasion[] = []) {
+  const slug = name.normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9\s_-]/g, "")
+    .trim().replace(/[\s_-]+/g, "_").replace(/^_+|_+$/g, "");
+  const base = validId(slug.slice(0, 64)) ? slug : slug ? `event_${slug}` : "event";
+  const used = new Set(items.map((occasion) => occasion.id));
+  let id = base.slice(0, 64);
+  for (let index = 2; used.has(id); index++) {
+    const suffix = `_${index}`;
+    id = `${base.slice(0, 64 - suffix.length)}${suffix}`;
+  }
+  return id;
+}
+
+// Match the catalog's transactional name and alias comparison.
+const normalizeOccasionName = (name: string) =>
+  name.normalize("NFKC").trim().replace(/\s+/gu, " ").toLocaleLowerCase("und");
 const message = (error: unknown) => error instanceof Error ? error.message : "The request failed. Try again.";
 
 export function OccasionManagementClient({categories, onDirtyChange}: {
@@ -36,7 +50,6 @@ export function OccasionManagementClient({categories, onDirtyChange}: {
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [editor, setEditor] = useState<"create" | AdminOccasion | null>(null);
   const [draft, setDraft] = useState(empty);
-  const [idOverride, setIdOverride] = useState(false);
   const nameInput = useRef<HTMLInputElement>(null);
   const baseline = useRef("");
   const [reason, setReason] = useState("");
@@ -131,7 +144,7 @@ export function OccasionManagementClient({categories, onDirtyChange}: {
     };
   }, [openMenuId]);
   function open(item: "create" | AdminOccasion) {
-    setIdOverride(false); setConfirm(false); setDiscard(false);
+    setConfirm(false); setDiscard(false);
     const highest = Math.max(0, ...(catalog?.items ?? []).map((o) => o.sortOrder));
     const next = item === "create" ? {...empty(), sortOrder: Math.min(Number.MAX_SAFE_INTEGER, highest + 1)} : {id: item.id, label: item.label,
       aliases: [...item.aliases], sortOrder: item.sortOrder,
@@ -145,12 +158,17 @@ export function OccasionManagementClient({categories, onDirtyChange}: {
   }
   function resetEditor() {
     setEditor(null); setDraft(empty()); setReason(""); setDirty(false); setDiscard(false);
-    setConfirm(false); setIdOverride(false); pending.current = undefined;
+    setConfirm(false); pending.current = undefined;
   }
-  const idError = editor === "create" ? !validId(draft.id) ?
-    "Enter a valid permanent ID in Advanced options: 2-64 lowercase letters, numbers or underscores, starting with a letter." :
-    catalog?.items.some((o) => o.id === draft.id) ?
-    "This permanent ID already exists. Choose another name or a unique ID in Advanced options." : "" : "";
+  function nameExists(name: string) {
+    const normalized = normalizeOccasionName(name);
+    return catalog?.items.some((item) => [item.label, ...item.aliases]
+      .some((label) => normalizeOccasionName(label) === normalized));
+  }
+  const duplicateNameError = "This event type name already exists. Choose another name or use the existing event type.";
+  const createNameError = editor === "create" && nameExists(draft.label) ? duplicateNameError : "";
+  const reviewNameError = decision === "approve_new" && nameExists(reviewNew.label) ? duplicateNameError : "";
+  const categoryName = (code: string) => categories.find((category) => category.code === code)?.name ?? "Unknown service category";
   const originalApplicableCodes =
     editor !== null && editor !== "create"
       ? editor.applicableServiceCategoryCodes
@@ -159,7 +177,7 @@ export function OccasionManagementClient({categories, onDirtyChange}: {
     (draft.applicableServiceCategoryCodes.length !== originalApplicableCodes.length ||
       draft.applicableServiceCategoryCodes.some((code) => !originalApplicableCodes.includes(code)));
   function validate() {
-    if (idError) return idError;
+    if (createNameError) return createNameError;
     if (editor && editor !== "create" &&
         (draft.applicableServiceCategoryCodes.length !== originalApplicableCodes.length ||
           draft.applicableServiceCategoryCodes.some((code) => !originalApplicableCodes.includes(code)))) {
@@ -187,7 +205,8 @@ export function OccasionManagementClient({categories, onDirtyChange}: {
     const validation = validate();
     if (validation) {setFormError(validation); setConfirm(false); return;}
     setBusy(true); setFormError("");
-    const input: OccasionMutation = {occasion: draft, reason,
+    const occasion = editor === "create" ? {...draft, id: generateOccasionId(draft.label, catalog.items)} : draft;
+    const input: OccasionMutation = {occasion, reason,
       expectedCatalogRevision: catalog.revision,
       ...(editor === "create" ? {} : {expectedOccasionRevision: editor.revision}),
       idempotencyKey: ""};
@@ -328,7 +347,7 @@ export function OccasionManagementClient({categories, onDirtyChange}: {
     catch (e) {setError(message(e));} finally {setBusy(false);}
   }
   const reviewNewValid =
-    validId(reviewNew.id) &&
+    !reviewNameError &&
     reviewNew.label.trim().length >= 2 &&
     reviewNew.label.trim().length <= 80 &&
     Number.isSafeInteger(reviewNew.sortOrder) &&
@@ -349,7 +368,7 @@ export function OccasionManagementClient({categories, onDirtyChange}: {
 
     if (decision === "approve_new" && !reviewNewValid) {
       setFormError(
-        "Enter a valid occasion name, permanent ID, sort order, and at least one active service category."
+        reviewNameError || "Enter a valid occasion name, sort order, and at least one active service category."
       );
       return;
     }
@@ -366,13 +385,16 @@ export function OccasionManagementClient({categories, onDirtyChange}: {
     setBusy(true);
     setFormError("");
 
+    const newOccasion = decision === "approve_new"
+      ? {...reviewNew, id: generateOccasionId(reviewNew.label, catalog.items)}
+      : null;
     const signature = JSON.stringify([
       review.suggestionId,
       reviewReason,
       decision,
       target,
       catalog.revision,
-      decision === "approve_new" ? reviewNew : null,
+      newOccasion,
     ]);
 
     if (reviewKey.current?.signature !== signature) {
@@ -394,11 +416,11 @@ export function OccasionManagementClient({categories, onDirtyChange}: {
       await reviewOccasionSuggestion(
         decision === "reject"
           ? {...base, decision: "reject"}
-          : decision === "approve_new"
+          : newOccasion
             ? {
                 ...base,
                 decision: "approve_new",
-                newOccasion: reviewNew,
+                newOccasion,
               }
             : {
                 ...base,
@@ -428,7 +450,7 @@ export function OccasionManagementClient({categories, onDirtyChange}: {
     `${o.id} ${o.label} ${o.aliases.join(" ")}`.toLocaleLowerCase().includes(search.toLocaleLowerCase()) &&
     (status === "all" || o.active === (status === "active")))
     .sort((a, b) => sort === "name" ? a.label.localeCompare(b.label) :
-      sort === "id" ? a.id.localeCompare(b.id) : a.sortOrder - b.sortOrder || a.id.localeCompare(b.id));
+      a.sortOrder - b.sortOrder || a.id.localeCompare(b.id));
   return <section className="grid gap-5" aria-label="Event Types / Occasions">
     <div className="flex flex-wrap items-center justify-between gap-3">
       <h2 className="text-xl font-semibold">Event Types / Occasions</h2>
@@ -511,7 +533,7 @@ export function OccasionManagementClient({categories, onDirtyChange}: {
       <div className="grid gap-3 sm:grid-cols-3">
         <Input
           aria-label="Search occasions"
-          placeholder="Search name or canonical ID"
+          placeholder="Search event types"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
@@ -531,7 +553,6 @@ export function OccasionManagementClient({categories, onDirtyChange}: {
         >
           <option value="order">Catalog order</option>
           <option value="name">Name</option>
-          <option value="id">Canonical ID</option>
         </Select>
       </div>
 
@@ -564,10 +585,10 @@ export function OccasionManagementClient({categories, onDirtyChange}: {
                 <Badge>{o.active ? "Active" : "Inactive"}</Badge>
               </div>
               <p className="mt-1 text-xs text-muted-foreground">
-                {o.id} · Order {o.sortOrder} · Revision {o.revision}
+                Order {o.sortOrder}
               </p>
               <p className="mt-1 break-words text-xs text-muted-foreground">
-                {o.applicableServiceCategoryCodes.join(", ") || "No service categories"}
+                {o.applicableServiceCategoryCodes.map(categoryName).join(", ") || "No service categories"}
               </p>
               {o.aliases.length > 0 && (
                 <p className="mt-1 text-xs text-muted-foreground">
@@ -907,9 +928,8 @@ export function OccasionManagementClient({categories, onDirtyChange}: {
       <form className="flex min-h-0 flex-1 flex-col" onSubmit={(e) => {e.preventDefault(); const validation = validate(); setFormError(validation); if (!validation) setConfirm(true);}}>
         <div className="min-h-0 flex-1 overflow-y-auto p-5">
         <fieldset disabled={busy} className="grid gap-4">
-          <label className="grid gap-1">Event Type Name<Input ref={nameInput} required minLength={2} maxLength={80} placeholder="e.g., Birthday, Wedding, Graduation" value={draft.label} onChange={(e) => {setDraft({...draft, label: e.target.value, ...(editor === "create" && !idOverride ? {id: generateOccasionId(e.target.value)} : {})}); setDirty(true);}} /></label>
-          {editor === "create" ? <p className="break-all text-xs text-muted-foreground" aria-live="polite">Permanent ID: <code>{draft.id || "Enter an event type name"}</code></p> : <label>Canonical ID<Input disabled value={draft.id} /></label>}
-          {idError && draft.label && <p role="alert" className="text-sm text-destructive">{idError}</p>}
+          <label className="grid gap-1">Event Type Name<Input ref={nameInput} required minLength={2} maxLength={80} placeholder="e.g., Birthday, Wedding, Graduation" value={draft.label} onChange={(e) => {setDraft({...draft, label: e.target.value}); setDirty(true);}} /></label>
+          {createNameError && <p role="alert" className="text-sm text-destructive">{createNameError}</p>}
           <fieldset disabled={busy} className="grid gap-2"><legend>Applicable Services</legend><p className="text-sm text-muted-foreground">Choose which services this event type applies to.</p>
             {categories.filter((c) => c.status === "active" || (editor !== "create" && draft.applicableServiceCategoryCodes.includes(c.code))).map((c) => <label key={c.code} className="flex items-center gap-2"><input type="checkbox" checked={draft.applicableServiceCategoryCodes.includes(c.code)} disabled={c.status !== "active" || busy} onChange={(e) => {setDraft({...draft, applicableServiceCategoryCodes: e.target.checked ? [...draft.applicableServiceCategoryCodes, c.code] : draft.applicableServiceCategoryCodes.filter((v) => v !== c.code)}); setDirty(true);}} />{c.name}{c.status !== "active" ? " (inactive)" : ""}</label>)}
           </fieldset>
@@ -921,19 +941,18 @@ export function OccasionManagementClient({categories, onDirtyChange}: {
   <p>
     Added: {draft.applicableServiceCategoryCodes
       .filter((code) => !originalApplicableCodes.includes(code))
-      .map((code) => categories.find((c) => c.code === code)?.name ?? code)
+      .map(categoryName)
       .join(", ") || "None"}
   </p>
   <p>
     Removed: {originalApplicableCodes
       .filter((code) => !draft.applicableServiceCategoryCodes.includes(code))
-      .map((code) => categories.find((c) => c.code === code)?.name ?? code)
+      .map(categoryName)
       .join(", ") || "None"}
   </p>
 </div>}
           <label className="grid gap-1">{editor === "create" ? "Reason for adding" : "Reason for change"}<Input placeholder={editor === "create" ? "Explain why this occasion should be added to FEASTA." : "Explain the change."} required minLength={10} maxLength={500} value={reason} onChange={(e) => {setReason(e.target.value); setDirty(true);}} /></label>
           <details className="rounded-lg border p-3"><summary className="cursor-pointer font-medium">Advanced options</summary><div className="mt-4 grid gap-4">
-          {editor === "create" && <label className="grid gap-1">Canonical ID override<Input aria-label="Canonical ID override" placeholder="Use generated ID" value={idOverride ? draft.id : ""} onChange={(e) => {setIdOverride(!!e.target.value); setDraft({...draft, id: e.target.value || generateOccasionId(draft.label)}); setDirty(true);}} /><span className="text-xs text-muted-foreground">Permanent IDs cannot be changed after creation.</span></label>}
           <label className="grid gap-1">Aliases (comma separated)<Input value={draft.aliases.join(",")} onChange={(e) => {setDraft({...draft, aliases: e.target.value ? e.target.value.split(",") : []}); setDirty(true);}} /></label>
           <label className="grid gap-1">Sort order<Input required type="number" step="1" min={Number.MIN_SAFE_INTEGER} max={Number.MAX_SAFE_INTEGER} value={Number.isNaN(draft.sortOrder) ? "" : draft.sortOrder} onChange={(e) => {setDraft({...draft, sortOrder: e.target.valueAsNumber}); setDirty(true);}} /></label>
 
@@ -944,8 +963,8 @@ export function OccasionManagementClient({categories, onDirtyChange}: {
       </form>
     <ConfirmationDialog open={confirm} stopEscapePropagation onCloseAutoFocus={(e) => {e.preventDefault(); nameInput.current?.focus();}} onOpenChange={setConfirm} title={applicabilityChanged ? "Add applicable services?" : "Save occasion metadata?"} description={applicabilityChanged ?
       `Add ${draft.applicableServiceCategoryCodes.filter((code) => !originalApplicableCodes.includes(code))
-        .map((code) => categories.find((c) => c.code === code)?.name ?? code).join(", ")} to ${draft.label}. The occasion stays inactive. Reason: ${reason}` :
-      `Save ${draft.label} (${draft.id}) at catalog revision ${catalog?.revision}. ${editor === "create" ? "It will remain inactive." : "Publication status and eligibility stay unchanged."}`} confirmLabel="Save occasion" loading={busy} onConfirm={save} />
+        .map(categoryName).join(", ")} to ${draft.label}. The occasion stays inactive. Reason: ${reason}` :
+      `Save ${draft.label} at catalog revision ${catalog?.revision}. ${editor === "create" ? "It will remain inactive." : "Publication status and eligibility stay unchanged."}`} confirmLabel="Save occasion" loading={busy} onConfirm={save} />
     <ConfirmationDialog open={discard} stopEscapePropagation onCloseAutoFocus={(e) => {e.preventDefault(); nameInput.current?.focus();}} cancelLabel="Keep Editing" onOpenChange={setDiscard} title="Discard unsaved changes?" description="Your occasion edits have not been saved." confirmLabel="Discard Changes" onConfirm={resetEditor} />
     </DialogContent></Dialog>
     <Dialog open={!!previewItem} onOpenChange={(open) => {if (!open && !busy) setPreviewItem(undefined);}}><DialogContent>
@@ -954,7 +973,7 @@ export function OccasionManagementClient({categories, onDirtyChange}: {
       {previewOperation === "applicability" && <fieldset disabled={busy} className="grid gap-2"><legend>Proposed service categories</legend>{categories.filter((c) => c.status === "active").map((c) => <label key={c.code}><input type="checkbox" checked={proposedCategories.includes(c.code)} onChange={(e) => {setProposedCategories(e.target.checked ? [...proposedCategories, c.code] : proposedCategories.filter((v) => v !== c.code)); setImpact(undefined);}} /> {c.name}</label>)}</fieldset>}
       <Button disabled={busy} onClick={() => void preview()}>{busy ? "Inspecting…" : "Inspect impact"}</Button>
       {formError && <p role="alert">{formError}</p>}
-      {impact && <div className="grid gap-3" role="status"><p>Catalog revision {impact.catalogRevision} · Occasion revision {impact.occasionRevision}</p>{impact.usage.map((u) => <p key={u.collection}>{u.collection}: {u.potentialReferences} potential references in {u.scanned} scanned records{u.truncated ? " (scan truncated)" : ""}</p>)}{impact.mappings.map((m) => <p key={m.code}>{m.code}: {m.valid ? "Active category" : "Invalid or inactive category"}</p>)}{impact.blockers.map((b) => <p key={b}>{b}</p>)}<p className="text-sm">{impact.disclaimer}</p></div>}
+      {impact && <div className="grid gap-3" role="status"><p>Catalog revision {impact.catalogRevision} · Occasion revision {impact.occasionRevision}</p>{impact.usage.map((u) => <p key={u.collection}>{u.collection}: {u.potentialReferences} potential references in {u.scanned} scanned records{u.truncated ? " (scan truncated)" : ""}</p>)}{impact.mappings.map((m) => <p key={m.code}>{categoryName(m.code)}: {m.valid ? "Active category" : "Invalid or inactive category"}</p>)}{impact.blockers.map((b) => <p key={b}>{b}</p>)}<p className="text-sm">{impact.disclaimer}</p></div>}
       <Button disabled>Apply lifecycle change — unavailable</Button>
     </DialogContent></Dialog>
     <Dialog
@@ -999,15 +1018,13 @@ export function OccasionManagementClient({categories, onDirtyChange}: {
 
                 if (next === "approve_new" && review) {
                   setReviewNew({
-                    id: generateOccasionId(review.name),
+                    ...empty(),
                     label: review.name,
-                    aliases: [],
                     sortOrder:
                       Math.max(
                         0,
                         ...(catalog?.items ?? []).map((o) => o.sortOrder)
                       ) + 10,
-                    applicableServiceCategoryCodes: [],
                   });
                 }
               }}
@@ -1038,7 +1055,7 @@ export function OccasionManagementClient({categories, onDirtyChange}: {
                   .filter((o) => o.active === (decision === "map"))
                   .map((o) => (
                     <option key={o.id} value={o.id}>
-                      {o.label} ({o.id})
+                      {o.label}
                     </option>
                   ))}
               </Select>
@@ -1067,22 +1084,7 @@ export function OccasionManagementClient({categories, onDirtyChange}: {
                   }))}
                 />
               </label>
-
-              <label className="grid gap-1">
-                New occasion ID
-                <Input
-                  disabled={busy}
-                  value={reviewNew.id}
-                  onChange={(e) => setReviewNew((current) => ({
-                    ...current,
-                    id: e.target.value,
-                  }))}
-                />
-              </label>
-
-              <p className="text-xs text-muted-foreground">
-                The ID is permanent and must be unique.
-              </p>
+              {reviewNameError && <p role="alert" className="text-sm text-destructive">{reviewNameError}</p>}
 
               <label className="grid gap-1">
                 New occasion sort order
@@ -1193,7 +1195,7 @@ export function OccasionManagementClient({categories, onDirtyChange}: {
         if (!busy) setReviewConfirm(open);
       }}
       title={decision === "approve_new"
-        ? `Create & Approve ${review?.name ?? "Occasion"}?`
+        ? `Create & Approve ${reviewNew.label.trim()}?`
         : "Confirm occasion request review?"}
       description={decision === "approve_new"
         ? `FEASTA will create ${reviewNew.label} as an inactive occasion and approve this provider request. The request will leave Pending Requests. Activation and provider eligibility remain separate.`

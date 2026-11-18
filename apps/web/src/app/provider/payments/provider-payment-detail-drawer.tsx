@@ -68,12 +68,6 @@ export function ProviderPaymentDetailDrawer({
             <StatusRow label="Main event" status={detail.mainEventStatus} />
           </DrawerSection>
 
-          <DrawerSection title="References">
-            <DetailRow label="Payment ID" value={payment.paymentId} />
-            <DetailRow label="Provider Request ID" value={payment.providerRequestId} />
-            <DetailRow label="Main Event ID" value={payment.mainEventId} />
-          </DrawerSection>
-
           <DrawerSection title="Customer">
             <DetailRow
               icon={<UserRound className="size-4" />}

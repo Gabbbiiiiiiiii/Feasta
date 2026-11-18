@@ -412,9 +412,6 @@ function ComplaintManagementClient({
                 }
               </span>
 
-              <span className="font-mono text-xs text-muted-foreground">
-                {complaint.id}
-              </span>
             </div>
           ),
         },
@@ -703,7 +700,7 @@ function ComplaintManagementClient({
                 complaint,
               )
             }
-            aria-label={`View complaint ${complaint.id}`}
+            aria-label={`View complaint from ${complaint.complainantName}`}
           >
             <Eye aria-hidden="true" />
             View
@@ -1040,10 +1037,10 @@ function ComplaintDetails({
         ]}
       />
 
+
       {complaint.bookingId || complaint.providerRequestId ? (
         <DetailSection title="Related booking" rows={[
-          ["Booking ID", complaint.bookingId || "Unavailable"],
-          ["Provider request ID", complaint.providerRequestId || "Event-level report"],
+          ["Report scope", complaint.providerRequestId ? "Provider request" : "Event-level report"],
         ]} />
       ) : null}
 
@@ -1056,10 +1053,6 @@ function ComplaintDetails({
               complaint.providerName ||
                 "Unnamed provider",
             ],
-            [
-              "Provider ID",
-              complaint.providerId,
-            ],
           ]}
         />
       ) : null}
@@ -1067,10 +1060,6 @@ function ComplaintDetails({
       <DetailSection
         title="Case information"
         rows={[
-          [
-            "Complaint ID",
-            complaint.id,
-          ],
           [
             "Submitted",
             formatDate(
@@ -1230,6 +1219,7 @@ function ComplaintMobileCard({
         type="button"
         variant="secondary"
         onClick={onView}
+        aria-label={`View complaint from ${complaint.complainantName}`}
       >
         <Eye aria-hidden="true" />
         View complaint

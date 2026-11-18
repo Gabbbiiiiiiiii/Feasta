@@ -28,6 +28,19 @@ const booking: AdminBooking = {
   totalAmount: 26000, totalPaidAmount: 26000, totalRefundedAmount: 0, outstandingAmount: 0,
   providerRequests: [], payments: [], createdAt: "2026-10-01T00:00:00Z", updatedAt: null, confirmedAt: null, completedAt: null, cancelledAt: null,
 };
+
+it("keeps booking numbers visible and hides legacy document ID fallbacks", () => {
+  const legacyBooking = {...booking, id: "legacy-event-doc", reference: "legacy-event-doc"};
+  render(<BookingMonitoringClient initialPage={{...page, bookings: [booking, legacyBooking]}} />);
+
+  expect(screen.getByRole("button", {name: "View booking BK-001"})).toBeInTheDocument();
+  expect(screen.getAllByText("Booking number unavailable")).toHaveLength(2);
+  expect(screen.queryByText(legacyBooking.id)).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", {name: /legacy-event-doc/})).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", {name: "View booking for Ana Reyes"}));
+  expect(screen.getByRole("dialog", {name: "Booking details"})).toBeInTheDocument();
+  expect(screen.queryByText(legacyBooking.id)).not.toBeInTheDocument();
+});
 async function select(label: string, value: string) {
   fireEvent.change(screen.getByLabelText(label), {target: {value}});
   await waitFor(() => expect(mocks.load).toHaveBeenLastCalledWith(expect.objectContaining({cursor: null})));
