@@ -135,6 +135,50 @@ expect(
     expect(checkbox).not.toBeChecked();
     expect(document.body.textContent).not.toContain("provider_private");
   });
+  it("accepts exact server allocation despite floating-point rounding", () => {
+    const basis = bookingAgreementFixture("provider_test");
+    const agreement = {
+      ...basis,
+      grossAmountInCentavos: 180,
+      requiredUpfrontAmountInCentavos: 90,
+      remainingBalanceInCentavos: 90,
+      depositEligible: true,
+      paymentDefaultAllocation: {
+        customerDefaultRefundAmountInCentavos: 63,
+        providerReservationCompAmountInCentavos: 18,
+        feastaCancellationFeeAmountInCentavos: 9,
+      },
+    };
+
+    expect(parseBookingPaymentAgreements([agreement])).toHaveLength(1);
+
+    expect(() => parseBookingPaymentAgreements([{
+      ...agreement,
+      paymentDefaultAllocation: {
+        ...agreement.paymentDefaultAllocation,
+        customerDefaultRefundAmountInCentavos: 62,
+      },
+    }])).toThrow("Booking agreement allocation is invalid.");
+  });
+
+  it("preserves valid full-payment agreement behavior", () => {
+    const basis = bookingAgreementFixture("provider_test");
+    const agreement = {
+      ...basis,
+      grossAmountInCentavos: 180,
+      requiredUpfrontAmountInCentavos: 180,
+      remainingBalanceInCentavos: 0,
+      depositEligible: false,
+      paymentDefaultAllocation: null,
+    };
+
+    expect(parseBookingPaymentAgreements([agreement])).toHaveLength(1);
+
+    expect(() => parseBookingPaymentAgreements([{
+      ...agreement,
+      remainingBalanceInCentavos: 1,
+    }])).toThrow();
+  });
   it("strictly rejects conflicting disclosure amounts and schedules", () => {
     const agreement = {...bookingAgreementFixture("provider_test"), timingSchemaVersion: 3};
     expect(() =>

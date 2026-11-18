@@ -306,16 +306,22 @@ export function parseBookingPaymentAgreements(
         const deposit =
           item.requiredUpfrontAmountInCentavos;
 
+        const depositBasis = BigInt(deposit);
+
+        const expectedCustomerRefund = Number(
+          (depositBasis * BigInt(7000)) / BigInt(10000),
+        );
+
+        const expectedProviderCompensation = Number(
+          (depositBasis * BigInt(2000)) / BigInt(10000),
+        );
+
         if (
           !allocation ||
           allocation.customerDefaultRefundAmountInCentavos !==
-            Math.floor(
-              deposit * 0.7,
-            ) ||
+            expectedCustomerRefund ||
           allocation.providerReservationCompAmountInCentavos !==
-            Math.floor(
-              deposit * 0.2,
-            ) ||
+            expectedProviderCompensation ||
           allocation.feastaCancellationFeeAmountInCentavos !==
             deposit -
               allocation.customerDefaultRefundAmountInCentavos -
