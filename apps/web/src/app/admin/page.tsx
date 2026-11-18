@@ -153,10 +153,8 @@ export default async function AdminPage() {
         <Link href="/admin/bookings" className="grid min-w-0 rounded-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
           <SummaryCard
             label="Total bookings"
-            supportingMetric={numberFormatter.format(dashboard.statistics.activeBookings) + " active / " + numberFormatter.format(dashboard.statistics.completedBookings) + " completed"}
-            value={numberFormatter.format(
-              dashboard.statistics.totalBookings,
-            )}
+            supportingMetric="View bookings by status"
+            value={numberFormatter.format(dashboard.statistics.totalBookings)}
             icon={
               <CalendarDays aria-hidden="true" className="size-6" />
             }

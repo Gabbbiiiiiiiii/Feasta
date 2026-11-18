@@ -46,8 +46,6 @@ export type AdminDashboardData = {
     revenueLast30DaysInCentavos: number;
     customerAccounts: number;
     providerAccounts: number;
-    activeBookings: number;
-    completedBookings: number;
     submittedApprovals: number;
     underReviewApprovals: number;
   };
@@ -452,8 +450,6 @@ export async function getAdminDashboardData(): Promise<AdminDashboardData> {
     totalBookingsSnapshot,
     customersSnapshot,
     providersSnapshot,
-    activeBookingsSnapshot,
-    completedBookingsSnapshot,
     submittedApprovalsSnapshot,
     underReviewApprovalsSnapshot,
     openComplaintsSnapshot,
@@ -495,24 +491,6 @@ export async function getAdminDashboardData(): Promise<AdminDashboardData> {
       .get(),
 
 
-    adminDb
-      .collection(
-        FIRESTORE_COLLECTIONS.mainEvents,
-      )
-      .where("status", "in", [
-        "pending_provider_approval",
-        "needs_provider_replacement",
-        "waiting_for_down_payment",
-        "confirmed",
-        "in_progress",
-      ])
-      .count()
-      .get(),
-
-    adminDb.collection(FIRESTORE_COLLECTIONS.mainEvents)
-      .where("status", "==", "completed")
-      .count()
-      .get(),
     adminDb.collection(FIRESTORE_COLLECTIONS.providerVerifications)
       .where("status", "==", "submitted")
       .count()
@@ -626,8 +604,6 @@ export async function getAdminDashboardData(): Promise<AdminDashboardData> {
       ),
       customerAccounts,
       providerAccounts,
-      activeBookings: activeBookingsSnapshot.data().count,
-      completedBookings: completedBookingsSnapshot.data().count,
       submittedApprovals: submittedApprovalsSnapshot.data().count,
       underReviewApprovals: underReviewApprovalsSnapshot.data().count,
     },

@@ -155,6 +155,7 @@ export type AdminBooking = {
 
 export type AdminBookingStatistics = {
   totalBookings: number;
+  availableStatuses: MainEventStatus[];
   pendingApproval: number;
   waitingForPayment: number;
   confirmed: number;

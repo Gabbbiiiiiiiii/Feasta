@@ -112,7 +112,7 @@ describe("Admin dashboard financial and population metrics", () => {
     expect(dashboard.statistics).toEqual({
       feastaRevenueInCentavos: 50000, totalUsers: 4, totalBookings: 3, verificationQueue: 2,
       revenueLast30DaysInCentavos: 50000, customerAccounts: 2, providerAccounts: 2,
-      activeBookings: 1, completedBookings: 1, submittedApprovals: 1, underReviewApprovals: 1,
+      submittedApprovals: 1, underReviewApprovals: 1,
     });
     expect(dashboard.operationsOverview).toMatchObject({
       pendingProcessingPayments: 1, failedExpiredPayments: 1,
@@ -189,11 +189,13 @@ describe("Admin dashboard financial and population metrics", () => {
     const summary = screen.getByRole("region", { name: "Platform summary" });
     expect(within(summary).getAllByRole("region")).toHaveLength(4);
     expect(within(summary).getByText("2 customers / 2 providers")).toBeInTheDocument();
-    expect(within(summary).getByText("1 active / 1 completed")).toBeInTheDocument();
+    const bookings = within(summary).getByRole("link", { name: /Total bookings/ });
+    expect(within(bookings).getByText("3")).toBeInTheDocument();
+    expect(bookings).toHaveTextContent("View bookings by status");
     expect(within(summary).getByText("1 submitted / 1 under review")).toBeInTheDocument();
     expect(within(summary).queryByText("FEASTA Revenue")).not.toBeInTheDocument();
     expect(within(summary).getByRole("link", { name: /Total users/ })).toHaveAttribute("href", "/admin/users");
-    expect(within(summary).getByRole("link", { name: /Total bookings/ })).toHaveAttribute("href", "/admin/bookings");
+    expect(bookings).toHaveAttribute("href", "/admin/bookings");
     expect(within(summary).getByRole("link", { name: /Pending provider verifications/ })).toHaveAttribute("href", "/admin/providers");
     expect(within(summary).getByRole("link", { name: /Open complaints/ })).toHaveAttribute("href", "/admin/complaints");
     expect(screen.getByText(/Platform and service fees earned through eligible FEASTA transactions\./)).toBeInTheDocument();
