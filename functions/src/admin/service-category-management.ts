@@ -528,6 +528,16 @@ async function changeCategoryStatus(
         return;
       }
 
+      if (nextStatus === "discontinued") {
+        const usage = await categoryUsageCounts(transaction, code);
+        if (usage.primaryProviders > 0 || usage.providers > 0 || usage.services > 0) {
+          throw new HttpsError(
+            "failed-precondition",
+            "This service category is assigned to a provider or service and cannot be deactivated.",
+          );
+        }
+      }
+
       if (nextStatus === "active") await requireMaintenanceOpen(transaction, db, "publication");
       const after: CategoryData = {
         ...before,

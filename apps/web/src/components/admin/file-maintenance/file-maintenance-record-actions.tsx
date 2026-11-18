@@ -170,7 +170,7 @@ export function FileMaintenanceRecordActions({
                   aria-hidden="true"
                   className="size-4"
                 />
-                Discontinue
+                Deactivate
               </DropdownMenu.Item>
             ) : (
               <>
@@ -184,7 +184,7 @@ export function FileMaintenanceRecordActions({
                     aria-hidden="true"
                     className="size-4"
                   />
-                  Reactivate
+                  Activate
                 </DropdownMenu.Item>
 
                 <DropdownMenu.Separator

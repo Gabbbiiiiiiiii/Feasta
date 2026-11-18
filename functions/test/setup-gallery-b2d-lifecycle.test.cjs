@@ -480,3 +480,120 @@ test("unused discontinued category can be deleted", async () => {
   await category.deleteServiceCategory(request({code: "unused"}));
   assert.equal(state.docs.has("serviceCategories/unused"), false);
 });
+
+
+// STEP 50B-10 DEACTIVATION TESTS
+for (const scenario of [
+  {
+    name: "primary provider assignment",
+    usage: {"providers/assigned-primary": {
+      providerCategory: "unused",
+      serviceCategories: [],
+    }},
+  },
+  {
+    name: "secondary provider category assignment",
+    usage: {"providers/assigned-secondary": {
+      providerCategory: "catering",
+      serviceCategories: ["catering", "unused"],
+    }},
+  },
+  {
+    name: "add-on service assignment",
+    usage: {"addons/assigned-service": {
+      category: "unused",
+    }},
+  },
+]) {
+  test(`category deactivation rejects ${scenario.name}`, async () => {
+    const {category, state} = fixture({
+      "serviceCategories/unused": {
+        code: "unused",
+        name: "Unused",
+        serviceType: "addon",
+        status: "active",
+      },
+      ...scenario.usage,
+    });
+
+    await assert.rejects(
+      category.discontinueServiceCategory(request({code: "unused"})),
+      /assigned to a provider or service/i,
+    );
+
+    assert.equal(state.docs.get("serviceCategories/unused").status, "active");
+    assert.equal(state.commits.length, 0);
+  });
+}
+
+test("concurrent provider assignment blocks category deactivation on retry", async () => {
+  const {category, state} = fixture({
+    "serviceCategories/unused": {
+      code: "unused",
+      name: "Unused",
+      serviceType: "addon",
+      status: "active",
+    },
+  });
+
+  state.beforeCommit = (attempt) => {
+    if (attempt === 0) {
+      state.docs.set("providers/concurrent", {
+        providerCategory: "unused",
+        serviceCategories: ["unused"],
+      });
+    }
+  };
+
+  await assert.rejects(
+    category.discontinueServiceCategory(request({code: "unused"})),
+    /cannot be deactivated/i,
+  );
+
+  assert.equal(state.attempts, 2);
+  assert.equal(state.commits.length, 0);
+  assert.equal(state.docs.get("serviceCategories/unused").status, "active");
+});
+
+test("unauthenticated, non-admin and blocked admin cannot deactivate", async () => {
+  for (const uid of [null, "owner", "admin"]) {
+    const {category, state} = fixture({
+      "serviceCategories/unused": {
+        code: "unused",
+        name: "Unused",
+        serviceType: "addon",
+        status: "active",
+      },
+    });
+
+    if (uid === "admin") {
+      state.docs.get("users/admin").isBlocked = true;
+    }
+
+    await assert.rejects(
+      category.discontinueServiceCategory(request({code: "unused"}, uid)),
+    );
+
+    assert.equal(state.commits.length, 0);
+    assert.equal(state.docs.get("serviceCategories/unused").status, "active");
+  }
+});
+
+test("unused active category can be deactivated successfully", async () => {
+  const {category, state} = fixture({
+    "serviceCategories/unused": {
+      code: "unused",
+      name: "Unused",
+      serviceType: "addon",
+      status: "active",
+    },
+  });
+
+  const result = await category.discontinueServiceCategory(
+    request({code: "unused"}),
+  );
+
+  assert.deepEqual(result, {success: true});
+  assert.equal(state.docs.get("serviceCategories/unused").status, "discontinued");
+  assert.equal(state.commits.filter(([kind]) => kind === "update").length, 1);
+});

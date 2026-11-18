@@ -1,5 +1,6 @@
-﻿"use client";
+"use client";
 
+import {assertServiceCategoryUnused} from "@/lib/admin/file-maintenance/service-category-usage-actions";
 import {
   Pencil,
   Plus,
@@ -396,6 +397,9 @@ function ServiceCategoryManagementClient({
     const category = confirmCategory;
 
     try {
+      if (confirmAction === "discontinue" || confirmAction === "delete") {
+        await assertServiceCategoryUnused(category.code);
+      }
       if (confirmAction === "discontinue") {
         await discontinueAdminServiceCategory(
           category.code,
@@ -414,7 +418,7 @@ function ServiceCategoryManagementClient({
         );
 
         feastaToast.success(
-          "Service category discontinued.",
+          "Service category deactivated.",
         );
       } else if (
         confirmAction === "reactivate"
@@ -435,7 +439,7 @@ function ServiceCategoryManagementClient({
         );
 
         feastaToast.success(
-          "Service category reactivated.",
+          "Service category activated.",
         );
       } else {
         await deleteAdminServiceCategory(
@@ -470,7 +474,7 @@ function ServiceCategoryManagementClient({
               Service categories
             </h2>
             <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
-              Manage the service categories providers can select across FEASTA. Discontinued categories remain available for existing records but cannot be newly selected.
+              Manage the service categories providers can select across FEASTA. Inactive categories remain available for existing records but cannot be newly selected.
             </p>
           </div>
           <Button onClick={openCreate}>
@@ -485,7 +489,7 @@ function ServiceCategoryManagementClient({
         <PageHeading
           eyebrow="File Maintenance"
           title="Service Categories"
-          description="Manage the service categories providers can select across FEASTA. Discontinued categories remain available for existing records but cannot be newly selected."
+          description="Manage the service categories providers can select across FEASTA. Inactive categories remain available for existing records but cannot be newly selected."
           actions={
             <Button onClick={openCreate}>
               <Plus
@@ -535,7 +539,7 @@ function ServiceCategoryManagementClient({
                   Active
                 </option>
                 <option value="discontinued">
-                  Discontinued
+                  Inactive
                 </option>
               </Select>
             </FormField>
@@ -660,7 +664,7 @@ function ServiceCategoryManagementClient({
               }
               description={
                 editing?.status === "active"
-                  ? "Discontinue this category before changing its service type."
+                  ? "Deactivate this category before changing its service type."
                   : "Catering categories belong to catering providers. Add-on categories belong to other event service providers."
               }
             >
@@ -907,7 +911,7 @@ function CategoryMobileCard({
               aria-hidden="true"
               className="size-4"
             />
-            Discontinue
+            Deactivate
           </Button>
         ) : (
           <>
@@ -923,7 +927,7 @@ function CategoryMobileCard({
                 aria-hidden="true"
                 className="size-4"
               />
-              Reactivate
+              Activate
             </Button>
 
             <Button
@@ -970,7 +974,7 @@ function statusLabel(
 ): string {
   return value === "active"
     ? "Active"
-    : "Discontinued";
+    : "Inactive";
 }
 
 function confirmationTitle(
@@ -980,9 +984,9 @@ function confirmationTitle(
 ): string {
   switch (action) {
     case "discontinue":
-      return "Discontinue service category?";
+      return "Deactivate service category?";
     case "reactivate":
-      return "Reactivate service category?";
+      return "Activate service category?";
     case "delete":
       return "Delete service category?";
     default:
@@ -997,9 +1001,9 @@ function confirmationLabel(
 ): string {
   switch (action) {
     case "discontinue":
-      return "Discontinue";
+      return "Deactivate";
     case "reactivate":
-      return "Reactivate";
+      return "Activate";
     case "delete":
       return "Delete";
     default:
@@ -1023,7 +1027,7 @@ function confirmationDescription(
       return `${category.name} will become available for new provider selections again.`;
 
     case "delete":
-      return `${category.name} will be permanently deleted. Deletion is allowed only when the category is discontinued and no current providers or services use it.`;
+      return `${category.name} will be permanently deleted. Deletion is allowed only when the category is inactive and no current providers or services use it.`;
 
     default:
       return "Confirm this service category change.";
