@@ -182,12 +182,12 @@ describe("Admin dashboard financial and population metrics", () => {
     await expect(getAdminDashboardData()).rejects.toThrow("invalid financial ledger entry");
   });
 
-  it("renders four linked cards including pending approvals and switches revenue ranges", async () => {
+  it("renders five linked cards including open complaints and switches revenue ranges", async () => {
     database.rows.financialLedgerEntries.push(entry("earlier-fee", "2026-09-01T00:00:00Z", 625025));
     const user = userEvent.setup();
     render(await AdminPage());
     const summary = screen.getByRole("region", { name: "Platform summary" });
-    expect(within(summary).getAllByRole("region")).toHaveLength(4);
+    expect(within(summary).getAllByRole("region")).toHaveLength(5);
     expect(within(summary).getByText("\u20b16,750.25 in the last 30 days")).toBeInTheDocument();
     expect(within(summary).getByText("2 customers / 2 providers")).toBeInTheDocument();
     expect(within(summary).getByText("1 active / 1 completed")).toBeInTheDocument();
@@ -197,6 +197,7 @@ describe("Admin dashboard financial and population metrics", () => {
     expect(within(summary).getByRole("link", { name: /Total users/ })).toHaveAttribute("href", "/admin/users");
     expect(within(summary).getByRole("link", { name: /Total bookings/ })).toHaveAttribute("href", "/admin/bookings");
     expect(within(summary).getByRole("link", { name: /Pending provider verifications/ })).toHaveAttribute("href", "/admin/providers");
+    expect(within(summary).getByRole("link", { name: /Open complaints/i })).toHaveAttribute("href", "/admin/complaints");
     expect(screen.getByText(/Platform and service fees earned through eligible FEASTA transactions\./)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "1M" })).toHaveAttribute("aria-pressed", "true");
     await user.click(screen.getByRole("button", { name: "7D" }));
@@ -278,10 +279,15 @@ describe("Admin dashboard financial and population metrics", () => {
     const user = userEvent.setup();
     render(await AdminPage());
     const operations = screen.getByRole("region", { name: "Operations Overview" });
-    expect(within(operations).getAllByRole("link")).toHaveLength(4);
+    expect(within(operations).getAllByRole("link")).toHaveLength(3);
     expect(within(operations).getByRole("link", { name: "Pending payments: 1" })).toHaveAttribute("href", "/admin/payments");
     expect(within(operations).getByRole("link", { name: "Reported reviews: 1" })).toHaveAttribute("href", "/admin/reviews");
-    expect(within(operations).getByRole("link", { name: "Open complaints: 2" })).toHaveAttribute("href", "/admin/complaints");
+    expect(within(operations).queryByRole("link", { name: /Open complaints/i })).not.toBeInTheDocument();
+    const summary = screen.getByRole("region", { name: "Platform summary" });
+    const complaintLink = within(summary).getByRole("link", { name: /Open complaints/i });
+    expect(complaintLink).toHaveAttribute("href", "/admin/complaints");
+    expect(within(complaintLink).getByText("2")).toBeInTheDocument();
+    expect(complaintLink.querySelector(".border-amber-300")).not.toBeNull();
     expect(within(operations).queryByText(/provider|booking/i)).not.toBeInTheDocument();
     expect(screen.queryByText("Quick Actions")).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: /Booking Overview/i })).not.toBeInTheDocument();

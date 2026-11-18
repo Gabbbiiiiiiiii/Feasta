@@ -152,7 +152,7 @@ export default async function AdminPage() {
       />
 
       <section
-        className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"
+        className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5"
         aria-label="Platform summary"
       >
         <Link href="/admin/payments" className="grid min-w-0 rounded-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
@@ -208,6 +208,15 @@ export default async function AdminPage() {
             }
           />
         </Link>
+        <Link href="/admin/complaints" className="grid min-w-0 rounded-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+          <SummaryCard
+            label="Open complaints"
+            value={numberFormatter.format(dashboard.operationsOverview.openComplaints)}
+            supportingMetric="View complaints queue"
+            icon={<CircleAlert aria-hidden="true" className="size-6" />}
+            className={dashboard.operationsOverview.openComplaints > 0 ? "border-amber-300 bg-amber-50/40" : undefined}
+          />
+        </Link>
       </section>
 
       <section className="grid min-w-0 gap-6 xl:grid-cols-[minmax(0,2fr)_minmax(300px,1fr)]">
@@ -249,14 +258,13 @@ function OperationsOverview({
     { label: "Pending payments", value: overview.pendingProcessingPayments, href: "/admin/payments", icon: CreditCard },
     { label: "Failed or expired payments", value: overview.failedExpiredPayments, href: "/admin/payments", icon: CircleAlert },
     { label: "Reported reviews", value: overview.reportedReviews, href: "/admin/reviews", icon: MessageSquareText },
-    { label: "Open complaints", value: overview.openComplaints, href: "/admin/complaints", icon: MessageSquareText },
   ];
 
   return (
     <section aria-label={title} className="rounded-card border border-border bg-card p-5 shadow-card">
       <h2 className="text-lg font-bold">{title}</h2>
       <p className="mt-1 text-sm text-muted-foreground">
-        Payments, reviews, and complaints needing attention.
+        Payments and reviews needing attention.
       </p>
       <ul className="mt-5 grid gap-2">
         {metrics.map((metric) => {
