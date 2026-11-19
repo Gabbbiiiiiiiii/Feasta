@@ -15,7 +15,7 @@ import {
 } from "@/lib/customer/event-list/customer-event-list-cloud-transport";
 import {bookingAgreementFixture} from "./booking-agreement-fixture";
 
-const mocks = vi.hoisted(() => ({submit: vi.fn(), reconcile: vi.fn(), replace: vi.fn(), policies: vi.fn()}));
+const mocks = vi.hoisted(() => ({submit: vi.fn(), reconcile: vi.fn(), abandon: vi.fn(), replace: vi.fn(), policies: vi.fn()}));
 afterEach(() => {
   expect(subscribeCustomerEventListCloud).not.toHaveBeenCalled();
   expect(sendCustomerEventListMutation).not.toHaveBeenCalled();
@@ -24,7 +24,9 @@ vi.mock("next/navigation", () => ({useRouter: () => ({replace: mocks.replace})})
 vi.mock("@/lib/firebase/client", () => ({auth: {currentUser: {uid: "customer-a"}, authStateReady: async () => {}}, functions: {}, initializeBrowserAppCheck: vi.fn()}));
 vi.mock("@/app/customer/providers/menu-item-actions", () => ({loadCustomerMenuItemForEditAction: vi.fn()}));
 vi.mock("@/lib/customer/bookings/customer-booking-submission-client", () => ({submitCustomerBookingRequest: mocks.submit,
-  reconcileCustomerBookingSubmission: mocks.reconcile, bookingSubmissionRequiresRefundPolicyRefresh: () => false}));
+  reconcileCustomerBookingSubmission: mocks.reconcile,
+  abandonUnresolvedCustomerBookingSubmission: mocks.abandon,
+  bookingSubmissionRequiresRefundPolicyRefresh: () => false}));
 vi.mock("@/lib/customer/bookings/customer-refund-policy-client", async original => ({
   ...await original<typeof import("@/lib/customer/bookings/customer-refund-policy-client")>(),
   getCustomerBookingRefundPolicyDisclosures: mocks.policies,
@@ -83,7 +85,31 @@ it("keeps recovery available after all Event List selections are removed", async
   render(<CustomerEventListReview />);
   fireEvent.click(screen.getByRole("button", {name: "Check Previous Request"}));
   expect(await screen.findByText(/Previous request is unresolved/)).toBeVisible();
+  expect(screen.getByRole("button", {name: "Start a new attempt"})).toBeVisible();
   expect(mocks.submit).not.toHaveBeenCalled();
+});
+
+it("starts a fresh Event List attempt after abandoning an unresolved request", async () => {
+  const user = userEvent.setup();
+  mocks.reconcile.mockResolvedValue({outcome: "unresolved"});
+  mocks.abandon.mockResolvedValue({outcome: "confirmed_rejected"});
+  render(<CustomerEventListReview />);
+  await waitFor(() => expect(screen.getAllByRole("checkbox", {name: /I (have )?reviewed/})).toHaveLength(2));
+  for (const checkbox of await screen.findAllByRole("checkbox", {name: /I (have )?reviewed/})) await user.click(checkbox);
+  await user.click(screen.getByRole("button", {name: "Check Previous Request"}));
+  await screen.findByText(/Previous request is unresolved/);
+  await user.click(screen.getByRole("button", {name: "Start a new attempt"}));
+  await screen.findByText(/Previous unresolved request was closed/);
+  expect(mocks.abandon).toHaveBeenCalledExactlyOnceWith("customer-a");
+  const submit = screen.getByRole("button", {name: "Submit Booking"});
+  expect(submit).toBeDisabled();
+  await waitFor(() => expect(screen.getAllByRole("checkbox", {name: /I (have )?reviewed/})).toHaveLength(2));
+  for (const checkbox of await screen.findAllByRole("checkbox", {name: /I (have )?reviewed/})) {
+    expect(checkbox).not.toBeChecked(); await user.click(checkbox);
+  }
+  await user.click(submit);
+  await waitFor(() => expect(mocks.submit).toHaveBeenCalledOnce());
+  expect(mocks.submit.mock.calls[0][1]).toEqual({customerId: "customer-a", freshAttempt: true});
 });
 
 it("submits the existing custom-menu payload only after both acknowledgments", async () => {

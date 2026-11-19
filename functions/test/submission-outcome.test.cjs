@@ -4,8 +4,9 @@ const {createHash} = require('node:crypto');
 const {readFileSync} = require('node:fs');
 const {HttpsError} = require('firebase-functions/v2/https');
 const {Timestamp} = require('firebase-admin/firestore');
-const {bookingOutcomeId, rejectAcknowledgementInTransaction: reject,
-  assertNoRejectedSubmission: fence, reconcileSubmissionOutcome: reconcile} =
+const {bookingOutcomeId, abandonSubmissionFingerprint, abandonUnresolvedSubmissionInTransaction: abandon,
+  rejectAcknowledgementInTransaction: reject,
+  assertNoRejectedSubmission: fence, reconcileSubmissionOutcome: reconcile, validRejection} =
   require('../lib/bookings/submission-outcome.js');
 const identity = {customerId: 'customer_original', clientRequestId: 'mobile_original', submissionFingerprint: 'a'.repeat(64)};
 const id = bookingOutcomeId(identity.customerId, identity.clientRequestId);
@@ -13,6 +14,10 @@ const booking = {customerId: identity.customerId, clientRequestId: identity.clie
   mainEventId: id, providerRequestIds: ['provider_request']};
 const receipt = {...identity, schemaVersion: 1, outcome: 'confirmed_rejected',
   reason: 'acknowledgement_rejected', rejectedAt: Timestamp.now()};
+const abandoned = {...identity, schemaVersion: 1, outcome: 'confirmed_rejected',
+  reason: 'unresolved_abandoned',
+  submissionFingerprint: abandonSubmissionFingerprint(identity.customerId, identity.clientRequestId),
+  rejectedAt: Timestamp.now()};
 const lookup = (b, r, uid = identity.customerId) => reconcile(uid, identity.clientRequestId, id, b, r);
 
 test('deterministic ID remains exactly the existing SHA256 contract', () => {
@@ -29,11 +34,25 @@ test('created lookup returns only owned canonical result', () => {
 });
 test('missing, historical, malformed and contradictory evidence never establishes rejection', () => {
   for (const r of [undefined, {}, {...receipt, customerId: 'foreign'}, {...receipt, schemaVersion: 2},
-    {...receipt, rejectedAt: null}, {...receipt, submissionFingerprint: 'invalid'}]) {
+    {...receipt, rejectedAt: null}, {...receipt, submissionFingerprint: 'invalid'},
+    {...receipt, reason: 'unknown_reason'}]) {
     assert.deepEqual(lookup(undefined, r), {outcome: 'unresolved'});
   }
   assert.deepEqual(lookup(booking, receipt), {outcome: 'unresolved'});
   assert.deepEqual(lookup(undefined, receipt), {outcome: 'confirmed_rejected'});
+  assert.deepEqual(lookup(undefined, abandoned), {outcome: 'confirmed_rejected'});
+  assert.equal(validRejection(abandoned, identity.customerId, identity.clientRequestId), true);
+});
+test('abandon writes a durable unresolved_abandoned fence', () => {
+  const writes = [];
+  abandon({create: (ref, data) => writes.push(data)}, {}, identity.customerId, identity.clientRequestId);
+  assert.equal(writes.length, 1);
+  assert.equal(writes[0].reason, 'unresolved_abandoned');
+  assert.equal(writes[0].submissionFingerprint,
+    abandonSubmissionFingerprint(identity.customerId, identity.clientRequestId));
+  assert.throws(() => fence({...writes[0], rejectedAt: Timestamp.now()},
+    identity.customerId, identity.clientRequestId, writes[0].submissionFingerprint),
+  e => e.details.reason === 'SUBMISSION_TERMINALLY_REJECTED');
 });
 test('terminal replay stays fenced and changed fingerprint conflicts', () => {
   assert.throws(() => fence(receipt, identity.customerId, identity.clientRequestId, identity.submissionFingerprint),

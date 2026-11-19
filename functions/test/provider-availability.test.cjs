@@ -504,6 +504,20 @@ test("booking submission validates availability and remains a review flow", () =
     assert.match(checker, /expiresAt: document\.data\(\)\.expiresAt/u);
     assert.match(checker, /acceptedAt: document\.data\(\)\.acceptedAt/u);
   }
+  for (const relativePath of [
+    "payments/initial-payment-reservation.ts",
+    "provider-requests/accept-provider-request.ts",
+  ]) {
+    const checker = readFileSync(join(sourceRoot, relativePath), "utf8");
+    assert.match(checker, /validateProviderAvailability/u);
+    assert.match(checker, /serviceTier/u);
+    assert.match(checker, /expiresAt:\s*(?:document\.data\(\)\.expiresAt|[\s\S]*?document\.data\(\)\s*\.expiresAt)/u);
+    assert.match(checker, /acceptedAt:\s*(?:document\.data\(\)\.acceptedAt|[\s\S]*?document\.data\(\)\s*\.acceptedAt)/u);
+  }
+  assert.match(
+    readFileSync(join(sourceRoot, "payments/initial-payment-reservation.ts"), "utf8"),
+    /AVAILABILITY_COUNTED_REQUEST_STATUSES/u,
+  );
   assert.match(submission, /transaction\.get\(/u);
   assert.match(submission, /status:\s*"pending"/u);
   assert.match(submission, /"New Booking Request"/u);

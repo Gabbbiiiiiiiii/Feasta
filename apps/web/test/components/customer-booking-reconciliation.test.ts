@@ -3,12 +3,24 @@ import {FirebaseError} from "firebase/app";
 
 const mocks = vi.hoisted(() => ({
   auth: {currentUser: {uid: "customer-a"} as {uid: string} | null, authStateReady: vi.fn(async () => {})},
-  submit: vi.fn(), reconcile: vi.fn(), appCheck: vi.fn(),
+  submit: vi.fn(), reconcile: vi.fn(), abandon: vi.fn(), appCheck: vi.fn(),
 }));
 vi.mock("@/lib/firebase/client", () => ({auth: mocks.auth, functions: {}, initializeBrowserAppCheck: mocks.appCheck}));
-vi.mock("firebase/functions", () => ({httpsCallable: (_: unknown, name: string) => name === "submitBookingRequest" ? mocks.submit : mocks.reconcile}));
+const callables = vi.hoisted(() => ({
+  httpsCallable: (_: unknown, name: string) => {
+    if (name === "submitBookingRequest") return mocks.submit;
+    if (name === "abandonUnresolvedBookingSubmission") return mocks.abandon;
+    return mocks.reconcile;
+  },
+}));
+vi.mock("firebase/functions", () => ({httpsCallable: callables.httpsCallable}));
 
-import {reconcileCustomerBookingSubmission, submitCustomerBookingRequest, type SubmitBookingRequestInput} from "@/lib/customer/bookings/customer-booking-submission-client";
+import {
+  abandonUnresolvedCustomerBookingSubmission,
+  reconcileCustomerBookingSubmission,
+  submitCustomerBookingRequest,
+  type SubmitBookingRequestInput,
+} from "@/lib/customer/bookings/customer-booking-submission-client";
 
 const result = {bookingId: "booking_existing", mainEventId: "booking_existing", providerRequestIds: ["provider_request"], created: true};
 const recovered = {...result, created: false};
@@ -29,6 +41,7 @@ beforeEach(() => {
   vi.clearAllMocks(); localStorage.clear(); mocks.auth.currentUser = {uid: "customer-a"};
   mocks.submit.mockResolvedValue({data: result});
   mocks.reconcile.mockResolvedValue({data: {clientRequestId: "booking-original", outcome: "unresolved"}});
+  mocks.abandon.mockResolvedValue({data: {clientRequestId: "booking-original", outcome: "confirmed_rejected"}});
   let locked = false;
   vi.stubGlobal("navigator", {locks: {request: async (_name: string, _options: unknown, run: (lock: object | null) => Promise<unknown>) => {
     if (locked) return run(null);
@@ -113,6 +126,30 @@ it("adopts a historical package draft ID without submitting or interpreting abse
   await expect(submitCustomerBookingRequest(input("fixed"), {...options, restoredRequestId: "booking-original"})).rejects.toThrow("Check Previous Request");
   await expect(reconcileCustomerBookingSubmission("customer-a")).resolves.toEqual({outcome: "unresolved"});
   expect(mocks.submit).not.toHaveBeenCalled();
+});
+
+it("abandons a stuck unresolved attempt and requires an explicit fresh attempt", async () => {
+  mocks.submit.mockRejectedValueOnce(new Error("interrupted"));
+  await expect(submitCustomerBookingRequest(input("fixed"), options)).rejects.toThrow();
+  await expect(reconcileCustomerBookingSubmission(options.customerId)).resolves.toEqual({outcome: "unresolved"});
+  await expect(abandonUnresolvedCustomerBookingSubmission(options.customerId)).resolves.toEqual({outcome: "confirmed_rejected"});
+  expect(mocks.abandon).toHaveBeenCalledExactlyOnceWith({clientRequestId: "booking-original"});
+  expect(JSON.parse(localStorage.getItem(key)!).outcomes["booking-original"]).toEqual({outcome: "confirmed_rejected"});
+  await expect(submitCustomerBookingRequest(input("fixed"), options)).rejects.toThrow("Check Previous Request");
+  await submitCustomerBookingRequest(input("fixed"), {...options, freshAttempt: true});
+  expect(mocks.submit.mock.calls[1][0].clientRequestId).not.toBe("booking-original");
+});
+
+it("releases the pre-dispatch fence on invalid-argument so contract mismatches do not lock the journal", async () => {
+  mocks.submit.mockRejectedValueOnce(new FirebaseError(
+    "functions/invalid-argument",
+    "Booking selection contains unsupported fields.",
+  ));
+  await expect(submitCustomerBookingRequest(input("per-pax"), options)).rejects.toThrow(/unsupported fields/i);
+  expect(JSON.parse(localStorage.getItem(key)!).active).toBeNull();
+  mocks.submit.mockResolvedValueOnce({data: result});
+  await expect(submitCustomerBookingRequest(input("per-pax"), options)).resolves.toEqual(result);
+  expect(mocks.submit).toHaveBeenCalledTimes(2);
 });
 
 it("fails closed on unavailable persistence, malformed evidence, or unsupported browser locking", async () => {

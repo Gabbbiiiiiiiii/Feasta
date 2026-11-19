@@ -13,9 +13,16 @@ stub('../lib/shared/firestore.js', {db: {
   collection: name => ({doc: id => ({path: `${name}/${id}`})}),
   runTransaction: async callback => {
     if (failure) throw failure;
-    return callback({get: async ref => {reads.push(ref.path); return {
-      exists: records.has(ref.path), data: () => records.get(ref.path),
-    };}});
+    return callback({
+      get: async ref => {reads.push(ref.path); return {
+        exists: records.has(ref.path), data: () => records.get(ref.path),
+      };},
+      create: (ref, data) => {
+        if (records.has(ref.path)) throw new Error('already-exists');
+        // Coerce FieldValue sentinels to a committed Timestamp for local asserts.
+        records.set(ref.path, {...data, rejectedAt: Timestamp.now()});
+      },
+    });
   },
 }});
 stub('../lib/shared/authorization.js', {requireRole: async (owner, roles) => {
@@ -24,6 +31,8 @@ stub('../lib/shared/authorization.js', {requireRole: async (owner, roles) => {
 }});
 stub('../lib/shared/rate-limit.js', {enforceCallableRateLimit: async () => {}});
 const {reconcileBookingSubmission: callable} = require('../lib/bookings/reconcile-booking-submission.js');
+const {abandonUnresolvedBookingSubmission: abandonCallable} =
+  require('../lib/bookings/abandon-unresolved-booking-submission.js');
 const request = (data = {clientRequestId: requestId}, owner = uid) => ({
   auth: owner ? {uid: owner, token: {}} : undefined, data, rawRequest: {headers: {}},
 });
@@ -57,6 +66,24 @@ test('transaction read interruption propagates; it cannot return a rejection', a
   failure = new Error('read timeout');
   await assert.rejects(callable.run(request()), /read timeout/);
   failure = undefined;
+});
+test('abandon fences missing evidence and refuses malformed locks', async () => {
+  reads = []; records.clear();
+  assert.deepEqual(await abandonCallable.run(request()), {
+    clientRequestId: requestId, outcome: 'confirmed_rejected',
+  });
+  const id = bookingOutcomeId(uid, requestId);
+  assert.equal(records.get(`bookingSubmissionOutcomes/${id}`).reason, 'unresolved_abandoned');
+  assert.equal((await callable.run(request())).outcome, 'confirmed_rejected');
+  assert.equal((await abandonCallable.run(request())).outcome, 'confirmed_rejected');
+  records.clear();
+  records.set(`bookingSubmissionOutcomes/${id}`, {schemaVersion: 2, outcome: 'confirmed_rejected'});
+  await assert.rejects(abandonCallable.run(request()), error =>
+    error.code === 'failed-precondition' && error.details?.reason === 'SUBMISSION_UNRESOLVED_LOCKED');
+  records.clear();
+  records.set(`mainEvents/${id}`, {customerId: uid, clientRequestId: requestId,
+    mainEventId: id, providerRequestIds: ['request_original']});
+  assert.equal((await abandonCallable.run(request())).booking.bookingId, id);
 });
 
 test('real submission handler preserves owned replay and fingerprint conflict before new-booking validation', async () => {

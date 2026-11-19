@@ -48,6 +48,8 @@ import {
   loadCustomerMenuItemForEditAction,
 } from "@/app/customer/providers/menu-item-actions";
 import {
+  abandonUnresolvedCustomerBookingSubmission,
+  bookingSubmissionRequiresPreviousRequestRecovery,
   bookingSubmissionRequiresRefundPolicyRefresh,
   submitCustomerBookingRequest,
   reconcileCustomerBookingSubmission,
@@ -160,6 +162,7 @@ function CustomerEventListReviewSession() {
 
   const submissionOwner = useRef(auth.currentUser?.uid);
   const [freshAttempt, setFreshAttempt] = useState(false);
+  const [unresolvedRequest, setUnresolvedRequest] = useState(false);
   const [recoveryNotice, setRecoveryNotice] = useState<string | null>(null);
   useEffect(() => {
     let mounted = true;
@@ -943,27 +946,54 @@ function CustomerEventListReviewSession() {
     );
   }
 
+  async function applyRejectedRecovery(notice: string) {
+    setAcknowledgedPolicyKeys({});
+    setAgreementKeys({});
+    setBookingAgreements([]);
+    setAgreementNonce(value => value + 1);
+    setRefundRetryNonce(value => value + 1);
+    setUnresolvedRequest(false);
+    setFreshAttempt(true);
+    setRecoveryNotice(notice);
+  }
+
   async function checkPreviousRequest() {
     if (isSubmitting) return;
     setIsSubmitting(true);
     setFreshAttempt(false);
     try {
       const result = await reconcileCustomerBookingSubmission(submissionOwner.current);
+      setUnresolvedRequest(result.outcome === "unresolved");
       if (result.outcome === "confirmed_created") {
         router.replace(`/customer/bookings?submitted=${encodeURIComponent(result.booking.bookingId)}`);
       } else if (result.outcome === "confirmed_rejected") {
-        setAcknowledgedPolicyKeys({});
-        setAgreementKeys({});
-        setBookingAgreements([]);
-        setAgreementNonce(value => value + 1);
-        setRefundRetryNonce(value => value + 1);
-        setFreshAttempt(true);
-        setRecoveryNotice("Previous request was confirmed rejected. Review and acknowledge the current policies and agreement. Submit Booking will start a fresh attempt.");
+        await applyRejectedRecovery(
+          "Previous request was confirmed rejected. Review and acknowledge the current policies and agreement. Submit Booking will start a fresh attempt.",
+        );
       } else {
-        setRecoveryNotice("Previous request is unresolved. Another submission is blocked. Keep this request and check again.");
+        setRecoveryNotice("Previous request is unresolved. Another submission is blocked. Keep this request and check again, or start a new attempt if you never received confirmation.");
       }
     } catch (error) {
       setRecoveryNotice(error instanceof Error ? error.message : "Unable to check the previous request. Check again.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  async function startNewAttemptAfterUnresolved() {
+    if (isSubmitting || !unresolvedRequest) return;
+    setIsSubmitting(true);
+    try {
+      const result = await abandonUnresolvedCustomerBookingSubmission(submissionOwner.current);
+      if (result.outcome === "confirmed_created") {
+        router.replace(`/customer/bookings?submitted=${encodeURIComponent(result.booking.bookingId)}`);
+        return;
+      }
+      await applyRejectedRecovery(
+        "Previous unresolved request was closed. Review and acknowledge the current policies and agreement. Submit Booking will start a fresh attempt.",
+      );
+    } catch (error) {
+      setRecoveryNotice(error instanceof Error ? error.message : "Unable to start a new attempt. Check again.");
     } finally {
       setIsSubmitting(false);
     }
@@ -1186,6 +1216,13 @@ function CustomerEventListReviewSession() {
         );
       }
 
+      if (bookingSubmissionRequiresPreviousRequestRecovery(error)) {
+        setUnresolvedRequest(true);
+        setRecoveryNotice(
+          "Previous request is unresolved. Check Previous Request, or start a new attempt if you never received confirmation.",
+        );
+      }
+
       setSubmissionError(
         error instanceof Error &&
           error.message.trim()
@@ -1260,6 +1297,7 @@ function CustomerEventListReviewSession() {
             Your Event List is empty
           </h1>
           <button type="button" className="min-h-11 font-semibold text-primary" disabled={isSubmitting} onClick={checkPreviousRequest}>Check Previous Request</button>
+          {unresolvedRequest ? <button type="button" className="min-h-11 font-semibold text-primary" disabled={isSubmitting} onClick={startNewAttemptAfterUnresolved}>Start a new attempt</button> : null}
           {recoveryNotice ? <p role="status">{recoveryNotice}</p> : null}
 
           <p className="mx-auto mt-3 max-w-lg text-sm leading-6 text-feasta-text-secondary">
@@ -1309,6 +1347,7 @@ function CustomerEventListReviewSession() {
       <main className="mx-auto grid w-full max-w-6xl gap-6 px-4 py-8 sm:px-6 lg:px-8">
         <div>
           <button type="button" className="min-h-11 font-semibold text-primary" disabled={isSubmitting} onClick={checkPreviousRequest}>Check Previous Request</button>
+          {unresolvedRequest ? <button type="button" className="min-h-11 font-semibold text-primary" disabled={isSubmitting} onClick={startNewAttemptAfterUnresolved}>Start a new attempt</button> : null}
           {recoveryNotice ? <p role="status">{recoveryNotice}</p> : null}
         </div>
         <header>

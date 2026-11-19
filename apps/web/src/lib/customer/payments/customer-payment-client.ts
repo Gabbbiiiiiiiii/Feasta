@@ -248,8 +248,27 @@ function paymentErrorMessage(error: unknown): string {
       case "permission-denied":
         return "You are not allowed to pay for this booking.";
 
-      case "failed-precondition":
+      case "failed-precondition": {
+        const details = paymentErrorDetails(error);
+        if (details?.reason === "initial_payment_reservation_unavailable") {
+          const issue = Array.isArray(details.issues) ? details.issues[0] : null;
+          const issueMessage = issue &&
+            typeof issue === "object" &&
+            !Array.isArray(issue) &&
+            typeof (issue as {message?: unknown}).message === "string"
+            ? (issue as {message: string}).message.trim()
+            : "";
+          if (
+            issueMessage &&
+            issueMessage.length <= 180 &&
+            (issue as {code?: unknown}).code === "TIME_CONFLICT"
+          ) {
+            return `${issueMessage} Choose another event time, or wait until the conflicting reservation is released.`;
+          }
+          return "This provider reservation is no longer available for payment. Refresh the booking or choose another time.";
+        }
         return "This payment is no longer available. Refresh the booking to see its latest status.";
+      }
 
       case "invalid-argument":
         return "The payment request contains invalid information.";
@@ -285,6 +304,17 @@ function normalizeCallableCode(code: string): string {
   return code
     .replace(/^functions\//u, "")
     .replace(/^functions:/u, "");
+}
+
+function paymentErrorDetails(
+  error: FirebaseError,
+): {reason?: unknown; issues?: unknown} | null {
+  const details = (error as FirebaseError & {details?: unknown}).details ??
+    error.customData?.details;
+  if (!details || typeof details !== "object" || Array.isArray(details)) {
+    return null;
+  }
+  return details as {reason?: unknown; issues?: unknown};
 }
 
 function isSafeDocumentId(value: unknown): value is string {

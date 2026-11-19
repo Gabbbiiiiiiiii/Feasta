@@ -44,6 +44,7 @@ const mocks = vi.hoisted(() => ({
   loadDisclosures: vi.fn(),
   submitBooking: vi.fn(),
   reconcile: vi.fn(),
+  abandon: vi.fn(),
   replace: vi.fn(),
 }));
 
@@ -65,6 +66,7 @@ vi.mock("@/lib/customer/bookings/customer-provider-availability-client", () => (
 vi.mock("@/lib/customer/bookings/customer-booking-submission-client", () => ({
   submitCustomerBookingRequest: mocks.submitBooking,
   reconcileCustomerBookingSubmission: mocks.reconcile,
+  abandonUnresolvedCustomerBookingSubmission: mocks.abandon,
   hasPreviousBookingRequest: () => localStorage.getItem("test:previous-request") === "yes",
   bookingSubmissionRequiresRefundPolicyRefresh: () => false,
 }));
@@ -638,7 +640,26 @@ describe("customer booking customization flow", () => {
     } else {
       expect(await screen.findByText(outcome === "confirmed_rejected" ? /Previous request was confirmed rejected/ : /Previous request is unresolved/)).toBeVisible();
       expect(mocks.replace).not.toHaveBeenCalled();
+      if (outcome === "unresolved") {
+        expect(screen.getByRole("button", {name: "Start a new attempt"})).toBeVisible();
+      }
     }
+    expect(mocks.submitBooking).not.toHaveBeenCalled();
+  });
+
+  it("starts a fresh package attempt after abandoning an unresolved request", async () => {
+    localStorage.setItem("test:previous-request", "yes");
+    mocks.reconcile.mockResolvedValue({outcome: "unresolved"});
+    mocks.abandon.mockResolvedValue({outcome: "confirmed_rejected"});
+    render(<EventCustomizationExperience draftOwner="customer:customer-a" detail={detailFixture()} eventServices={[]} />);
+    const check = await screen.findByRole("button", {name: "Check Previous Request"});
+    await waitFor(() => expect(check).toBeEnabled());
+    fireEvent.click(check);
+    await screen.findByText(/Previous request is unresolved/);
+    fireEvent.click(screen.getByRole("button", {name: "Start a new attempt"}));
+    expect(await screen.findByText(/Previous unresolved request was closed/)).toBeVisible();
+    expect(mocks.abandon).toHaveBeenCalledExactlyOnceWith("customer-a");
+    expect(screen.queryByRole("button", {name: "Start a new attempt"})).toBeNull();
     expect(mocks.submitBooking).not.toHaveBeenCalled();
   });
 

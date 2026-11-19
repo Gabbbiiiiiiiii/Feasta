@@ -550,6 +550,9 @@ export const acceptProviderRequest = onCall(
                 eventEndTime:
                   acceptanceSnapshot
                     .eventEndTime,
+                serviceTier:
+                  authorized.requestData
+                    .serviceTier,
                 guestCount:
                   acceptanceSnapshot
                     .guestCount,
@@ -572,6 +575,9 @@ export const acceptProviderRequest = onCall(
                     eventEndTime:
                       document.data()
                         .eventEndTime,
+                    serviceTier:
+                      document.data()
+                        .serviceTier,
                     expiresAt:
                       document.data()
                         .expiresAt,

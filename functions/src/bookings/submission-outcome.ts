@@ -7,11 +7,16 @@ export function bookingOutcomeId(uid: string, requestId: string): string {
   return createHash("sha256").update(`${uid}:${requestId}`).digest("hex").slice(0, 40);
 }
 
+export function abandonSubmissionFingerprint(uid: string, requestId: string): string {
+  return createHash("sha256").update(`abandon:${uid}:${requestId}`).digest("hex");
+}
+
 type Identity = {customerId: string; clientRequestId: string; submissionFingerprint: string};
 const acknowledgementReasons = new Set([
   "REFUND_POLICY_ACKNOWLEDGEMENT_REQUIRED", "REFUND_POLICY_ACKNOWLEDGEMENT_INVALID",
   "REFUND_POLICY_CHANGED", "BOOKING_PAYMENT_AGREEMENT_REQUIRED", "BOOKING_PAYMENT_AGREEMENT_CHANGED",
 ]);
+const rejectionReasons = new Set(["acknowledgement_rejected", "unresolved_abandoned"]);
 
 // Only call at the two acknowledgement gates, after reading booking + receipt,
 // and before ANY write. Returning the error lets the transaction COMMIT evidence.
@@ -29,10 +34,24 @@ export function rejectAcknowledgementInTransaction(tx: Transaction, ref: Documen
   }
 }
 
+/** Fence a stuck attempt only when both booking and receipt are absent. */
+export function abandonUnresolvedSubmissionInTransaction(tx: Transaction, ref: DocumentReference,
+  uid: string, requestId: string): void {
+  tx.create(ref, {
+    schemaVersion: 1,
+    outcome: "confirmed_rejected",
+    reason: "unresolved_abandoned",
+    customerId: uid,
+    clientRequestId: requestId,
+    submissionFingerprint: abandonSubmissionFingerprint(uid, requestId),
+    rejectedAt: serverTimestamp(),
+  });
+}
+
 export function validRejection(data: Record<string, unknown> | undefined, uid: string, requestId: string): boolean {
   return data?.schemaVersion === 1 && data.outcome === "confirmed_rejected" &&
     data.customerId === uid && data.clientRequestId === requestId &&
-    data.reason === "acknowledgement_rejected" &&
+    typeof data.reason === "string" && rejectionReasons.has(data.reason) &&
     typeof data.submissionFingerprint === "string" && /^[a-f0-9]{64}$/.test(data.submissionFingerprint) &&
     data.rejectedAt instanceof Timestamp;
 }

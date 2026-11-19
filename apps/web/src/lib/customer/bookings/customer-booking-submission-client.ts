@@ -130,14 +130,28 @@ export async function submitCustomerBookingRequest(
     journal.sourceSelectionKey = selectionKey;
     save(); // Persist BEFORE dispatch; storage failure must prevent submission.
     assertSubmissionOwner(uid);
-    const result = await dispatchCustomerBookingRequest({...input, clientRequestId}, uid);
-    assertSubmissionOwner(uid);
-    journal.outcomes[clientRequestId] = {outcome: "confirmed_created", booking: result};
-    journal.completed[input.clientRequestId] = result;
-    journal.completed[selectionKey] = result;
-    journal.active = null;
-    save();
-    return result;
+    try {
+      const result = await dispatchCustomerBookingRequest({...input, clientRequestId}, uid);
+      assertSubmissionOwner(uid);
+      journal.outcomes[clientRequestId] = {outcome: "confirmed_created", booking: result};
+      journal.completed[input.clientRequestId] = result;
+      journal.completed[selectionKey] = result;
+      journal.active = null;
+      save();
+      return result;
+    } catch (error) {
+      // Validation / auth rejections happen before any booking write. Release the
+      // pre-dispatch fence so undeployed contract mismatches do not permanently lock
+      // the device journal. Ambiguous transport failures stay locked for reconcile.
+      if (
+        journal.active === clientRequestId &&
+        isPreWriteBookingSubmissionRejection(error)
+      ) {
+        journal.active = null;
+        save();
+      }
+      throw error;
+    }
   });
 }
 
@@ -180,6 +194,12 @@ async function dispatchCustomerBookingRequest(
       error,
     );
   }
+}
+
+/** True when the callable rejected before a booking or outcome could be written. */
+function isPreWriteBookingSubmissionRejection(error: unknown): boolean {
+  return error instanceof Error &&
+    (error as Error & {releaseSubmissionFence?: unknown}).releaseSubmissionFence === true;
 }
 
 export type BookingSubmissionOutcome =
@@ -256,25 +276,70 @@ export async function reconcileCustomerBookingSubmission(customerId?: string, re
     }>(functions, "reconcileBookingSubmission", {timeout: 30_000});
     const {data} = await callable({clientRequestId});
     assertSubmissionOwner(uid);
-    if (data?.clientRequestId !== clientRequestId) throw new Error("Invalid reconciliation response. Keep the original request and check again.");
-    if (data.outcome === "confirmed_created" && data.booking) {
-      const booking = parseSubmitBookingResponse(data.booking);
-      if (booking.created || !booking.providerRequestIds.length) throw new Error("Invalid recovery evidence. Check again.");
-      const outcome = {outcome: "confirmed_created" as const, booking};
-      journal.outcomes[clientRequestId] = outcome;
-      journal.completed[journal.sourceRequestId ?? clientRequestId] = booking;
-      if (journal.sourceSelectionKey) journal.completed[journal.sourceSelectionKey] = booking;
-      journal.active = null;
-      save();
-      return outcome;
-    }
-    if (data.outcome === "confirmed_rejected") {
-      journal.outcomes[clientRequestId] = {outcome: "confirmed_rejected"};
-      save(); // Retain terminal evidence even after an explicitly initiated retry.
-      return {outcome: "confirmed_rejected"};
-    }
-    return {outcome: "unresolved"};
+    return applyBookingSubmissionOutcome(uid, journal, save, clientRequestId, data, {allowUnresolved: true});
   });
+}
+
+/**
+ * Server-authoritative unlock for a stuck active attempt with no booking or
+ * outcome evidence. Malformed/contradictory server evidence stays locked.
+ */
+export async function abandonUnresolvedCustomerBookingSubmission(
+  customerId?: string,
+): Promise<Exclude<BookingSubmissionOutcome, {outcome: "unresolved"}>> {
+  return withSubmissionLock(customerId, async (uid, journal, save) => {
+    const clientRequestId = journal.active;
+    if (!clientRequestId) throw new Error("No previous request is saved for this account on this device.");
+    initializeBrowserAppCheck();
+    const callable = httpsCallable<{clientRequestId: string}, {
+      clientRequestId?: unknown; outcome?: unknown; booking?: SubmitBookingRequestResponse;
+    }>(functions, "abandonUnresolvedBookingSubmission", {timeout: 30_000});
+    try {
+      const {data} = await callable({clientRequestId});
+      assertSubmissionOwner(uid);
+      const outcome = applyBookingSubmissionOutcome(uid, journal, save, clientRequestId, data, {allowUnresolved: false});
+      if (outcome.outcome === "unresolved") {
+        throw new Error("Previous request still requires support before another submission.");
+      }
+      return outcome;
+    } catch (error) {
+      throw normalizeBookingSubmissionError(error);
+    }
+  });
+}
+
+function applyBookingSubmissionOutcome(
+  uid: string,
+  journal: SubmissionJournal,
+  save: () => void,
+  clientRequestId: string,
+  data: {clientRequestId?: unknown; outcome?: unknown; booking?: SubmitBookingRequestResponse} | null | undefined,
+  options: {allowUnresolved: boolean},
+): BookingSubmissionOutcome {
+  assertSubmissionOwner(uid);
+  if (data?.clientRequestId !== clientRequestId) {
+    throw new Error("Invalid reconciliation response. Keep the original request and check again.");
+  }
+  if (data.outcome === "confirmed_created" && data.booking) {
+    const booking = parseSubmitBookingResponse(data.booking);
+    if (booking.created || !booking.providerRequestIds.length) {
+      throw new Error("Invalid recovery evidence. Check again.");
+    }
+    const outcome = {outcome: "confirmed_created" as const, booking};
+    journal.outcomes[clientRequestId] = outcome;
+    journal.completed[journal.sourceRequestId ?? clientRequestId] = booking;
+    if (journal.sourceSelectionKey) journal.completed[journal.sourceSelectionKey] = booking;
+    journal.active = null;
+    save();
+    return outcome;
+  }
+  if (data.outcome === "confirmed_rejected") {
+    journal.outcomes[clientRequestId] = {outcome: "confirmed_rejected"};
+    save(); // Retain terminal evidence even after an explicitly initiated retry.
+    return {outcome: "confirmed_rejected"};
+  }
+  if (options.allowUnresolved) return {outcome: "unresolved"};
+  throw new Error("Previous request still requires support before another submission.");
 }
 
 /* ==================================================================
@@ -377,22 +442,22 @@ function normalizeBookingSubmissionError(
 
   switch (code) {
     case "unauthenticated":
-      return new Error(
+      return Object.assign(new Error(
         "Your session has expired. Please sign in again before submitting your booking.",
-      );
+      ), {releaseSubmissionFence: true});
 
     case "permission-denied":
-      return new Error(
+      return Object.assign(new Error(
         "Your account cannot submit this booking request.",
-      );
+      ), {releaseSubmissionFence: true});
 
     case "invalid-argument":
-      return new Error(
+      return Object.assign(new Error(
         safeCallableMessage(
           error,
           "Some booking information is invalid. Review your event details and selections before trying again.",
         ),
-      );
+      ), {releaseSubmissionFence: true});
 
     case "failed-precondition":
       return new Error(
@@ -536,6 +601,14 @@ export function bookingSubmissionRequiresRefundPolicyRefresh(
 ): boolean {
   return error instanceof CustomerBookingSubmissionError &&
     error.refundPolicyReason !== null;
+}
+
+/** Device journal still has an active attempt that must be reconciled or abandoned. */
+export function bookingSubmissionRequiresPreviousRequestRecovery(
+  error: unknown,
+): boolean {
+  return error instanceof Error &&
+    /Check Previous Request before submitting another booking/u.test(error.message);
 }
 
 function bookingRefundPolicyReason(

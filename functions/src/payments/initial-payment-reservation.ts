@@ -1,7 +1,7 @@
 import {Timestamp, type Transaction} from "firebase-admin/firestore";
 import {HttpsError} from "firebase-functions/v2/https";
 import {db} from "../shared/firestore.js";
-import {AVAILABILITY_COUNTED_REQUEST_STATUSES, manilaDateRange,
+import {AVAILABILITY_COUNTED_REQUEST_STATUSES, isCanonicalCateringSchedule, manilaDateRange,
   providerRequestOccupiesAvailability, validateProviderAvailability}
   from "../provider-availability/validate-provider-availability.js";
 import {scheduledEventStart} from "./canonical-balance-timing.js";
@@ -42,9 +42,14 @@ export async function requireInitialPaymentReservation(transaction: Transaction,
   const eventDate = request.eventDate as Timestamp;
   const range = manilaDateRange(eventDate.toDate());
   const type = parseProviderRequestType(request.type);
+  const eventTime = typeof request.eventTime === "string" ? request.eventTime : "";
+  const eventEndTime = typeof request.eventEndTime === "string" ? request.eventEndTime : null;
+  const serviceTier = request.serviceTier ?? null;
   if (!range || !type || typeof request.providerId !== "string" ||
-    typeof request.eventTime !== "string" || typeof request.eventEndTime !== "string" ||
-    typeof request.guestCount !== "number") throw new HttpsError("failed-precondition", "Invalid reservation.");
+    typeof request.guestCount !== "number" ||
+    !isCanonicalCateringSchedule(eventTime, eventEndTime, serviceTier)) {
+    throw new HttpsError("failed-precondition", "Invalid reservation.");
+  }
   const [provider, bookings] = await Promise.all([
     transaction.get(db.collection("providers").doc(request.providerId)),
     transaction.get(db.collection("providerRequests").where("providerId", "==", request.providerId)
@@ -60,12 +65,12 @@ export async function requireInitialPaymentReservation(transaction: Transaction,
     bookings.docs.some((document) => document.id === providerRequestId);
   const availability = validateProviderAvailability({providerData, preserveExistingReservation,
     request: {providerRequestId, mainEventId: request.mainEventId, type,
-      eventDate: eventDate.toDate(), eventTime: request.eventTime, eventEndTime: request.eventEndTime,
+      eventDate: eventDate.toDate(), eventTime, eventEndTime, serviceTier,
       guestCount: request.guestCount, services: request.services},
     existingBookings: bookings.docs.map(document => ({...document.data(), providerRequestId: document.id,
       status: document.data().status, eventTime: document.data().eventTime,
-      eventEndTime: document.data().eventEndTime, acceptedAt: document.data().acceptedAt,
-      expiresAt: document.data().expiresAt})), now});
+      eventEndTime: document.data().eventEndTime, serviceTier: document.data().serviceTier,
+      acceptedAt: document.data().acceptedAt, expiresAt: document.data().expiresAt})), now});
   if (!availability.available) throw new HttpsError("failed-precondition", "The provider reservation is no longer available.",
     {reason: "initial_payment_reservation_unavailable", issues: availability.issues});
 }

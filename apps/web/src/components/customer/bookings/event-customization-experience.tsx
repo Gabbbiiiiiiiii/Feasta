@@ -93,6 +93,8 @@ import {
   type CustomerProviderAvailabilityInput,
 } from "@/lib/customer/bookings/customer-provider-availability-client";
 import {
+  abandonUnresolvedCustomerBookingSubmission,
+  bookingSubmissionRequiresPreviousRequestRecovery,
   bookingSubmissionRequiresRefundPolicyRefresh,
   submitCustomerBookingRequest,
   reconcileCustomerBookingSubmission,
@@ -1171,6 +1173,16 @@ function navigateToSubmittedBooking(
   );
 }
 
+async function applyRejectedRecovery(notice: string) {
+  setAcknowledgedPolicyKeys({});
+  setAgreementAcknowledged({});
+  setAgreementReload(value => value + 1);
+  await loadRefundPolicyDisclosures();
+  setUnresolvedRequest(false);
+  setFreshAttempt(true);
+  setRecoveryNotice(notice);
+}
+
 async function checkPreviousRequest() {
   if (isSubmitting) return;
   setIsSubmitting(true);
@@ -1187,17 +1199,38 @@ async function checkPreviousRequest() {
       if (bestFitReturnHref && draftOwner.startsWith("customer:")) clearBestFitSession(draftOwner.slice(9));
       navigateToSubmittedBooking(result.booking);
     } else if (result.outcome === "confirmed_rejected") {
-      setAcknowledgedPolicyKeys({});
-      setAgreementAcknowledged({});
-      setAgreementReload(value => value + 1);
-      await loadRefundPolicyDisclosures();
-      setFreshAttempt(true);
-      setRecoveryNotice("Previous request was confirmed rejected. Review and acknowledge the current policies and agreement. Submit Booking will start a fresh attempt.");
+      await applyRejectedRecovery(
+        "Previous request was confirmed rejected. Review and acknowledge the current policies and agreement. Submit Booking will start a fresh attempt.",
+      );
     } else {
-      setRecoveryNotice("Previous request is unresolved. Another submission is blocked. Keep this request and check again.");
+      setRecoveryNotice("Previous request is unresolved. Another submission is blocked. Keep this request and check again, or start a new attempt if you never received confirmation.");
     }
   } catch (error) {
     setRecoveryNotice(error instanceof Error ? error.message : "Unable to check the previous request. Check again.");
+  } finally {
+    setIsSubmitting(false);
+  }
+}
+
+async function startNewAttemptAfterUnresolved() {
+  if (isSubmitting || !unresolvedRequest) return;
+  setIsSubmitting(true);
+  try {
+    const result = await abandonUnresolvedCustomerBookingSubmission(
+      draftOwner.startsWith("customer:") ? draftOwner.slice(9) : undefined,
+    );
+    if (result.outcome === "confirmed_created") {
+      setSubmissionResult(result.booking);
+      savedDraft.clear();
+      if (bestFitReturnHref && draftOwner.startsWith("customer:")) clearBestFitSession(draftOwner.slice(9));
+      navigateToSubmittedBooking(result.booking);
+      return;
+    }
+    await applyRejectedRecovery(
+      "Previous unresolved request was closed. Review and acknowledge the current policies and agreement. Submit Booking will start a fresh attempt.",
+    );
+  } catch (error) {
+    setRecoveryNotice(error instanceof Error ? error.message : "Unable to start a new attempt. Check again.");
   } finally {
     setIsSubmitting(false);
   }
@@ -1391,6 +1424,13 @@ async function handleSubmitBooking() {
         "A Provider refund policy changed. Review the refreshed policy and acknowledge it again before submitting.";
       await loadRefundPolicyDisclosures(message);
       return;
+    }
+
+    if (bookingSubmissionRequiresPreviousRequestRecovery(error)) {
+      setUnresolvedRequest(true);
+      setRecoveryNotice(
+        "Previous request is unresolved. Check Previous Request, or start a new attempt if you never received confirmation.",
+      );
     }
 
     setSubmissionError(
@@ -1800,9 +1840,16 @@ function discardAndLeave() {
             <History aria-hidden="true" className="size-4" />
             Check Previous Request
           </Button>
-          {unresolvedRequest && <p className="text-xs text-warning">
-            Didn’t get a confirmation? Check your previous request before trying again.
-          </p>}
+          {unresolvedRequest ? <>
+            <Button type="button" variant="secondary" size="compact"
+              className="rounded-full" disabled={isSubmitting || !savedDraft.isReady}
+              onClick={startNewAttemptAfterUnresolved}>
+              Start a new attempt
+            </Button>
+            <p className="text-xs text-warning">
+              Didn’t get a confirmation? Check your previous request before trying again.
+            </p>
+          </> : null}
         </div>}
         {recoveryNotice && <p role="status" className="basis-full text-sm">{recoveryNotice}</p>}
       </div>
