@@ -280,7 +280,17 @@ export function ProviderRequestDetailDrawer({
         >
           <div className="grid gap-3 rounded-lg border border-border p-4">
             <AmountRow
-              label="Request total"
+              label="Your earning (after commission)"
+              amount={request.providerNetAmount}
+            />
+            {request.commissionAmount > 0 ? (
+              <AmountRow
+                label="FEASTA commission"
+                amount={request.commissionAmount}
+              />
+            ) : null}
+            <AmountRow
+              label="Request total (your share)"
               amount={request.amount}
             />
 

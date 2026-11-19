@@ -1160,6 +1160,29 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // Company float, advance requests, and advances are server-managed finance
+    // records. Ordinary payout policy remains completion + banking-day hold;
+    // advances are a separate request/approve product repaid into company float.
+    match /companyFinance/{documentId} {
+      allow read, write: if false;
+    }
+
+    match /companyFloatLedgerEntries/{entryId} {
+      allow read, write: if false;
+    }
+
+    match /companyAdvanceRequests/{advanceRequestId} {
+      allow read, write: if false;
+    }
+
+    match /companyProviderAdvances/{advanceId} {
+      allow read, write: if false;
+    }
+
+    match /companyAdvancePayouts/{advancePayoutId} {
+      allow read, write: if false;
+    }
+
     match /financialLedgerEntries/{ledgerEntryId} {
       /*
        * P8 financial-ledger entries are immutable accounting evidence.

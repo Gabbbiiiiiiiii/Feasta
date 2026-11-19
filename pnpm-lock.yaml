@@ -411,7 +411,7 @@ packages:
     resolution: {integrity: sha512-m9FVDXU3GT2ITSe0UaMA5rU3QkfC/UXtCU8y0gSN/GugTqtVldOBWIB5V6V3sbmenVZUIpU6f+mPEO2+m5iTaA==}
 
   '@feasta/shared-types@file:functions/vendor/feasta-shared-types-0.1.0.tgz':
-    resolution: {integrity: sha512-94HmuZvwsF6RahOiB3dHH2WolcmScE0CAEpvYVYWy6TnACRgZXYqQcvhoz0BaDF+6NvipLTmL1j5+1fUP1zbjQ==, tarball: file:functions/vendor/feasta-shared-types-0.1.0.tgz}
+    resolution: {integrity: sha512-zP6oiiJtazAn4GNCLTAf78c15GNTlgkbG3Y3Gg/Ag12GQmDbYAl3FBUYtHcesZ88r6FImmbZGGh4yrRczLW9kA==, tarball: file:functions/vendor/feasta-shared-types-0.1.0.tgz}
     version: 0.1.0
 
   '@firebase/ai@2.13.1':

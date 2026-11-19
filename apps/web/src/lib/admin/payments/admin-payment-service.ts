@@ -20,6 +20,8 @@ import {
 } from "@feasta/shared-types";
 
 import type {
+  AdminCompanyAdvanceHistoryItem,
+  AdminCompanyAdvanceRequestItem,
   AdminProviderPayoutBoard,
   AdminProviderPayoutHistoryItem,
   AdminReadyProviderPayoutItem,
@@ -434,10 +436,25 @@ export async function getAdminProviderPayoutBoard(): Promise<
 > {
   await requireAdmin();
 
-  const [readySnapshot, historySnapshot] = await Promise.all([
+  const [
+    readySnapshot,
+    advanceRequestSnapshot,
+    advanceHistorySnapshot,
+    historySnapshot,
+    floatSnapshot,
+  ] = await Promise.all([
     adminDb
       .collection("providerDisbursements")
       .where("status", "==", "ready")
+      .limit(50)
+      .get(),
+    adminDb
+      .collection("companyAdvanceRequests")
+      .where("status", "==", "pending")
+      .limit(50)
+      .get(),
+    adminDb
+      .collection("companyProviderAdvances")
       .limit(50)
       .get(),
     adminDb
@@ -445,7 +462,25 @@ export async function getAdminProviderPayoutBoard(): Promise<
       .where("releaseChannel", "==", "admin_disbursement")
       .limit(50)
       .get(),
+    adminDb.collection("companyFinance").doc("float").get(),
   ]);
+
+  const floatData = floatSnapshot.exists ? floatSnapshot.data() ?? {} : {};
+  const availableBalanceInCentavos =
+    adminCentavos(floatData.availableBalanceInCentavos) ?? 0;
+  const outstandingAdvanceInCentavos =
+    adminCentavos(floatData.outstandingAdvanceInCentavos) ?? 0;
+  const companyFloat = {
+    availableBalanceInCentavos,
+    outstandingAdvanceInCentavos,
+    formattedAvailableBalance: formatCentavos(availableBalanceInCentavos, "PHP"),
+    formattedOutstandingAdvance: formatCentavos(
+      outstandingAdvanceInCentavos,
+      "PHP",
+    ),
+    currency: "PHP" as const,
+    mode: "mock" as const,
+  };
 
   const readyBase: AdminReadyProviderPayoutItem[] = readySnapshot.docs.flatMap(
     (document) => {
@@ -458,7 +493,9 @@ export async function getAdminProviderPayoutBoard(): Promise<
         data.currency !== "PHP" ||
         amount === null ||
         amount <= 0 ||
-        typeof data.providerId !== "string"
+        typeof data.providerId !== "string" ||
+        data.companyAdvanceStatus === "outstanding" ||
+        data.repaymentDestination === "company_float"
       ) {
         return [];
       }
@@ -479,6 +516,130 @@ export async function getAdminProviderPayoutBoard(): Promise<
       }];
     },
   );
+
+  const advanceRequestDocs = advanceRequestSnapshot.docs.filter((document) => {
+    const data = document.data();
+    return (
+      data.schemaVersion === 1 &&
+      data.advanceRequestId === document.id &&
+      data.status === "pending" &&
+      typeof data.providerId === "string" &&
+      typeof data.providerRequestId === "string"
+    );
+  });
+
+  const advanceBookingSnapshots = await Promise.all(
+    advanceRequestDocs.map((document) =>
+      adminDb
+        .collection("providerRequests")
+        .doc(String(document.data().providerRequestId))
+        .get(),
+    ),
+  );
+
+  const advanceRequestBase: AdminCompanyAdvanceRequestItem[] =
+    advanceRequestDocs.flatMap((document, index) => {
+      const data = document.data();
+      const booking = advanceBookingSnapshots[index]?.exists
+        ? advanceBookingSnapshots[index].data() ?? {}
+        : {};
+
+      const storedGross = adminCentavos(data.grossAmountInCentavos);
+      const storedCommission = adminCentavos(data.commissionAmountInCentavos);
+      const storedNet = adminCentavos(data.providerNetAmountInCentavos);
+
+      const bookingGross =
+        adminCentavos(booking.grossSettledAmountInCentavos) ??
+        adminCentavos(
+          booking.financialSnapshot &&
+            typeof booking.financialSnapshot === "object" &&
+            !Array.isArray(booking.financialSnapshot)
+            ? (booking.financialSnapshot as {grossAmountInCentavos?: unknown})
+                .grossAmountInCentavos
+            : null,
+        ) ??
+        (typeof booking.amount === "number" && Number.isFinite(booking.amount)
+          ? Math.round(booking.amount * 100)
+          : null);
+
+      const bookingCommission =
+        adminCentavos(booking.commissionAccruedInCentavos) ??
+        adminCentavos(
+          booking.financialSnapshot &&
+            typeof booking.financialSnapshot === "object" &&
+            !Array.isArray(booking.financialSnapshot)
+            ? (booking.financialSnapshot as {
+                platformCommissionTotalInCentavos?: unknown;
+              }).platformCommissionTotalInCentavos
+            : null,
+        ) ??
+        0;
+
+      const gross = storedGross ?? bookingGross;
+      const commission = storedCommission ?? bookingCommission;
+      if (gross === null || gross <= 0 || commission < 0 || commission > gross) {
+        return [];
+      }
+
+      const providerNet = storedNet ?? gross - commission;
+      if (providerNet <= 0) {
+        return [];
+      }
+
+      return [{
+        advanceRequestId: document.id,
+        providerRequestId: data.providerRequestId as string,
+        providerId: data.providerId as string,
+        providerName: null,
+        mainEventId: nullableString(data.mainEventId),
+        requestedAt:
+          isoDateValue(data.requestedAt) ?? isoDateValue(data.createdAt),
+        providerNote: nullableString(data.providerNote),
+        providerNetAmountInCentavos: providerNet,
+        formattedProviderNetAmount: formatCentavos(providerNet, "PHP"),
+        commissionAmountInCentavos: commission,
+        formattedCommissionAmount: formatCentavos(commission, "PHP"),
+        grossAmountInCentavos: gross,
+        formattedGrossAmount: formatCentavos(gross, "PHP"),
+      }];
+    });
+
+  const advanceHistoryBase: AdminCompanyAdvanceHistoryItem[] =
+    advanceHistorySnapshot.docs.flatMap((document) => {
+      const data = document.data();
+      const amount = adminCentavos(data.amountInCentavos);
+      const outstanding = adminCentavos(data.outstandingAmountInCentavos) ?? 0;
+      if (
+        data.schemaVersion !== 1 ||
+        data.advanceId !== document.id ||
+        data.currency !== "PHP" ||
+        data.mode !== "mock" ||
+        amount === null ||
+        amount <= 0 ||
+        typeof data.providerId !== "string" ||
+        typeof data.providerRequestId !== "string" ||
+        typeof data.advanceRequestId !== "string" ||
+        (data.status !== "outstanding" &&
+          data.status !== "repaid" &&
+          data.status !== "cancelled")
+      ) {
+        return [];
+      }
+
+      return [{
+        advanceId: document.id,
+        advanceRequestId: data.advanceRequestId,
+        providerRequestId: data.providerRequestId,
+        providerId: data.providerId,
+        providerName: null,
+        amountInCentavos: amount,
+        formattedAmount: formatCentavos(amount, "PHP"),
+        outstandingAmountInCentavos: outstanding,
+        status: data.status,
+        issuedAt: isoDateValue(data.issuedAt) ?? isoDateValue(data.createdAt),
+        mode: "mock",
+      }];
+    });
 
   const historyBase: AdminProviderPayoutHistoryItem[] =
     historySnapshot.docs.flatMap((document) => {
@@ -513,6 +674,8 @@ export async function getAdminProviderPayoutBoard(): Promise<
 
   const providerIds = [...new Set([
     ...readyBase.map((item) => item.providerId),
+    ...advanceRequestBase.map((item) => item.providerId),
+    ...advanceHistoryBase.map((item) => item.providerId),
     ...historyBase.map((item) => item.providerId),
   ])];
 
@@ -541,6 +704,28 @@ export async function getAdminProviderPayoutBoard(): Promise<
       return leftMillis - rightMillis;
     });
 
+  const advanceRequests = advanceRequestBase
+    .map((item) => ({
+      ...item,
+      providerName: providerNames.get(item.providerId) ?? null,
+    }))
+    .sort((left, right) => {
+      const leftMillis = new Date(left.requestedAt ?? 0).getTime();
+      const rightMillis = new Date(right.requestedAt ?? 0).getTime();
+      return leftMillis - rightMillis;
+    });
+
+  const advanceHistory = advanceHistoryBase
+    .map((item) => ({
+      ...item,
+      providerName: providerNames.get(item.providerId) ?? null,
+    }))
+    .sort((left, right) => {
+      const leftMillis = new Date(left.issuedAt ?? 0).getTime();
+      const rightMillis = new Date(right.issuedAt ?? 0).getTime();
+      return rightMillis - leftMillis;
+    });
+
   const history = historyBase
     .map((item) => ({
       ...item,
@@ -552,7 +737,7 @@ export async function getAdminProviderPayoutBoard(): Promise<
       return rightMillis - leftMillis;
     });
 
-  return {readyToPay, history};
+  return {companyFloat, advanceRequests, advanceHistory, readyToPay, history};
 }
 
 function mapAmbiguousPayoutSetupAttentionCandidate(

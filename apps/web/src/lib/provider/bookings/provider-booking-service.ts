@@ -27,6 +27,7 @@ import {
 
 import {requireApprovedProvider} from "@/lib/auth/session";
 import {adminDb} from "@/lib/firebase/admin";
+import {providerNetPesosFromRequestData} from "@/lib/provider/payments/provider-net-amount";
 
 import type {
   ProviderBooking,
@@ -395,6 +396,23 @@ function mapProviderBooking(
     500,
   ) ?? "";
   const requestedAmount = nonNegativeMoney(request.amount);
+  const acceptedGross = request.acceptedAt
+    ? nonNegativeMoney(request.acceptedAmount ?? request.amount)
+    : requestedAmount;
+  const netMoney = providerNetPesosFromRequestData(request, acceptedGross);
+  const advanceRequestStatus =
+    request.companyAdvanceRequestStatus === "pending" ||
+    request.companyAdvanceRequestStatus === "approved" ||
+    request.companyAdvanceRequestStatus === "rejected" ||
+    request.companyAdvanceRequestStatus === "cancelled"
+      ? request.companyAdvanceRequestStatus
+      : null;
+  const advanceStatus =
+    request.companyAdvanceStatus === "outstanding" ||
+    request.companyAdvanceStatus === "repaid" ||
+    request.companyAdvanceStatus === "cancelled"
+      ? request.companyAdvanceStatus
+      : null;
 
   return {
     providerRequestId,
@@ -451,12 +469,20 @@ function mapProviderBooking(
     serviceCategory: optionalText(request.serviceCategory, 120) ??
       services.find((service) => service.category)?.category ??
       null,
-    requestedAmount,
-    acceptedAmount: request.acceptedAt
-      ? nonNegativeMoney(request.acceptedAmount ?? request.amount)
-      : null,
-    downPaymentAmount: nonNegativeMoney(request.downPaymentAmount),
+    requestedAmount: netMoney.providerNetPesos,
+    acceptedAmount: request.acceptedAt ? netMoney.providerNetPesos : null,
+    downPaymentAmount: (() => {
+      const ratio =
+        acceptedGross > 0
+          ? nonNegativeMoney(request.downPaymentAmount) / acceptedGross
+          : 0;
+      return Math.round(netMoney.providerNetPesos * ratio * 100) / 100;
+    })(),
     paymentAmount: payment?.amount ?? null,
+    providerNetAmount: netMoney.providerNetPesos,
+    commissionAmount: netMoney.commissionPesos,
+    companyAdvanceRequestStatus: advanceRequestStatus,
+    companyAdvanceStatus: advanceStatus,
     remainingBalance: requestStatus === "cancelled" || payment?.status === "refunded" ? 0 :
       hasBookingSettlement(request) ? (projectBookingPayment(request) === null ? null : nonNegativeMoney(request.outstandingAmountInCentavos) / 100) : nonNegativeMoney(request.remainingBalance),
     currency: payment?.currency ?? optionalText(request.currency, 8) ?? "PHP",

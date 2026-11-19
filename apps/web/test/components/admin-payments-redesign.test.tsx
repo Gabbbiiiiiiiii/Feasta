@@ -90,6 +90,16 @@ const basePage: AdminPaymentPage = {
 const emptyQueue: AdminFinanceAttentionQueue = {items: []};
 
 const populatedBoard: AdminProviderPayoutBoard = {
+  companyFloat: {
+    availableBalanceInCentavos: 0,
+    outstandingAdvanceInCentavos: 0,
+    formattedAvailableBalance: "₱0.00",
+    formattedOutstandingAdvance: "₱0.00",
+    currency: "PHP",
+    mode: "mock",
+  },
+  advanceRequests: [],
+  advanceHistory: [],
   readyToPay: [
     {
       providerDisbursementId: "disb_ready_1",

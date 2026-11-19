@@ -33,8 +33,9 @@ export declare const DEFAULT_PLATFORM_VAT_RATE_BPS = 1200;
 /**
  * Provider-friendly tiered capped commission model.
  *
- * Fixed 2% base with dynamic caps so high-value
- * bookings are not charged a large flat percentage.
+ * Configurable base rate (default 2%) with dynamic
+ * caps so high-value bookings are not charged a
+ * large uncapped percentage.
  */
 export declare const PLATFORM_COMMISSION_MODEL_TIERED_CAPPED_2PCT_V1: "tiered_capped_2pct_v1";
 export type PlatformCommissionModel = typeof PLATFORM_COMMISSION_MODEL_TIERED_CAPPED_2PCT_V1;
@@ -85,13 +86,16 @@ export declare function allocateCumulativeBasisPoints(input: {
 /**
  * FEASTA tiered capped commission on booking gross.
  *
- * - ₱0–₱25,000: 2% of gross
+ * - ₱0–₱25,000: configured base rate of gross
  * - Above ₱25,000–₱75,000: fixed ₱500
  * - Above ₱75,000–below ₱100,000:
- *   ₱500 + 2% of (gross − ₱75,000)
+ *   ₱500 + base rate of (gross − ₱75,000)
  * - ₱100,000+: fixed ₱1,000 absolute max
+ *
+ * Base rate defaults to 2% (200 bps) and may be
+ * overridden by platform financial policy.
  */
-export declare function computeTieredCappedCommissionInCentavos(grossAmountInCentavos: unknown): number | null;
+export declare function computeTieredCappedCommissionInCentavos(grossAmountInCentavos: unknown, rateBps?: number): number | null;
 /**
  * Allocates a frozen booking commission total
  * across cumulative collected gross so split

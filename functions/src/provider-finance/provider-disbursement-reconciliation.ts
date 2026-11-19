@@ -27,6 +27,9 @@ import {reserveProviderSettlementPayout} from "./provider-settlement-domain.js";
 import {
   PROVIDER_DISBURSEMENT_POLICY_VERSION,
 } from "./provider-disbursement-policy.js";
+import {
+  repayCompanyAdvanceForDisbursementInTransaction,
+} from "./company-provider-advance.js";
 
 const SWEEP_LIMIT =
   100;
@@ -562,6 +565,19 @@ export async function reconcileOne(
             },
           );
 
+          return;
+        }
+
+        const repaid =
+          await repayCompanyAdvanceForDisbursementInTransaction({
+            transaction,
+            disbursementRef: reference,
+            disbursement: data,
+            amountInCentavos: total,
+            now,
+          });
+
+        if (repaid) {
           return;
         }
 

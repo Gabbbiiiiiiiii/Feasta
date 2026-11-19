@@ -1,7 +1,6 @@
 import {
   BASIS_POINTS_SCALE,
   DEFAULT_PLATFORM_COMMISSION_MODEL,
-  DEFAULT_PLATFORM_COMMISSION_RATE_BPS,
   parsePlatformCommissionModel,
   parseTaxRegistrationStatus,
 } from "@feasta/shared-types";
@@ -142,7 +141,7 @@ export function validateAdminFinancialPolicyUpdate(
       DEFAULT_PLATFORM_COMMISSION_MODEL
   ) {
     throw new Error(
-      "FEASTA commission must use the tiered capped 2% policy.",
+      "FEASTA commission must use the tiered capped policy.",
     );
   }
 
@@ -153,11 +152,12 @@ export function validateAdminFinancialPolicyUpdate(
     );
 
   if (
-    platformCommissionRateBps !==
-      DEFAULT_PLATFORM_COMMISSION_RATE_BPS
+    platformCommissionRateBps <= 0 ||
+    platformCommissionRateBps >
+      BASIS_POINTS_SCALE
   ) {
     throw new Error(
-      "FEASTA commission base rate must be 2%.",
+      "FEASTA commission base rate must be greater than 0% and at most 100%.",
     );
   }
 

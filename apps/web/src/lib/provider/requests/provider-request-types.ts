@@ -62,6 +62,10 @@ export type ProviderRequestListItem = {
 
   downPaymentAmount: number;
 
+  providerNetAmount: number;
+
+  commissionAmount: number;
+
   paymentPolicy:
     | "full_payment"
     | "deposit_then_balance"

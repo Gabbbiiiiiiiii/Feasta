@@ -40,8 +40,9 @@ export const DEFAULT_PLATFORM_VAT_RATE_BPS = 1_200;
 /**
  * Provider-friendly tiered capped commission model.
  *
- * Fixed 2% base with dynamic caps so high-value
- * bookings are not charged a large flat percentage.
+ * Configurable base rate (default 2%) with dynamic
+ * caps so high-value bookings are not charged a
+ * large uncapped percentage.
  */
 export const PLATFORM_COMMISSION_MODEL_TIERED_CAPPED_2PCT_V1 = "tiered_capped_2pct_v1";
 export const DEFAULT_PLATFORM_COMMISSION_MODEL = PLATFORM_COMMISSION_MODEL_TIERED_CAPPED_2PCT_V1;
@@ -178,19 +179,27 @@ export function allocateCumulativeBasisPoints(input) {
 /**
  * FEASTA tiered capped commission on booking gross.
  *
- * - ₱0–₱25,000: 2% of gross
+ * - ₱0–₱25,000: configured base rate of gross
  * - Above ₱25,000–₱75,000: fixed ₱500
  * - Above ₱75,000–below ₱100,000:
- *   ₱500 + 2% of (gross − ₱75,000)
+ *   ₱500 + base rate of (gross − ₱75,000)
  * - ₱100,000+: fixed ₱1,000 absolute max
+ *
+ * Base rate defaults to 2% (200 bps) and may be
+ * overridden by platform financial policy.
  */
-export function computeTieredCappedCommissionInCentavos(grossAmountInCentavos) {
+export function computeTieredCappedCommissionInCentavos(grossAmountInCentavos, rateBps = DEFAULT_PLATFORM_COMMISSION_RATE_BPS) {
     if (!isNonNegativeSafeInteger(grossAmountInCentavos)) {
+        return null;
+    }
+    if (!Number.isSafeInteger(rateBps) ||
+        rateBps <= 0 ||
+        rateBps > BASIS_POINTS_SCALE) {
         return null;
     }
     if (grossAmountInCentavos <=
         TIERED_COMMISSION_PURE_RATE_MAX_CENTAVOS) {
-        return applyBasisPoints(grossAmountInCentavos, DEFAULT_PLATFORM_COMMISSION_RATE_BPS);
+        return applyBasisPoints(grossAmountInCentavos, rateBps);
     }
     if (grossAmountInCentavos <=
         TIERED_COMMISSION_STANDARD_CAP_MAX_CENTAVOS) {
@@ -200,7 +209,7 @@ export function computeTieredCappedCommissionInCentavos(grossAmountInCentavos) {
         TIERED_COMMISSION_ABSOLUTE_CAP_MIN_CENTAVOS) {
         const excess = grossAmountInCentavos -
             TIERED_COMMISSION_STANDARD_CAP_MAX_CENTAVOS;
-        const progressive = applyBasisPoints(excess, DEFAULT_PLATFORM_COMMISSION_RATE_BPS);
+        const progressive = applyBasisPoints(excess, rateBps);
         if (progressive === null) {
             return null;
         }

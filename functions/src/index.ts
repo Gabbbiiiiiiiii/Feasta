@@ -224,6 +224,12 @@ export {
   releaseMockProviderDisbursement,
 } from "./provider-finance/provider-admin-mock-disbursement.js";
 export {
+  fundCompanyFloat,
+  requestCompanyAdvance,
+  approveCompanyAdvanceRequest,
+  rejectCompanyAdvanceRequest,
+} from "./provider-finance/company-provider-advance.js";
+export {
   repairAmbiguousProviderPayoutAccount,
 } from "./provider-finance/repair-ambiguous-provider-payout-account.js";
 export {payMongoWebhook} from "./payments/paymongo-webhook.js";

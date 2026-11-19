@@ -135,6 +135,16 @@ export const releaseMockProviderDisbursement = onCall(
       );
     }
 
+    if (
+      existingData.companyAdvanceStatus === "outstanding" ||
+      existingData.repaymentDestination === "company_float"
+    ) {
+      throw new HttpsError(
+        "failed-precondition",
+        "This payout obligation was prepaid from company float and will repay the company at eligibility.",
+      );
+    }
+
     const providerId = existingData.providerId as string;
     const sourceSettlementIds = existingData.sourceSettlementIds as string[];
     if (

@@ -8,9 +8,22 @@ import type {AdminProviderPayoutBoard} from "@/lib/admin/payments/admin-payment-
 
 vi.mock("@/lib/admin/payments/admin-payment-client", () => ({
   releaseMockProviderDisbursement: vi.fn(),
+  fundCompanyFloat: vi.fn(),
+  approveCompanyAdvanceRequest: vi.fn(),
+  rejectCompanyAdvanceRequest: vi.fn(),
 }));
 
 const board: AdminProviderPayoutBoard = {
+  companyFloat: {
+    availableBalanceInCentavos: 250000,
+    outstandingAdvanceInCentavos: 0,
+    formattedAvailableBalance: "₱2,500.00",
+    formattedOutstandingAdvance: "₱0.00",
+    currency: "PHP",
+    mode: "mock",
+  },
+  advanceRequests: [],
+  advanceHistory: [],
   readyToPay: [
     {
       providerDisbursementId: "disbursement_ready_1",

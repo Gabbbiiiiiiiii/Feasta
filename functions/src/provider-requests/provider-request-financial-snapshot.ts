@@ -165,16 +165,29 @@ export function buildProviderRequestFinancialSnapshot(
     DEFAULT_PLATFORM_COMMISSION_MODEL;
 
   /*
-   * Tiered capped policy uses a fixed 2% base.
-   * Do not inherit a legacy flat percentage from
-   * older platform settings into new snapshots.
+   * Tiered capped policy uses the configured base
+   * rate from platform financial settings. Caps
+   * remain fixed. Existing booking snapshots stay
+   * frozen and are not recalculated.
    */
+  const configuredCommissionRateBps =
+    basisPointRate(
+      platformSettings
+        .platformCommissionRateBps,
+      DEFAULT_PLATFORM_COMMISSION_RATE_BPS,
+    );
+
   const platformCommissionRateBps =
-    DEFAULT_PLATFORM_COMMISSION_RATE_BPS;
+    configuredCommissionRateBps > 0 &&
+    configuredCommissionRateBps <=
+      BASIS_POINTS_SCALE
+      ? configuredCommissionRateBps
+      : DEFAULT_PLATFORM_COMMISSION_RATE_BPS;
 
   const platformCommissionTotalInCentavos =
     computeTieredCappedCommissionInCentavos(
       grossAmountInCentavos,
+      platformCommissionRateBps,
     );
 
   const platformTaxStatus =

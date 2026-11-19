@@ -169,7 +169,7 @@ test(
     assert.equal(
       result
         .platformCommissionRateBps,
-      200,
+      1250,
     );
 
     assert.equal(

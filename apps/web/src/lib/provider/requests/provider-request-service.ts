@@ -24,6 +24,7 @@ import {
 import {
   adminDb,
 } from "@/lib/firebase/admin";
+import {providerNetPesosFromRequestData} from "@/lib/provider/payments/provider-net-amount";
 
 import type {
   ProviderRequestListItem,
@@ -331,15 +332,28 @@ function mapProviderRequest(
         ),
     },
 
-    amount:
-      nonNegativeMoney(
-        data.amount,
-      ),
+    amount: (() => {
+      const gross = nonNegativeMoney(data.amount);
+      return providerNetPesosFromRequestData(data, gross).providerNetPesos;
+    })(),
 
-    downPaymentAmount:
-      nonNegativeMoney(
-        data.downPaymentAmount,
-      ),
+    downPaymentAmount: (() => {
+      const gross = nonNegativeMoney(data.amount);
+      const net = providerNetPesosFromRequestData(data, gross);
+      const deposit = nonNegativeMoney(data.downPaymentAmount);
+      const ratio = gross > 0 ? deposit / gross : 0;
+      return Math.round(net.providerNetPesos * ratio * 100) / 100;
+    })(),
+
+    providerNetAmount: (() => {
+      const gross = nonNegativeMoney(data.amount);
+      return providerNetPesosFromRequestData(data, gross).providerNetPesos;
+    })(),
+
+    commissionAmount: (() => {
+      const gross = nonNegativeMoney(data.amount);
+      return providerNetPesosFromRequestData(data, gross).commissionPesos;
+    })(),
 
     paymentPolicy:
       paymentPolicyFromTerms(

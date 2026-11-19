@@ -38,6 +38,16 @@ import {
   reconcileGatewayRefund,
 } from "../refunds/refund-execution.js";
 import {
+  applyCompanyFloatCommissionCreditInTransaction,
+  applyCompanyFloatPaymentSideEffectsInTransaction,
+} from "../provider-finance/company-provider-advance.js";
+import {
+  COMPANY_FLOAT_DOC_PATH,
+  companyAdvanceRequestIdForProviderRequest,
+  companyFloatCommissionLedgerId,
+  companyProviderAdvanceIdForRequest,
+} from "../provider-finance/company-float-domain.js";
+import {
   classifyProviderRequestRefundPolicyEvidence,
   requireRefundEligibilityState,
 } from "../bookings/booking-refund-policy.js";
@@ -454,6 +464,46 @@ export async function processPayMongoWebhook(
           ? await transaction.get(
               financialLedgerReference,
             )
+          : null;
+
+      const companyFloatReference =
+        nextStatus === "paid"
+          ? db
+              .collection(COMPANY_FLOAT_DOC_PATH.collection)
+              .doc(COMPANY_FLOAT_DOC_PATH.document)
+          : null;
+
+      const companyFloatCommissionLedgerReference =
+        nextStatus === "paid"
+          ? db
+              .collection("companyFloatLedgerEntries")
+              .doc(companyFloatCommissionLedgerId(event.paymentId))
+          : null;
+
+      const companyFloatSnapshot =
+        companyFloatReference
+          ? await transaction.get(companyFloatReference)
+          : null;
+
+      const companyFloatCommissionLedgerSnapshot =
+        companyFloatCommissionLedgerReference
+          ? await transaction.get(companyFloatCommissionLedgerReference)
+          : null;
+
+      const companyAdvanceReference =
+        nextStatus === "paid"
+          ? db
+              .collection("companyProviderAdvances")
+              .doc(
+                companyProviderAdvanceIdForRequest(
+                  companyAdvanceRequestIdForProviderRequest(providerRequestId),
+                ),
+              )
+          : null;
+
+      const companyAdvanceSnapshot =
+        companyAdvanceReference
+          ? await transaction.get(companyAdvanceReference)
           : null;
 
       const providerEarningReference =
@@ -941,6 +991,23 @@ export async function processPayMongoWebhook(
             financialLedgerPlan
               .providerRequestUpdate,
           );
+
+          if (
+            companyFloatSnapshot &&
+            companyFloatCommissionLedgerSnapshot
+          ) {
+            applyCompanyFloatCommissionCreditInTransaction({
+              transaction,
+              floatSnap: companyFloatSnapshot,
+              ledgerSnap: companyFloatCommissionLedgerSnapshot,
+              paymentId: event.paymentId,
+              providerRequestId,
+              providerId,
+              commissionInCentavos:
+                financialLedgerPlan.ledgerRecord
+                  .commissionAccruedInCentavos as number,
+            });
+          }
         }
 
         if (
@@ -1075,6 +1142,28 @@ export async function processPayMongoWebhook(
           financialLedgerPlan
             .ledgerRecord,
         );
+
+        if (
+          companyFloatSnapshot &&
+          companyFloatCommissionLedgerSnapshot
+        ) {
+          applyCompanyFloatPaymentSideEffectsInTransaction({
+            transaction,
+            floatSnap: companyFloatSnapshot,
+            commissionLedgerSnap: companyFloatCommissionLedgerSnapshot,
+            advanceSnap: companyAdvanceSnapshot,
+            paymentId: event.paymentId,
+            providerRequestId,
+            providerId,
+            commissionInCentavos:
+              financialLedgerPlan.ledgerRecord
+                .commissionAccruedInCentavos as number,
+            repayAmountInCentavos: Number(
+              providerEarningPlan?.earningRecord.earningAmountInCentavos ?? 0,
+            ),
+            providerRequestRef: providerRequestReference,
+          });
+        }
       }
 
       if (

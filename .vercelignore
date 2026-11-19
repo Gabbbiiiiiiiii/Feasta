@@ -1,0 +1,49 @@
+﻿# Local caches / backups / tooling (not needed for web deploy)
+.tmp/
+.rollout-safeguard/
+.local/
+.consent-fixes/
+.validation/
+.agents/
+.cursor/
+.github/
+.vscode/
+.vercel/
+.git/
+.pnpm-store/
+pnpm-store/
+
+# Non-web app surfaces (root-anchored)
+/apps/customer_mobile/
+/firebase/
+/docs/
+/scripts/
+/contracts/
+/tools/
+
+# Functions: keep contract + vendor package web/workspace need;
+# drop heavy runtime/deps
+/functions/lib/
+/functions/node_modules/
+/functions/test/
+/functions/.env*
+/functions/pnpm-lock.yaml
+
+# Dependency / build artifacts
+node_modules/
+**/node_modules/
+**/.next/
+**/.turbo/
+**/.dart_tool/
+**/build/
+**/coverage/
+**/*.log
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+
+# Tests
+/apps/web/test/
+/packages/**/test/

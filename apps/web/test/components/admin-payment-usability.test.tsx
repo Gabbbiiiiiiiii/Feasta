@@ -23,7 +23,20 @@ vi.mock("@/lib/admin/payments/admin-payment-client", () => ({
   releaseMockProviderDisbursement: vi.fn(),
 }));
 
-const emptyPayoutBoard = {readyToPay: [], history: []};
+const emptyPayoutBoard = {
+  companyFloat: {
+    availableBalanceInCentavos: 0,
+    outstandingAdvanceInCentavos: 0,
+    formattedAvailableBalance: "₱0.00",
+    formattedOutstandingAdvance: "₱0.00",
+    currency: "PHP" as const,
+    mode: "mock" as const,
+  },
+  advanceRequests: [],
+  advanceHistory: [],
+  readyToPay: [],
+  history: [],
+};
 
 const payment: AdminPayment = {
   id: "payment_b38b84603355ec4e87de373fbe7ef0a4", paymentId: "payment_b38b84603355ec4e87de373fbe7ef0a4",

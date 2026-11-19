@@ -1,5 +1,7 @@
 "use client";
 
+import {useState} from "react";
+
 import {BookingLifecycleStatus, BookingLifecycleNotice} from "@/components/shared/booking-lifecycle-status";
 import {ProviderBookingStatus, useProviderBookingPresentation} from "@/components/provider/provider-booking-status";
 
@@ -22,6 +24,7 @@ import type {
   ProviderBooking,
   ProviderBookingTimeline,
 } from "@/lib/provider/bookings/provider-booking-types";
+import {requestCompanyAdvance} from "@/lib/provider/payments/company-advance-client";
 
 type ProviderBookingDetailDrawerProps = {
   booking: ProviderBooking | null;
@@ -51,6 +54,50 @@ export function ProviderBookingDetailDrawer({
   onPreparationStarted,
 }: ProviderBookingDetailDrawerProps) {
   const booking = useProviderBookingPresentation(canonicalBooking);
+  const [advancePending, setAdvancePending] = useState(false);
+  const [advanceMessage, setAdvanceMessage] = useState<string | null>(null);
+  const [advanceError, setAdvanceError] = useState<string | null>(null);
+
+  const alreadyRequested =
+    !!booking &&
+    (booking.companyAdvanceRequestStatus === "pending" ||
+      booking.companyAdvanceRequestStatus === "approved" ||
+      booking.companyAdvanceStatus === "outstanding" ||
+      booking.companyAdvanceStatus === "repaid" ||
+      !!advanceMessage);
+
+  const canRequestAdvance =
+    !!booking &&
+    !["cancelled", "rejected", "expired"].includes(booking.providerRequestStatus) &&
+    (booking.paymentStatus === "paid" ||
+      booking.paymentStatus === "partially_paid" ||
+      booking.payment?.status === "paid");
+
+  const submitAdvanceRequest = async () => {
+    if (!booking || advancePending || alreadyRequested) {
+      return;
+    }
+    setAdvancePending(true);
+    setAdvanceError(null);
+    setAdvanceMessage(null);
+    try {
+      await requestCompanyAdvance({
+        providerRequestId: booking.providerRequestId,
+      });
+      setAdvanceMessage(
+        "Immediate funding request sent. FEASTA admin will review and release your net amount from company float.",
+      );
+    } catch (error) {
+      setAdvanceError(
+        error instanceof Error
+          ? error.message
+          : "Immediate funding could not be requested.",
+      );
+    } finally {
+      setAdvancePending(false);
+    }
+  };
+
   return (
     <DetailDrawer
       open={open}
@@ -153,12 +200,19 @@ export function ProviderBookingDetailDrawer({
             {booking.remainingBalance !== null ? (
               <AmountRow label="Balance remaining" amount={booking.remainingBalance} />
             ) : <DetailRow label="Balance remaining" value="Unavailable" />}
+            <AmountRow
+              label="Your earning (after commission)"
+              amount={booking.providerNetAmount}
+            />
+            {booking.commissionAmount > 0 ? (
+              <AmountRow label="FEASTA commission" amount={booking.commissionAmount} />
+            ) : null}
             <AmountRow label="Requested amount" amount={booking.requestedAmount} />
             {booking.acceptedAmount !== null ? (
               <AmountRow label="Accepted amount" amount={booking.acceptedAmount} />
             ) : null}
             {booking.paymentAmount !== null ? (
-              <AmountRow label="Recorded payment" amount={booking.paymentAmount} />
+              <AmountRow label="Customer payment recorded" amount={booking.paymentAmount} />
             ) : null}
             <StatusRow
               label="Payment status"
@@ -166,6 +220,49 @@ export function ProviderBookingDetailDrawer({
               emptyLabel="No payment recorded"
             />
           </DrawerSection>
+
+          {canRequestAdvance ? (
+            <DrawerSection title="Immediate funding">
+              <p className="text-sm text-muted-foreground">
+                After the customer pays, you can ask FEASTA to advance your net
+                earnings (after commission) from company float. This is separate
+                from the ordinary 3-day payout hold.
+              </p>
+              {alreadyRequested && !advanceMessage ? (
+                <p className="text-sm text-muted-foreground" role="status">
+                  {booking.companyAdvanceRequestStatus === "pending"
+                    ? "Immediate funding already requested. Waiting for admin review."
+                    : booking.companyAdvanceStatus === "outstanding" ||
+                        booking.companyAdvanceRequestStatus === "approved"
+                      ? "Company advance already approved for this booking."
+                      : "Immediate funding was already requested for this booking."}
+                </p>
+              ) : null}
+              {advanceMessage ? (
+                <p className="text-sm text-success" role="status">
+                  {advanceMessage}
+                </p>
+              ) : null}
+              {advanceError ? (
+                <p className="text-sm text-destructive" role="alert">
+                  {advanceError}
+                </p>
+              ) : null}
+              <Button
+                variant="secondary"
+                disabled={actionPending || advancePending || alreadyRequested}
+                onClick={() => {
+                  void submitAdvanceRequest();
+                }}
+              >
+                {advancePending
+                  ? "Requesting..."
+                  : alreadyRequested
+                    ? "Already requested"
+                    : "Request immediate fund"}
+              </Button>
+            </DrawerSection>
+          ) : null}
 
           {booking.refundEligibility.evidenceStatus !== "legacy" ? <DrawerSection title="Event Preparation">
             {booking.refundEligibility.evidenceStatus === "policy_backed" ? (

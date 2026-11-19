@@ -292,14 +292,14 @@ export function ProviderMockWithdrawDialog({
               <div className="grid grid-cols-2 gap-2">
                 <Button
                   type="button"
-                  variant={destinationType === "gcash" ? "default" : "secondary"}
+                  variant={destinationType === "gcash" ? "primary" : "secondary"}
                   onClick={() => setDestinationType("gcash")}
                 >
                   GCash
                 </Button>
                 <Button
                   type="button"
-                  variant={destinationType === "bank" ? "default" : "secondary"}
+                  variant={destinationType === "bank" ? "primary" : "secondary"}
                   onClick={() => setDestinationType("bank")}
                 >
                   Bank transfer

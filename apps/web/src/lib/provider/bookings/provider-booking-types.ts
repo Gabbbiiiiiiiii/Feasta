@@ -97,6 +97,16 @@ export type ProviderBooking = {
   downPaymentAmount: number;
   paymentAmount: number | null;
   remainingBalance: number | null;
+  /** Provider share after FEASTA commission. */
+  providerNetAmount: number;
+  commissionAmount: number;
+  companyAdvanceRequestStatus:
+    | "pending"
+    | "approved"
+    | "rejected"
+    | "cancelled"
+    | null;
+  companyAdvanceStatus: "outstanding" | "repaid" | "cancelled" | null;
   currency: string;
   payment: ProviderBookingPayment | null;
 

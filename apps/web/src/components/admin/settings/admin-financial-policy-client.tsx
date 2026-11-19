@@ -80,6 +80,17 @@ function AdminFinancialPolicyClient({
   );
 
   const [
+    commissionPercentage,
+    setCommissionPercentage,
+  ] = useState(
+    basisPointsToInput(
+      initialSettings
+        .platformCommissionRateBps ||
+        DEFAULT_PLATFORM_COMMISSION_RATE_BPS,
+    ),
+  );
+
+  const [
     internalReason,
     setInternalReason,
   ] = useState("");
@@ -100,7 +111,9 @@ function AdminFinancialPolicyClient({
   ] = useTransition();
 
   const commissionRateBps =
-    DEFAULT_PLATFORM_COMMISSION_RATE_BPS;
+    percentageInputToBasisPoints(
+      commissionPercentage,
+    );
 
   const commissionModel =
     DEFAULT_PLATFORM_COMMISSION_MODEL;
@@ -160,9 +173,16 @@ function AdminFinancialPolicyClient({
         basisPointsToInput(
           savedSettings
             .maximumDepositRateBps,
+        ) ||
+      commissionPercentage !==
+        basisPointsToInput(
+          savedSettings
+            .platformCommissionRateBps ||
+            DEFAULT_PLATFORM_COMMISSION_RATE_BPS,
         ),
     [
       commissionModel,
+      commissionPercentage,
       commissionRateBps,
       maximumDepositPercentage,
       minimumDepositPercentage,
@@ -175,6 +195,8 @@ function AdminFinancialPolicyClient({
   const canSubmit =
     (hasChanges || savedSettings.financialPolicyEffectiveAt === null) &&
     vatRateBps !== null &&
+    commissionRateBps !== null &&
+    commissionRateBps > 0 &&
     depositBoundsValid &&
     (
       platformTaxStatus ===
@@ -196,6 +218,16 @@ function AdminFinancialPolicyClient({
     if (vatRateBps === null) {
       setError(
         "Enter a valid FEASTA VAT percentage between 0 and 100.",
+      );
+      return;
+    }
+
+    if (
+      commissionRateBps === null ||
+      commissionRateBps <= 0
+    ) {
+      setError(
+        "Enter a valid FEASTA commission percentage greater than 0% and at most 100%.",
       );
       return;
     }
@@ -290,6 +322,14 @@ function AdminFinancialPolicyClient({
             ),
           );
 
+          setCommissionPercentage(
+            basisPointsToInput(
+              result.settings
+                .platformCommissionRateBps ||
+                DEFAULT_PLATFORM_COMMISSION_RATE_BPS,
+            ),
+          );
+
           setInternalReason("");
 
           setSuccess(
@@ -335,6 +375,14 @@ function AdminFinancialPolicyClient({
       basisPointsToInput(
         savedSettings
           .maximumDepositRateBps,
+      ),
+    );
+
+    setCommissionPercentage(
+      basisPointsToInput(
+        savedSettings
+          .platformCommissionRateBps ||
+          DEFAULT_PLATFORM_COMMISSION_RATE_BPS,
       ),
     );
 
@@ -448,19 +496,44 @@ function AdminFinancialPolicyClient({
             </p>
 
             <p className="text-sm leading-5 text-muted-foreground">
-              Fixed 2% base with dynamic
-              caps. Existing booking
+              Configure the base commission
+              percentage. Tiered peso caps
+              still apply. Existing booking
               snapshots keep their original
               commission. New bookings use
               this versioned policy.
             </p>
 
-            <dl className="mt-2 grid gap-2 text-sm sm:grid-cols-2">
-              <PolicyValue
-                label="Base commission rate"
-                value="2%"
+            <div className="mt-2 grid gap-2 sm:max-w-xs">
+              <label
+                htmlFor="financial-policy-commission-rate"
+                className="font-semibold text-foreground"
+              >
+                Base commission rate (%)
+              </label>
+              <Input
+                id="financial-policy-commission-rate"
+                type="text"
+                inputMode="decimal"
+                aria-describedby="financial-policy-commission-rate-help"
+                value={commissionPercentage}
+                disabled={isPending}
+                onChange={(event) => {
+                  setCommissionPercentage(
+                    event.currentTarget.value,
+                  );
+                }}
               />
+              <p
+                id="financial-policy-commission-rate-help"
+                className="text-sm text-muted-foreground"
+              >
+                Caps remain
+                ₱500 / ₱1,000 by booking size.
+              </p>
+            </div>
 
+            <dl className="mt-2 grid gap-2 text-sm sm:grid-cols-2">
               <PolicyValue
                 label="Standard commission cap"
                 value="₱500"
@@ -654,7 +727,11 @@ function AdminFinancialPolicyClient({
             <dl className="grid gap-2 text-sm">
               <PolicyValue
                 label="Commission"
-                value="2% tiered capped (max ₱1,000)"
+                value={
+                  commissionRateBps === null
+                    ? "Invalid rate"
+                    : `${basisPointsToInput(commissionRateBps)}% tiered capped (max ₱1,000)`
+                }
               />
 
               <PolicyValue

@@ -16,6 +16,8 @@ import {
 } from "@/lib/auth/client-session";
 
 const ADMIN_RELEASE_CONFIRMATION_PHRASE = "RELEASE";
+const ADMIN_FUND_CONFIRMATION_PHRASE = "FUND";
+const ADMIN_ADVANCE_CONFIRMATION_PHRASE = "ADVANCE";
 import type {
   AdminPayoutSetupRepairInput,
   AdminPayoutSetupRepairResult,
@@ -34,6 +36,104 @@ const PAYOUT_REPAIR_REASON =
 
 const SAFE_PROVIDER_ID =
   /^[A-Za-z0-9_-]{8,160}$/u;
+
+async function reauthenticateAdminPassword(password: string): Promise<void> {
+  await auth.authStateReady();
+  const user = auth.currentUser;
+  if (!user) {
+    throw new WebAuthenticationError(
+      "Your admin session has expired. Please sign in again.",
+      "session_expired",
+    );
+  }
+
+  if (typeof password !== "string" || password.length < 1) {
+    throw new Error("Enter your admin password to continue.");
+  }
+
+  if (!user.email) {
+    throw new Error(
+      "This admin account has no email/password sign-in. Use an email/password admin account.",
+    );
+  }
+
+  const hasPasswordProvider = user.providerData.some(
+    (provider) => provider.providerId === EmailAuthProvider.PROVIDER_ID,
+  );
+  if (!hasPasswordProvider) {
+    throw new Error(
+      "This admin account has no email/password sign-in. Use an email/password admin account.",
+    );
+  }
+
+  try {
+    await reauthenticateWithCredential(
+      user,
+      EmailAuthProvider.credential(user.email, password),
+    );
+  } catch (error: unknown) {
+    if (
+      error instanceof FirebaseError &&
+      (error.code === "auth/wrong-password" ||
+        error.code === "auth/invalid-credential" ||
+        error.code === "auth/invalid-login-credentials")
+    ) {
+      throw new Error("Admin password is incorrect.");
+    }
+
+    throw new Error("Admin re-authentication failed. Try again.");
+  }
+
+  await user.getIdToken(true);
+}
+
+function mapCallableError(error: unknown, fallback: string): Error {
+  const code =
+    error instanceof FirebaseError
+      ? normalizeCallableCode(error.code)
+      : "unknown";
+
+  if (code === "not-found") {
+    return new Error(
+      "The finance callable is not deployed yet. Deploy Functions, then try again.",
+    );
+  }
+
+  if (code === "failed-precondition" || code === "invalid-argument") {
+    return new Error(
+      error instanceof FirebaseError && error.message.trim().length >= 4
+        ? error.message
+            .replace(/^Firebase:\s*/u, "")
+            .replace(/\s*\([^)]*\)\.?$/u, "")
+            .trim()
+        : fallback,
+    );
+  }
+
+  if (code === "unauthenticated") {
+    const message = error instanceof FirebaseError ? error.message : "";
+    if (/Recent authentication/iu.test(message)) {
+      return new Error(
+        "Recent admin authentication is required. Re-enter your password and try again.",
+      );
+    }
+
+    return new WebAuthenticationError(
+      "Your admin session has expired. Please sign in again.",
+      "session_expired",
+    );
+  }
+
+  if (code === "permission-denied") {
+    return new Error("Only an authorized FEASTA Admin can perform this action.");
+  }
+
+  if (code === "resource-exhausted") {
+    return new Error("Too many requests were made. Wait a moment and try again.");
+  }
+
+  return new Error(fallback);
+}
 
 export async function repairAmbiguousProviderPayoutSetup(
   input: AdminPayoutSetupRepairInput,
@@ -180,6 +280,123 @@ export async function retryFailedProviderDisbursement(input: {providerDisburseme
   }
 }
 
+export async function fundCompanyFloat(input: {
+  amountInCentavos: number;
+  password: string;
+  confirmationPhrase: string;
+}): Promise<{
+  availableBalanceInCentavos: number;
+  outstandingAdvanceInCentavos: number;
+  currency: "PHP";
+  mode: "mock";
+}> {
+  await reauthenticateAdminPassword(input.password);
+
+  if (input.confirmationPhrase !== ADMIN_FUND_CONFIRMATION_PHRASE) {
+    throw new Error("Type FUND exactly to confirm company float funding.");
+  }
+
+  if (!Number.isSafeInteger(input.amountInCentavos) || input.amountInCentavos <= 0) {
+    throw new Error("Company float funding amount is invalid.");
+  }
+
+  initializeBrowserAppCheck();
+  const callable = httpsCallable<
+    {amountInCentavos: number; confirmationPhrase: string},
+    {
+      availableBalanceInCentavos: number;
+      outstandingAdvanceInCentavos: number;
+      currency: "PHP";
+      mode: "mock";
+    }
+  >(functions, "fundCompanyFloat", {timeout: 30_000});
+
+  try {
+    return (await callable({
+      amountInCentavos: input.amountInCentavos,
+      confirmationPhrase: ADMIN_FUND_CONFIRMATION_PHRASE,
+    })).data;
+  } catch (error: unknown) {
+    throw mapCallableError(error, "Company float could not be funded.");
+  }
+}
+
+export async function approveCompanyAdvanceRequest(input: {
+  advanceRequestId: string;
+  password: string;
+  confirmationPhrase: string;
+}): Promise<{
+  advanceId: string;
+  advanceRequestId: string;
+  providerRequestId: string;
+  providerId: string;
+  amountInCentavos: number;
+  currency: "PHP";
+  status: "outstanding";
+  mode: "mock";
+  repaymentDestination: "company_float";
+}> {
+  await reauthenticateAdminPassword(input.password);
+
+  if (!/^[A-Za-z0-9_-]{1,220}$/u.test(input.advanceRequestId)) {
+    throw new Error("The advance request reference is invalid.");
+  }
+  if (input.confirmationPhrase !== ADMIN_ADVANCE_CONFIRMATION_PHRASE) {
+    throw new Error("Type ADVANCE exactly to confirm this company advance.");
+  }
+
+  initializeBrowserAppCheck();
+  const callable = httpsCallable<
+    {
+      advanceRequestId: string;
+      confirmationPhrase: string;
+    },
+    {
+      advanceId: string;
+      advanceRequestId: string;
+      providerRequestId: string;
+      providerId: string;
+      amountInCentavos: number;
+      currency: "PHP";
+      status: "outstanding";
+      mode: "mock";
+      repaymentDestination: "company_float";
+    }
+  >(functions, "approveCompanyAdvanceRequest", {timeout: 30_000});
+
+  try {
+    return (await callable({
+      advanceRequestId: input.advanceRequestId,
+      confirmationPhrase: ADMIN_ADVANCE_CONFIRMATION_PHRASE,
+    })).data;
+  } catch (error: unknown) {
+    throw mapCallableError(error, "Company advance could not be approved.");
+  }
+}
+
+export async function rejectCompanyAdvanceRequest(input: {
+  advanceRequestId: string;
+  password: string;
+}): Promise<{advanceRequestId: string; status: "rejected"}> {
+  await reauthenticateAdminPassword(input.password);
+
+  if (!/^[A-Za-z0-9_-]{1,220}$/u.test(input.advanceRequestId)) {
+    throw new Error("The advance request reference is invalid.");
+  }
+
+  initializeBrowserAppCheck();
+  const callable = httpsCallable<
+    {advanceRequestId: string},
+    {advanceRequestId: string; status: "rejected"}
+  >(functions, "rejectCompanyAdvanceRequest", {timeout: 30_000});
+
+  try {
+    return (await callable({advanceRequestId: input.advanceRequestId})).data;
+  } catch (error: unknown) {
+    throw mapCallableError(error, "Company advance request could not be rejected.");
+  }
+}
+
 export async function releaseMockProviderDisbursement(input: {
   providerDisbursementId: string;
   password: string;
@@ -193,14 +410,7 @@ export async function releaseMockProviderDisbursement(input: {
   mode: "mock";
   providerId: string;
 }> {
-  await auth.authStateReady();
-  const user = auth.currentUser;
-  if (!user) {
-    throw new WebAuthenticationError(
-      "Your admin session has expired. Please sign in again.",
-      "session_expired",
-    );
-  }
+  await reauthenticateAdminPassword(input.password);
 
   const providerDisbursementId = input.providerDisbursementId;
   if (!/^[A-Za-z0-9_-]{1,220}$/u.test(providerDisbursementId)) {
@@ -211,44 +421,6 @@ export async function releaseMockProviderDisbursement(input: {
     throw new Error("Type RELEASE exactly to confirm this payout release.");
   }
 
-  if (typeof input.password !== "string" || input.password.length < 1) {
-    throw new Error("Enter your admin password to continue.");
-  }
-
-  if (!user.email) {
-    throw new Error(
-      "This admin account has no email/password sign-in. Use an email/password admin account to release payouts.",
-    );
-  }
-
-  const hasPasswordProvider = user.providerData.some(
-    (provider) => provider.providerId === EmailAuthProvider.PROVIDER_ID,
-  );
-  if (!hasPasswordProvider) {
-    throw new Error(
-      "This admin account has no email/password sign-in. Use an email/password admin account to release payouts.",
-    );
-  }
-
-  try {
-    await reauthenticateWithCredential(
-      user,
-      EmailAuthProvider.credential(user.email, input.password),
-    );
-  } catch (error: unknown) {
-    if (
-      error instanceof FirebaseError &&
-      (error.code === "auth/wrong-password" ||
-        error.code === "auth/invalid-credential" ||
-        error.code === "auth/invalid-login-credentials")
-    ) {
-      throw new Error("Admin password is incorrect.");
-    }
-
-    throw new Error("Admin re-authentication failed. Try again.");
-  }
-
-  await user.getIdToken(true);
   initializeBrowserAppCheck();
 
   const callable = httpsCallable<
@@ -273,48 +445,9 @@ export async function releaseMockProviderDisbursement(input: {
       confirmationPhrase: ADMIN_RELEASE_CONFIRMATION_PHRASE,
     })).data;
   } catch (error: unknown) {
-    const code =
-      error instanceof FirebaseError
-        ? normalizeCallableCode(error.code)
-        : "unknown";
-
-    if (code === "not-found") {
-      throw new Error(
-        "The withdraw service is not deployed yet. Deploy releaseMockProviderDisbursement, then try again.",
-      );
-    }
-
-    if (code === "failed-precondition" || code === "invalid-argument") {
-      throw new Error(
-        error instanceof FirebaseError && error.message.trim().length >= 4
-          ? error.message.replace(/^Firebase:\s*/u, "").replace(/\s*\([^)]*\)\.?$/u, "").trim()
-          : "Only a ready Provider payout obligation can be mock-released.",
-      );
-    }
-
-    if (code === "unauthenticated") {
-      const message =
-        error instanceof FirebaseError ? error.message : "";
-      if (/Recent authentication/iu.test(message)) {
-        throw new Error(
-          "Recent admin authentication is required. Re-enter your password and try again.",
-        );
-      }
-
-      throw new WebAuthenticationError(
-        "Your admin session has expired. Please sign in again.",
-        "session_expired",
-      );
-    }
-
-    if (code === "permission-denied") {
-      throw new Error("Only an authorized FEASTA Admin can release this payout.");
-    }
-
-    if (code === "resource-exhausted") {
-      throw new Error("Too many payout releases were requested. Wait a moment and try again.");
-    }
-
-    throw new Error("The mock provider payout could not be completed.");
+    throw mapCallableError(
+      error,
+      "The mock provider payout could not be completed.",
+    );
   }
 }

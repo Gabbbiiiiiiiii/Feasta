@@ -113,17 +113,31 @@ describe(
     );
 
     it(
-      "rejects non-2-percent commission rates",
+      "accepts a changed commission base rate",
+      () => {
+        expect(
+          validateAdminFinancialPolicyUpdate(
+            validInput({
+              platformCommissionRateBps:
+                300,
+            }),
+          ).platformCommissionRateBps,
+        ).toBe(300);
+      },
+    );
+
+    it(
+      "rejects a zero commission base rate",
       () => {
         expect(() =>
           validateAdminFinancialPolicyUpdate(
             validInput({
               platformCommissionRateBps:
-                1000,
+                0,
             }),
           ),
         ).toThrow(
-          "FEASTA commission base rate must be 2%.",
+          "FEASTA commission base rate must be greater than 0%",
         );
       },
     );
@@ -139,7 +153,7 @@ describe(
             }),
           ),
         ).toThrow(
-          "FEASTA commission must use the tiered capped 2% policy.",
+          "FEASTA commission must use the tiered capped policy.",
         );
       },
     );

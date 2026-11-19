@@ -211,6 +211,45 @@ export type AdminReadyProviderPayoutItem = {
   trigger: string | null;
 };
 
+export type AdminCompanyFloatSummary = {
+  availableBalanceInCentavos: number;
+  outstandingAdvanceInCentavos: number;
+  formattedAvailableBalance: string;
+  formattedOutstandingAdvance: string;
+  currency: "PHP";
+  mode: "mock";
+};
+
+export type AdminCompanyAdvanceRequestItem = {
+  advanceRequestId: string;
+  providerRequestId: string;
+  providerId: string;
+  providerName: string | null;
+  mainEventId: string | null;
+  requestedAt: string | null;
+  providerNote: string | null;
+  providerNetAmountInCentavos: number;
+  formattedProviderNetAmount: string;
+  commissionAmountInCentavos: number;
+  formattedCommissionAmount: string;
+  grossAmountInCentavos: number;
+  formattedGrossAmount: string;
+};
+
+export type AdminCompanyAdvanceHistoryItem = {
+  advanceId: string;
+  advanceRequestId: string;
+  providerRequestId: string;
+  providerId: string;
+  providerName: string | null;
+  amountInCentavos: number;
+  formattedAmount: string;
+  outstandingAmountInCentavos: number;
+  status: "outstanding" | "repaid" | "cancelled";
+  issuedAt: string | null;
+  mode: "mock";
+};
+
 export type AdminProviderPayoutHistoryItem = {
   providerDisbursementId: string;
   withdrawalId: string;
@@ -223,6 +262,9 @@ export type AdminProviderPayoutHistoryItem = {
 };
 
 export type AdminProviderPayoutBoard = {
+  companyFloat: AdminCompanyFloatSummary;
+  advanceRequests: AdminCompanyAdvanceRequestItem[];
+  advanceHistory: AdminCompanyAdvanceHistoryItem[];
   readyToPay: AdminReadyProviderPayoutItem[];
   history: AdminProviderPayoutHistoryItem[];
 };

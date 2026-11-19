@@ -51,6 +51,9 @@ export function parsePlatformCommissionModel(
 
 export function computeTieredCappedCommissionInCentavos(
   grossAmountInCentavos: number,
+  rateBps:
+    number =
+      DEFAULT_PLATFORM_COMMISSION_RATE_BPS,
 ): number {
   if (
     !Number.isSafeInteger(
@@ -64,12 +67,22 @@ export function computeTieredCappedCommissionInCentavos(
   }
 
   if (
+    !Number.isSafeInteger(rateBps) ||
+    rateBps <= 0 ||
+    rateBps > BASIS_POINTS_SCALE
+  ) {
+    throw new Error(
+      "Commission rate for tiered commission is invalid.",
+    );
+  }
+
+  if (
     grossAmountInCentavos <=
       TIERED_COMMISSION_PURE_RATE_MAX_CENTAVOS
   ) {
     return applyBasisPoints(
       grossAmountInCentavos,
-      DEFAULT_PLATFORM_COMMISSION_RATE_BPS,
+      rateBps,
     );
   }
 
@@ -90,7 +103,7 @@ export function computeTieredCappedCommissionInCentavos(
     const progressive =
       applyBasisPoints(
         excess,
-        DEFAULT_PLATFORM_COMMISSION_RATE_BPS,
+        rateBps,
       );
     const total =
       TIERED_COMMISSION_STANDARD_CAP_CENTAVOS +
