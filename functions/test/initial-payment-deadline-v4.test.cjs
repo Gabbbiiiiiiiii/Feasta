@@ -43,13 +43,14 @@ function frozen() {
     eventDate: Timestamp.fromDate(date('12', '00:00')), eventTime: '12:00', eventStartAt: Timestamp.fromDate(eventStartAt),
     initialPaymentDeadlinePolicyVersion: 4, initialPaymentDeadlineAt: Timestamp.fromDate(deadline), expiresAt: Timestamp.fromDate(deadline)};
 }
-test('new frozen deadline synchronizes checkout and capacity independently of worker', () => {
+test('frozen deadline closes checkout while capacity waits for the expiration transition', () => {
   const request = frozen(), at = request.expiresAt.toDate();
   assert.equal(original(request).toMillis(), +at);
   assert.doesNotThrow(() => requireInitialPaymentHold(request, new Date(+at - 1)));
   assert.throws(() => requireInitialPaymentHold(request, at), {code: 'failed-precondition'});
   assert.equal(state({...request, now: new Date(+at - 1)}), 'temporary_hold');
-  assert.equal(state({...request, now: at}), 'released');
+  assert.equal(state({...request, now: at}), 'temporary_hold');
+  assert.equal(state({...request, status: 'expired', now: at}), 'released');
   for (const patch of [{paymentId: 'pending'}, {initialPaymentDispatchReservedAt: request.acceptedAt}, {reconciliationRequired: true}]) {
     assert.equal(state({...request, ...patch, now: at}), 'payment_reconciliation');
   }

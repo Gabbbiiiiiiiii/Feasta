@@ -16,7 +16,7 @@ export default function ProviderAvailabilityLoading() {
         className="grid min-w-0 gap-5 lg:grid-cols-2"
         aria-hidden="true"
       >
-        {["Operating days", "Booking notice", "Event capacity"]
+        {["Operating days", "Booking notice", "Daily event capacity", "Guest capacity"]
           .map((label) => (
             <section
               key={label}

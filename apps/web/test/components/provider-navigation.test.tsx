@@ -175,6 +175,7 @@ describe("provider navigation configuration", () => {
       "/provider",
       "/provider/requests",
       "/provider/bookings",
+      "/provider/bookings/walk-in",
       "/provider/calendar",
       "/provider/availability",
       "/provider/payments",
@@ -309,6 +310,13 @@ describe("provider navigation rendering", () => {
     expect(requests).toBeDefined();
     expect(isNavigationItemActive("/provider/bookings", bookings!)).toBe(true);
     expect(isNavigationItemActive("/provider/bookings/history", bookings!)).toBe(true);
+    const walkIns = items.find(
+      (item): item is NavigationLinkItem =>
+        item.kind === "link" && item.href === "/provider/bookings/walk-in",
+    );
+    expect(walkIns).toBeDefined();
+    expect(isNavigationItemActive("/provider/bookings/walk-in/new", walkIns!)).toBe(true);
+    expect(isNavigationItemActive("/provider/bookings/walk-in/new", bookings!)).toBe(false);
     expect(isNavigationItemActive("/provider/bookings", requests!)).toBe(false);
   });
 

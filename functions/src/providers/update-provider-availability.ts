@@ -28,6 +28,8 @@ import {
 import {Timestamp} from "firebase-admin/firestore";
 import {
   AVAILABILITY_COUNTED_REQUEST_STATUSES,
+  dailyEventCapacity,
+  hasWalkInReservation,
   manilaDateFromKey,
   manilaDateKey,
   manilaDateRange,
@@ -134,6 +136,11 @@ export const updateProviderAvailability =
         );
       }
 
+      if (input.reason !== undefined && (typeof input.reason !== "string" || input.reason.length > 160)) {
+        throw new HttpsError("invalid-argument", "Enter a reason of up to 160 characters.");
+      }
+      const reason = typeof input.reason === "string" ? input.reason.trim() : "";
+
       const providerReference =
         await ownedProviderReference(
           actor.uid,
@@ -194,6 +201,15 @@ export const updateProviderAvailability =
             );
           }
 
+          const currentDates =
+            normalizeUnavailableDates(
+              providerData.unavailableDates,
+            );
+
+          if (action === "mark_unavailable" && currentDates.includes(date)) {
+            throw new HttpsError("already-exists", "This date is already unavailable.");
+          }
+
           if (action === "mark_unavailable") {
             const activeRequests = await transaction.get(
               db.collection("providerRequests")
@@ -231,18 +247,13 @@ export const updateProviderAvailability =
               },
             );
 
-            if (hasExistingReservation) {
+            if (hasExistingReservation || hasWalkInReservation(providerData, date)) {
               throw new HttpsError(
                 "failed-precondition",
                 "This date already has a FEASTA reservation and cannot be manually blocked.",
               );
             }
           }
-
-          const currentDates =
-            normalizeUnavailableDates(
-              providerData.unavailableDates,
-            );
 
           const nextDates =
             new Set(currentDates);
@@ -268,6 +279,16 @@ export const updateProviderAvailability =
               "You can manage at most 366 unavailable dates.",
             );
           }
+
+          // Provider documents can be public. Keep private scheduling notes in a server-only subdocument.
+          const reasonsRef = providerReference.collection("availabilityDetails").doc("blockedDates");
+          const stored = (await transaction.get(reasonsRef)).data()?.reasons;
+          const reasons: Record<string, string> = {};
+          for (const blockedDate of unavailableDates) {
+            if (blockedDate === date && reason) reasons[blockedDate] = reason;
+            else if (typeof stored?.[blockedDate] === "string") reasons[blockedDate] = stored[blockedDate];
+          }
+          transaction.set(reasonsRef, {reasons});
 
           transaction.update(
             providerReference,
@@ -316,6 +337,7 @@ export const updateProviderAvailability =
             date,
             action,
             unavailableDates,
+            unavailableDateReasons: reasons,
           };
         },
       );
@@ -368,25 +390,6 @@ export const updateProviderAvailabilitySettings =
       );
       if (selectedIds !== undefined) await loadOccasionCatalogReadPolicy();
 
-      const operatingDays =
-        requireOperatingDays(
-          input.operatingDays,
-        );
-
-      const bookingLeadTimeDays =
-        requireInteger(
-          input.bookingLeadTimeDays,
-          "bookingLeadTimeDays",
-          0,
-          365,
-        );
-
-      const acceptsMultipleEventsPerDay =
-        requireBoolean(
-          input.acceptsMultipleEventsPerDay,
-          "acceptsMultipleEventsPerDay",
-        );
-
       const maxEventsPerDay =
         requireInteger(
           input.maxEventsPerDay,
@@ -395,16 +398,15 @@ export const updateProviderAvailabilitySettings =
           100,
         );
 
-      if (
-        acceptsMultipleEventsPerDay ||
-        maxEventsPerDay !== 1
-      ) {
-        throw new HttpsError(
-          "invalid-argument",
-          "FEASTA currently permits only one event per provider per day.",
-        );
+      const acceptsMultipleEventsPerDay = maxEventsPerDay > 1;
+      if (requireBoolean(input.acceptsMultipleEventsPerDay, "acceptsMultipleEventsPerDay") !== acceptsMultipleEventsPerDay) {
+        throw new HttpsError("invalid-argument", "The daily capacity and multiple-events setting must agree.");
       }
 
+      const schedule = {
+        operatingDays: requireOperatingDays(input.operatingDays),
+        bookingLeadTimeDays: requireInteger(input.bookingLeadTimeDays, "bookingLeadTimeDays", 0, 365),
+      };
       const submittedCapacity = {
         minGuestsPerEvent:
           requireInteger(
@@ -504,27 +506,24 @@ export const updateProviderAvailabilitySettings =
                 providerData,
               ),
             );
-          const capacity =
-            validateSubmittedCapacity(
-              submittedCapacity,
-              capabilities,
-            );
+          const guestCapacity = validateSubmittedCapacity(submittedCapacity, capabilities);
           const settings = {
             // Provider acceptance preferences do not grant package eligibility.
             // Legacy eventTypesSupported and eligibility authorities stay protected.
             ...(selectedIds === undefined ? {} : {supportedOccasionIds: selectedIds}),
             availabilitySettingsRevision: expectedSettingsRevision + 1,
-            operatingDays,
-            bookingLeadTimeDays,
+            ...schedule,
             acceptsMultipleEventsPerDay,
             maxEventsPerDay,
-            ...capacity,
+            ...guestCapacity,
           };
 
           transaction.update(
             providerReference,
             {
               ...settings,
+              ...(maxEventsPerDay < dailyEventCapacity(providerData)
+                ? {availabilityCapacityReducedAt: serverTimestamp()} : {}),
               updatedAt:
                 serverTimestamp(),
             },

@@ -9,9 +9,12 @@ import {
   ChevronRight,
   Clock3,
   MapPin,
+  Settings2,
+  Ticket,
   Users,
 } from "lucide-react";
 import {
+  useEffect,
   useMemo,
   useState,
 } from "react";
@@ -20,11 +23,10 @@ import {
 } from "next/navigation";
 
 import {
-  PageHeading,
-} from "@/components/layout/page-heading";
-import {
-  StatusBadge,
+  humanize,
 } from "@/components/shared/status-badge";
+import {Badge} from "@/components/ui/badge";
+import {subscribeProviderCalendar} from "@/lib/provider/calendar/provider-calendar-subscription";
 import {
   Button,
 } from "@/components/ui/button";
@@ -36,10 +38,14 @@ import {ProviderCalendarHoverPreview} from "./provider-calendar-hover-preview";
 import type {
   ProviderCalendarData,
   ProviderCalendarEvent,
+  ProviderCalendarView,
 } from "@/lib/provider/calendar/provider-calendar-types";
 
 type ProviderCalendarClientProps = {
   initialData: ProviderCalendarData;
+  initialSelectedDate?: string;
+  initialView?: ProviderCalendarView;
+  highlightBooking?: string;
 };
 
 const WEEKDAYS = [
@@ -64,9 +70,18 @@ const DAY_NAMES = [
 
 export function ProviderCalendarClient({
   initialData,
+  initialSelectedDate,
+  initialView = "month",
+  highlightBooking,
 }: ProviderCalendarClientProps) {
   const router =
     useRouter();
+
+  const {refresh} = router;
+  useEffect(() => {
+    if (initialData.ownerId) return subscribeProviderCalendar(initialData.providerId, initialData.ownerId, initialData.month, refresh);
+  }, [initialData.ownerId, initialData.providerId, initialData.month, refresh]);
+  const [view, setView] = useState(initialView);
 
   const today =
     useMemo(
@@ -89,15 +104,15 @@ export function ProviderCalendarClient({
     selectedDate,
     setSelectedDate,
   ] = useState(
-    initialData.month === today.slice(0, 7) ? today : `${initialData.month}-01`,
+    initialSelectedDate ?? (initialData.month === today.slice(0, 7) ? today : `${initialData.month}-01`),
   );
 
   const [
-    unavailableDates,
-    setUnavailableDates,
-  ] = useState(
-    initialData.settings.unavailableDates,
-  );
+    manualOverride,
+    setManualOverride,
+  ] = useState<{base: string[]; dates: string[]}>();
+  const unavailableDates = manualOverride?.base === initialData.settings.unavailableDates
+    ? manualOverride.dates : initialData.settings.unavailableDates;
 
   const [hoverPreview, setHoverPreview] = useState<{
     date: string;
@@ -158,6 +173,10 @@ export function ProviderCalendarClient({
       selectedDate,
     ) ?? [];
 
+  const weekDates = buildWeekDays(selectedDate);
+  const agendaDates = [...eventsByDate.keys()].filter((date) => date.startsWith(initialData.month)).sort();
+  const period = view === "week" ? "week" : "month";
+
   const selectedDateObject =
     parseIsoDate(selectedDate);
 
@@ -186,7 +205,9 @@ export function ProviderCalendarClient({
       selectedDate,
     );
 
-  const capacity = 1;
+  const capacity = initialData.settings.maxEventsPerDay;
+  const selectedOccupancy = occupiedEventCount(selectedEvents);
+  const selectedRemaining = isManuallyUnavailable || !isOperatingDay ? 0 : Math.max(0, capacity - selectedOccupancy);
 
   const canManageAvailability =
     selectedDate >= today;
@@ -214,9 +235,7 @@ export function ProviderCalendarClient({
           },
         );
 
-      setUnavailableDates(
-        result.unavailableDates,
-      );
+      setManualOverride({base: initialData.settings.unavailableDates, dates: result.unavailableDates});
 
       router.refresh();
     } catch (error) {
@@ -230,104 +249,94 @@ export function ProviderCalendarClient({
     }
   }
 
-  function changeMonth(offset: number) {
-    const next = new Date(
-      visibleMonth.getFullYear(),
-      visibleMonth.getMonth() + offset,
-      1,
-    );
-    router.push(`/provider/calendar?month=${toIsoDate(next).slice(0, 7)}`);
+  function navigateTo(date: string) {
+    router.push(`/provider/calendar?${new URLSearchParams({date, view})}`);
   }
 
-  function previousMonth() {
-    changeMonth(-1);
-  }
-
-  function nextMonth() {
-    changeMonth(1);
-  }
-
-  function goToToday() {
-    if (initialData.month !== today.slice(0, 7)) {
-      router.push(`/provider/calendar?month=${today.slice(0, 7)}`);
+  function changePeriod(offset: number) {
+    if (view === "week") {
+      const next = parseIsoDate(selectedDate);
+      next.setDate(next.getDate() + offset * 7);
+      navigateTo(toIsoDate(next));
       return;
     }
-    setSelectedDate(today);
+    navigateTo(toIsoDate(new Date(visibleMonth.getFullYear(), visibleMonth.getMonth() + offset, 1)));
   }
 
   return (
-    <div className="grid gap-6">
-      <PageHeading
-        eyebrow="Provider operations"
-        title="Calendar"
-        description={
-          "Manage your business availability and review scheduled FEASTA events."
-        }
-        actions={
-          <div className="flex flex-wrap gap-2">
-          <Button asChild variant="secondary" size="compact"><Link href="/provider/availability">Availability settings</Link></Button>
-          <Button
-            type="button"
-            variant="secondary"
-            size="compact"
-            onClick={goToToday}
-          >
-            <CalendarDays className="size-4" />
-            Today
-          </Button>
-          </div>
-        }
-      />
-
-      <div className="grid min-w-0 gap-6 xl:grid-cols-[minmax(0,1.7fr)_minmax(20rem,0.8fr)]">
+    <div className="min-w-0">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <h1 className="text-2xl font-semibold">Calendar</h1>
+        <Button asChild size="compact">
+          <Link href="/provider/availability">
+            <Settings2 className="size-4" aria-hidden="true" />
+            Availability settings
+          </Link>
+        </Button>
+      </div>
+      <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,2.1fr)_minmax(16rem,1fr)] lg:gap-5">
         <section className="min-w-0 overflow-hidden rounded-card border border-border bg-card shadow-card">
-          <header className="flex flex-wrap items-center justify-between gap-3 border-b border-border p-4 sm:p-5">
+          <header className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-border px-4 py-3.5">
             <div>
               <h2 className="text-xl font-bold">
-                {formatMonth(
-                  visibleMonth,
-                )}
+                {view === "week" ? `${formatLongDate(toIsoDate(weekDates[0]))} – ${formatLongDate(toIsoDate(weekDates[6]))}` : formatMonth(visibleMonth)}
               </h2>
 
-              <p className="mt-1 text-sm text-muted-foreground">
-                Select a date to review
-                events and availability.
+              <p className="mt-1 text-xs text-muted-foreground sm:text-sm">
+                Select a date to review events and availability.
               </p>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex shrink-0 items-center gap-1.5">
+              <div className="flex flex-wrap gap-0.5 rounded-lg border border-border bg-muted/50 p-0.5" role="group" aria-label="Calendar view">
+                {(["month", "week", "agenda"] as const).map((option) => <Button key={option}
+                  size="compact" className="h-8 min-h-8 min-w-0 px-2.5 text-xs" variant={view === option ? "primary" : "ghost"} aria-pressed={view === option}
+                  onClick={() => {setView(option); setHoverPreview(null);}}>{option === "agenda" ? "Schedule" : humanize(option)}</Button>)}
+              </div>
               <Button
                 type="button"
                 variant="secondary"
                 size="icon"
-                aria-label="Previous month"
-                onClick={
-                  previousMonth
-                }
+                className="size-8 min-h-8 min-w-8"
+                aria-label={`Previous ${period}`}
+                onClick={() => changePeriod(-1)}
               >
-                <ChevronLeft className="size-5" />
+                <ChevronLeft className="size-4" />
               </Button>
 
               <Button
                 type="button"
                 variant="secondary"
                 size="icon"
-                aria-label="Next month"
-                onClick={nextMonth}
+                className="size-8 min-h-8 min-w-8"
+                aria-label={`Next ${period}`}
+                onClick={() => changePeriod(1)}
               >
-                <ChevronRight className="size-5" />
+                <ChevronRight className="size-4" />
               </Button>
             </div>
           </header>
 
-          <div className="overflow-x-auto">
-            <div className="min-w-0 p-1.5 sm:p-5">
+          {view === "agenda" ? (
+            <div className="grid gap-4 p-4">
+              {agendaDates.length === 0 && <p className="text-sm text-muted-foreground">No bookings this month.</p>}
+              {agendaDates.map((date) => <section key={date} className="grid gap-2 border-b border-border pb-4">
+                <button type="button" className="w-fit font-semibold hover:underline" onClick={() => setSelectedDate(date)}>
+                  {formatLongDate(date)}
+                </button>
+                <p className="text-xs text-muted-foreground">{occupiedEventCount(eventsByDate.get(date) ?? [])}/{capacity} booked</p>
+                {eventsByDate.get(date)?.map((event) => <CompactCalendarBooking key={`${event.source}:${event.id}`} event={event}
+                  highlighted={event.source === "walk_in" && event.id === highlightBooking} />)}
+              </section>)}
+            </div>
+          ) : <div className="overflow-x-auto">
+            <div className="min-w-[34rem] p-3 sm:p-4">
               <div className="grid grid-cols-7 border-b border-border">
                 {WEEKDAYS.map(
                   (weekday) => (
                     <div
                       key={weekday}
-                      className="px-2 pb-3 text-center text-xs font-bold uppercase tracking-wide text-muted-foreground"
+                      className="px-1 pb-2.5 text-center text-[11px] font-semibold uppercase tracking-wide text-muted-foreground"
                     >
                       {weekday}
                     </div>
@@ -335,14 +344,14 @@ export function ProviderCalendarClient({
                 )}
               </div>
 
-              <div className="grid grid-cols-7">
-                {days.map(
+              <div className="grid grid-cols-7 border-l border-border">
+                {(view === "week" ? weekDates : days).map(
                   (day, index) => {
                     if (!day) {
                       return (
                         <div
                           key={`empty-${index}`}
-                          className="min-h-28 border-b border-r border-border/70 bg-muted/20"
+                          className="min-h-[5.5rem] border-b border-r border-border/70 bg-muted/20"
                         />
                       );
                     }
@@ -380,18 +389,14 @@ export function ProviderCalendarClient({
                     const dayCapacity =
                       capacity;
 
-                    const full =
-                      dayEvents.length >=
-                      dayCapacity;
-                    const reservationLabel = dayEvents.some((event) =>
-                      event.status === "completed") ? "Completed" :
-                      dayEvents.some((event) => event.status === "confirmed" ||
-                        event.status === "in_progress") ? "Booked" :
-                      full ? "On hold" : "Available";
+                    const occupied = occupiedEventCount(dayEvents);
+                    const full = occupied >= dayCapacity;
+                    const reservationLabel = blocked ? "Blocked" : !operating ? "Closed" :
+                      full ? "Fully booked" : occupied === 0 ? "Available" : `${dayCapacity - occupied} slots remaining`;
 
                     return (
+                      <div key={dateKey} className={`min-h-[5.5rem] min-w-0 border-b border-r border-border/70 p-1 sm:p-1.5 ${selected ? "bg-muted/40 ring-2 ring-inset ring-primary" : ""}`}>
                       <button
-                        key={dateKey}
                         type="button"
                         onClick={() => {
                           setSelectedDate(dateKey);
@@ -422,26 +427,24 @@ export function ProviderCalendarClient({
                         aria-describedby={hoverPreview?.date === dateKey
                           ? "provider-calendar-hover-preview"
                           : undefined}
-                        aria-label={`${dateKey}: ${full ? reservationLabel : blocked ? "Blocked" : !operating ? "Closed" : "Available"}`}
+                        aria-label={`${dateKey}: ${occupied}/${dayCapacity} booked, ${reservationLabel}`}
                         aria-pressed={
                           selected
                         }
                         className={[
-                          "relative min-h-16 border-b border-r border-border/70 p-1 text-left transition-colors sm:min-h-28 sm:p-2",
+                          "relative w-full rounded p-1 text-left transition-colors",
                           "focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                          selected
-                            ? "bg-secondary ring-2 ring-inset ring-primary"
-                            : "hover:bg-muted/50",
+                          !selected ? "hover:bg-muted/50" : "",
                           !operating ||
                           blocked
                             ? "bg-muted/30"
                             : "",
                         ].join(" ")}
                       >
-                        <div className="flex items-start justify-between gap-2">
+                        <div className="flex min-w-0 flex-wrap items-center gap-x-1 gap-y-0.5">
                           <span
                             className={[
-                              "flex size-8 items-center justify-center rounded-full text-sm font-bold",
+                              "flex size-6 items-center justify-center rounded-full text-xs font-semibold",
                               isToday
                                 ? "bg-primary text-primary-foreground"
                                 : "",
@@ -450,42 +453,44 @@ export function ProviderCalendarClient({
                             {day.getDate()}
                           </span>
 
-                          {blocked && !full ? (
+                          {isToday && <span className="text-[10px] font-semibold text-primary">Today</span>}
+                          {blocked ? (
                             <span className="size-2 shrink-0 overflow-hidden rounded-full bg-destructive text-[0px] sm:size-auto sm:bg-destructive/10 sm:px-2 sm:py-1 sm:text-[10px] font-bold text-destructive sm:text-destructive">
                               Blocked
                             </span>
-                          ) : !operating && !full ? (
+                          ) : !operating ? (
                             <span className="size-2 shrink-0 overflow-hidden rounded-full bg-muted-foreground text-[0px] sm:size-auto sm:bg-muted sm:px-2 sm:py-1 sm:text-[10px] font-bold sm:text-muted-foreground">
                               Closed
                             </span>
                           ) : full ? (
-                            <span className="size-2 shrink-0 overflow-hidden rounded-full bg-blue-600 text-[0px] sm:size-auto sm:bg-blue-100 sm:px-2 sm:py-1 sm:text-[10px] font-bold sm:text-blue-900 dark:sm:bg-blue-950 dark:sm:text-blue-200">
-                              {reservationLabel}
+                            <span className="size-2 shrink-0 overflow-hidden rounded-full bg-blue-600 text-[0px] sm:size-auto sm:bg-info-subtle sm:px-1.5 sm:py-0.5 sm:text-[10px] font-semibold sm:text-info">
+                              Full
                             </span>
                           ) : null}
                         </div>
 
-                        {dayEvents.length >
-                        0 ? (
-                          <div className="mt-3 grid gap-1">
-                            <span className="text-xs font-semibold text-foreground">
-                              {
-                                dayEvents.length
-                              }{" "}
-                              {dayEvents.length ===
-                              1
-                                ? "event"
-                                : "events"}
-                            </span>
-                          </div>
-                        ) : null}
                       </button>
+                      <div className="grid gap-1 empty:hidden">
+                        {dayEvents.slice(0, 2).map((event) => <CompactCalendarBooking key={`${event.source}:${event.id}`} event={event}
+                          highlighted={event.source === "walk_in" && event.id === highlightBooking} />)}
+                        {dayEvents.length > 2 && <button type="button"
+                          aria-label={`Show ${dayEvents.length - 2} more bookings on ${dateKey}`}
+                          className="w-fit px-1 py-0.5 text-left text-[11px] font-semibold text-primary hover:underline"
+                          onClick={() => {
+                            setSelectedDate(dateKey);
+                            setHoverPreview(null);
+                            document.getElementById("selected-calendar-bookings")?.focus();
+                          }}>
+                          +{dayEvents.length - 2} more
+                        </button>}
+                      </div>
+                      </div>
                     );
                   },
                 )}
               </div>
             </div>
-          </div>
+          </div>}
 
           {hoverPreview ? (
             <ProviderCalendarHoverPreview
@@ -496,7 +501,7 @@ export function ProviderCalendarClient({
             />
           ) : null}
 
-          <footer className="flex flex-wrap gap-x-5 gap-y-2 border-t border-border p-4 text-xs text-muted-foreground sm:p-5">
+          <footer className="flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-border px-4 py-3 text-[11px] text-muted-foreground">
             <Legend
               label="Today"
               className="bg-primary"
@@ -524,7 +529,7 @@ export function ProviderCalendarClient({
         </section>
 
         <aside className="min-w-0 self-start rounded-card border border-border bg-card shadow-card">
-          <header className="border-b border-border p-5">
+          <header className="border-b border-border p-4">
             <p className="text-sm font-semibold uppercase tracking-wide text-primary-strong">
               Selected date
             </p>
@@ -536,34 +541,18 @@ export function ProviderCalendarClient({
             </h2>
           </header>
 
-          <div className="grid gap-6 p-5">
+          <div className="grid gap-5 p-4">
             <section className="grid gap-3">
               <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-                Availability
+                Daily capacity
               </h3>
 
-              <div className="grid gap-3 rounded-lg border border-border p-4">
-                <InfoRow
-                  label="Operating day"
-                  value={
-                    isOperatingDay
-                      ? "Yes"
-                      : "No"
-                  }
-                />
-
-                <InfoRow
-                  label="Reservations shown"
-                  value={String(selectedEvents.length)}
-                />
-                <InfoRow
-                  label="Manual status"
-                  value={
-                    isManuallyUnavailable
-                      ? "Unavailable"
-                      : "Available"
-                  }
-                />
+              <div className="grid gap-2 rounded-lg border border-border bg-muted/35 px-3 py-2.5">
+                <InfoRow label="Day status" value={isManuallyUnavailable ? "Blocked" : !isOperatingDay ? "Closed" :
+                  selectedRemaining === 0 ? "Fully booked" : "Open for bookings"} />
+                <InfoRow label="Slots booked" value={`${selectedOccupancy} of ${capacity} ${capacity === 1 ? "slot" : "slots"}`} />
+                {isOperatingDay && !isManuallyUnavailable && capacity > 1 && <InfoRow
+                  label="Slots remaining" value={String(selectedRemaining)} />}
               </div>
 
               {!canManageAvailability ? (
@@ -584,16 +573,12 @@ export function ProviderCalendarClient({
 
               <Button
                 type="button"
-                variant={
-                  isManuallyUnavailable
-                    ? "secondary"
-                    : "destructive"
-                }
+                variant="secondary"
                 size="compact"
                 fullWidth
                 disabled={
                   !canManageAvailability ||
-                  (selectedEvents.length > 0 && !isManuallyUnavailable)
+                  (selectedOccupancy > 0 && !isManuallyUnavailable)
                 }
                 loading={
                   actionPending
@@ -613,23 +598,20 @@ export function ProviderCalendarClient({
               </Button>
             </section>
 
-            <section className="grid gap-3">
+            <section id="selected-calendar-bookings" tabIndex={-1} className="grid scroll-mt-20 gap-3">
               <div className="flex items-center justify-between gap-3">
                 <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-                  Scheduled events
+                  Scheduled events ({selectedEvents.length})
                 </h3>
 
-                <span className="text-sm font-semibold">
-                  {
-                    selectedEvents.length
-                  }
-                </span>
               </div>
 
               {selectedEvents.length ===
               0 ? (
-                <div className="rounded-lg border border-dashed border-border p-5 text-center">
-                  <CalendarDays className="mx-auto size-8 text-muted-foreground" />
+                <div className="rounded-lg border border-dashed border-border bg-muted/35 px-4 py-7 text-center">
+                  <span className="mx-auto grid size-10 place-items-center rounded-full bg-success-subtle text-success">
+                    <Ticket className="size-5" aria-hidden="true" />
+                  </span>
 
                   <p className="mt-3 font-semibold">
                     No scheduled events
@@ -646,8 +628,9 @@ export function ProviderCalendarClient({
                   {selectedEvents.map(
                     (event) => (
                       <CalendarEventCard
-                        key={event.id}
+                        key={`${event.source}:${event.id}`}
                         event={event}
+                        highlighted={event.source === "walk_in" && event.id === highlightBooking}
                       />
                     ),
                   )}
@@ -663,19 +646,24 @@ export function ProviderCalendarClient({
 
 function CalendarEventCard({
   event,
+  highlighted,
 }: {
   event: ProviderCalendarEvent;
+  highlighted: boolean;
 }) {
   const venue = [event.event.venueAddress, event.event.city]
     .filter(Boolean).join(", ") || "Venue not provided";
 
   return (
-    <article className="grid gap-4 rounded-lg border border-border p-4">
+    <article className={`grid gap-4 rounded-lg border border-border p-4 ${highlighted ? "ring-2 ring-primary" : ""}`}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <p className="min-w-0 break-words font-semibold">
           {formatLabel(event.event.eventType)}
         </p>
-        <StatusBadge status={event.status} />
+        <div className="flex flex-wrap gap-1">
+          <Badge tone="neutral">{event.source === "walk_in" ? "Walk-in" : "Online"}</Badge>
+          <CalendarStatus status={event.status} />
+        </div>
       </div>
 
       <div className="grid gap-3">
@@ -700,9 +688,35 @@ function CalendarEventCard({
             : "Guest count not provided"} />
         <EventDetail icon={<MapPin className="size-4" />}
           label="Event venue / location" value={venue} />
+        <Link className="w-fit text-sm font-semibold text-primary hover:underline" href={bookingHref(event)}>View booking details</Link>
       </div>
     </article>
   );
+}
+
+function bookingHref(event: ProviderCalendarEvent) {
+  const id = encodeURIComponent(event.id);
+  return event.source === "walk_in" ? `/provider/bookings/walk-in?reference=${id}`
+    : `/provider/${event.status === "pending" ? "requests" : "bookings"}?request=${id}`;
+}
+
+function CalendarStatus({status}: {status: ProviderCalendarEvent["status"]}) {
+  const tone = status === "confirmed" ? "success" : status === "cancelled" ? "destructive"
+    : ["pending", "accepted", "waiting_for_down_payment", "payment_processing"].includes(status) ? "warning"
+      : status === "in_progress" ? "info" : "neutral";
+  return <Badge tone={tone} className="gap-1 px-1.5 py-0.5 text-xs">{status === "waiting_for_down_payment" ? "Awaiting payment" : humanize(status)}</Badge>;
+}
+
+function CompactCalendarBooking({event, highlighted}: {event: ProviderCalendarEvent; highlighted: boolean}) {
+  const confirmedSurface = event.source === "walk_in" ? "bg-success-subtle text-success" : "bg-info-subtle text-info";
+  const surface = event.status === "confirmed" ? confirmedSurface : event.status === "cancelled" ? "bg-destructive-subtle text-destructive"
+    : event.status === "completed" || event.status === "expired" ? "bg-muted text-muted-foreground" : "bg-warning-subtle text-warning";
+  const time = formatEventTime(event.event.eventTime);
+  return <Link href={bookingHref(event)}
+    className={`grid min-w-0 rounded-md px-1.5 py-1 text-xs leading-tight hover:brightness-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${surface} ${highlighted ? "ring-2 ring-primary" : ""}`}>
+    <span className="break-words font-semibold">{time && `${time} · `}{formatLabel(event.event.eventType)}</span>
+    <span className="mt-0.5 break-words text-[10px]">{event.source === "walk_in" ? "Walk-in" : "Online"} · {humanize(event.status)}</span>
+  </Link>;
 }
 
 function EventDetail({
@@ -762,6 +776,13 @@ function Legend({
       {label}
     </span>
   );
+}
+
+function buildWeekDays(dateKey: string): Date[] {
+  const start = parseIsoDate(dateKey);
+  start.setDate(start.getDate() - start.getDay());
+  return Array.from({length: 7}, (_, index) =>
+    new Date(start.getFullYear(), start.getMonth(), start.getDate() + index));
 }
 
 function buildCalendarDays(
@@ -959,4 +980,11 @@ function calendarErrorMessage(
     "We could not update your " +
     "availability. Please try again."
   );
+}
+
+
+function occupiedEventCount(events: ProviderCalendarEvent[]): number {
+  return new Set(events.filter((event) => !["pending", "cancelled", "expired"].includes(event.status)).map((event) =>
+    event.source === "walk_in" ? `walk-in:${event.id}` :
+      event.mainEventId ? `event:${event.mainEventId}` : `request:${event.id}`)).size;
 }

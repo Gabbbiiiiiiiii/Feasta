@@ -11,7 +11,6 @@ const mocks = vi.hoisted(() => ({
   refresh: vi.fn(),
   updateDate: vi.fn(),
   updateSettings: vi.fn(),
-  catalog: vi.fn(),
   success: vi.fn(),
   error: vi.fn(),
 }));
@@ -21,7 +20,6 @@ vi.mock("next/navigation", () => ({
 }));
 
 vi.mock("@/lib/provider/availability/provider-availability-client", () => ({
-  getProviderAvailabilityOccasions: mocks.catalog,
   updateProviderAvailability: mocks.updateDate,
   updateProviderAvailabilitySettings: mocks.updateSettings,
 }));
@@ -74,7 +72,6 @@ function successfulSettingsResult(
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mocks.catalog.mockResolvedValue({revision: 7, items: [{id: "birthday", label: "Birthday"}, {id: "wedding", label: "Wedding"}]});
   mocks.updateSettings.mockImplementation(async (
     input: UpdateProviderAvailabilitySettingsInput,
   ) => successfulSettingsResult(input));
@@ -96,8 +93,8 @@ describe("provider availability workspace", () => {
     })).toBeVisible();
     expect(screen.getByRole("heading", {name: "Operating Days"})).toBeVisible();
     expect(screen.getByRole("heading", {name: "Minimum booking notice (days)"})).toBeVisible();
-    expect(screen.queryByRole("heading", {name: "Daily Booking Capacity"})).not.toBeInTheDocument();
-    expect(screen.getByRole("heading", {name: "Event Capacity"})).toBeVisible();
+    expect(screen.getByRole("heading", {name: "Daily Event Capacity"})).toBeVisible();
+    expect(screen.getByRole("heading", {name: "Guest Capacity"})).toBeVisible();
     expect(screen.getByRole("heading", {name: "Unavailable Dates"})).toBeVisible();
     expect(screen.getByRole("checkbox", {name: "Monday"})).toBeChecked();
     expect(screen.getByRole("spinbutton", {name: /^Minimum booking notice/u})).toHaveValue(3);
@@ -219,15 +216,24 @@ describe("provider availability workspace", () => {
     fireEvent.change(screen.getByLabelText("Date to make unavailable"), {
       target: {value: "2099-10-20"},
     });
-    await user.click(screen.getByRole("button", {name: "Add unavailable date"}));
+    mocks.updateDate.mockResolvedValueOnce({
+      date: "2099-10-20", action: "mark_unavailable", providerId: "provider-1",
+      unavailableDates: ["2099-09-10", "2099-10-20"],
+      unavailableDateReasons: {"2099-10-20": "Maintenance"},
+    });
+    await user.type(screen.getByLabelText("Reason (optional)"), "Maintenance");
+    await user.click(screen.getByRole("button", {name: "Block date"}));
 
     await waitFor(() => {
       expect(mocks.updateDate).toHaveBeenCalledWith({
         date: "2099-10-20",
         action: "mark_unavailable",
+        reason: "Maintenance",
       });
     });
     expect(screen.getByText("October 20, 2099")).toBeVisible();
+    expect(screen.getByText("Blocked · Maintenance")).toBeVisible();
+    expect(screen.getByRole("heading", {name: "Blocked dates (2)"})).toBeVisible();
   });
 
   it("removes a future unavailable date through the canonical callable", async () => {
@@ -261,7 +267,7 @@ describe("provider availability workspace", () => {
     });
 
     expect(screen.getByText("This date is already unavailable.")).toBeVisible();
-    expect(screen.getByRole("button", {name: "Add unavailable date"})).toBeDisabled();
+    expect(screen.getByRole("button", {name: "Block date"})).toBeDisabled();
     expect(mocks.updateDate).not.toHaveBeenCalled();
   });
 
@@ -294,70 +300,10 @@ describe("provider availability workspace", () => {
   });
 });
 
- describe("supported event types", () => {
-  it("loads saved IDs, toggles individuals, selects all and clears all", async () => {
-    const user = userEvent.setup();
-    render(<ProviderAvailabilityClient initialSettings={settings({supportedOccasionIds: ["birthday"]})} />);
-    expect(await screen.findByRole("checkbox", {name: "Birthday"})).toBeChecked();
-    expect(screen.getByRole("checkbox", {name: "Wedding"})).not.toBeChecked();
-    await user.click(screen.getByRole("checkbox", {name: "Birthday"}));
-    expect(screen.getByRole("checkbox", {name: "Birthday"})).not.toBeChecked();
-    await user.click(screen.getByRole("button", {name: "Select all"}));
-    expect(screen.getByRole("checkbox", {name: "Wedding"})).toBeChecked();
-    await user.click(screen.getByRole("button", {name: "Deselect all"}));
-    expect(screen.getByRole("checkbox", {name: "Birthday"})).not.toBeChecked();
-    expect(screen.getByRole("checkbox", {name: "Wedding"})).not.toBeChecked();
-  });
-  it("saves IDs with concurrency tokens and restores them on reload", async () => {
-    const user = userEvent.setup();
-    const view = render(<ProviderAvailabilityClient initialSettings={settings()} />);
-    await user.click(await screen.findByRole("checkbox", {name: "Wedding"}));
-    await user.click(screen.getByRole("button", {name: "Save Availability Settings"}));
-    await waitFor(() => expect(mocks.updateSettings).toHaveBeenCalledWith(expect.objectContaining({
-      supportedOccasionIds: ["wedding"], expectedSettingsRevision: 0, occasionCatalogRevision: 7,
-      operatingDays: ["monday", "tuesday", "wednesday"], minGuestsPerEvent: 20, maxGuestsPerEvent: 150,
-    })));
-    view.unmount();
-    render(<ProviderAvailabilityClient initialSettings={settings({supportedOccasionIds: ["wedding"], availabilitySettingsRevision: 1})} />);
-    expect(await screen.findByRole("checkbox", {name: "Wedding"})).toBeChecked();
-  });
-  it("preserves selected IDs on a failed or stale save", async () => {
-    mocks.updateSettings.mockRejectedValueOnce(new Error("Event types changed. Reload and review your selections before saving."));
-    const user = userEvent.setup();
-    render(<ProviderAvailabilityClient initialSettings={settings()} />);
-    await user.click(await screen.findByRole("checkbox", {name: "Birthday"}));
-    await user.click(screen.getByRole("button", {name: "Save Availability Settings"}));
-    expect(await screen.findByRole("alert")).toHaveTextContent("Event types changed");
-    expect(screen.getByRole("checkbox", {name: "Birthday"})).toBeChecked();
-    expect(screen.getByRole("button", {name: "Save Availability Settings"})).toBeEnabled();
-  });
-  it("shows an empty catalog without selecting defaults", async () => {
-    mocks.catalog.mockResolvedValueOnce({revision: 8, items: []});
-    render(<ProviderAvailabilityClient initialSettings={settings()} />);
-    expect(await screen.findByText(/No approved event types/)).toBeVisible();
-    expect(screen.getByRole("button", {name: "Select all"})).toBeDisabled();
-  });
-  it("reports loading failures and permits retry", async () => {
-    mocks.catalog.mockRejectedValueOnce(new Error("Event types unavailable"));
-    const user = userEvent.setup();
-    render(<ProviderAvailabilityClient initialSettings={settings()} />);
-    await user.click(await screen.findByRole("button", {name: "Retry event types"}));
-    expect(await screen.findByRole("checkbox", {name: "Birthday"})).not.toBeChecked();
-  });
-  it("requires explicit removal of saved types that became ineligible", async () => {
-    const user = userEvent.setup();
-    render(<ProviderAvailabilityClient initialSettings={settings({supportedOccasionIds: ["retired"]})} />);
-    await user.click(await screen.findByRole("button", {name: "Remove unavailable event types"}));
-    expect(screen.queryByText(/Some saved event types/)).not.toBeInTheDocument();
-    expect(screen.getByRole("button", {name: "Save Availability Settings"})).toBeEnabled();
-  });
-});
-
-it("preserves event selections when saving schedule edits during a catalog failure", async () => {
-  mocks.catalog.mockRejectedValueOnce(new Error("Event types unavailable"));
+it("preserves event selections when saving schedule edits without the event types card", async () => {
   const user = userEvent.setup();
   render(<ProviderAvailabilityClient initialSettings={settings({supportedOccasionIds: ["birthday"]})} />);
-  await screen.findByRole("button", {name: "Retry event types"});
+  expect(screen.queryByRole("heading", {name: "Supported Event Types"})).not.toBeInTheDocument();
   const notice = screen.getByRole("spinbutton", {name: /^Minimum booking notice/u});
   await user.clear(notice);
   await user.type(notice, "5");
@@ -373,13 +319,102 @@ it("prevents duplicate settings submissions while preserving pending selections"
   mocks.updateSettings.mockImplementationOnce(() => new Promise(resolve => {finish = resolve;}));
   const user = userEvent.setup();
   render(<ProviderAvailabilityClient initialSettings={settings()} />);
-  await user.click(await screen.findByRole("checkbox", {name: "Birthday"}));
+  await user.click(screen.getByRole("checkbox", {name: "Thursday"}));
   const save = screen.getByRole("button", {name: "Save Availability Settings"});
   fireEvent.click(save);
   fireEvent.click(save);
   expect(mocks.updateSettings).toHaveBeenCalledTimes(1);
-  expect(screen.getByRole("checkbox", {name: "Birthday"})).toBeDisabled();
+  expect(screen.getByRole("checkbox", {name: "Thursday"})).toBeDisabled();
   await act(async () => finish(successfulSettingsResult(mocks.updateSettings.mock.calls[0][0])));
-  expect(screen.getByRole("checkbox", {name: "Birthday"})).toBeChecked();
+  expect(screen.getByRole("checkbox", {name: "Thursday"})).toBeChecked();
   expect(screen.getByRole("button", {name: "Save Availability Settings"})).toBeDisabled();
+});
+
+it("warns when the proposed limit is below already occupied future slots", async () => {
+  render(<ProviderAvailabilityClient initialSettings={settings({
+    maxEventsPerDay: 3,
+    acceptsMultipleEventsPerDay: true,
+    occupiedSlotsByDate: {"2099-01-01": 3},
+  })} />);
+  fireEvent.change(screen.getByRole("spinbutton", {name: /Maximum events per day/i}), {target: {value: "2"}});
+  expect(screen.getByText(/already has 3 occupied slots/i)).toBeVisible();
+});
+
+
+it("saves operating days, notice and capacity together and separates unused capacity from bookable slots", async () => {
+  const user = userEvent.setup();
+  render(<ProviderAvailabilityClient initialSettings={settings({
+    operatingDays: [], unavailableDateReasons: {"2099-09-10": "Maintenance"},
+  })} />);
+  expect(screen.queryByRole("button", {name: "Save Capacity"})).not.toBeInTheDocument();
+  const button = screen.getByRole("button", {name: "Save Availability Settings"});
+  const date = screen.getByLabelText("View capacity for date");
+  fireEvent.change(date, {target: {value: "2099-09-09"}});
+  const saved = screen.getByText("Saved daily capacity", {selector: "dt"}).parentElement!;
+  const unused = screen.getByText("Unused capacity", {selector: "dt"}).parentElement!;
+  const bookable = screen.getByText("Bookable slots", {selector: "dt"}).parentElement!;
+  await user.click(screen.getByRole("checkbox", {name: "Wednesday"}));
+  fireEvent.change(screen.getByRole("spinbutton", {name: /^Minimum booking notice/u}), {target: {value: "5"}});
+  fireEvent.change(screen.getByRole("spinbutton", {name: /Maximum events per day/i}), {target: {value: "2"}});
+  expect(within(saved).getByText("1")).toBeVisible();
+  expect(within(bookable).getByText("0")).toBeVisible();
+  await user.click(button);
+  await waitFor(() => expect(button).toBeDisabled());
+  expect(mocks.updateSettings).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+    maxEventsPerDay: 2, bookingLeadTimeDays: 5, operatingDays: ["wednesday"], expectedSettingsRevision: 0,
+  }));
+  expect(within(saved).getByText("2")).toBeVisible();
+  expect(within(unused).getByText("2")).toBeVisible();
+  expect(within(bookable).getByText("2")).toBeVisible();
+  fireEvent.change(date, {target: {value: "2099-09-10"}});
+  expect(screen.getByText("Date Unavailable")).toBeVisible();
+  expect(screen.getByText(/Reason: Maintenance/)).toBeVisible();
+  expect(within(unused).getByText("2")).toBeVisible();
+  expect(within(bookable).getByText("0")).toBeVisible();
+});
+
+it("keeps all edits unsaved when the combined settings request fails", async () => {
+  const user = userEvent.setup();
+  mocks.updateSettings.mockRejectedValueOnce(new Error("Could not persist settings."));
+  render(<ProviderAvailabilityClient initialSettings={settings()} />);
+  await user.click(screen.getByRole("checkbox", {name: "Friday"}));
+  fireEvent.change(screen.getByRole("spinbutton", {name: /Maximum events per day/i}), {target: {value: "2"}});
+  const save = screen.getByRole("button", {name: "Save Availability Settings"});
+  await user.click(save);
+  expect(await screen.findByRole("alert")).toHaveTextContent("Could not persist settings.");
+  expect(screen.getByRole("checkbox", {name: "Friday"})).toBeChecked();
+  expect(screen.getByRole("spinbutton", {name: /Maximum events per day/i})).toHaveValue(2);
+  expect(within(screen.getByText("Saved daily capacity", {selector: "dt"}).parentElement!).getByText("1")).toBeVisible();
+  expect(mocks.success).not.toHaveBeenCalled();
+  expect(save).toBeEnabled();
+});
+
+it("highlights invalid schedule fields and sends no save request", async () => {
+  const user = userEvent.setup();
+  render(<ProviderAvailabilityClient initialSettings={settings({operatingDays: []})} />);
+  const notice = screen.getByRole("spinbutton", {name: /^Minimum booking notice/u});
+  const capacity = screen.getByRole("spinbutton", {name: /Maximum events per day/i});
+  fireEvent.change(notice, {target: {value: ""}});
+  fireEvent.change(capacity, {target: {value: "2.5"}});
+  await user.click(screen.getByRole("button", {name: "Save Availability Settings"}));
+  expect(screen.getByText("Select at least one operating day.")).toBeVisible();
+  expect(notice).toHaveAccessibleDescription(/whole number from 0 to 365/i);
+  expect(capacity).toHaveAccessibleDescription(/whole number from 1 to 100/i);
+  expect(mocks.updateSettings).not.toHaveBeenCalled();
+});
+
+it("warns before blocking a date with reserved slots", () => {
+  render(<ProviderAvailabilityClient initialSettings={settings({occupiedSlotsByDate: {"2099-10-20": 1}})} />);
+  fireEvent.change(screen.getByLabelText("Date to make unavailable"), {target: {value: "2099-10-20"}});
+  expect(screen.getByText(/confirmed or reserved bookings and cannot be blocked/i)).toBeVisible();
+  expect(screen.getByRole("button", {name: "Block date"})).toBeDisabled();
+  expect(mocks.updateDate).not.toHaveBeenCalled();
+});
+
+it("warns before leaving with unsaved settings", () => {
+  render(<ProviderAvailabilityClient initialSettings={settings()} />);
+  fireEvent.click(screen.getByRole("checkbox", {name: "Friday"}));
+  const leaving = new Event("beforeunload", {cancelable: true});
+  window.dispatchEvent(leaving);
+  expect(leaving.defaultPrevented).toBe(true);
 });

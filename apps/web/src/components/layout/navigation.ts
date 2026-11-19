@@ -44,6 +44,7 @@ export type NavigationLinkItem = NavigationItemBase & {
   kind: "link";
   href: string;
   activeRouteAliases?: readonly string[];
+  inactiveRoutes?: readonly string[];
 };
 
 export type NavigationDisabledItem = NavigationItemBase & {
@@ -109,7 +110,15 @@ const providerBookingNavigation: readonly NavigationItem[] = [
     section: "Bookings & Schedule",
     label: "My Bookings",
     href: "/provider/bookings",
+    inactiveRoutes: ["/provider/bookings/walk-in"],
     icon: CalendarDays,
+  },
+  {
+    kind: "link",
+    section: "Bookings & Schedule",
+    label: "Walk-ins",
+    href: "/provider/bookings/walk-in",
+    icon: Users,
   },
   {
     kind: "link",
@@ -323,9 +332,12 @@ export function isNavigationItemActive(
     ? [target]
     : [target.href, ...(target.activeRouteAliases ?? [])];
 
+  if (typeof target !== "string" && target.inactiveRoutes?.some((route) =>
+    normalizedPathname === route || normalizedPathname.startsWith(`${route}/`))) return false;
+
   return routes.some((route) => {
-    const isRoleHome = route.split("/").filter(Boolean).length === 1;
+    const exactMatch = route.split("/").filter(Boolean).length === 1;
     return normalizedPathname === route ||
-      (!isRoleHome && normalizedPathname.startsWith(`${route}/`));
+      (!exactMatch && normalizedPathname.startsWith(`${route}/`));
   });
 }

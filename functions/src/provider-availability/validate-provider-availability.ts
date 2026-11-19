@@ -73,6 +73,7 @@ export type ProviderAvailabilityResult = {
 
 export type ProviderAvailabilityRequest = {
   providerRequestId: string;
+  mainEventId?: unknown;
   type: ProviderRequestType;
   eventDate: Date;
   eventTime: string;
@@ -104,12 +105,9 @@ export type ExistingProviderBooking = AvailabilityPaymentEvidence & {
 /**
  * Whether a stored provider request currently occupies its event slot.
  *
- * Pending, rejected, cancelled, and expired requests do not.
- * Confirmed, in-progress, and completed requests do. An accepted unpaid request
- * occupies only while its stored expiresAt is still ahead of now. A
- * lineup-incomplete accepted request has no expiresAt, so that hold
- * instead ends one payment window after acceptedAt. Requests with payment or
- * reconciliation evidence retain capacity until authoritative resolution.
+ * Pending, rejected, cancelled, and expired requests do not reserve capacity.
+ * Accepted requests retain their slot until an authoritative status transition.
+ * The checkout deadline independently controls payment eligibility.
  */
 export function providerRequestAvailabilityState(input: AvailabilityPaymentEvidence & {
   status: unknown;
@@ -146,22 +144,12 @@ export function providerRequestAvailabilityState(input: AvailabilityPaymentEvide
 
   if (input.initialPaymentDeadlinePolicyVersion != null) {
     try {
-      return originalInitialPaymentDeadline(input).toMillis() > nowMs ? "temporary_hold" : "released";
-    } catch { return "payment_reconciliation"; }
+      originalInitialPaymentDeadline(input);
+    } catch {
+      return "payment_reconciliation";
+    }
   }
-
-  const explicitDeadline = timestampMillis(input.expiresAt);
-
-  if (explicitDeadline !== null) {
-    return explicitDeadline > nowMs ? "temporary_hold" : "released";
-  }
-
-  if (status !== "accepted") return "released";
-
-  const acceptedAt = timestampMillis(input.acceptedAt);
-
-  return acceptedAt !== null && acceptedAt + PROVIDER_PAYMENT_HOLD_WINDOW_MS > nowMs
-    ? "temporary_hold" : "released";
+  return "temporary_hold";
 }
 
 export function providerRequestOccupiesAvailability(
@@ -175,6 +163,7 @@ type ValidateProviderAvailabilityInput = {
   request: ProviderAvailabilityRequest;
   existingBookings: readonly ExistingProviderBooking[];
   now?: Date;
+  preserveExistingReservation?: boolean;
 };
 
 const OPERATING_DAY_BY_UTC_DAY = [
@@ -307,11 +296,13 @@ export function validateProviderAvailability(
     })
   );
 
-  /*
-   * Callers load occupancy for one Asia/Manila calendar date.
-   * A provider may serve only one FEASTA event on that date.
-   * Preserve specific time-overlap errors for existing callers.
-   */
+  const eventAlreadyReserved = typeof input.request.mainEventId === "string" &&
+    input.request.mainEventId !== "" &&
+    occupyingBookings.some((booking) => booking.mainEventId === input.request.mainEventId);
+  const occupiedSlots = countOnlineEvents(occupyingBookings) +
+    walkInReservationCount(input.providerData, eventDateKey);
+  const capacityReached = !input.preserveExistingReservation && !eventAlreadyReserved &&
+    occupiedSlots >= dailyEventCapacity(input.providerData);
   const requestedRange = parseTimeRange(
     input.request.eventTime,
     input.request.eventEndTime,
@@ -323,7 +314,8 @@ export function validateProviderAvailability(
       "The event time range is invalid.",
       "eventTime",
     ));
-  } else if (occupyingBookings.some((booking) => {
+  } else if (capacityReached && dailyEventCapacity(input.providerData) === 1 &&
+    occupyingBookings.some((booking) => {
     const existingRange = parseTimeRange(
       booking.eventTime,
       booking.eventEndTime,
@@ -342,17 +334,51 @@ export function validateProviderAvailability(
 
   if (
     requestedRange !== null &&
-    occupyingBookings.length > 0 &&
+    capacityReached &&
     !issues.some((item) => item.code === "TIME_CONFLICT")
   ) {
     issues.push(issue(
       "MAX_EVENTS_REACHED",
-      "This provider already has an active booking on this date.",
+      "This provider has reached daily booking capacity.",
       "eventDate",
     ));
   }
 
   return result(issues);
+}
+
+export function hasWalkInReservation(
+  provider: Readonly<Record<string, unknown>>, dateKey: string,
+): boolean {
+  return walkInReservationCount(provider, dateKey) > 0;
+}
+
+export function dailyEventCapacity(provider: Readonly<Record<string, unknown>>): number {
+  return boundedInteger(provider.maxEventsPerDay, 1, 100) ?? 1;
+}
+
+export function walkInReservationCount(
+  provider: Readonly<Record<string, unknown>>, dateKey: string,
+): number {
+  const counts = provider.walkInReservedCounts;
+  if (counts && typeof counts === "object" && !Array.isArray(counts)) {
+    return boundedInteger((counts as Record<string, unknown>)[dateKey], 1, 100) ?? 0;
+  }
+  return Array.isArray(provider.walkInReservedDates) &&
+    provider.walkInReservedDates.includes(dateKey) ? 1 : 0;
+}
+
+export function countOnlineEvents(bookings: readonly Record<string, unknown>[]): number {
+  const eventIds = new Set<string>();
+  let legacyBookings = 0;
+  for (const booking of bookings) {
+    if (typeof booking.mainEventId === "string" && booking.mainEventId) {
+      eventIds.add(booking.mainEventId);
+    } else {
+      legacyBookings++;
+    }
+  }
+  return eventIds.size + legacyBookings;
 }
 
 export function manilaDateRange(date: Date): {
@@ -554,40 +580,6 @@ function validateGuestCapacity(
       "guestCount",
     ));
   }
-}
-
-function timestampMillis(value: unknown): number | null {
-  if (value instanceof Date) {
-    return Number.isFinite(value.getTime()) ? value.getTime() : null;
-  }
-
-  if (
-    value !== null &&
-    typeof value === "object"
-  ) {
-    const record = value as {
-      toMillis?: () => unknown;
-      toDate?: () => unknown;
-    };
-
-    if (typeof record.toMillis === "function") {
-      const millis = record.toMillis();
-
-      return typeof millis === "number" && Number.isFinite(millis)
-        ? millis
-        : null;
-    }
-
-    if (typeof record.toDate === "function") {
-      const date = record.toDate();
-
-      return date instanceof Date && Number.isFinite(date.getTime())
-        ? date.getTime()
-        : null;
-    }
-  }
-
-  return null;
 }
 
 function parseTimeRange(

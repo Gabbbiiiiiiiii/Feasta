@@ -1521,6 +1521,15 @@ test("P13 financial and availability authority stays server-owned", async () => 
   const admin = authenticated(testEnv, "admin-one", "admin").firestore();
   const guest = testEnv.unauthenticatedContext().firestore();
 
+  for (const client of [provider, admin, customer]) {
+    await assertFails(updateDoc(doc(client, "providers/provider-one"), {
+      maxEventsPerDay: 10, acceptsMultipleEventsPerDay: true,
+    }));
+    await assertFails(updateDoc(doc(client, "providers/provider-one"), {
+      walkInReservedCounts: {"2027-01-15": 1},
+    }));
+  }
+
   await assertSucceeds(getDoc(doc(customer, `mainEvents/${eventId}`)));
   await assertSucceeds(getDoc(doc(customer, `providerRequests/${requestId}`)));
   await assertSucceeds(getDoc(doc(provider, `providerRequests/${requestId}`)));
