@@ -332,7 +332,7 @@ function CancellationDrawer({
             <DetailRow label="Booking code" value={item.bookingCode} />
             <DetailRow label="Provider / service" value={item.providerName} />
             <DetailRow label="Customer" value={item.customerEmail ? `${item.customerName} · ${item.customerEmail}` : item.customerName} />
-            <DetailRow label="Provider response" value={adminProviderRequestLabel(item.providerRequestStatus)} />
+            <DetailRow label="Provider service status" value={adminProviderRequestLabel(item.providerRequestStatus)} />
           </DrawerSection>
 
           <DrawerSection title="Cancellation details">
@@ -408,7 +408,16 @@ function DrawerSection({title, children}: {title: string; children: ReactNode}) 
 }
 
 function DetailRow({label, value}: {label: string; value: string}) {
-  return <div className="rounded-lg border border-border p-3"><p className="text-xs font-medium text-muted-foreground">{label}</p><p className="mt-1 break-words text-sm font-medium">{value}</p></div>;
+  return (
+    <div className="min-w-0 rounded-lg border border-border/70 bg-secondary/55 px-3.5 py-2.5">
+      <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground/80">
+        {label}
+      </p>
+      <p className="mt-1 break-words text-sm font-semibold text-foreground">
+        {value}
+      </p>
+    </div>
+  );
 }
 
 function actionTitle(action: DecisionAction): string {

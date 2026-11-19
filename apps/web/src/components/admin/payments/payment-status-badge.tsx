@@ -2,6 +2,7 @@ import {Badge} from "@/components/ui/badge";
 import type {
   AdminPaymentStatus,
 } from "@/lib/admin/payments/admin-payment-types";
+import {cn} from "@/lib/utils";
 
 type PaymentStatusBadgeProps = {
   status: AdminPaymentStatus;
@@ -52,11 +53,22 @@ const statusConfiguration: Record<
 function PaymentStatusBadge({
   status,
 }: PaymentStatusBadgeProps) {
-  const configuration =
-    statusConfiguration[status];
+  const configuration = statusConfiguration[status];
 
   return (
-    <Badge tone={configuration.tone}>
+    <Badge
+      tone={configuration.tone}
+      shape="rounded"
+      size="compact"
+      className={cn(
+        "whitespace-nowrap",
+        configuration.tone === "neutral" && "border-border",
+        configuration.tone === "success" && "border-success/25",
+        configuration.tone === "warning" && "border-warning/25",
+        configuration.tone === "destructive" && "border-destructive/25",
+        configuration.tone === "info" && "border-info/25",
+      )}
+    >
       {configuration.label}
     </Badge>
   );

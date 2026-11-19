@@ -2,6 +2,7 @@ import {render, screen} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import {describe, expect, it, vi} from "vitest";
 
+import {DetailFieldItem, DetailFieldList} from "@/components/data/detail-field-list";
 import {EmptyState, ErrorState} from "@/components/feedback/states";
 import {LoadingSkeleton} from "@/components/feedback/loading";
 import {FormField} from "@/components/forms/form-field";
@@ -123,7 +124,32 @@ describe("feedback and formatting", () => {
   it("renders text and semantics for a status badge", () => {
     render(<StatusBadge status="under_review" />);
     expect(screen.getByText("Under review")).toBeVisible();
-    expect(screen.getByLabelText("Status: Under review")).toBeVisible();
+    const badge = screen.getByLabelText("Status: Under review");
+    expect(badge).toBeVisible();
+    expect(badge.className).toContain("rounded-md");
+    expect(badge.className).toContain("text-xs");
+    expect(badge.className).toContain("whitespace-nowrap");
+    expect(badge.className).not.toContain("rounded-pill");
+  });
+
+  it("highlights values over muted uppercase labels and dims placeholder values in DetailFieldList", () => {
+    render(
+      <DetailFieldList>
+        <DetailFieldItem label="Service categories" value="Videography" />
+        <DetailFieldItem label="Maximum service distance" value="Not configured" />
+      </DetailFieldList>,
+    );
+
+    const label = screen.getByText("Service categories");
+    const value = screen.getByText("Videography");
+    const placeholder = screen.getByText("Not configured");
+
+    expect(label.className).toContain("uppercase");
+    expect(label.className).toContain("text-muted-foreground");
+    expect(value.className).toContain("font-semibold");
+    expect(value.className).toContain("text-foreground");
+    expect(placeholder.className).toContain("font-normal");
+    expect(placeholder.className).toContain("text-muted-foreground");
   });
 
   it("renders skeleton, empty action, and error retry", async () => {

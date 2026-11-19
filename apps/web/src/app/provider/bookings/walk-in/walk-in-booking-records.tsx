@@ -1,7 +1,7 @@
 import type {ReactNode} from "react";
 import Link from "next/link";
 import {CalendarDays, CircleCheck, ClipboardList, Eye, Inbox, Search} from "lucide-react";
-import {SummaryCard} from "@/components/data";
+import {DetailFieldItem, DetailFieldList, SummaryCard} from "@/components/data";
 import {Button} from "@/components/ui/button";
 import {Timestamp, type DocumentData} from "firebase-admin/firestore";
 import {usesDropOffTimeDisplay} from "@/lib/catering/catering-schedule";
@@ -205,10 +205,7 @@ function walkInScheduleLabel(booking: DocumentData): string {
 }
 
 function Detail({label, children}: {label: string; children: ReactNode}) {
-  return <div className="grid min-w-0 content-start gap-1">
-    <dt className="text-sm text-muted-foreground">{label}</dt>
-    <dd className="break-words text-sm leading-relaxed">{children}</dd>
-  </div>;
+  return <DetailFieldItem label={label}>{children}</DetailFieldItem>;
 }
 
 const detailNote = "text-sm text-muted-foreground";
@@ -241,7 +238,7 @@ function WalkInDetails({id, booking}: {id: string; booking: DocumentData}) {
             <span className="rounded-full bg-muted px-2.5 py-1 text-muted-foreground">Walk-in</span>
           </div>
         </header>
-        <dl className="grid gap-x-10 gap-y-6 sm:grid-cols-2">
+        <DetailFieldList>
           <Detail label="Customer name">{booking.customerName}</Detail>
           <Detail label="Package / Service">
             <span className="font-semibold">{booking.serviceName || "—"}</span>
@@ -272,10 +269,10 @@ function WalkInDetails({id, booking}: {id: string; booking: DocumentData}) {
           </Detail>
           <Detail label="Venue & location"><span className="font-semibold">{venue || "—"}</span></Detail>
           <Detail label="Internal notes">
-            {notes.length ? notes.map((note, index) => <p key={index} className="whitespace-pre-wrap">{note}</p>) : "—"}
+            {notes.length ? notes.map((note, index) => <p key={index} className="whitespace-pre-wrap font-normal">{note}</p>) : "—"}
           </Detail>
           {booking.cancellationReason && <Detail label="Cancellation reason">{booking.cancellationReason}</Detail>}
-        </dl>
+        </DetailFieldList>
         {booking.status === "confirmed" && <WalkInStatusForm id={id} />}
       </article>
     </div>

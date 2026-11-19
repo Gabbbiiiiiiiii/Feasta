@@ -63,7 +63,7 @@ export async function repairAmbiguousProviderPayoutSetup(
     input.expectedUpdatedAtMillis <= 0
   ) {
     throw new Error(
-      "The payout recovery state is stale. Refresh Finance attention.",
+      "The payout recovery state is stale. Refresh Provider payout issues.",
     );
   }
 
@@ -129,13 +129,13 @@ function payoutRepairErrorMessage(
         return "Only an authorized FEASTA Admin can repair this payout setup.";
 
       case "not-found":
-        return "This payout setup is no longer available. Refresh Finance attention.";
+        return "This payout setup is no longer available. Refresh Provider payout issues.";
 
       case "invalid-argument":
         return "The payout recovery request is invalid.";
 
       case "failed-precondition":
-        return "The payout setup changed or is no longer safe to repair. Refresh Finance attention.";
+        return "The payout setup changed or is no longer safe to repair. Refresh Provider payout issues.";
 
       case "resource-exhausted":
         return "Too many payout recovery attempts were made. Wait a moment and try again.";

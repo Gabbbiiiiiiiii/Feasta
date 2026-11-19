@@ -27,18 +27,19 @@ import {
 import type {
   AdminBooking,
   AdminBookingCustomer,
-  AdminBookingDateFilter,
   AdminBookingDetailsResult,
   AdminBookingFilters,
   AdminBookingOverallPaymentStatus,
   AdminBookingPage,
   AdminBookingPayment,
+  AdminBookingPaymentFilterStatus,
   AdminBookingProviderRequest,
   AdminBookingSortDirection,
   AdminBookingSortField,
   AdminBookingStatistics,
 } from "@/lib/admin/bookings/admin-booking-types";
 import { requireAdmin } from "@/lib/auth/session";
+import { isValidPhilippineDateKey } from "@/lib/dates/philippine-date";
 import { adminDb } from "@/lib/firebase/admin";
 
 const COLLECTIONS = {
@@ -51,7 +52,18 @@ const COLLECTIONS = {
 const WHERE_IN_LIMIT = 30;
 const DEFAULT_PAGE_SIZE = 10;
 const MAX_PAGE_SIZE = 30;
-const MANILA_OFFSET_MS = 8 * 60 * 60 * 1000;
+const AVAILABLE_PAYMENT_STATUS_SCAN_LIMIT = 300;
+const MAX_PAYMENT_FILTER_SCAN_BATCHES = 10;
+const ADMIN_BOOKING_PAYMENT_FILTER_STATUSES: readonly AdminBookingPaymentFilterStatus[] = [
+  "unpaid",
+  "pending",
+  "processing",
+  "partially_paid",
+  "paid",
+  "failed",
+  "expired",
+  "refunded",
+];
 const DAY_MS = 24 * 60 * 60 * 1000;
 const BOOKING_STATISTICS_CACHE_MS =
   30 * 1000;
@@ -65,7 +77,8 @@ type NormalizedFilters = {
   search: string;
   status: AdminBookingFilters["status"];
   paymentStatus: AdminBookingFilters["paymentStatus"];
-  date: AdminBookingDateFilter;
+  eventDateFrom: string;
+  eventDateTo: string;
   sortField: AdminBookingSortField;
   sortDirection: AdminBookingSortDirection;
   pageSize: number;
@@ -127,7 +140,7 @@ export async function getAdminBookingPage(
  * the field used by the range filter.
  */
 const sortField =
-  filters.date !== "all"
+  filters.eventDateFrom || filters.eventDateTo
     ? "eventDate"
     : filters.sortField;
 
@@ -150,6 +163,79 @@ const sortDirection =
       Timestamp.fromMillis(cursor.milliseconds),
       cursor.documentId,
     );
+  }
+
+  if (filters.paymentStatus !== "all") {
+    const batchSize = Math.max(WHERE_IN_LIMIT, filters.pageSize + 1);
+    let scanQuery = query;
+    const matches: {
+      document: QueryDocumentSnapshot<DocumentData>;
+      booking: AdminBooking;
+    }[] = [];
+    let exhausted = false;
+    let lastScanned: QueryDocumentSnapshot<DocumentData> | null = null;
+
+    for (
+      let batchIndex = 0;
+      batchIndex < MAX_PAYMENT_FILTER_SCAN_BATCHES;
+      batchIndex += 1
+    ) {
+      const batch = await scanQuery.limit(batchSize).get();
+      if (batch.docs.length === 0) {
+        exhausted = true;
+        break;
+      }
+
+      lastScanned = batch.docs.at(-1) ?? null;
+
+      const relations = await loadBookingRelations(
+        batch.docs.map((document) => document.id),
+      );
+
+      for (const document of batch.docs) {
+        const booking = mapBookingDocument(document, relations);
+        if (booking.paymentStatus === filters.paymentStatus) {
+          matches.push({document, booking});
+          if (matches.length > filters.pageSize) {
+            break;
+          }
+        }
+      }
+
+      if (matches.length > filters.pageSize) {
+        break;
+      }
+
+      if (batch.docs.length < batchSize || !lastScanned) {
+        exhausted = true;
+        break;
+      }
+
+      if (batchIndex + 1 < MAX_PAYMENT_FILTER_SCAN_BATCHES) {
+        scanQuery = query.startAfter(lastScanned);
+      }
+    }
+
+    const hasExtraMatch = matches.length > filters.pageSize;
+    const visibleMatches = hasExtraMatch
+      ? matches.slice(0, filters.pageSize)
+      : matches;
+    const hasMore = hasExtraMatch || (!exhausted && lastScanned !== null);
+    const cursorDocument = hasExtraMatch
+      ? (visibleMatches.at(-1)?.document ?? null)
+      : !exhausted
+        ? lastScanned
+        : null;
+
+    return {
+      bookings: visibleMatches.map((entry) => entry.booking),
+      statistics: await statisticsPromise,
+      nextCursor:
+        hasMore && cursorDocument
+          ? encodeCursor(cursorDocument, sortField)
+          : null,
+      hasMore,
+    };
   }
 
   const snapshot = await query
@@ -229,6 +315,13 @@ function normalizeFilters(
       ? Math.min(input.pageSize, MAX_PAGE_SIZE)
       : DEFAULT_PAGE_SIZE;
 
+  const rawFrom = normalizeDateKey(input.eventDateFrom);
+  const rawTo = normalizeDateKey(input.eventDateTo);
+  const [eventDateFrom, eventDateTo] =
+    rawFrom && rawTo && rawFrom > rawTo
+      ? [rawTo, rawFrom]
+      : [rawFrom, rawTo];
+
   return {
     search: stringValue(input.search).toUpperCase(),
 
@@ -246,9 +339,8 @@ function normalizeFilters(
         ? input.paymentStatus
         : "all",
 
-    date: isDateFilter(input.date)
-      ? input.date
-      : "all",
+    eventDateFrom,
+    eventDateTo,
 
     sortField:
       input.sortField === "eventDate"
@@ -283,15 +375,7 @@ function applyBookingFilters(
     );
   }
 
-  if (filters.paymentStatus !== "all") {
-    query = query.where(
-      "paymentStatus",
-      "==",
-      filters.paymentStatus,
-    );
-  }
-
-  const range = getDateRange(filters.date);
+  const range = getDateRange(filters.eventDateFrom, filters.eventDateTo);
 
   if (range.start) {
     query = query.where(
@@ -365,9 +449,15 @@ async function searchBookings(
     matchingDocuments.map((document) => document.id),
   );
 
-  return matchingDocuments.map((document) =>
+  const bookings = matchingDocuments.map((document) =>
     mapBookingDocument(document, relations),
   );
+
+  return filters.paymentStatus === "all"
+    ? bookings
+    : bookings.filter(
+        (booking) => booking.paymentStatus === filters.paymentStatus,
+      );
 }
 
 function documentMatchesFilters(
@@ -383,14 +473,7 @@ function documentMatchesFilters(
     return false;
   }
 
-  if (
-    filters.paymentStatus !== "all" &&
-    data.paymentStatus !== filters.paymentStatus
-  ) {
-    return false;
-  }
-
-  const range = getDateRange(filters.date);
+  const range = getDateRange(filters.eventDateFrom, filters.eventDateTo);
   const eventDate = dateValue(data.eventDate);
 
   if (
@@ -608,15 +691,11 @@ function mapBookingDocument(
       data.status,
     ),
 
-    paymentStatus: providerRequests.some((request) => request.paymentStatus === null) ? "unavailable" :
-      payments.length > 0 && payments.every((payment) => payment.status === "refunded") ? "refunded" :
-      providerRequests.length > 0 && providerRequests.every((request) => ["unpaid", "partially_paid", "paid"].includes(request.paymentStatus ?? ""))
-      ? providerRequests.every((request) => request.paymentStatus === "paid") ? "paid" :
-        providerRequests.every((request) => request.paymentStatus === "unpaid") ? "unpaid" : "partially_paid"
-      : normalizeOverallPaymentStatus(
-        data.paymentStatus,
-        payments,
-      ),
+    paymentStatus: deriveBookingOverallPaymentStatus(
+      data.paymentStatus,
+      providerRequests,
+      payments,
+    ),
 
     customerId:
       stringValue(data.customerId),
@@ -861,8 +940,7 @@ function mapProviderRequest(
     paymentId:
       nullableString(data.paymentId),
 
-    paymentStatus:
-      hasBookingSettlement(data) ? projectBookingPayment(data) : normalizePaymentStatus(data.paymentStatus),
+    paymentStatus: projectAdminProviderRequestPaymentStatus(data),
 
     acceptedAt:
       isoDateValue(data.acceptedAt),
@@ -1080,10 +1158,14 @@ async function queryAdminBookingStatistics(): Promise<AdminBookingStatistics> {
     expired: expired.data().count,
   };
 
+  const totalBookingCount = totalBookings.data().count;
+  const availablePaymentStatuses =
+    await queryAvailablePaymentStatuses(totalBookingCount);
+
   return {
-    totalBookings:
-      totalBookings.data().count,
+    totalBookings: totalBookingCount,
     availableStatuses: MAIN_EVENT_STATUSES.filter((status) => statusCounts[status] > 0),
+    availablePaymentStatuses,
 
     pendingApproval:
       pendingApproval.data().count,
@@ -1222,61 +1304,202 @@ function getAdminBookingStatistics(): Promise<
   return promise;
 }
 
-function normalizeOverallPaymentStatus(
-  value: unknown,
-  payments: readonly AdminBookingPayment[],
-): AdminBookingOverallPaymentStatus {
-  const storedValue =
-    stringValue(value).toLowerCase();
-
-  if (isOverallPaymentStatus(storedValue)) {
-    return storedValue;
+async function queryAvailablePaymentStatuses(
+  totalBookingCount: number,
+): Promise<AdminBookingPaymentFilterStatus[]> {
+  if (totalBookingCount <= 0) {
+    return [];
   }
 
-  if (payments.length === 0) {
+  if (totalBookingCount > AVAILABLE_PAYMENT_STATUS_SCAN_LIMIT) {
+    return [...ADMIN_BOOKING_PAYMENT_FILTER_STATUSES];
+  }
+
+  const bookingSnapshot = await adminDb
+    .collection(COLLECTIONS.mainEvents)
+    .select("paymentStatus")
+    .limit(AVAILABLE_PAYMENT_STATUS_SCAN_LIMIT + 1)
+    .get();
+
+  if (bookingSnapshot.docs.length > AVAILABLE_PAYMENT_STATUS_SCAN_LIMIT) {
+    return [...ADMIN_BOOKING_PAYMENT_FILTER_STATUSES];
+  }
+
+  if (bookingSnapshot.docs.length === 0) {
+    return [];
+  }
+
+  const mainEventIds = bookingSnapshot.docs.map((document) => document.id);
+  const chunks = chunkValues(mainEventIds, WHERE_IN_LIMIT);
+
+  const [requestSnapshots, paymentSnapshots] = await Promise.all([
+    Promise.all(
+      chunks.map((chunk) =>
+        adminDb
+          .collection(COLLECTIONS.providerRequests)
+          .where("mainEventId", "in", chunk)
+          .select(
+            "mainEventId",
+            "paymentStatus",
+            "settlementSchemaVersion",
+            "settlementStatus",
+            "grossSettledAmountInCentavos",
+            "outstandingAmountInCentavos",
+            "financialSnapshot",
+          )
+          .get(),
+      ),
+    ),
+    Promise.all(
+      chunks.map((chunk) =>
+        adminDb
+          .collection(COLLECTIONS.payments)
+          .where("mainEventId", "in", chunk)
+          .select("mainEventId", "bookingId", "status")
+          .get(),
+      ),
+    ),
+  ]);
+
+  const requestsByMainEventId = new Map<
+    string,
+    {paymentStatus: PaymentStatus | "partially_paid" | "unpaid" | null}[]
+  >();
+  for (const snapshot of requestSnapshots) {
+    for (const document of snapshot.docs) {
+      const data = document.data();
+      const mainEventId = stringValue(data.mainEventId);
+      if (!mainEventId) continue;
+      const list = requestsByMainEventId.get(mainEventId) ?? [];
+      list.push({
+        paymentStatus: projectAdminProviderRequestPaymentStatus(data),
+      });
+      requestsByMainEventId.set(mainEventId, list);
+    }
+  }
+
+  const paymentsByMainEventId = new Map<string, {status: PaymentStatus}[]>();
+  for (const snapshot of paymentSnapshots) {
+    for (const document of snapshot.docs) {
+      const data = document.data();
+      const mainEventId =
+        stringValue(data.mainEventId) || stringValue(data.bookingId);
+      if (!mainEventId) continue;
+      const list = paymentsByMainEventId.get(mainEventId) ?? [];
+      list.push({
+        status: normalizePaymentStatus(data.status) ?? "pending",
+      });
+      paymentsByMainEventId.set(mainEventId, list);
+    }
+  }
+
+  const observed = new Set<AdminBookingOverallPaymentStatus>();
+  for (const document of bookingSnapshot.docs) {
+    const data = document.data();
+    const overallStatus = deriveBookingOverallPaymentStatus(
+      data.paymentStatus,
+      requestsByMainEventId.get(document.id) ?? [],
+      paymentsByMainEventId.get(document.id) ?? [],
+    );
+    observed.add(overallStatus);
+  }
+
+  return ADMIN_BOOKING_PAYMENT_FILTER_STATUSES.filter((status) =>
+    observed.has(status),
+  );
+}
+
+function projectAdminProviderRequestPaymentStatus(
+  data: DocumentData,
+): PaymentStatus | "partially_paid" | "unpaid" | null {
+  if (hasBookingSettlement(data)) {
+    return projectBookingPayment(data);
+  }
+
+  const normalized = stringValue(data.paymentStatus).toLowerCase();
+  if (normalized === "unpaid") {
     return "unpaid";
   }
 
-  const statuses =
-    new Set(
-      payments.map((payment) => payment.status),
-    );
+  return normalizePaymentStatus(normalized);
+}
+
+function deriveBookingOverallPaymentStatus(
+  rawMainEventPaymentStatus: unknown,
+  providerRequests: readonly {
+    paymentStatus: PaymentStatus | "partially_paid" | "unpaid" | null;
+  }[],
+  payments: readonly {status: PaymentStatus}[],
+): AdminBookingOverallPaymentStatus {
+  if (providerRequests.some((request) => request.paymentStatus === null)) {
+    return "unavailable";
+  }
 
   if (
-    payments.every(
-      (payment) =>
-        payment.status === "refunded",
-    )
+    payments.length > 0 &&
+    payments.every((payment) => payment.status === "refunded")
   ) {
     return "refunded";
   }
 
-  if (statuses.has("processing")) {
-    return "processing";
-  }
-
-  if (statuses.has("pending")) {
-    return "pending";
-  }
-
   if (
-    payments.every(
-      (payment) => payment.status === "paid",
+    providerRequests.length > 0 &&
+    providerRequests.every((request) =>
+      ["unpaid", "partially_paid", "paid"].includes(request.paymentStatus ?? ""),
     )
   ) {
-    return "paid";
-  }
-
-  if (statuses.has("paid")) {
+    if (providerRequests.every((request) => request.paymentStatus === "paid")) {
+      return "paid";
+    }
+    if (providerRequests.every((request) => request.paymentStatus === "unpaid")) {
+      return "unpaid";
+    }
     return "partially_paid";
   }
 
-  if (statuses.has("failed")) {
-    return "failed";
+  return normalizeOverallPaymentStatus(rawMainEventPaymentStatus, payments);
+}
+
+function normalizeOverallPaymentStatus(
+  value: unknown,
+  payments: readonly {status: PaymentStatus}[],
+): AdminBookingOverallPaymentStatus {
+  if (payments.length > 0) {
+    const statuses = new Set(payments.map((payment) => payment.status));
+
+    if (payments.every((payment) => payment.status === "refunded")) {
+      return "refunded";
+    }
+
+    if (statuses.has("processing")) {
+      return "processing";
+    }
+
+    if (statuses.has("pending")) {
+      return "pending";
+    }
+
+    if (payments.every((payment) => payment.status === "paid")) {
+      return "paid";
+    }
+
+    if (statuses.has("paid")) {
+      return "partially_paid";
+    }
+
+    if (statuses.has("failed")) {
+      return "failed";
+    }
+
+    if (statuses.has("expired")) {
+      return "expired";
+    }
   }
 
-  if (statuses.has("expired")) {
-    return "expired";
+  const storedValue = stringValue(value).toLowerCase();
+
+  if (isOverallPaymentStatus(storedValue)) {
+    return storedValue;
   }
 
   return "unpaid";
@@ -1357,64 +1580,28 @@ function isOverallPaymentStatus(
   ].includes(stringValue(value).toLowerCase());
 }
 
-function isDateFilter(
-  value: unknown,
-): value is AdminBookingDateFilter {
-  return [
-    "all",
-    "today",
-    "upcoming",
-    "past",
-  ].includes(stringValue(value));
+function normalizeDateKey(value: unknown): string {
+  const normalized = stringValue(value);
+  return isValidPhilippineDateKey(normalized) ? normalized : "";
 }
 
 function getDateRange(
-  filter: AdminBookingDateFilter,
+  eventDateFrom: string,
+  eventDateTo: string,
 ): {
   start: Date | null;
   end: Date | null;
 } {
-  if (filter === "all") {
-    return {
-      start: null,
-      end: null,
-    };
-  }
-
-  const now = new Date();
-  const manilaNow = new Date(
-    now.getTime() + MANILA_OFFSET_MS,
-  );
-
-  const startOfToday = new Date(
-    Date.UTC(
-      manilaNow.getUTCFullYear(),
-      manilaNow.getUTCMonth(),
-      manilaNow.getUTCDate(),
-    ) - MANILA_OFFSET_MS,
-  );
-
-  const startOfTomorrow = new Date(
-    startOfToday.getTime() + DAY_MS,
-  );
-
-  if (filter === "today") {
-    return {
-      start: startOfToday,
-      end: startOfTomorrow,
-    };
-  }
-
-  if (filter === "upcoming") {
-    return {
-      start: startOfTomorrow,
-      end: null,
-    };
-  }
+  const start = eventDateFrom
+    ? new Date(`${eventDateFrom}T00:00:00+08:00`)
+    : null;
+  const end = eventDateTo
+    ? new Date(new Date(`${eventDateTo}T00:00:00+08:00`).getTime() + DAY_MS)
+    : null;
 
   return {
-    start: null,
-    end: startOfToday,
+    start: start && !Number.isNaN(start.getTime()) ? start : null,
+    end: end && !Number.isNaN(end.getTime()) ? end : null,
   };
 }
 

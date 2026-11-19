@@ -1,12 +1,21 @@
 import {Badge, type BadgeProps} from "@/components/ui/badge";
+import {cn} from "@/lib/utils";
 
 type StatusTone = NonNullable<BadgeProps["tone"]>;
+
+const toneBorderClasses: Record<StatusTone, string> = {
+  neutral: "border-border",
+  success: "border-success/25",
+  warning: "border-warning/25",
+  destructive: "border-destructive/25",
+  info: "border-info/25",
+};
 
 const statusMap: Record<string, {label: string; tone: StatusTone}> = {
   draft: {label: "Draft", tone: "neutral"},
   pending: {label: "Pending", tone: "warning"},
   pending_provider_approval: {label: "Awaiting provider", tone: "warning"},
-  needs_provider_replacement: {label: "Provider update needed", tone: "warning"},
+  needs_provider_replacement: {label: "Needs replacement", tone: "warning"},
   verified: {label: "Verified", tone: "success"},
   missing: {label: "Not uploaded", tone: "neutral"},
   submitted: {label: "Submitted", tone: "info"},
@@ -44,7 +53,15 @@ function humanize(status: string) {
     .join(" ");
 }
 
-function StatusBadge({status, label}: {status: string; label?: string}) {
+function StatusBadge({
+  status,
+  label,
+  className,
+}: {
+  status: string;
+  label?: string;
+  className?: string;
+}) {
   const normalized = status.trim().toLowerCase().replaceAll("-", "_");
   const presentation = statusMap[normalized] ?? {
     label: humanize(normalized),
@@ -52,7 +69,18 @@ function StatusBadge({status, label}: {status: string; label?: string}) {
   };
   const visibleLabel = label ?? presentation.label;
   return (
-    <Badge tone={presentation.tone} aria-label={`Status: ${visibleLabel}`}>
+    <Badge
+      tone={presentation.tone}
+      shape="rounded"
+      size="compact"
+      title={visibleLabel}
+      aria-label={`Status: ${visibleLabel}`}
+      className={cn(
+        "whitespace-nowrap",
+        toneBorderClasses[presentation.tone],
+        className,
+      )}
+    >
       {visibleLabel}
     </Badge>
   );

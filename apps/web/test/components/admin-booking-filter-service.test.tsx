@@ -40,7 +40,7 @@ vi.mock("@/lib/firebase/admin", () => {
 });
 import {getAdminBookingPage} from "@/lib/admin/bookings/admin-booking-service";
 
-const filters: AdminBookingFilters = {search: "", status: "all", paymentStatus: "all", date: "all", sortField: "createdAt", sortDirection: "descending", pageSize: 10, cursor: null};
+const filters: AdminBookingFilters = {search: "", status: "all", paymentStatus: "all", eventDateFrom: "", eventDateTo: "", sortField: "createdAt", sortDirection: "descending", pageSize: 10, cursor: null};
 beforeEach(() => {state.queries.length = 0; vi.useFakeTimers(); vi.setSystemTime(new Date("2026-10-06T02:00:00Z"));});
 afterEach(() => vi.useRealTimers());
 const list = () => state.queries.find(q => q.collection === "mainEvents" && q.mode === "list")!;
@@ -51,77 +51,45 @@ it.each(Object.keys(adminBookingStatusLabels))("queries the exact booking status
 });
 
 it.each(Object.keys(adminBookingPaymentLabels).filter(value => !["partially_refunded", "unavailable"].includes(value)))(
-  "queries the persisted booking payment status %s", async paymentStatus => {
+  "scans indexed bookings without filtering on stale mainEvents.paymentStatus for %s", async paymentStatus => {
     await getAdminBookingPage({...filters, paymentStatus: paymentStatus as AdminBookingFilters["paymentStatus"]});
-    expect(list().conditions).toContainEqual(["paymentStatus", "==", paymentStatus]);
+    expect(list().conditions).not.toContainEqual(["paymentStatus", "==", paymentStatus]);
   },
 );
 
 it.each([
-  ["all", null, null],
-  ["today", "2026-10-05T16:00:00.000Z", "2026-10-06T16:00:00.000Z"],
-  ["upcoming", "2026-10-06T16:00:00.000Z", null],
-  ["past", null, "2026-10-05T16:00:00.000Z"],
-] as const)("queries %s event dates in Manila time", async (date, start, end) => {
-  await getAdminBookingPage({...filters, date});
+  ["", "", null, null],
+  ["2026-10-06", "2026-10-06", "2026-10-05T16:00:00.000Z", "2026-10-06T16:00:00.000Z"],
+  ["2026-10-07", "", "2026-10-06T16:00:00.000Z", null],
+  ["", "2026-10-05", null, "2026-10-05T16:00:00.000Z"],
+  ["2026-10-06", "2026-10-10", "2026-10-05T16:00:00.000Z", "2026-10-10T16:00:00.000Z"],
+] as const)("queries eventDateFrom=%s eventDateTo=%s in Manila time", async (eventDateFrom, eventDateTo, start, end) => {
+  await getAdminBookingPage({...filters, eventDateFrom, eventDateTo});
   const ranges = list().conditions.filter(condition => condition[0] === "eventDate");
   expect(ranges.map(([field, operator, value]) => [field, operator, (value as Timestamp).toDate().toISOString()])).toEqual([
     ...(start ? [["eventDate", ">=", start]] : []), ...(end ? [["eventDate", "<", end]] : []),
   ]);
-  expect(list().orders[0]).toEqual([date === "all" ? "createdAt" : "eventDate", "desc"]);
+  expect(list().orders[0]).toEqual([eventDateFrom || eventDateTo ? "eventDate" : "createdAt", "desc"]);
 });
 
-it.each([
-  [
-    "2026-10-06T15:59:59.999Z",
-    "2026-10-05T16:00:00.000Z",
-    "2026-10-06T16:00:00.000Z",
-  ],
-  [
-    "2026-10-06T16:00:00.000Z",
-    "2026-10-06T16:00:00.000Z",
-    "2026-10-07T16:00:00.000Z",
-  ],
-] as const)(
-  "keeps event date filters separate across Manila midnight at %s",
-  async (currentTime, todayStart, tomorrowStart) => {
-    vi.setSystemTime(new Date(currentTime));
+it("normalizes inverted from/to event dates and ignores invalid date keys", async () => {
+  await getAdminBookingPage({...filters, eventDateFrom: "2026-10-12", eventDateTo: "2026-10-06"});
+  const swappedRanges = list().conditions.filter(condition => condition[0] === "eventDate");
+  expect(swappedRanges.map(([field, operator, value]) => [field, operator, (value as Timestamp).toDate().toISOString()])).toEqual([
+    ["eventDate", ">=", "2026-10-05T16:00:00.000Z"],
+    ["eventDate", "<", "2026-10-12T16:00:00.000Z"],
+  ]);
 
-    const cases = [
-      ["today", todayStart, tomorrowStart],
-      ["upcoming", tomorrowStart, null],
-      ["past", null, todayStart],
-    ] as const;
+  state.queries.length = 0;
+  await getAdminBookingPage({...filters, eventDateFrom: "2026-02-30", eventDateTo: "invalid"});
+  expect(list().conditions.filter(condition => condition[0] === "eventDate")).toEqual([]);
+});
 
-    for (const [date, start, end] of cases) {
-      state.queries.length = 0;
-
-      await getAdminBookingPage({
-        ...filters,
-        date,
-      });
-
-      const ranges = list().conditions.filter(
-        ([field]) => field === "eventDate",
-      );
-
-      expect(
-        ranges.map(([field, operator, value]) => [
-          field,
-          operator,
-          (value as Timestamp).toDate().toISOString(),
-        ]),
-      ).toEqual([
-        ...(start ? [["eventDate", ">=", start]] : []),
-        ...(end ? [["eventDate", "<", end]] : []),
-      ]);
-    }
-  },
-);
 it("combines booking, payment and event filters and retains a compatible pagination cursor", async () => {
   const cursor = Buffer.from(JSON.stringify({field: "eventDate", milliseconds: Date.parse("2026-10-08T00:00:00Z"), documentId: "event-next"})).toString("base64url");
-  await getAdminBookingPage({...filters, status: "confirmed", paymentStatus: "paid", date: "upcoming", cursor});
-  expect(list().conditions).toEqual(expect.arrayContaining([["status", "==", "confirmed"], ["paymentStatus", "==", "paid"]]));
+  await getAdminBookingPage({...filters, status: "confirmed", paymentStatus: "paid", eventDateFrom: "2026-10-07", eventDateTo: "", cursor});
+  expect(list().conditions).toEqual(expect.arrayContaining([["status", "==", "confirmed"]]));
+  expect(list().conditions).not.toContainEqual(["paymentStatus", "==", "paid"]);
   expect(list().cursor[1]).toBe("event-next");
   state.queries.length = 0;
   await getAdminBookingPage(filters);

@@ -693,10 +693,21 @@ function DetailSection({title, children}: {title: string; children: ReactNode}) 
 }
 
 function Detail({label, value}: {label: string; value: string | null | undefined}) {
+  const display = value?.trim() || "Not available";
+  const isEmpty = !value?.trim() || display === "Not recorded" || display === "Not available";
   return (
-    <div className="grid min-w-0 gap-1">
-      <span className="text-xs font-bold uppercase tracking-wide text-muted-foreground">{label}</span>
-      <span className="break-words text-sm">{value || "Not available"}</span>
+    <div className="min-w-0 rounded-lg border border-border/70 bg-secondary/55 px-3.5 py-2.5">
+      <span className="block text-[11px] font-medium uppercase tracking-wider text-muted-foreground/80">
+        {label}
+      </span>
+      <span
+        className={cn(
+          "mt-1 block break-words text-sm",
+          isEmpty ? "font-normal text-muted-foreground/75" : "font-semibold text-foreground",
+        )}
+      >
+        {display}
+      </span>
     </div>
   );
 }

@@ -3,7 +3,6 @@
 import {
   Building2,
   CalendarClock,
-  ReceiptText,
   UserRound,
 } from "lucide-react";
 
@@ -35,11 +34,7 @@ function PaymentMobileCard({
 }: PaymentMobileCardProps) {
   return (
     <article
-      className={[
-        "min-w-0 rounded-card border",
-        "border-border bg-card p-4",
-        "shadow-card",
-      ].join(" ")}
+      className="min-w-0 rounded-card border border-border bg-card p-4 shadow-xs"
       aria-label={`Payment ${paymentReferenceLabel(payment)}`}
     >
       <div className="flex min-w-0 items-start justify-between gap-3">
@@ -48,88 +43,77 @@ function PaymentMobileCard({
             {paymentReferenceLabel(payment)}
           </p>
 
-          <p className="mt-1 truncate text-sm text-muted-foreground">
+          <p className="mt-0.5 truncate text-xs font-medium text-muted-foreground">
             {paymentBookingLabel(payment)}
           </p>
         </div>
 
-        <PaymentStatusBadge
-            status={payment.status}
-        />
+        <PaymentStatusBadge status={payment.status} />
       </div>
 
-      <p className="mt-4 break-words text-2xl font-black tracking-tight">
-        {payment.formattedAmount}
-      </p>
+      <div className="mt-3 flex flex-wrap items-baseline justify-between gap-2 border-b border-border/70 pb-3">
+        <div className="min-w-0">
+          <p className="break-words text-2xl font-black tracking-tight tabular-nums text-primary">
+            {payment.formattedAmount}
+          </p>
+          {payment.refundedAmountFormatted ? (
+            <p className="mt-0.5 text-xs font-semibold tabular-nums text-muted-foreground">
+              Refunded {payment.refundedAmountFormatted}
+            </p>
+          ) : null}
+        </div>
+        <span className="rounded-md bg-secondary px-2 py-0.5 text-xs font-semibold text-foreground">
+          {formatAdminPaymentPurpose(payment)}
+        </span>
+      </div>
 
-      <p className="mt-1 text-sm font-medium text-muted-foreground">
-        {formatAdminPaymentPurpose(payment)}
-      </p>
-
-      <dl className="mt-4 grid min-w-0 gap-3 text-sm">
-        <div className="flex min-w-0 items-start gap-3">
+      <dl className="mt-3 grid min-w-0 grid-cols-2 gap-3 text-sm">
+        <div className="flex min-w-0 items-start gap-2">
           <UserRound
             aria-hidden="true"
             className="mt-0.5 size-4 shrink-0 text-muted-foreground"
           />
 
           <div className="min-w-0">
-            <dt className="font-semibold text-muted-foreground">
+            <dt className="text-xs font-semibold text-muted-foreground">
               Customer
             </dt>
 
-            <dd className="break-words font-medium">
+            <dd className="mt-0.5 break-words text-sm font-medium">
               {payment.customerName}
             </dd>
           </div>
         </div>
 
-        <div className="flex min-w-0 items-start gap-3">
+        <div className="flex min-w-0 items-start gap-2">
           <Building2
             aria-hidden="true"
             className="mt-0.5 size-4 shrink-0 text-muted-foreground"
           />
 
           <div className="min-w-0">
-            <dt className="font-semibold text-muted-foreground">
+            <dt className="text-xs font-semibold text-muted-foreground">
               Provider
             </dt>
 
-            <dd className="break-words font-medium">
+            <dd className="mt-0.5 break-words text-sm font-medium">
               {payment.providerName}
             </dd>
           </div>
         </div>
 
-        <div className="flex min-w-0 items-start gap-3">
-          <ReceiptText
-            aria-hidden="true"
-            className="mt-0.5 size-4 shrink-0 text-muted-foreground"
-          />
-
-          <div className="min-w-0">
-            <dt className="font-semibold text-muted-foreground">
-              Processed by
-            </dt>
-
-            <dd className="break-words font-medium">
-              Payment service
-            </dd>
-          </div>
-        </div>
-
-        <div className="flex min-w-0 items-start gap-3">
+        <div className="col-span-2 flex min-w-0 items-start gap-2">
           <CalendarClock
             aria-hidden="true"
             className="mt-0.5 size-4 shrink-0 text-muted-foreground"
           />
 
           <div className="min-w-0">
-            <dt className="font-semibold text-muted-foreground">
+            <dt className="text-xs font-semibold text-muted-foreground">
               Date
             </dt>
 
-            <dd className="break-words font-medium">
+            <dd className="mt-0.5 break-words text-sm font-medium">
               {formatPaymentDate(
                 payment.paidAt ?? payment.createdAt,
               )}
@@ -139,10 +123,8 @@ function PaymentMobileCard({
       </dl>
 
       {payment.issues.length > 0 ? (
-        <div className="mt-4 border-t border-border pt-4">
-          <PaymentIssueBadges
-            issues={payment.issues}
-          />
+        <div className="mt-3 border-t border-border/70 pt-3">
+          <PaymentIssueBadges issues={payment.issues} />
         </div>
       ) : null}
 
@@ -151,9 +133,7 @@ function PaymentMobileCard({
         variant="secondary"
         size="compact"
         className="mt-4 w-full"
-        onClick={() =>
-          onViewDetails(payment)
-        }
+        onClick={() => onViewDetails(payment)}
         aria-label={`View payment ${paymentReferenceLabel(payment)} details`}
       >
         View details

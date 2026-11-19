@@ -18,6 +18,10 @@ import {
 import {
   DetailDrawer,
 } from "@/components/data/detail-drawer";
+import {
+  DetailFieldItem,
+  DetailFieldList,
+} from "@/components/data/detail-field-list";
 import { Button } from "@/components/ui/button";
 import type {
   AdminBooking,
@@ -99,7 +103,7 @@ function BookingDetailsDrawer({
             Event overview
           </h2>
 
-          <dl className="grid gap-3 rounded-card border border-border bg-muted/30 p-4">
+          <DetailFieldList columns={1}>
             <DetailItem
               icon={<CalendarDays />}
               label="Event"
@@ -135,7 +139,7 @@ function BookingDetailsDrawer({
                 undefined
               }
             />
-          </dl>
+          </DetailFieldList>
           {(booking.status === "cancelled" || (booking.providerRequests.length > 0 && booking.providerRequests.every(request => request.status === "cancelled"))) && booking.outstandingAmount === 0 ? <p className="mt-2 text-sm text-muted-foreground">No amount due</p> : null}
         </section>
 
@@ -306,8 +310,7 @@ function BookingDetailsDrawer({
             Record information
           </h2>
 
-          <dl className="grid gap-2 text-sm">
-
+          <DetailFieldList layout="rows">
             <RecordItem
               label="Created"
               value={formatDateTime(
@@ -321,7 +324,7 @@ function BookingDetailsDrawer({
                 booking.updatedAt,
               )}
             />
-          </dl>
+          </DetailFieldList>
         </section>
       </div>
     </DetailDrawer>
@@ -384,62 +387,42 @@ function ProviderRequestCard({
         />
       </div>
 
-      <dl className="grid grid-cols-2 gap-3 border-t border-border pt-3 text-sm">
-        <div className="min-w-0">
-          <dt className="text-muted-foreground">
-            Service
-          </dt>
+      <DetailFieldList className="border-t border-border pt-3">
+        <DetailFieldItem
+          label="Service"
+          value={
+            request.packageName ||
+            (request.requestType === "addon"
+              ? "Add-on services"
+              : "Catering service")
+          }
+        />
 
-          <dd className="mt-1 truncate font-semibold">
-            {request.packageName ||
-              (request.requestType === "addon"
-                ? "Add-on services"
-                : "Catering service")}
-          </dd>
-        </div>
+        <DetailFieldItem
+          label="Amount"
+          value={currencyFormatter.format(request.subtotal)}
+          numeric
+        />
 
-        <div className="min-w-0">
-          <dt className="text-muted-foreground">
-            Amount
-          </dt>
+        <DetailFieldItem
+          label="Down payment"
+          value={currencyFormatter.format(request.downPaymentAmount)}
+          numeric
+        />
 
-          <dd className="mt-1 truncate font-semibold">
-            {currencyFormatter.format(
-              request.subtotal,
-            )}
-          </dd>
-        </div>
-
-        <div className="min-w-0">
-          <dt className="text-muted-foreground">
-            Down payment
-          </dt>
-
-          <dd className="mt-1 truncate font-semibold">
-            {currencyFormatter.format(
-              request.downPaymentAmount,
-            )}
-          </dd>
-        </div>
-
-        <div className="min-w-0">
-          <dt className="text-muted-foreground">
-            Payment
-          </dt>
-
-          <dd className="mt-1">
-            {request.paymentStatus ? (
-              <BookingStatusBadge
-                kind="payment" status={request.paymentStatus}
-              />
-            ) : (
-              <span className="font-semibold">
-                Unavailable
-              </span>
-            )}
-          </dd>
-        </div>
-      </dl>
+        <DetailFieldItem label="Payment">
+          {request.paymentStatus ? (
+            <BookingStatusBadge
+              kind="payment"
+              status={request.paymentStatus}
+            />
+          ) : (
+            <span className="font-normal text-muted-foreground/75">
+              Unavailable
+            </span>
+          )}
+        </DetailFieldItem>
+      </DetailFieldList>
     </article>
   );
 }
@@ -480,8 +463,7 @@ function PaymentCard({
         />
       </div>
 
-      <dl className="grid gap-2 border-t border-border pt-3 text-sm">
-
+      <DetailFieldList layout="rows" className="border-t border-border">
         <RecordItem
           label="Created"
           value={formatDateTime(
@@ -502,7 +484,7 @@ function PaymentCard({
             value={payment.refundStatus}
           />
         ) : null}
-      </dl>
+      </DetailFieldList>
     </article>
   );
 }
@@ -519,27 +501,12 @@ function DetailItem({
   secondary?: string;
 }) {
   return (
-    <div className="flex min-w-0 items-start gap-3">
-      <span className="mt-0.5 shrink-0 text-muted-foreground [&_svg]:size-5">
-        {icon}
-      </span>
-
-      <div className="min-w-0">
-        <dt className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-          {label}
-        </dt>
-
-        <dd className="mt-1 break-words font-semibold">
-          {value}
-        </dd>
-
-        {secondary ? (
-          <dd className="mt-1 break-words text-sm text-muted-foreground">
-            {secondary}
-          </dd>
-        ) : null}
-      </div>
-    </div>
+    <DetailFieldItem
+      icon={icon}
+      label={label}
+      value={value}
+      secondary={secondary}
+    />
   );
 }
 
@@ -581,17 +548,7 @@ function RecordItem({
   label: string;
   value: string;
 }) {
-  return (
-    <div className="grid min-w-0 gap-1 sm:grid-cols-[7rem_minmax(0,1fr)]">
-      <dt className="font-semibold text-muted-foreground">
-        {label}
-      </dt>
-
-      <dd className="break-all">
-        {value}
-      </dd>
-    </div>
-  );
+  return <DetailFieldItem variant="row" label={label} value={value} />;
 }
 
 function EmptyDetailMessage({

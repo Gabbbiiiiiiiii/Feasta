@@ -46,15 +46,19 @@ import {
 import {
   PageHeading,
 } from "@/components/layout/page-heading";
+import {PhilippineDateInput} from "@/components/forms/philippine-date-input";
 import {useAdminAutoRefresh} from "@/lib/admin/use-admin-auto-refresh";
 import {CancellationManagementClient} from "@/components/admin/bookings/cancellation-management-client";
 import type {AdminCancellationQueue} from "@/lib/admin/cancellations/admin-cancellation-types";
 import {adminBookingNumber, adminBookingStatusLabels, adminBookingPaymentLabels, adminBookingStatusLabel, adminBookingPaymentLabel} from "@/lib/admin/bookings/admin-booking-labels";
+import {
+  formatPhilippineDate,
+  todayPhilippineDateKey,
+} from "@/lib/dates/philippine-date";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
 import type {
   AdminBooking,
-  AdminBookingDateFilter,
   AdminBookingFilters,
   AdminBookingPaymentFilter,
   AdminBookingPage,
@@ -63,6 +67,8 @@ import type {
 
 type BookingMonitoringClientProps = {
   initialPage: AdminBookingPage;
+  initialEventDateFrom?: string;
+  initialEventDateTo?: string;
   supplementalContent?: ReactNode;
   initialCancellationQueue?: AdminCancellationQueue;
 };
@@ -158,11 +164,12 @@ function describeAdminBookingProviders(booking: AdminBooking): {
 }
 
 
-const initialFilters: AdminBookingFilters = {
+const clearedFilters: AdminBookingFilters = {
   search: "",
   status: "all",
   paymentStatus: "all",
-  date: "all",
+  eventDateFrom: "",
+  eventDateTo: "",
   sortField: "createdAt",
   sortDirection: "descending",
   pageSize: 10,
@@ -184,14 +191,22 @@ const dateFormatter =
 
 function BookingMonitoringClient({
   initialPage,
+  initialEventDateFrom,
+  initialEventDateTo,
   supplementalContent,
   initialCancellationQueue,
 }: BookingMonitoringClientProps) {
   const [page, setPage] =
     useState(initialPage);
 
-  const [filters, setFilters] =
-    useState(initialFilters);
+  const [filters, setFilters] = useState<AdminBookingFilters>(() => {
+    const defaultDate = todayPhilippineDateKey();
+    return {
+      ...clearedFilters,
+      eventDateFrom: initialEventDateFrom ?? defaultDate,
+      eventDateTo: initialEventDateTo ?? defaultDate,
+    };
+  });
 
   const [searchValue, setSearchValue] =
     useState("");
@@ -416,11 +431,45 @@ function BookingMonitoringClient({
   const clearFilters = useCallback(() => {
     setSearchValue("");
 
-    loadPage(initialFilters, {
+    loadPage(clearedFilters, {
       nextHistory: [],
       nextPageNumber: 1,
     });
   }, [loadPage]);
+
+  const handleEventDateFromChange = useCallback(
+    (eventDateFrom: string) => {
+      const nextTo =
+        eventDateFrom &&
+        filters.eventDateTo &&
+        eventDateFrom > filters.eventDateTo
+          ? eventDateFrom
+          : filters.eventDateTo;
+
+      updateFilters({
+        eventDateFrom,
+        eventDateTo: nextTo,
+      });
+    },
+    [filters.eventDateTo, updateFilters],
+  );
+
+  const handleEventDateToChange = useCallback(
+    (eventDateTo: string) => {
+      const nextFrom =
+        eventDateTo &&
+        filters.eventDateFrom &&
+        eventDateTo < filters.eventDateFrom
+          ? eventDateTo
+          : filters.eventDateFrom;
+
+      updateFilters({
+        eventDateFrom: nextFrom,
+        eventDateTo,
+      });
+    },
+    [filters.eventDateFrom, updateFilters],
+  );
 
   const handleNextPage = useCallback(
     (cursor: string) => {
@@ -515,11 +564,19 @@ function BookingMonitoringClient({
       );
     }
 
-    if (filters.date !== "all") {
+    if (filters.eventDateFrom && filters.eventDateTo) {
       labels.push(
-        `Date: ${formatLabel(
-          filters.date,
-        )}`,
+        filters.eventDateFrom === filters.eventDateTo
+          ? `Event date: ${formatPhilippineDate(filters.eventDateFrom)}`
+          : `Event date: ${formatPhilippineDate(filters.eventDateFrom)} – ${formatPhilippineDate(filters.eventDateTo)}`,
+      );
+    } else if (filters.eventDateFrom) {
+      labels.push(
+        `Event date: From ${formatPhilippineDate(filters.eventDateFrom)}`,
+      );
+    } else if (filters.eventDateTo) {
+      labels.push(
+        `Event date: Until ${formatPhilippineDate(filters.eventDateTo)}`,
       );
     }
 
@@ -529,9 +586,13 @@ function BookingMonitoringClient({
   const previousCursor =
     cursorHistory.at(-1) ?? null;
 
+  const hasDateFilter = Boolean(
+    filters.eventDateFrom || filters.eventDateTo,
+  );
+
   const tableSort: DataTableSort = {
     columnId:
-      filters.sortField === "eventDate"
+      hasDateFilter || filters.sortField === "eventDate"
         ? "eventDate"
         : "createdAt",
 
@@ -650,33 +711,34 @@ function BookingMonitoringClient({
               <option value="all">
                 All payment statuses
               </option>
-              {Object.entries(adminBookingPaymentLabels).filter(([value]) => !["partially_refunded", "unavailable"].includes(value)).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+              {filters.paymentStatus !== "all" &&
+                !page.statistics.availablePaymentStatuses.includes(
+                  filters.paymentStatus,
+                ) && (
+                  <option value={filters.paymentStatus} disabled>
+                    Selected payment status no longer available
+                  </option>
+                )}
+              {page.statistics.availablePaymentStatuses.map((status) => (
+                <option key={status} value={status}>
+                  {adminBookingPaymentLabels[status]}
+                </option>
+              ))}
             </FilterSelect>
 
-            <FilterSelect
-              label="Event date"
-              value={filters.date}
+            <FilterDateInput
+              label="Event date from"
+              value={filters.eventDateFrom}
               disabled={isPending}
-              onChange={(value) =>
-                updateFilters({
-                  date:
-                    value as AdminBookingDateFilter,
-                })
-              }
-            >
-              <option value="all">
-                All event dates
-              </option>
-              <option value="today">
-                Today
-              </option>
-              <option value="upcoming">
-                Future dates
-              </option>
-              <option value="past">
-                Past dates
-              </option>
-            </FilterSelect>
+              onChange={handleEventDateFromChange}
+            />
+
+            <FilterDateInput
+              label="Event date to"
+              value={filters.eventDateTo}
+              disabled={isPending}
+              onChange={handleEventDateToChange}
+            />
           </>
         }
       />
@@ -784,6 +846,42 @@ function FilterSelect({
   );
 }
 
+function FilterDateInput({
+  label,
+  value,
+  disabled,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  disabled: boolean;
+  onChange: (value: string) => void;
+}) {
+  const id = `booking-filter-${label
+    .toLowerCase()
+    .replaceAll(" ", "-")}`;
+
+  return (
+    <div className="grid min-w-0 gap-2 lg:min-w-[13rem]">
+      <label
+        htmlFor={id}
+        className="text-sm font-bold"
+      >
+        {label}
+      </label>
+
+      <PhilippineDateInput
+        id={id}
+        value={value}
+        disabled={disabled}
+        onChange={(event) =>
+          onChange(event.currentTarget.value)
+        }
+      />
+    </div>
+  );
+}
+
 function formatDate(
   value: string | null,
 ): string {
@@ -796,20 +894,6 @@ function formatDate(
   return Number.isNaN(date.getTime())
     ? "Date not provided"
     : dateFormatter.format(date);
-}
-
-function formatLabel(
-  value: string,
-): string {
-  if (value === "upcoming") return "Future dates";
-  if (value === "past") return "Past dates";
-  return value
-    .split("_")
-    .filter(Boolean)
-    .map((word) =>
-      `${word.charAt(0).toUpperCase()}${word.slice(1)}`,
-    )
-    .join(" ");
 }
 
 function errorMessage(

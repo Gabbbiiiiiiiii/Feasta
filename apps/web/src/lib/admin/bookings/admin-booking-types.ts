@@ -20,15 +20,14 @@ export type AdminBookingOverallPaymentStatus =
   | "expired"
   | "refunded";
 
+export type AdminBookingPaymentFilterStatus = Exclude<
+  AdminBookingOverallPaymentStatus,
+  "unavailable"
+>;
+
 export type AdminBookingPaymentFilter =
   | "all"
-  | Exclude<AdminBookingOverallPaymentStatus, "unavailable">;
-
-export type AdminBookingDateFilter =
-  | "all"
-  | "today"
-  | "upcoming"
-  | "past";
+  | AdminBookingPaymentFilterStatus;
 
 export type AdminBookingSortField =
   | "createdAt"
@@ -156,6 +155,7 @@ export type AdminBooking = {
 export type AdminBookingStatistics = {
   totalBookings: number;
   availableStatuses: MainEventStatus[];
+  availablePaymentStatuses: AdminBookingPaymentFilterStatus[];
   pendingApproval: number;
   waitingForPayment: number;
   confirmed: number;
@@ -176,7 +176,8 @@ export type AdminBookingFilters = {
   search: string;
   status: AdminBookingStatusFilter;
   paymentStatus: AdminBookingPaymentFilter;
-  date: AdminBookingDateFilter;
+  eventDateFrom: string;
+  eventDateTo: string;
 
   sortField: AdminBookingSortField;
   sortDirection: AdminBookingSortDirection;

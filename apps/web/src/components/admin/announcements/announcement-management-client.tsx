@@ -28,6 +28,10 @@ import {
 import {CursorPagination} from "@/components/data/cursor-pagination";
 import {DataTable, type DataTableColumn} from "@/components/data/data-table";
 import {DetailDrawer} from "@/components/data/detail-drawer";
+import {
+  DetailFieldItem,
+  DetailFieldList,
+} from "@/components/data/detail-field-list";
 import {FilterToolbar} from "@/components/data/filter-toolbar";
 import {SummaryCard} from "@/components/data/summary-card";
 import {feastaToast} from "@/components/feedback/toast";
@@ -586,7 +590,7 @@ function AnnouncementDetails({announcement}: {announcement: AdminAnnouncement}) 
           {announcement.content}
         </p>
       </section>
-      <dl className="grid gap-4 rounded-card border border-border bg-muted/40 p-4 text-sm">
+      <DetailFieldList layout="rows">
         <Detail label="Created" value={formatDate(announcement.createdAt)} />
         <Detail label="Created by" value={announcement.createdBy ?? "Unavailable"} />
         <Detail label="Last updated" value={formatDate(announcement.updatedAt)} />
@@ -599,7 +603,7 @@ function AnnouncementDetails({announcement}: {announcement: AdminAnnouncement}) 
         {announcement.archiveReason ? (
           <Detail label="Archive reason" value={announcement.archiveReason} />
         ) : null}
-      </dl>
+      </DetailFieldList>
       <section aria-labelledby="private-notes-heading" className="grid gap-2 rounded-card border border-border p-4">
         <h3 id="private-notes-heading" className="font-bold">Private administrative notes</h3>
         <p className="whitespace-pre-wrap break-words text-sm text-muted-foreground">
@@ -655,12 +659,7 @@ function StatusBadge({status}: {status: AdminAnnouncement["status"]}) {
 }
 
 function Detail({label, value}: {label: string; value: string}) {
-  return (
-    <div className="grid gap-1 sm:grid-cols-[8rem_1fr] sm:gap-3">
-      <dt className="font-bold">{label}</dt>
-      <dd className="break-words text-muted-foreground">{value}</dd>
-    </div>
-  );
+  return <DetailFieldItem variant="row" label={label} value={value} />;
 }
 
 function filterLabels(filters: AdminAnnouncementFilters): string[] {

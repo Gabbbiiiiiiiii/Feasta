@@ -14,6 +14,8 @@ import {
   CursorPagination,
   DataTable,
   DetailDrawer,
+  DetailFieldItem,
+  DetailFieldList,
   FilterToolbar,
   SummaryCard,
   type DataTableColumn,
@@ -434,24 +436,23 @@ function ProviderVerificationQueue({
               </div>
               <StatusBadge status={item.status} label={providerVerificationLabel(item.status)} />
             </div>
-            <dl className="grid gap-2 text-sm">
-              <div>
-                <dt className="font-semibold">Service type</dt>
-                <dd className="capitalize text-muted-foreground">
-                  {item.providerServiceType}
-                </dd>
-              </div>
-              <div>
-                <dt className="font-semibold">Tax status</dt>
-                <dd className="mt-1">
-                  <TaxStatusIndicator status={item.taxVerificationStatus} />
-                </dd>
-              </div>
-              <div>
-                <dt className="font-semibold">Submitted</dt>
-                <dd className="text-muted-foreground">{item.submittedAt}</dd>
-              </div>
-            </dl>
+            <DetailFieldList columns={2}>
+              <DetailFieldItem
+                label="Service type"
+                value={item.providerServiceType}
+                valueClassName="capitalize"
+              />
+              <DetailFieldItem
+                label="Submitted"
+                value={item.submittedAt}
+              />
+              <DetailFieldItem
+                label="Tax status"
+                wide
+              >
+                <TaxStatusIndicator status={item.taxVerificationStatus} />
+              </DetailFieldItem>
+            </DetailFieldList>
             <Button
               variant="secondary"
               fullWidth

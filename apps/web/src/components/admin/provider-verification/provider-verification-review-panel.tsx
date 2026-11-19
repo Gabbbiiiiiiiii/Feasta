@@ -14,6 +14,10 @@ import {useRouter} from "next/navigation";
 import {useEffect, useRef, useState} from "react";
 import {providerVerificationLabel} from "@/lib/admin/provider-verification/provider-verification-labels";
 
+import {
+  DetailFieldItem,
+  DetailFieldList,
+} from "@/components/data/detail-field-list";
 import {feastaToast} from "@/components/feedback/toast";
 import {ConfirmationDialog} from "@/components/shared/confirmation-dialog";
 import {StatusBadge} from "@/components/shared/status-badge";
@@ -137,7 +141,7 @@ function ProviderVerificationReviewPanel({
           </h3>
           <StatusBadge status={application.status} label={providerVerificationLabel(application.status)} />
         </div>
-        <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
+        <DetailFieldList className="mt-4">
           <Detail label="Submitted" value={application.submittedAt} />
           <Detail label="Last reviewed" value={application.reviewedAt} />
           <Detail
@@ -155,7 +159,7 @@ function ProviderVerificationReviewPanel({
                 : "Privacy version unavailable",
             ].join(" · ")}
           />
-        </dl>
+        </DetailFieldList>
         <ExistingRemarks application={application} />
       </section>
 
@@ -163,11 +167,11 @@ function ProviderVerificationReviewPanel({
         <h3 id="owner-heading" className="text-lg font-bold">
           Owner profile
         </h3>
-        <dl className="mt-4 grid gap-3 sm:grid-cols-2">
+        <DetailFieldList className="mt-4">
           <Detail label="Name" value={application.owner.name} />
           <Detail label="Email" value={application.owner.email} />
-          <Detail label="Phone" value={application.owner.phone} />
-        </dl>
+          <Detail label="Phone" value={application.owner.phone} wide />
+        </DetailFieldList>
       </section>
 
       <section aria-labelledby="business-heading" className="rounded-card border border-border bg-card p-4 shadow-card">
@@ -187,7 +191,7 @@ function ProviderVerificationReviewPanel({
             aspect="wide"
           />
         </div>
-        <dl className="mt-4 grid gap-3 sm:grid-cols-2">
+        <DetailFieldList className="mt-4">
           <Detail label="Business name" value={application.business.name} />
           <Detail label="Service type" value={application.business.serviceType} />
           <Detail label="Business email" value={application.business.email} />
@@ -199,20 +203,21 @@ function ProviderVerificationReviewPanel({
               application.business.city,
               application.business.province,
             ].join(", ")}
+            wide
           />
           <Detail
             label="Description"
             value={application.business.description}
             wide
           />
-        </dl>
+        </DetailFieldList>
       </section>
 
       <section aria-labelledby="operations-heading" className="rounded-card border border-border bg-card p-4 shadow-card">
         <h3 id="operations-heading" className="text-lg font-bold">
           Services and operations
         </h3>
-        <dl className="mt-4 grid gap-3 sm:grid-cols-2">
+        <DetailFieldList className="mt-4">
           <Detail
             label="Service categories"
             value={application.operations.serviceCategories.length > 0
@@ -264,7 +269,7 @@ function ProviderVerificationReviewPanel({
             value={listLabel(application.operations.unavailableDates)}
             wide
           />
-        </dl>
+        </DetailFieldList>
       </section>
 
       <section aria-labelledby="documents-heading" className="rounded-card border border-border bg-card p-4 shadow-card">
@@ -639,7 +644,7 @@ function TaxProfileReviewSection({
         approval and independently from FEASTA&apos;s platform tax settings.
       </p>
 
-      <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
+      <DetailFieldList className="mt-4">
         <Detail
           label="BIR registered name"
           value={
@@ -687,7 +692,7 @@ function TaxProfileReviewSection({
               .rejectedAt
           }
         />
-      </dl>
+      </DetailFieldList>
 
       {taxProfile
         .rejectionReason ? (
@@ -958,12 +963,7 @@ function Detail({
   value: string;
   wide?: boolean;
 }) {
-  return (
-    <div className={wide ? "sm:col-span-2" : undefined}>
-      <dt className="text-sm font-semibold text-muted-foreground">{label}</dt>
-      <dd className="mt-1 break-words">{value}</dd>
-    </div>
-  );
+  return <DetailFieldItem label={label} value={value} wide={wide} />;
 }
 
 function MediaPreview({
@@ -1013,11 +1013,11 @@ function ExistingRemarks({
     ["Suspension reason", application.suspensionReason],
   ].filter((entry): entry is [string, string] => entry[1] != null);
   return entries.length > 0 ? (
-    <dl className="mt-4 grid gap-3 rounded-lg bg-muted p-3">
+    <DetailFieldList columns={1} className="mt-4">
       {entries.map(([label, value]) => (
         <Detail key={label} label={label} value={value} />
       ))}
-    </dl>
+    </DetailFieldList>
   ) : null;
 }
 

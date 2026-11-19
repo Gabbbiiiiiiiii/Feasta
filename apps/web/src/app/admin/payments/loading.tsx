@@ -17,50 +17,42 @@ export default function AdminPaymentsLoading() {
       <PageHeading
         eyebrow="Administration"
         title="Payments"
-        description="View payments, refunds, and provider payouts."
+        description="Monitor customer payments, refunds, and provider payouts."
       />
 
-            <section
+      <section
         className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"
         aria-label="Loading payment statistics"
       >
-        <SummaryCard
-          label="Net customer payments"
-          supportingMetric="Total payments received after refunds."
-          loading
-        />
-
-        <SummaryCard
-          label="Pending payments"
-          loading
-        />
-
-        <SummaryCard
-          label="Failed payments"
-          loading
-        />
-
-
-
-        <SummaryCard
-          label="Refunded amount"
-          loading
-        />
+        <SummaryCard label="Net customer payments" loading />
+        <SummaryCard label="Pending payments" loading />
+        <SummaryCard label="Failed payments" loading />
+        <SummaryCard label="Refunded amount" loading />
       </section>
 
-            <LoadingSkeleton
-        className="h-64 w-full rounded-card"
-        label="Loading provider payout issues"
-      />
+      <div className="overflow-hidden rounded-card border border-border bg-card shadow-card">
+        <div className="flex gap-6 border-b border-border px-5 py-3">
+          <LoadingSkeleton
+            className="h-6 w-36"
+            label="Loading Customer payments tab"
+          />
+          <LoadingSkeleton
+            className="h-6 w-36"
+            label="Loading Provider payouts tab"
+          />
+        </div>
 
-<LoadingSkeleton
-        className="h-44 w-full rounded-card"
-        label="Loading payment filters"
-      />
+        <div className="grid gap-4 p-4 sm:p-5">
+          <LoadingSkeleton
+            className="h-28 w-full rounded-xl"
+            label="Loading payment filters"
+          />
 
-      <TableLoadingSkeleton
-        caption="Loading payment monitoring records"
-      />
+          <TableLoadingSkeleton
+            caption="Loading payment monitoring records"
+          />
+        </div>
+      </div>
     </div>
   );
 }

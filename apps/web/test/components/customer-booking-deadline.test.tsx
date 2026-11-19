@@ -59,6 +59,6 @@ describe("FEASTA booking submission deadline", () => {
   it("identifies bookings that need a replacement provider", () => {
     expect(
       bookingStatusLabel("needs_provider_replacement"),
-    ).toBe("Provider replacement needed");
+    ).toBe("Needs replacement");
   });
 });

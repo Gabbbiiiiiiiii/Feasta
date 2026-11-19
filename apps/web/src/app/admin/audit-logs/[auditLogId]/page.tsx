@@ -2,6 +2,10 @@ import Link from "next/link";
 import {ArrowLeft} from "lucide-react";
 import {notFound} from "next/navigation";
 
+import {
+  DetailFieldItem,
+  DetailFieldList,
+} from "@/components/data/detail-field-list";
 import {PageHeading} from "@/components/layout/page-heading";
 import {Badge} from "@/components/ui/badge";
 import {Button} from "@/components/ui/button";
@@ -47,7 +51,7 @@ export default async function AdminAuditLogPage({
             </Badge>
           ) : null}
         </div>
-        <dl className="mt-4 grid gap-4 sm:grid-cols-2">
+        <DetailFieldList className="mt-4">
           <AuditField
             label="Date and time"
             value={formatDate(auditLog.createdAt)}
@@ -73,10 +77,10 @@ export default async function AdminAuditLogPage({
               wide
             />
           ) : null}
-        </dl>
+        </DetailFieldList>
         <details className="mt-6 rounded-lg border border-border p-4">
           <summary className="cursor-pointer font-semibold">Support references</summary>
-          <dl className="mt-4 grid gap-4 sm:grid-cols-2">
+          <DetailFieldList className="mt-4">
             <AuditField label="User reference" value={auditLog.actorId} />
             <AuditField
               label="Affected record"
@@ -91,7 +95,7 @@ export default async function AdminAuditLogPage({
               label="Reason code"
               value={auditLog.reasonCode ? humanize(auditLog.reasonCode) : "Not recorded"}
             />
-          </dl>
+          </DetailFieldList>
         </details>
       </section>
 
@@ -113,12 +117,7 @@ function AuditField({
   value: string;
   wide?: boolean;
 }) {
-  return (
-    <div className={wide ? "sm:col-span-2" : undefined}>
-      <dt className="text-sm font-semibold text-muted-foreground">{label}</dt>
-      <dd className="mt-1 break-words">{value}</dd>
-    </div>
-  );
+  return <DetailFieldItem label={label} value={value} wide={wide} />;
 }
 
 function PreviewSection({
@@ -132,20 +131,20 @@ function PreviewSection({
     <section className="rounded-card border border-border bg-card p-5 shadow-card">
       <h2 className="text-lg font-bold">{title}</h2>
       {fields.length > 0 ? (
-        <dl className="mt-4 divide-y divide-border">
+        <DetailFieldList columns={1} className="mt-4">
           {fields.map((field) => (
-            <div key={field.key} className="grid gap-1 py-3">
-              <dt className="break-words text-sm font-semibold text-muted-foreground">
-                {humanize(field.key)}
-              </dt>
-              <dd className="break-words text-sm">
-                {field.redacted
+            <DetailFieldItem
+              key={field.key}
+              label={humanize(field.key)}
+              value={
+                field.redacted
                   ? "Sensitive value redacted"
-                  : field.value}
-              </dd>
-            </div>
+                  : field.value
+              }
+              muted={field.redacted ? true : undefined}
+            />
           ))}
-        </dl>
+        </DetailFieldList>
       ) : (
         <p className="mt-3 text-sm text-muted-foreground">
           No safe preview is available.

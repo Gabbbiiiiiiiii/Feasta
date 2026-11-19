@@ -2,6 +2,10 @@
 
 import {useEffect, useState} from "react";
 
+import {
+  DetailFieldItem,
+  DetailFieldList,
+} from "@/components/data/detail-field-list";
 import {feastaToast} from "@/components/feedback/toast";
 import {FormField} from "@/components/forms/form-field";
 import {ConfirmationDialog} from "@/components/shared/confirmation-dialog";
@@ -368,20 +372,11 @@ export function PublishAgreementConfirmation({
       onOpenChange={onOpenChange}
     >
       <div className="grid gap-3 text-sm">
-        <dl className="grid gap-2">
-          <div>
-            <dt className="font-bold">Agreement</dt>
-            <dd>{agreementName}</dd>
-          </div>
-          <div>
-            <dt className="font-bold">Version</dt>
-            <dd>{version}</dd>
-          </div>
-          <div>
-            <dt className="font-bold">Effective date</dt>
-            <dd>{effectiveDate}</dd>
-          </div>
-        </dl>
+        <DetailFieldList columns={1}>
+          <DetailFieldItem label="Agreement" value={agreementName} />
+          <DetailFieldItem label="Version" value={version} />
+          <DetailFieldItem label="Effective date" value={effectiveDate} />
+        </DetailFieldList>
         <p>Publishing makes this version current and preserves it in version history. Published text cannot be edited in place.</p>
         {replacement ? (
           <p>Publishing Version {version} will archive current Version {currentVersion}.</p>
@@ -650,20 +645,11 @@ function VersionDetails({version}: {version: AgreementVersionRecord}) {
   return (
     <div className="grid gap-4 text-sm">
       {version.summary ? <p className="whitespace-pre-wrap text-muted-foreground">{version.summary}</p> : null}
-      <dl className="grid gap-2 sm:grid-cols-3">
-        <div>
-          <dt className="font-bold">Version</dt>
-          <dd>{version.version}</dd>
-        </div>
-        <div>
-          <dt className="font-bold">Effective date</dt>
-          <dd>{version.effectiveDate}</dd>
-        </div>
-        <div>
-          <dt className="font-bold">Status</dt>
-          <dd>{versionStatusLabel(version.status)}</dd>
-        </div>
-      </dl>
+      <DetailFieldList columns={3}>
+        <DetailFieldItem label="Version" value={version.version} />
+        <DetailFieldItem label="Effective date" value={version.effectiveDate} />
+        <DetailFieldItem label="Status" value={versionStatusLabel(version.status)} />
+      </DetailFieldList>
       {version.sections.map((section, index) => (
         <section key={`${section.title}-${index}`} className="grid gap-2">
           <h3 className="font-bold">{section.title}</h3>

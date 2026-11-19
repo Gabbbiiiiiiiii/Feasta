@@ -19,6 +19,10 @@ import {
 import {loadAdminAuditLogsAction} from "@/app/admin/audit-logs/actions";
 import {CursorPagination} from "@/components/data/cursor-pagination";
 import {DataTable, type DataTableColumn} from "@/components/data/data-table";
+import {
+  DetailFieldItem,
+  DetailFieldList,
+} from "@/components/data/detail-field-list";
 import {FilterToolbar} from "@/components/data/filter-toolbar";
 import {SummaryCard} from "@/components/data/summary-card";
 import {PhilippineDateInput} from "@/components/forms/philippine-date-input";
@@ -413,19 +417,16 @@ function AuditLogMobileCard({auditLog}: {auditLog: AdminAuditLog}) {
 
       </div>
 
-      <dl className="grid gap-3 text-sm">
-        <div>
-          <dt className="font-semibold text-muted-foreground">Affected item</dt>
-          <dd className="mt-1 break-all">
-            {humanize(auditLog.targetCollection)}
-          </dd>
-        </div>
-
-        <div>
-          <dt className="font-semibold text-muted-foreground">Summary</dt>
-          <dd className="mt-1 break-words">{auditLog.summary}</dd>
-        </div>
-      </dl>
+      <DetailFieldList columns={1}>
+        <DetailFieldItem
+          label="Affected item"
+          value={humanize(auditLog.targetCollection)}
+        />
+        <DetailFieldItem
+          label="Summary"
+          value={auditLog.summary}
+        />
+      </DetailFieldList>
 
       <Button asChild variant="secondary" size="compact">
         <Link href={`/admin/audit-logs/${auditLog.id}`}>

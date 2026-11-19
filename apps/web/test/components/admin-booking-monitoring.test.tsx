@@ -9,10 +9,15 @@ const mocks = vi.hoisted(() => ({load: vi.fn()}));
 vi.mock("@/app/admin/bookings/actions", () => ({loadAdminBookingsAction: mocks.load}));
 const page: AdminBookingPage = {
   bookings: [], hasMore: false, nextCursor: null,
-  statistics: {totalBookings: 9, availableStatuses: [...MAIN_EVENT_STATUSES], pendingApproval: 0, waitingForPayment: 0, confirmed: 0,
+  statistics: {
+    totalBookings: 9,
+    availableStatuses: [...MAIN_EVENT_STATUSES],
+    availablePaymentStatuses: ["unpaid", "pending", "processing", "partially_paid", "paid", "failed", "expired", "refunded"],
+    pendingApproval: 0, waitingForPayment: 0, confirmed: 0,
     inProgress: 0, completed: 0, needsProviderReplacement: 0, cancelledOrExpired: 0,
     totalProviderRequests: 0, pendingProviderRequests: 0, confirmedProviderRequests: 0,
-    totalPaidAmount: 26000, totalRefundedAmount: 0},
+    totalPaidAmount: 26000, totalRefundedAmount: 0,
+  },
 };
 beforeEach(() => {mocks.load.mockReset().mockResolvedValue(page);});
 afterEach(() => vi.useRealTimers());
@@ -64,6 +69,21 @@ describe("booking status filters", () => {
     ).toEqual(["Confirmed", "Completed"]);
   });
 
+  it("only offers payment statuses actually present across bookings in the database", () => {
+    render(<BookingMonitoringClient initialPage={{
+      ...page,
+      statistics: {...page.statistics, availablePaymentStatuses: ["unpaid", "partially_paid", "paid"]},
+    }} />);
+    const paymentSelect = screen.getByLabelText("Payment status");
+    const options = Array.from(paymentSelect.querySelectorAll("option"));
+    expect(options.map((option) => option.textContent)).toEqual([
+      "All payment statuses",
+      "Unpaid",
+      "Partially paid",
+      "Paid",
+    ]);
+  });
+
   it.each(Object.entries(adminBookingStatusLabels))("passes %s unchanged and consistently displays %s", async (value, label) => {
     show();
     expect(within(screen.getByLabelText("Booking status")).getByRole("option", {name: label})).toHaveValue(value);
@@ -73,7 +93,7 @@ describe("booking status filters", () => {
     expect(screen.getByText("No bookings match the current search and filters.")).toBeInTheDocument();
     expect(screen.queryByText("Status: Waiting For Down Payment")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", {name: "Clear filters"}));
-    await waitFor(() => expect(mocks.load).toHaveBeenLastCalledWith(expect.objectContaining({status: "all", paymentStatus: "all", date: "all", cursor: null})));
+    await waitFor(() => expect(mocks.load).toHaveBeenLastCalledWith(expect.objectContaining({status: "all", paymentStatus: "all", eventDateFrom: "", eventDateTo: "", cursor: null})));
   });
 });
 
@@ -85,29 +105,42 @@ it.each(Object.entries(adminBookingPaymentLabels).filter(([value]) => !["partial
     expect(mocks.load).toHaveBeenLastCalledWith(expect.objectContaining({paymentStatus: value}));
     expect(screen.getByText(new RegExp(`Payment: ${label}`))).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", {name: "Clear filters"}));
-    await waitFor(() => expect(mocks.load).toHaveBeenLastCalledWith(expect.objectContaining({paymentStatus: "all"})));
+    await waitFor(() => expect(mocks.load).toHaveBeenLastCalledWith(expect.objectContaining({paymentStatus: "all", eventDateFrom: "", eventDateTo: ""})));
   },
 );
 
-it.each([["all", "All event dates"], ["today", "Today"], ["upcoming", "Future dates"], ["past", "Past dates"]])(
-  "uses event date %s (%s)", async (value, label) => {
-    show();
-    expect(within(screen.getByLabelText("Event date")).getByRole("option", {name: label})).toHaveValue(value);
-    await select("Event date", value);
-    expect(mocks.load).toHaveBeenLastCalledWith(expect.objectContaining({date: value}));
-    if (value !== "all") expect(screen.getByText(new RegExp(`Date: ${label}`))).toBeInTheDocument();
-  },
-);
+it("defaults both event date filters to today and supports custom from/to ranges", async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date("2026-10-06T02:00:00Z"));
+  show();
+
+  const fromInput = screen.getByLabelText("Event date from");
+  const toInput = screen.getByLabelText("Event date to");
+  expect(fromInput).toHaveValue("2026-10-06");
+  expect(toInput).toHaveValue("2026-10-06");
+  expect(screen.getByText(/Event date: October 6, 2026/)).toBeInTheDocument();
+
+  await act(async () => {fireEvent.change(fromInput, {target: {value: "2026-10-10"}});});
+  expect(mocks.load).toHaveBeenLastCalledWith(expect.objectContaining({eventDateFrom: "2026-10-10", eventDateTo: "2026-10-10"}));
+
+  await act(async () => {fireEvent.change(toInput, {target: {value: "2026-10-15"}});});
+  expect(mocks.load).toHaveBeenLastCalledWith(expect.objectContaining({eventDateFrom: "2026-10-10", eventDateTo: "2026-10-15"}));
+  expect(screen.getByText(/Event date: October 10, 2026 – October 15, 2026/)).toBeInTheDocument();
+
+  await act(async () => {fireEvent.change(toInput, {target: {value: "2026-10-08"}});});
+  expect(mocks.load).toHaveBeenLastCalledWith(expect.objectContaining({eventDateFrom: "2026-10-08", eventDateTo: "2026-10-08"}));
+});
 
 it("keeps combined filters, unsent search text and current data through refresh and failure", async () => {
   vi.useFakeTimers();
+  vi.setSystemTime(new Date("2026-10-06T02:00:00Z"));
   show();
-  for (const [label, value] of [["Booking status", "waiting_for_down_payment"], ["Payment status", "processing"], ["Event date", "upcoming"]]) {
+  for (const [label, value] of [["Booking status", "waiting_for_down_payment"], ["Payment status", "processing"], ["Event date from", "2026-10-01"], ["Event date to", "2026-10-20"]]) {
     await act(async () => {fireEvent.change(screen.getByLabelText(label), {target: {value}});});
   }
   fireEvent.change(screen.getByLabelText("Search by booking code prefix"), {target: {value: "BK-unsent"}});
   const expected = {...mocks.load.mock.lastCall![0], search: "BK-unsent", cursor: null} as AdminBookingFilters;
-  expect(expected).toMatchObject({status: "waiting_for_down_payment", paymentStatus: "processing", date: "upcoming"});
+  expect(expected).toMatchObject({status: "waiting_for_down_payment", paymentStatus: "processing", eventDateFrom: "2026-10-01", eventDateTo: "2026-10-20"});
   await act(async () => {await vi.advanceTimersByTimeAsync(275);});
   const readsBefore = mocks.load.mock.calls.length;
   await act(async () => {await vi.advanceTimersByTimeAsync(5_000);});
@@ -341,4 +374,27 @@ it("keeps an open booking drawer through live searches", async () => {
   fireEvent.change(screen.getByRole("searchbox", {hidden: true}), {target: {value: "b"}});
   await act(async () => {await vi.advanceTimersByTimeAsync(275);});
   expect(screen.getByRole("dialog", {name: "Booking BK-001"})).toBeInTheDocument();
+});
+
+it("renders booking status badges as compact single-line rounded badges with concise copy", () => {
+  render(
+    <BookingMonitoringClient
+      initialPage={{
+        ...page,
+        bookings: [{...booking, status: "needs_provider_replacement"}],
+      }}
+    />,
+  );
+
+  const badgeText = within(screen.getByRole("table")).getByText(
+    "Needs replacement",
+  );
+  const badge = badgeText.parentElement;
+  expect(badge?.className).toContain("rounded-md");
+  expect(badge?.className).toContain("whitespace-nowrap");
+  expect(badge?.className).not.toContain("rounded-pill");
+  expect(badge).toHaveAttribute(
+    "title",
+    "Provider replacement needed — at least one provider request was rejected or expired.",
+  );
 });

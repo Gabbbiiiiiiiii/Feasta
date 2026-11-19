@@ -21,6 +21,10 @@ import {
 import { useState } from "react";
 
 import { AdminUserAvatar } from "@/components/admin/users/admin-user-avatar";
+import {
+  DetailFieldItem,
+  DetailFieldList,
+} from "@/components/data/detail-field-list";
 import type {
   AdminUser,
   AdminUserActivityEntry,
@@ -154,15 +158,9 @@ function DetailRow({
   children: React.ReactNode;
 }) {
   return (
-    <div className="grid gap-1 py-2 sm:grid-cols-[9rem_1fr] sm:gap-4">
-      <dt className="text-xs font-medium text-muted-foreground">
-        {label}
-      </dt>
-
-      <dd className="min-w-0 break-words text-sm text-foreground">
-        {children}
-      </dd>
-    </div>
+    <DetailFieldItem variant="row" label={label}>
+      {children}
+    </DetailFieldItem>
   );
 }
 
@@ -316,51 +314,28 @@ function BookingDetailsTab({
               </span>
             </div>
 
-            <dl className="mt-3 grid gap-2 text-sm sm:grid-cols-2">
-              <div>
-                <dt className="text-xs text-muted-foreground">
-                  Event date
-                </dt>
-                <dd className="mt-0.5">
-                  {formatDate(
-                    booking.eventDate,
-                  )}
-                </dd>
-              </div>
-
-              <div>
-                <dt className="text-xs text-muted-foreground">
-                  Created
-                </dt>
-                <dd className="mt-0.5">
-                  {formatDate(
-                    booking.createdAt,
-                  )}
-                </dd>
-              </div>
-
+            <DetailFieldList className="mt-3">
+              <DetailFieldItem
+                label="Event date"
+                value={formatDate(booking.eventDate)}
+              />
+              <DetailFieldItem
+                label="Created"
+                value={formatDate(booking.createdAt)}
+              />
               {booking.providerRequestStatus ? (
-                <div>
-                  <dt className="text-xs text-muted-foreground">
-                    Provider request
-                  </dt>
-                  <dd className="mt-0.5">
-                    {adminProviderRequestLabel(booking.providerRequestStatus)}
-                  </dd>
-                </div>
+                <DetailFieldItem
+                  label="Provider service status"
+                  value={adminProviderRequestLabel(booking.providerRequestStatus)}
+                />
               ) : null}
-
               {booking.paymentStatus ? (
-                <div>
-                  <dt className="text-xs text-muted-foreground">
-                    Payment
-                  </dt>
-                  <dd className="mt-0.5">
-                    {adminBookingPaymentLabel(booking.paymentStatus)}
-                  </dd>
-                </div>
+                <DetailFieldItem
+                  label="Payment"
+                  value={adminBookingPaymentLabel(booking.paymentStatus)}
+                />
               ) : null}
-            </dl>
+            </DetailFieldList>
           </li>
         ))}
       </ul>
@@ -718,7 +693,7 @@ function UserDetailsContent({
               Account Information
             </h4>
 
-            <dl className="mt-3 divide-y divide-border rounded-xl border border-border bg-card px-4">
+            <DetailFieldList layout="rows" className="mt-3">
               <DetailRow label="Registered">
                 <span className="inline-flex items-center gap-2">
                   <CalendarDays
@@ -760,7 +735,7 @@ function UserDetailsContent({
                   }
                 />
               </DetailRow>
-            </dl>
+            </DetailFieldList>
           </section>
 
           {user.role === "provider" ? (
@@ -769,7 +744,7 @@ function UserDetailsContent({
                 Business Information
               </h4>
 
-              <dl className="mt-3 divide-y divide-border rounded-xl border border-border bg-card px-4">
+              <DetailFieldList layout="rows" className="mt-3">
                 <DetailRow label="Business name">
                   <span className="inline-flex items-center gap-2">
                     <Building2
@@ -803,7 +778,7 @@ function UserDetailsContent({
                     )}
                   </span>
                 </DetailRow>
-              </dl>
+              </DetailFieldList>
             </section>
           ) : null}
         </div>

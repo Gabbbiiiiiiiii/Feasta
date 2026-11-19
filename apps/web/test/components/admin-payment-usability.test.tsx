@@ -316,6 +316,43 @@ it("has one overview, a labelled dialog, and collapsed technical history", async
   await userEvent.click(summary);
   expect(advanced).toHaveAttribute("open");
 });
+it("keeps primary booking details concise and moves linked record statuses under Additional details", () => {
+  const waitingDetails: AdminPaymentDetails = {
+    ...details,
+    booking: {
+      ...details.booking,
+      status: "waiting_for_down_payment",
+      paymentStatus: "unpaid",
+      eventType: "birthday",
+    },
+    providerRequest: {
+      ...details.providerRequest,
+      status: "payment_processing",
+    },
+  };
+  render(
+    <PaymentDetailsDrawer
+      payment={payment}
+      details={waitingDetails}
+      open
+      loading={false}
+      onRetry={vi.fn()}
+      onOpenChange={vi.fn()}
+    />,
+  );
+  const bookingSection = screen.getByRole("heading", {name: "Booking"}).closest("section")!;
+  expect(within(bookingSection).getByText("Awaiting payment")).toBeVisible();
+  expect(within(bookingSection).getByText("Birthday")).toBeVisible();
+  expect(within(bookingSection).queryByText("Waiting For Down Payment")).not.toBeInTheDocument();
+  expect(within(bookingSection).queryByText("Booking payment status")).not.toBeInTheDocument();
+  expect(within(bookingSection).queryByText("Provider response")).not.toBeInTheDocument();
+
+  const advanced = screen.getByText("Additional details").closest("details")!;
+  expect(within(advanced).getByText("Booking payment status")).toBeInTheDocument();
+  expect(within(advanced).getByText("Unpaid")).toBeInTheDocument();
+  expect(within(advanced).getByText("Provider service status")).toBeInTheDocument();
+  expect(within(advanced).getByText("Awaiting payment confirmation")).toBeInTheDocument();
+});
 it("refund monitoring remains read-only for full, partial, and pending refunds", () => {
   expect(refundMonitoringLabel({...payment, status: "refunded", refundedAmountFormatted: "₱5,000.00"})).toBe("Refunded: ₱5,000.00");
   expect(refundMonitoringLabel({...payment, status: "partially_refunded", refundedAmountFormatted: "₱2,000.00"})).toBe("Partially refunded: ₱2,000.00");

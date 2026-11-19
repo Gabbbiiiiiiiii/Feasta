@@ -32,6 +32,10 @@ import {
   DetailDrawer,
 } from "@/components/data/detail-drawer";
 import {
+  DetailFieldItem,
+  DetailFieldList,
+} from "@/components/data/detail-field-list";
+import {
   FilterToolbar,
 } from "@/components/data/filter-toolbar";
 import {
@@ -1146,24 +1150,16 @@ function DetailSection({
         {title}
       </h3>
 
-      <dl className="mt-3 divide-y divide-border rounded-xl border border-border bg-card px-4">
-        {rows.map(
-          ([label, value]) => (
-            <div
-              key={label}
-              className="grid gap-1 py-3 sm:grid-cols-[9rem_1fr]"
-            >
-              <dt className="text-sm font-semibold text-muted-foreground">
-                {label}
-              </dt>
-
-              <dd className="min-w-0 break-words text-sm">
-                {value}
-              </dd>
-            </div>
-          ),
-        )}
-      </dl>
+      <DetailFieldList layout="rows" className="mt-3">
+        {rows.map(([label, value]) => (
+          <DetailFieldItem
+            key={label}
+            variant="row"
+            label={label}
+            value={value}
+          />
+        ))}
+      </DetailFieldList>
     </section>
   );
 }

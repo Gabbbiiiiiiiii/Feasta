@@ -29,9 +29,39 @@ beforeEach(() => {state.records = {
   "payments/payment_test": {mainEventId: "event_test", providerRequestId: "request_test", status: "paid", amount: 2500, amountInCentavos: 250000},
   "providers/provider_test": {businessName: "Test provider"},
 };});
-const load = async () => (await getAdminBookingPage({search: "", status: "all", paymentStatus: "all", date: "all", sortField: "createdAt", sortDirection: "descending", pageSize: 10}, {freshStatistics: true})).bookings[0];
+const loadPage = (paymentStatus: "all" | "unpaid" | "partially_paid" | "paid" = "all") =>
+  getAdminBookingPage(
+    {search: "", status: "all", paymentStatus, eventDateFrom: "", eventDateTo: "", sortField: "createdAt", sortDirection: "descending", pageSize: 10},
+    {freshStatistics: true},
+  );
+const load = async () => (await loadPage()).bookings[0];
 it("Admin booking projects a canonical deposit as partially paid despite legacy states", async () => {
-  expect(await load()).toMatchObject({paymentStatus: "partially_paid", providerRequests: [{paymentStatus: "partially_paid"}]});
+  const page = await loadPage();
+  expect(page.bookings[0]).toMatchObject({paymentStatus: "partially_paid", providerRequests: [{paymentStatus: "partially_paid"}]});
+  expect(page.statistics.availablePaymentStatuses).toEqual(["partially_paid"]);
+});
+it("filters bookings by real derived payment status instead of stale mainEvents.paymentStatus", async () => {
+  const partiallyPaid = await loadPage("partially_paid");
+  expect(partiallyPaid.bookings.map((booking) => booking.id)).toEqual(["event_test"]);
+
+  const unpaid = await loadPage("unpaid");
+  expect(unpaid.bookings).toHaveLength(0);
+});
+it("projects newly created unpaid provider requests as unpaid rather than unavailable", async () => {
+  state.records["mainEvents/event_unpaid"] = {
+    mainEventId: "event_unpaid", bookingId: "event_unpaid", customerId: "customer_test",
+    status: "pending_provider_approval", paymentStatus: "unpaid", totalAmount: 3000, providerRequestIds: ["request_unpaid"],
+  };
+  state.records["providerRequests/request_unpaid"] = {
+    mainEventId: "event_unpaid", providerId: "provider_test", customerId: "customer_test",
+    status: "pending", paymentStatus: "unpaid", amount: 3000,
+  };
+
+  const all = await loadPage("all");
+  expect(all.statistics.availablePaymentStatuses).toEqual(["unpaid", "partially_paid"]);
+
+  const unpaid = await loadPage("unpaid");
+  expect(unpaid.bookings.map((booking) => booking.id)).toEqual(["event_unpaid"]);
 });
 it("malformed canonical settlement does not fall back to legacy paid", async () => {
   state.records["providerRequests/request_test"].outstandingAmountInCentavos = 0;

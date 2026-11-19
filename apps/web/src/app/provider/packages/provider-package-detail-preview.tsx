@@ -2,6 +2,7 @@
 
 import type {ReactNode} from "react";
 import {ImageGallery} from "@/components/customer/discovery/image-gallery";
+import {DetailFieldItem, DetailFieldList} from "@/components/data/detail-field-list";
 import {PackagePaymentTerms} from "@/components/shared/package-payment-terms";
 import {PriceDisplay} from "@/components/shared/price-display";
 import {StatusBadge, humanize} from "@/components/shared/status-badge";
@@ -34,15 +35,15 @@ export function ProviderPackageDetailPreview({item, serviceCategoryLabel}: {
       className="grid min-h-0 min-w-0 gap-5 overflow-y-auto overscroll-contain px-5 py-5 text-sm [overflow-wrap:anywhere] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring sm:px-6">
       <PreviewSection title="Package overview">
         <StatusBadge status={item.status} />
-        <dl className="grid gap-3 sm:grid-cols-2">
+        <DetailFieldList>
           {[
             ["Event type", humanize(item.eventType)],
             ["Service category", serviceCategoryLabel || (item.serviceCategoryCode ? humanize(item.serviceCategoryCode) : "Not specified")],
             ["Minimum guests", item.minimumGuests],
             ["Maximum guests", item.maximumGuests],
-          ].map(([label, value]) => <div key={label} className="min-w-0"><dt className="text-muted-foreground">{label}</dt><dd className="font-medium">{value}</dd></div>)}
-          <div className="min-w-0"><dt className="text-muted-foreground">Starting package price</dt><dd><PriceDisplay amount={packageStartingPrice(item.serviceOptions) ?? item.price} /></dd></div>
-        </dl>
+          ].map(([label, value]) => <DetailFieldItem key={String(label)} label={String(label)} value={value} />)}
+          <DetailFieldItem label="Starting package price" wide><PriceDisplay amount={packageStartingPrice(item.serviceOptions) ?? item.price} /></DetailFieldItem>
+        </DetailFieldList>
         <div><h4 className="font-semibold">Description</h4><p className="whitespace-pre-line text-muted-foreground">{item.description || "No package description provided."}</p></div>
       </PreviewSection>
       <PreviewSection title="Package photos">

@@ -527,12 +527,12 @@ function ReadOnlyDetail({
   value: string;
 }) {
   return (
-    <div className="min-w-0 rounded-lg border border-border bg-muted/40 p-4">
-      <dt className="flex items-center gap-2 text-sm font-bold text-muted-foreground">
-        <Icon className="size-4 shrink-0" aria-hidden="true" />
+    <div className="min-w-0 rounded-lg border border-border/70 bg-secondary/55 px-3.5 py-2.5">
+      <dt className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wider text-muted-foreground/80">
+        <Icon className="size-3.5 shrink-0 text-primary/80" aria-hidden="true" />
         {label}
       </dt>
-      <dd className="mt-2 break-words font-semibold">{value}</dd>
+      <dd className="mt-1 break-words text-sm font-semibold text-foreground">{value}</dd>
     </div>
   );
 }

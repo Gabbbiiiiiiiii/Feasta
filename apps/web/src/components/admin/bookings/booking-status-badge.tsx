@@ -12,6 +12,7 @@ import {
   Badge,
   type BadgeProps,
 } from "@/components/ui/badge";
+import {cn} from "@/lib/utils";
 
 type BookingStatus =
   | MainEventStatus
@@ -112,6 +113,22 @@ const STATUS_PRESENTATIONS:
     },
   };
 
+const TONE_BORDER_CLASSES: Record<
+  NonNullable<BadgeProps["tone"]>,
+  string
+> = {
+  neutral: "border-border",
+  success: "border-success/25",
+  warning: "border-warning/25",
+  destructive: "border-destructive/25",
+  info: "border-info/25",
+};
+
+const STATUS_DESCRIPTIONS: Partial<Record<string, string>> = {
+  needs_provider_replacement:
+    "Provider replacement needed — at least one provider request was rejected or expired.",
+};
+
 function BookingStatusBadge({
   status,
   className,
@@ -121,13 +138,28 @@ function BookingStatusBadge({
     STATUS_PRESENTATIONS[status] ?? {
       tone: "neutral" as const,
     };
+  const label =
+    kind === "payment"
+      ? adminBookingPaymentLabel(status)
+      : kind === "provider"
+        ? adminProviderRequestLabel(status as ProviderRequestStatus)
+        : adminBookingStatusLabel(status);
+  const title =
+    kind === "booking" ? (STATUS_DESCRIPTIONS[status] ?? label) : label;
 
   return (
     <Badge
       tone={presentation.tone}
-      className={className}
+      shape="rounded"
+      size="compact"
+      title={title}
+      className={cn(
+        "whitespace-nowrap",
+        TONE_BORDER_CLASSES[presentation.tone],
+        className,
+      )}
     >
-      {kind === "payment" ? adminBookingPaymentLabel(status) : kind === "provider" ? adminProviderRequestLabel(status as ProviderRequestStatus) : adminBookingStatusLabel(status)}
+      {label}
     </Badge>
   );
 }
