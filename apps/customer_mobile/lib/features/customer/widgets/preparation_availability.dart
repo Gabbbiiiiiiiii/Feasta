@@ -16,6 +16,7 @@ class PreparationAvailability extends StatefulWidget {
     required this.start,
     required this.end,
     required this.guests,
+    this.serviceTier,
     this.addonIds = const [],
     this.providerName = 'Provider',
     this.check,
@@ -25,6 +26,7 @@ class PreparationAvailability extends StatefulWidget {
   final DateTime? date;
   final TimeOfDay? start, end;
   final int guests;
+  final String? serviceTier;
   final List<String> addonIds;
   final PreparationAvailabilityCheck? check;
   @override
@@ -66,20 +68,23 @@ class _PreparationAvailabilityState extends State<PreparationAvailability> {
   }
 
   void _schedule() {
-    final date = widget.date, start = widget.start, end = widget.end;
+    final date = widget.date;
+    final start = widget.start;
+    final end = widget.end;
+    final dropOff = widget.serviceTier == 'drop_off';
     Map<String, dynamic>? input;
     if (date != null &&
         start != null &&
-        end != null &&
         widget.guests > 0 &&
-        end.hour * 60 + end.minute > start.hour * 60 + start.minute &&
         DateTime(
           date.year,
           date.month,
           date.day,
           start.hour,
           start.minute,
-        ).isAfter(DateTime.now())) {
+        ).isAfter(DateTime.now()) &&
+        end != null &&
+        end.hour * 60 + end.minute > start.hour * 60 + start.minute) {
       String time(TimeOfDay value) =>
           '${value.hour.toString().padLeft(2, '0')}:${value.minute.toString().padLeft(2, '0')}';
       input = {
@@ -89,6 +94,7 @@ class _PreparationAvailabilityState extends State<PreparationAvailability> {
             '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}',
         'eventTime': time(start),
         'eventEndTime': time(end),
+        if (widget.serviceTier != null) 'serviceTier': widget.serviceTier,
         'guestCount': widget.guests,
       };
     }
@@ -101,8 +107,10 @@ class _PreparationAvailabilityState extends State<PreparationAvailability> {
     final generation = ++_generation;
     _timer?.cancel();
     _message = input == null
-        ? 'Select a valid date, start/end time and guest count to check availability.'
-        : 'Checking availability?';
+        ? (dropOff
+              ? 'Select a valid date, estimated drop-off time, end time and guest count to check availability.'
+              : 'Select a valid date, start/end time and guest count to check availability.')
+        : 'Checking availability…';
     if (input != null) {
       final payload = input;
       _timer = Timer(

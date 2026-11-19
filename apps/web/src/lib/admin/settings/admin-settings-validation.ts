@@ -1,5 +1,8 @@
 import {
   BASIS_POINTS_SCALE,
+  DEFAULT_PLATFORM_COMMISSION_MODEL,
+  DEFAULT_PLATFORM_COMMISSION_RATE_BPS,
+  parsePlatformCommissionModel,
   parseTaxRegistrationStatus,
 } from "@feasta/shared-types";
 
@@ -21,6 +24,7 @@ const allowedPlatformInputKeys =
 const allowedFinancialInputKeys =
   new Set([
     "platformCommissionRateBps",
+    "platformCommissionModel",
     "platformTaxStatus",
     "platformVatRateBps",
     "minimumDepositRateBps",
@@ -128,11 +132,34 @@ export function validateAdminFinancialPolicyUpdate(
     allowedFinancialInputKeys,
   );
 
+  const platformCommissionModel =
+    parsePlatformCommissionModel(
+      input.platformCommissionModel,
+    );
+
+  if (
+    platformCommissionModel !==
+      DEFAULT_PLATFORM_COMMISSION_MODEL
+  ) {
+    throw new Error(
+      "FEASTA commission must use the tiered capped 2% policy.",
+    );
+  }
+
   const platformCommissionRateBps =
     requiredBasisPointRate(
       input.platformCommissionRateBps,
       "Platform commission rate",
     );
+
+  if (
+    platformCommissionRateBps !==
+      DEFAULT_PLATFORM_COMMISSION_RATE_BPS
+  ) {
+    throw new Error(
+      "FEASTA commission base rate must be 2%.",
+    );
+  }
 
   const platformTaxStatus =
     parseTaxRegistrationStatus(
@@ -213,6 +240,7 @@ export function validateAdminFinancialPolicyUpdate(
 
   return {
     platformCommissionRateBps,
+    platformCommissionModel,
     platformTaxStatus,
     platformVatRateBps,
 

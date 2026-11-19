@@ -4,12 +4,14 @@ import {
   getAdminFinanceAttentionQueue,
   getAdminPaymentDetails,
   getAdminPaymentPage,
+  getAdminProviderPayoutBoard,
 } from "@/lib/admin/payments/admin-payment-service";
 import type {
   AdminFinanceAttentionQueue,
   AdminPaymentDetailsResult,
   AdminPaymentFilters,
   AdminPaymentPage,
+  AdminProviderPayoutBoard,
 } from "@/lib/admin/payments/admin-payment-types";
 
 export async function loadAdminPaymentsAction(
@@ -22,6 +24,12 @@ export async function loadAdminFinanceAttentionQueueAction(): Promise<
   AdminFinanceAttentionQueue
 > {
   return getAdminFinanceAttentionQueue();
+}
+
+export async function loadAdminProviderPayoutBoardAction(): Promise<
+  AdminProviderPayoutBoard
+> {
+  return getAdminProviderPayoutBoard();
 }
 
 export async function loadAdminPaymentDetailsAction(

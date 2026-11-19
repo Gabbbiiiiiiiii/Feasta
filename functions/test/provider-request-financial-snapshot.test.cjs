@@ -99,7 +99,13 @@ test(
           3000,
 
         platformCommissionRateBps:
-          1000,
+          200,
+
+        platformCommissionModel:
+          "tiered_capped_2pct_v1",
+
+        platformCommissionTotalInCentavos:
+          50_000,
 
         platformTaxStatus:
           "non_vat",
@@ -142,6 +148,9 @@ test(
             platformCommissionRateBps:
               1250,
 
+            platformCommissionModel:
+              "tiered_capped_2pct_v1",
+
             platformTaxStatus:
               "vat_registered",
 
@@ -160,7 +169,18 @@ test(
     assert.equal(
       result
         .platformCommissionRateBps,
-      1250,
+      200,
+    );
+
+    assert.equal(
+      result.platformCommissionModel,
+      "tiered_capped_2pct_v1",
+    );
+
+    assert.equal(
+      result
+        .platformCommissionTotalInCentavos,
+      50_000,
     );
 
     assert.equal(

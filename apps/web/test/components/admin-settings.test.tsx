@@ -38,7 +38,10 @@ const initialSettings: AdminPlatformSettings = {
     "FEASTA serves customers and verified event service providers in Ormoc City.",
 
   platformCommissionRateBps:
-    1000,
+    200,
+
+  platformCommissionModel:
+    "tiered_capped_2pct_v1",
 
   platformTaxStatus:
     "non_vat",

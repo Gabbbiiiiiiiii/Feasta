@@ -31,12 +31,30 @@ export const MAX_BALANCE_DUE_DAYS_BEFORE_EVENT = 30;
 /**
  * Initial FEASTA business-policy defaults.
  *
- * These are defaults only. Later phases will load
- * versioned Admin/platform configuration instead
- * of permanently relying on these constants.
+ * These are defaults only. Versioned Admin/platform
+ * configuration in `appSettings/platform` is the
+ * authority for new financial snapshots.
  */
-export const DEFAULT_PLATFORM_COMMISSION_RATE_BPS = 1_000;
+export const DEFAULT_PLATFORM_COMMISSION_RATE_BPS = 200;
 export const DEFAULT_PLATFORM_VAT_RATE_BPS = 1_200;
+/**
+ * Provider-friendly tiered capped commission model.
+ *
+ * Fixed 2% base with dynamic caps so high-value
+ * bookings are not charged a large flat percentage.
+ */
+export const PLATFORM_COMMISSION_MODEL_TIERED_CAPPED_2PCT_V1 = "tiered_capped_2pct_v1";
+export const DEFAULT_PLATFORM_COMMISSION_MODEL = PLATFORM_COMMISSION_MODEL_TIERED_CAPPED_2PCT_V1;
+/** ₱25,000 — end of pure 2% band (inclusive). */
+export const TIERED_COMMISSION_PURE_RATE_MAX_CENTAVOS = 2_500_000;
+/** ₱75,000 — end of fixed ₱500 band (inclusive). */
+export const TIERED_COMMISSION_STANDARD_CAP_MAX_CENTAVOS = 7_500_000;
+/** ₱100,000 — absolute-cap floor (inclusive). */
+export const TIERED_COMMISSION_ABSOLUTE_CAP_MIN_CENTAVOS = 10_000_000;
+/** ₱500 standard commission cap. */
+export const TIERED_COMMISSION_STANDARD_CAP_CENTAVOS = 50_000;
+/** ₱1,000 absolute maximum commission. */
+export const TIERED_COMMISSION_ABSOLUTE_CAP_CENTAVOS = 100_000;
 export function parsePackagePaymentPolicy(value) {
     return PACKAGE_PAYMENT_POLICIES.includes(value)
         ? value
@@ -156,6 +174,80 @@ export function allocateCumulativeBasisPoints(input) {
     }
     return (targetAfter -
         alreadyAllocatedInCentavos);
+}
+/**
+ * FEASTA tiered capped commission on booking gross.
+ *
+ * - ₱0–₱25,000: 2% of gross
+ * - Above ₱25,000–₱75,000: fixed ₱500
+ * - Above ₱75,000–below ₱100,000:
+ *   ₱500 + 2% of (gross − ₱75,000)
+ * - ₱100,000+: fixed ₱1,000 absolute max
+ */
+export function computeTieredCappedCommissionInCentavos(grossAmountInCentavos) {
+    if (!isNonNegativeSafeInteger(grossAmountInCentavos)) {
+        return null;
+    }
+    if (grossAmountInCentavos <=
+        TIERED_COMMISSION_PURE_RATE_MAX_CENTAVOS) {
+        return applyBasisPoints(grossAmountInCentavos, DEFAULT_PLATFORM_COMMISSION_RATE_BPS);
+    }
+    if (grossAmountInCentavos <=
+        TIERED_COMMISSION_STANDARD_CAP_MAX_CENTAVOS) {
+        return TIERED_COMMISSION_STANDARD_CAP_CENTAVOS;
+    }
+    if (grossAmountInCentavos <
+        TIERED_COMMISSION_ABSOLUTE_CAP_MIN_CENTAVOS) {
+        const excess = grossAmountInCentavos -
+            TIERED_COMMISSION_STANDARD_CAP_MAX_CENTAVOS;
+        const progressive = applyBasisPoints(excess, DEFAULT_PLATFORM_COMMISSION_RATE_BPS);
+        if (progressive === null) {
+            return null;
+        }
+        const total = TIERED_COMMISSION_STANDARD_CAP_CENTAVOS +
+            progressive;
+        if (!Number.isSafeInteger(total) ||
+            total >
+                TIERED_COMMISSION_ABSOLUTE_CAP_CENTAVOS) {
+            return TIERED_COMMISSION_ABSOLUTE_CAP_CENTAVOS;
+        }
+        return total;
+    }
+    return TIERED_COMMISSION_ABSOLUTE_CAP_CENTAVOS;
+}
+/**
+ * Allocates a frozen booking commission total
+ * across cumulative collected gross so split
+ * payments reconcile to the snapshotted total.
+ */
+export function allocateCumulativeFixedTotal(input) {
+    const { totalInCentavos, grossAmountInCentavos, cumulativeBaseAfterInCentavos, } = input;
+    if (!isNonNegativeSafeInteger(totalInCentavos) ||
+        !isNonNegativeSafeInteger(grossAmountInCentavos) ||
+        !isNonNegativeSafeInteger(cumulativeBaseAfterInCentavos) ||
+        grossAmountInCentavos === 0 ||
+        cumulativeBaseAfterInCentavos >
+            grossAmountInCentavos) {
+        return null;
+    }
+    if (cumulativeBaseAfterInCentavos ===
+        grossAmountInCentavos) {
+        return totalInCentavos;
+    }
+    const product = totalInCentavos *
+        cumulativeBaseAfterInCentavos;
+    if (!Number.isSafeInteger(product)) {
+        return null;
+    }
+    return Math.floor((product +
+        Math.floor(grossAmountInCentavos / 2)) /
+        grossAmountInCentavos);
+}
+export function parsePlatformCommissionModel(value) {
+    return value ===
+        PLATFORM_COMMISSION_MODEL_TIERED_CAPPED_2PCT_V1
+        ? PLATFORM_COMMISSION_MODEL_TIERED_CAPPED_2PCT_V1
+        : null;
 }
 function isBasisPointRate(value) {
     return (Number.isSafeInteger(value) &&

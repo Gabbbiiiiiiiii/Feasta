@@ -1,4 +1,4 @@
-
+import {formatCateringScheduleDisplay} from "@/lib/catering/catering-schedule";
 import {formatEventTime} from "@/lib/presentation/event-time";
 import type {MainEventStatus} from "@feasta/shared-types";
 import {bookingStatusLabels} from "@/lib/presentation/booking-status-labels";
@@ -67,12 +67,16 @@ export function formatInitialPaymentDeadline(value: string): string {
   }).format(date)} PHT`;
 }
 
-function formatBookingTimeRange(start: string, end: string): string {
-  const formattedStart = formatClockTime(start);
-  const formattedEnd = formatClockTime(end);
-
-  if (formattedStart && formattedEnd) return `${formattedStart}–${formattedEnd}`;
-  return formattedStart || formattedEnd || "Time not provided";
+function formatBookingTimeRange(
+  start: string,
+  end: string,
+  serviceTier?: string | null,
+): string {
+  return formatCateringScheduleDisplay({
+    serviceTier,
+    eventTime: start,
+    eventEndTime: end,
+  });
 }
 
 const formatClockTime = formatEventTime;

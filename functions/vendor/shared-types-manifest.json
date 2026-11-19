@@ -1,7 +1,7 @@
 {
   "canonicalSource": "packages/shared-types",
   "archive": "feasta-shared-types-0.1.0.tgz",
-  "sha256": "dbb987d43d9b8b6a242207874bd4d1eed0da2b3d3e925d6d8dd5cdc9b1605843",
+  "sha256": "04addde7d8c775197a2db7e0836bd5b0269e03b286d4f9166096caf550bdb11d",
   "files": [
     "dist/authentication.d.ts",
     "dist/authentication.js",

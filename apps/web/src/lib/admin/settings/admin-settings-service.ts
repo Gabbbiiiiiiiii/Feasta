@@ -8,6 +8,7 @@ import {
 } from "firebase-admin/firestore";
 
 import {
+  DEFAULT_PLATFORM_COMMISSION_MODEL,
   DEFAULT_PLATFORM_COMMISSION_RATE_BPS,
   DEFAULT_PLATFORM_VAT_RATE_BPS,
   MAX_BALANCE_DUE_DAYS_BEFORE_EVENT,
@@ -15,6 +16,7 @@ import {
   MIN_BALANCE_DUE_DAYS_BEFORE_EVENT,
   MIN_DEPOSIT_RATE_BPS,
   FIRESTORE_COLLECTIONS,
+  parsePlatformCommissionModel,
   parseTaxRegistrationStatus,
 } from "@feasta/shared-types";
 
@@ -42,6 +44,9 @@ const defaultSettings: AdminPlatformSettings = {
 
   platformCommissionRateBps:
     DEFAULT_PLATFORM_COMMISSION_RATE_BPS,
+
+  platformCommissionModel:
+    DEFAULT_PLATFORM_COMMISSION_MODEL,
 
   /*
    * Capstone default means FEASTA does not
@@ -127,6 +132,10 @@ export async function updateAdminPlatformSettings(
         platformCommissionRateBps:
           current
             .platformCommissionRateBps,
+
+        platformCommissionModel:
+          current
+            .platformCommissionModel,
 
         platformTaxStatus:
           current.platformTaxStatus,
@@ -303,9 +312,17 @@ export async function updateAdminFinancialPolicy(
             storedData,
           ) !== null;
 
+        const storedCommissionModel =
+          parsePlatformCommissionModel(
+            storedData
+              .platformCommissionModel,
+          );
+
         const policyAlreadyStored =
           hasStoredFinancialPolicy &&
           hasStoredPaymentTermPolicy &&
+          storedCommissionModel ===
+            update.platformCommissionModel &&
           current.platformCommissionRateBps ===
             update.platformCommissionRateBps &&
           current.platformTaxStatus ===
@@ -339,6 +356,10 @@ export async function updateAdminFinancialPolicy(
           platformCommissionRateBps:
             update
               .platformCommissionRateBps,
+
+          platformCommissionModel:
+            update
+              .platformCommissionModel,
 
           platformTaxStatus:
             update.platformTaxStatus,
@@ -468,6 +489,10 @@ export async function updateAdminFinancialPolicy(
                 update
                   .platformCommissionRateBps,
 
+              platformCommissionModel:
+                update
+                  .platformCommissionModel,
+
               platformTaxStatus:
                 update
                   .platformTaxStatus,
@@ -563,6 +588,13 @@ function mapPlatformSettings(
         defaultSettings
           .platformCommissionRateBps,
       ),
+
+    platformCommissionModel:
+      parsePlatformCommissionModel(
+        data.platformCommissionModel,
+      ) ??
+      defaultSettings
+        .platformCommissionModel,
 
     platformTaxStatus:
       parseTaxRegistrationStatus(
@@ -664,6 +696,9 @@ function auditSnapshot(
     platformCommissionRateBps:
       settings.platformCommissionRateBps,
 
+    platformCommissionModel:
+      settings.platformCommissionModel,
+
     platformTaxStatus:
       settings.platformTaxStatus,
 
@@ -701,6 +736,9 @@ function financialAuditSnapshot(
     platformCommissionRateBps:
       settings
         .platformCommissionRateBps,
+
+    platformCommissionModel:
+      settings.platformCommissionModel,
 
     platformTaxStatus:
       settings.platformTaxStatus,

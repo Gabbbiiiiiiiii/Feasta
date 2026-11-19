@@ -1,5 +1,10 @@
 import {originalInitialPaymentDeadline, HISTORICAL_INITIAL_PAYMENT_HOLD_MS} from "../payments/initial-payment-deadline.js";
 import {
+  cateringScheduleMode,
+  parseOccupancyWindow,
+  rangesOverlap,
+} from "../bookings/catering-schedule.js";
+import {
   isApprovedProviderForOperations,
   parseProviderRequestStatus,
   parseProviderServiceType,
@@ -77,7 +82,9 @@ export type ProviderAvailabilityRequest = {
   type: ProviderRequestType;
   eventDate: Date;
   eventTime: string;
-  eventEndTime: string;
+  /** Required for new Drop-Off and on-site bookings; may be empty on historical Drop-Off rows. */
+  eventEndTime?: string | null;
+  serviceTier?: unknown;
   guestCount: number;
   services?: unknown;
 };
@@ -98,6 +105,7 @@ export type ExistingProviderBooking = AvailabilityPaymentEvidence & {
   status: unknown;
   eventTime: unknown;
   eventEndTime: unknown;
+  serviceTier?: unknown;
   expiresAt?: unknown;
   acceptedAt?: unknown;
 };
@@ -303,27 +311,39 @@ export function validateProviderAvailability(
     walkInReservationCount(input.providerData, eventDateKey);
   const capacityReached = !input.preserveExistingReservation && !eventAlreadyReserved &&
     occupiedSlots >= dailyEventCapacity(input.providerData);
-  const requestedRange = parseTimeRange(
+  const dropOff = cateringScheduleMode(input.request.serviceTier) === "drop_off_time";
+  const requestedRange = parseOccupancyWindow(
     input.request.eventTime,
     input.request.eventEndTime,
+    {dropOff},
   );
 
   if (!requestedRange) {
     issues.push(issue(
       "EVENT_TIME_INVALID",
-      "The event time range is invalid.",
+      dropOff
+        ? "The estimated drop-off time range is invalid."
+        : "The event time range is invalid.",
       "eventTime",
     ));
-  } else if (capacityReached && dailyEventCapacity(input.providerData) === 1 &&
+  } else if (
+    // Drop-Off uses daily capacity only; do not invent delivery-window conflicts.
+    !dropOff &&
+    capacityReached &&
+    dailyEventCapacity(input.providerData) === 1 &&
     occupyingBookings.some((booking) => {
-    const existingRange = parseTimeRange(
+    const existingDropOff =
+      cateringScheduleMode(booking.serviceTier) === "drop_off_time" ||
+      !booking.eventEndTime ||
+      booking.eventEndTime === booking.eventTime;
+    const existingRange = parseOccupancyWindow(
       booking.eventTime,
       booking.eventEndTime,
+      {dropOff: existingDropOff},
     );
 
     return existingRange !== null &&
-      requestedRange.startMinutes < existingRange.endMinutes &&
-      requestedRange.endMinutes > existingRange.startMinutes;
+      rangesOverlap(requestedRange, existingRange);
   })) {
     issues.push(issue(
       "TIME_CONFLICT",
@@ -412,7 +432,17 @@ export function isCanonicalEventTimeRange(
   eventTime: string,
   eventEndTime: string,
 ): boolean {
-  return parseTimeRange(eventTime, eventEndTime) !== null;
+  return parseOccupancyWindow(eventTime, eventEndTime) !== null;
+}
+
+/** Drop-Off point time, or a same-day start/end range. */
+export function isCanonicalCateringSchedule(
+  eventTime: string,
+  eventEndTime: string | null | undefined,
+  serviceTier?: unknown,
+): boolean {
+  const dropOff = cateringScheduleMode(serviceTier) === "drop_off_time";
+  return parseOccupancyWindow(eventTime, eventEndTime, {dropOff}) !== null;
 }
 
 export function manilaDateKey(date: Date): string {
@@ -580,30 +610,6 @@ function validateGuestCapacity(
       "guestCount",
     ));
   }
-}
-
-function parseTimeRange(
-  startValue: unknown,
-  endValue: unknown,
-): {startMinutes: number; endMinutes: number} | null {
-  const startMinutes = parseTime(startValue);
-  const endMinutes = parseTime(endValue);
-
-  return startMinutes !== null &&
-    endMinutes !== null &&
-    endMinutes > startMinutes
-    ? {startMinutes, endMinutes}
-    : null;
-}
-
-function parseTime(value: unknown): number | null {
-  if (typeof value !== "string") return null;
-
-  const match = /^([01]\d|2[0-3]):([0-5]\d)$/u.exec(value.trim());
-
-  return match
-    ? Number(match[1]) * 60 + Number(match[2])
-    : null;
 }
 
 function operatingDayForDateKey(value: string): string | null {

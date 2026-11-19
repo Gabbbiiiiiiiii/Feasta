@@ -1104,8 +1104,12 @@ class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
               _SummaryRow(label: 'Event type', value: data.eventType),
               _SummaryRow(label: 'Date', value: formattedDate),
               _SummaryRow(
-                label: 'Time',
-                value: '${data.eventTime} - ${data.eventEndTime}',
+                label: data.serviceTier == 'drop_off'
+                    ? 'Estimated Drop-Off Time'
+                    : 'Time',
+                value: data.eventEndTime.trim().isEmpty
+                    ? data.eventTime
+                    : '${data.eventTime} - ${data.eventEndTime}',
               ),
               _SummaryRow(label: 'Guests', value: '${data.guestCount}'),
               _SummaryRow(label: 'Location', value: data.eventLocation),

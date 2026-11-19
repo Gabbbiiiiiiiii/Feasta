@@ -70,7 +70,6 @@ export function ProviderAvailabilityClient({
   const [unavailableDates, setUnavailableDates] = useState(
     [...initialSettings.unavailableDates],
   );
-  const [capacityDate, setCapacityDate] = useState(todayInManila);
   const [selectedDate, setSelectedDate] = useState("");
   const [blockReason, setBlockReason] = useState("");
   const [unavailableDateReasons, setUnavailableDateReasons] = useState(initialSettings.unavailableDateReasons ?? {});
@@ -109,18 +108,11 @@ export function ProviderAvailabilityClient({
   }, [hasUnsavedChanges]);
   const today = todayInManila();
   const currentCapacity = Number(canonicalForm.maxEventsPerDay);
-  const occupiedSlots = initialSettings.occupiedSlotsByDate?.[capacityDate] ?? 0;
   const peakOccupied = Object.values(initialSettings.occupiedSlotsByDate ?? {})
     .reduce((peak, occupied) => Math.max(peak, occupied), 0);
   const proposedCapacity = Number(form.maxEventsPerDay);
   const capacityBelowReservations = Number.isInteger(proposedCapacity) && proposedCapacity >= 1 &&
     proposedCapacity < currentCapacity && proposedCapacity < peakOccupied;
-  const capacityDay = new Date(`${capacityDate}T00:00:00Z`).getUTCDay();
-  const operatingDay = PROVIDER_OPERATING_DAYS[(capacityDay + 6) % 7];
-  const manuallyBlocked = unavailableDates.includes(capacityDate);
-  const closedDay = !canonicalForm.operatingDays.includes(operatingDay);
-  const unusedCapacity = Math.max(0, currentCapacity - occupiedSlots);
-  const bookableSlots = manuallyBlocked || closedDay ? 0 : unusedCapacity;
   const selectedDateHasBookings = (initialSettings.occupiedSlotsByDate?.[selectedDate] ?? 0) > 0;
   const duplicateDate = selectedDate !== "" &&
     unavailableDates.includes(selectedDate);
@@ -362,31 +354,11 @@ export function ProviderAvailabilityClient({
                   setForm((current) => ({...current, maxEventsPerDay: value}));
                 }} />
             </FormField>
-            {capacityDirty && <p className="my-3 text-sm text-muted-foreground">
-              The summary uses your saved limit until you save availability settings.
-            </p>}
-            <div className="rounded-lg border border-border bg-muted/35 p-3">
-              <FormField id="capacityDate" label="View capacity for date">
-                <Input className="min-h-9 bg-card px-2.5 py-1.5 text-sm" type="date" min={today} value={capacityDate} onChange={(event) => {
-                  if (event.currentTarget.value >= today) setCapacityDate(event.currentTarget.value);
-                }} />
-              </FormField>
-              <p className="mt-2 text-sm text-muted-foreground">Selected date: {formatPhilippineDate(capacityDate)}</p>
-              <dl className="mt-2 grid grid-cols-2 gap-2 text-xs xl:grid-cols-4 [&>div]:rounded-md [&>div]:bg-muted [&>div]:p-2 [&_dd]:text-sm">
-                <div><dt>Saved daily capacity</dt><dd className="font-bold">{currentCapacity}</dd></div>
-                <div><dt>Occupied slots</dt><dd className="font-bold">{occupiedSlots}</dd></div>
-                <div><dt>Unused capacity</dt><dd className="font-bold">{unusedCapacity}</dd></div>
-                <div><dt>Bookable slots</dt><dd className="font-bold">{bookableSlots}</dd></div>
-              </dl>
-              {(manuallyBlocked || closedDay) && <div className="mt-3 rounded-lg border border-border bg-muted/50 p-3 text-sm">
-                <p className="font-semibold">Date Unavailable</p>
-                <p className="mt-1 text-muted-foreground">
-                  {manuallyBlocked ? "This date has been manually blocked." : "This date falls outside your saved operating days."}
-                  {manuallyBlocked && unavailableDateReasons[capacityDate] && ` Reason: ${unavailableDateReasons[capacityDate]}.`}
-                  {" No new bookings can be accepted, even if the daily limit has room."}
-                </p>
-              </div>}
-            </div>
+            <p className="mt-3 text-sm text-muted-foreground">
+              {capacityDirty
+                ? "Save to apply this daily limit. Day-by-day booked and remaining slots stay on Calendar."
+                : "Day-by-day booked and remaining slots stay on Calendar."}
+            </p>
             {capacityBelowReservations && <p role="status" className="mt-3 rounded-lg bg-amber-100 p-3 text-sm text-amber-950 dark:bg-amber-950 dark:text-amber-100">
               At least one upcoming date already has {peakOccupied} occupied slots. Existing bookings will stay in place.
             </p>}

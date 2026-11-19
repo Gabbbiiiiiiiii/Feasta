@@ -152,7 +152,7 @@ describe("File Maintenance document catalog", () => {
     ]);
     expect(screen.queryByText(/document categories/i)).not.toBeInTheDocument();
     await user.click(screen.getByRole("tab", {name: "Agreements"}));
-    expect(screen.getByRole("button", {name: "Add agreement"})).toBeInTheDocument();
+    expect(screen.getByRole("button", {name: "Update an agreement"})).toBeInTheDocument();
     await user.click(screen.getByRole("tab", {name: "Business documents"}));
     expect(screen.getByRole("button", {name: "Add business document"})).toBeInTheDocument();
   });
@@ -160,13 +160,13 @@ describe("File Maintenance document catalog", () => {
   it("creates agreements with an internal classification and no category selector", async () => {
     const user = userEvent.setup();
     render(<AgreementTemplateManagement initialAgreements={[]} agreementTypes={agreementTypes} />);
-    await user.click(screen.getByRole("button", {name: "Add agreement"}));
+    await user.click(screen.getByRole("button", {name: "Update an agreement"}));
     const picker = within(screen.getByRole("dialog", {name: /what agreement do you want to create/i}));
     expect(picker.queryByLabelText(/agreement name/i)).not.toBeInTheDocument();
     expect(picker.queryByRole("radio", {name: /custom agreement/i})).not.toBeInTheDocument();
     await user.click(picker.getByRole("radio", {name: /terms of service/i}));
     await user.click(picker.getByRole("button", {name: "Continue"}));
-    const dialog = within(screen.getByRole("dialog", {name: /add agreement/i}));
+    const dialog = within(screen.getByRole("dialog", {name: /Update an agreement/i}));
     expect(dialog.queryByLabelText(/document category/i)).not.toBeInTheDocument();
     fireEvent.change(dialog.getByLabelText(/version/i), {target: {value: "2"}});
     fireEvent.change(dialog.getByLabelText(/effective date/i), {target: {value: "2026-09-29"}});
@@ -195,7 +195,8 @@ describe("File Maintenance document catalog", () => {
 
     expect(screen.getByRole("columnheader", {name: "Audience"})).toBeInTheDocument();
     expect(screen.getByRole("button", {name: "View Provider agreement"}).closest("tr")).toHaveTextContent("Providers only");
-    expect(screen.getByRole("button", {name: "View FEASTA Terms of Service"}).closest("tr")).toHaveTextContent("Platform-wide");
+    expect(screen.getByRole("button", {name: "View FEASTA Terms of Service"}).closest("tr")).toHaveTextContent("Customer only");
+    expect(screen.queryByRole("columnheader", {name: "Type"})).not.toBeInTheDocument();
     expect(screen.queryByText(agreement.code)).not.toBeInTheDocument();
     expect(screen.queryByText(terms.code)).not.toBeInTheDocument();
   });
@@ -410,7 +411,7 @@ describe("File Maintenance document catalog", () => {
   it("accepts ordinary text when saving the first agreement draft", async () => {
     const user = userEvent.setup();
     render(<AgreementTemplateManagement initialAgreements={[]} agreementTypes={agreementTypes} />);
-    await user.click(screen.getByRole("button", {name: "Add agreement"}));
+    await user.click(screen.getByRole("button", {name: "Update an agreement"}));
     const picker = within(screen.getByRole("dialog", {name: /what agreement do you want to create/i}));
     await user.click(picker.getByRole("radio", {name: /privacy policy/i}));
     await user.click(picker.getByRole("button", {name: "Continue"}));
@@ -517,7 +518,7 @@ describe("File Maintenance document catalog", () => {
   it("opens agreement type selection before the agreement editor", async () => {
     const user = userEvent.setup();
     render(<AgreementTemplateManagement initialAgreements={[]} agreementTypes={agreementTypes} />);
-    await user.click(screen.getByRole("button", {name: "Add agreement"}));
+    await user.click(screen.getByRole("button", {name: "Update an agreement"}));
     const picker = within(screen.getByRole("dialog", {name: /what agreement do you want to create/i}));
     expect(picker.getByRole("radio", {name: /provider agreement/i})).toBeInTheDocument();
     expect(picker.queryByLabelText(/agreement name/i)).not.toBeInTheDocument();
@@ -531,7 +532,7 @@ describe("File Maintenance document catalog", () => {
       name: "Catalog Terms Example",
       description: "Managed description from the catalog.",
     }]} />);
-    await user.click(screen.getByRole("button", {name: "Add agreement"}));
+    await user.click(screen.getByRole("button", {name: "Update an agreement"}));
     expect(screen.getByRole("radio", {name: /catalog terms example/i})).toBeInTheDocument();
     expect(screen.getByText("Managed description from the catalog.")).toBeInTheDocument();
     expect(screen.queryByText("Terms of Service")).not.toBeInTheDocument();
@@ -551,7 +552,7 @@ describe("File Maintenance document catalog", () => {
         name: label,
         agreementTypeCode: typeCode,
       }]} agreementTypes={agreementTypes} />);
-      await user.click(screen.getByRole("button", {name: "Add agreement"}));
+      await user.click(screen.getByRole("button", {name: "Update an agreement"}));
       const picker = within(screen.getByRole("dialog", {name: /what agreement do you want to create/i}));
       await user.click(picker.getByRole("radio", {name: new RegExp(label, "i")}));
       await user.click(picker.getByRole("button", {name: "Continue"}));
@@ -572,46 +573,23 @@ describe("File Maintenance document catalog", () => {
       agreementTypeCode: "custom_agreement",
     }]} agreementTypes={[...agreementTypes, legacyCustomType]} />);
     expect(screen.getByRole("button", {name: "View Optional Calendar Service Agreement"})).toBeInTheDocument();
-    expect(screen.getByText("Other / Custom Agreement")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", {name: "Add agreement"}));
+    expect(screen.queryByText("Other / Custom Agreement")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", {name: "Agreement types"})).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", {name: "Update an agreement"}));
     const picker = within(screen.getByRole("dialog", {name: /what agreement do you want to create/i}));
     expect(picker.queryByRole("radio", {name: /custom agreement/i})).not.toBeInTheDocument();
     expect(picker.getByRole("radio", {name: /provider agreement/i})).toBeInTheDocument();
     expect(picker.getByRole("radio", {name: /terms of service/i})).toBeInTheDocument();
     expect(picker.getByRole("radio", {name: /privacy policy/i})).toBeInTheDocument();
     await user.click(picker.getByRole("button", {name: "Cancel"}));
-    await user.click(screen.getByRole("button", {name: "Agreement types"}));
-    const manager = within(screen.getByRole("dialog", {name: "Agreement types"}));
-    expect(manager.queryByText(/custom agreement/i)).not.toBeInTheDocument();
-    expect(manager.queryByText(/sort order/i)).not.toBeInTheDocument();
-    expect(manager.getByText("Provider Agreement")).toBeInTheDocument();
-    expect(manager.getByText("Terms of Service")).toBeInTheDocument();
-    expect(manager.getByText("Privacy Policy")).toBeInTheDocument();
-    await user.click(manager.getByRole("button", {name: "Close"}));
     await user.click(screen.getByRole("button", {name: "More actions for Optional Calendar Service Agreement"}));
     expect(screen.queryByRole("menuitem", {name: "Delete entire agreement"})).not.toBeInTheDocument();
   });
 
-  it("preserves the stored sort order when an agreement type is saved", async () => {
-    const user = userEvent.setup();
-    mutations.updateAdminAgreementType.mockResolvedValue({
-      agreementType: {...agreementTypes[2], name: "Personal Information Notice"},
-    });
+  it("hides the Agreement types manager from the agreements section", () => {
     render(<AgreementTemplateManagement initialAgreements={[]} agreementTypes={agreementTypes} />);
-    await user.click(screen.getByRole("button", {name: "Agreement types"}));
-    const manager = within(screen.getByRole("dialog", {name: "Agreement types"}));
-    expect(manager.queryByLabelText(/sort order/i)).not.toBeInTheDocument();
-    expect(manager.getByText(/Names, descriptions, and active status can be changed/i)).toBeInTheDocument();
-    const privacyName = manager.getAllByLabelText(/^name/i)[2];
-    fireEvent.change(privacyName, {target: {value: "Personal Information Notice"}});
-    await user.click(manager.getAllByRole("button", {name: "Save type"})[2]);
-    await waitFor(() => expect(mutations.updateAdminAgreementType).toHaveBeenCalledWith({
-      code: "privacy_policy",
-      name: "Personal Information Notice",
-      description: agreementTypes[2].description,
-      isActive: true,
-      sortOrder: 30,
-    }));
+    expect(screen.queryByRole("button", {name: "Agreement types"})).not.toBeInTheDocument();
+    expect(screen.queryByRole("dialog", {name: "Agreement types"})).not.toBeInTheDocument();
   });
 
   it("labels a draft-only agreement as Draft", () => {
@@ -674,11 +652,11 @@ describe("File Maintenance document catalog", () => {
   it("saves a new agreement as a draft and does not publish it", async () => {
     const user = userEvent.setup();
     render(<AgreementTemplateManagement initialAgreements={[]} agreementTypes={agreementTypes} />);
-    await user.click(screen.getByRole("button", {name: "Add agreement"}));
+    await user.click(screen.getByRole("button", {name: "Update an agreement"}));
     const picker = within(screen.getByRole("dialog", {name: /what agreement do you want to create/i}));
     await user.click(picker.getByRole("radio", {name: /terms of service/i}));
     await user.click(picker.getByRole("button", {name: "Continue"}));
-    const editor = within(screen.getByRole("dialog", {name: /add agreement/i}));
+    const editor = within(screen.getByRole("dialog", {name: /Update an agreement/i}));
     expect(editor.getByLabelText(/agreement name/i)).toHaveValue("Terms of Service");
     fireEvent.change(editor.getByLabelText(/effective date/i), {target: {value: "2026-09-30"}});
     await user.click(editor.getByRole("button", {name: "Save Draft"}));
@@ -698,7 +676,7 @@ describe("File Maintenance document catalog", () => {
     mutations.createAdminAgreementTemplate.mockResolvedValue({success: true});
     mutations.publishAdminAgreementVersion.mockResolvedValue({success: true});
     render(<AgreementTemplateManagement initialAgreements={[]} agreementTypes={agreementTypes} />);
-    await user.click(screen.getByRole("button", {name: "Add agreement"}));
+    await user.click(screen.getByRole("button", {name: "Update an agreement"}));
     const picker = within(screen.getByRole("dialog", {name: /what agreement do you want to create/i}));
     await user.click(picker.getByRole("radio", {name: /terms of service/i}));
     await user.click(picker.getByRole("button", {name: "Continue"}));
@@ -724,7 +702,7 @@ describe("File Maintenance document catalog", () => {
     mutations.createAdminAgreementTemplate.mockResolvedValue({success: true});
     mutations.publishAdminAgreementVersion.mockRejectedValue(new Error("This agreement type no longer matches its system contract."));
     render(<AgreementTemplateManagement initialAgreements={[]} agreementTypes={agreementTypes} />);
-    await user.click(screen.getByRole("button", {name: "Add agreement"}));
+    await user.click(screen.getByRole("button", {name: "Update an agreement"}));
     const picker = within(screen.getByRole("dialog", {name: /what agreement do you want to create/i}));
     await user.click(picker.getByRole("radio", {name: /privacy policy/i}));
     await user.click(picker.getByRole("button", {name: "Continue"}));
@@ -752,7 +730,7 @@ describe("File Maintenance document catalog", () => {
   it("rejects incomplete agreement fields before saving", async () => {
     const user = userEvent.setup();
     render(<AgreementTemplateManagement initialAgreements={[]} agreementTypes={agreementTypes} />);
-    await user.click(screen.getByRole("button", {name: "Add agreement"}));
+    await user.click(screen.getByRole("button", {name: "Update an agreement"}));
     const picker = within(screen.getByRole("dialog", {name: /what agreement do you want to create/i}));
     await user.click(picker.getByRole("radio", {name: /privacy policy/i}));
     await user.click(picker.getByRole("button", {name: "Continue"}));
@@ -779,7 +757,7 @@ describe("File Maintenance document catalog", () => {
   it("confirms before discarding unsaved agreement edits", async () => {
     const user = userEvent.setup();
     render(<AgreementTemplateManagement initialAgreements={[]} agreementTypes={agreementTypes} />);
-    await user.click(screen.getByRole("button", {name: "Add agreement"}));
+    await user.click(screen.getByRole("button", {name: "Update an agreement"}));
     const picker = within(screen.getByRole("dialog", {name: /what agreement do you want to create/i}));
     await user.click(picker.getByRole("radio", {name: /privacy policy/i}));
     await user.click(picker.getByRole("button", {name: "Continue"}));
@@ -790,7 +768,7 @@ describe("File Maintenance document catalog", () => {
     expect(screen.getByLabelText(/summary/i)).toHaveValue("Short notice");
     await user.click(screen.getByRole("button", {name: "Cancel"}));
     await user.click(screen.getByRole("button", {name: "Discard"}));
-    expect(screen.queryByRole("dialog", {name: /add agreement/i})).not.toBeInTheDocument();
+    expect(screen.queryByRole("dialog", {name: /Update an agreement/i})).not.toBeInTheDocument();
   });
 
   it("shows draft actions separately from the current version", async () => {

@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   BASIS_POINTS_SCALE,
   CUSTOMER_PAYMENT_CHOICES,
+  DEFAULT_PLATFORM_COMMISSION_MODEL,
   DEFAULT_PLATFORM_COMMISSION_RATE_BPS,
   DEFAULT_PLATFORM_VAT_RATE_BPS,
   MAX_BALANCE_DUE_DAYS_BEFORE_EVENT,
@@ -11,15 +12,21 @@ import {
   MIN_BALANCE_DUE_DAYS_BEFORE_EVENT,
   MIN_DEPOSIT_RATE_BPS,
   PACKAGE_PAYMENT_POLICIES,
+  PLATFORM_COMMISSION_MODEL_TIERED_CAPPED_2PCT_V1,
   TAX_REGISTRATION_STATUSES,
+  TIERED_COMMISSION_ABSOLUTE_CAP_CENTAVOS,
+  TIERED_COMMISSION_STANDARD_CAP_CENTAVOS,
   allocateCumulativeBasisPoints,
+  allocateCumulativeFixedTotal,
   applyBasisPoints,
   basisPointsToPercentage,
   centavosToPesos,
+  computeTieredCappedCommissionInCentavos,
   isAllowedBalanceDueDays,
   isAllowedDepositRateBps,
   parseCustomerPaymentChoice,
   parsePackagePaymentPolicy,
+  parsePlatformCommissionModel,
   parseTaxRegistrationStatus,
   percentageToBasisPoints,
   pesosToCentavos,
@@ -298,11 +305,30 @@ test(
 );
 
 test(
-  "P0 defaults model 10 percent commission and 12 percent VAT",
+  "defaults model 2 percent tiered capped commission and 12 percent VAT",
   () => {
     assert.equal(
       DEFAULT_PLATFORM_COMMISSION_RATE_BPS,
-      1_000,
+      200,
+    );
+
+    assert.equal(
+      DEFAULT_PLATFORM_COMMISSION_MODEL,
+      PLATFORM_COMMISSION_MODEL_TIERED_CAPPED_2PCT_V1,
+    );
+
+    assert.equal(
+      parsePlatformCommissionModel(
+        PLATFORM_COMMISSION_MODEL_TIERED_CAPPED_2PCT_V1,
+      ),
+      PLATFORM_COMMISSION_MODEL_TIERED_CAPPED_2PCT_V1,
+    );
+
+    assert.equal(
+      parsePlatformCommissionModel(
+        "flat_bps_v1",
+      ),
+      null,
     );
 
     assert.equal(
@@ -313,9 +339,9 @@ test(
     assert.equal(
       applyBasisPoints(
         3_000_000,
-        1_000,
+        200,
       ),
-      300_000,
+      60_000,
     );
 
     assert.equal(
@@ -324,6 +350,134 @@ test(
         1_200,
       ),
       36_000,
+    );
+  },
+);
+
+test(
+  "tiered capped commission matches provider-friendly boundary table",
+  () => {
+    assert.equal(
+      computeTieredCappedCommissionInCentavos(
+        500_000,
+      ),
+      10_000,
+    );
+
+    assert.equal(
+      computeTieredCappedCommissionInCentavos(
+        1_000_000,
+      ),
+      20_000,
+    );
+
+    assert.equal(
+      computeTieredCappedCommissionInCentavos(
+        2_500_000,
+      ),
+      TIERED_COMMISSION_STANDARD_CAP_CENTAVOS,
+    );
+
+    assert.equal(
+      computeTieredCappedCommissionInCentavos(
+        2_500_001,
+      ),
+      TIERED_COMMISSION_STANDARD_CAP_CENTAVOS,
+    );
+
+    assert.equal(
+      computeTieredCappedCommissionInCentavos(
+        4_000_000,
+      ),
+      TIERED_COMMISSION_STANDARD_CAP_CENTAVOS,
+    );
+
+    assert.equal(
+      computeTieredCappedCommissionInCentavos(
+        7_500_000,
+      ),
+      TIERED_COMMISSION_STANDARD_CAP_CENTAVOS,
+    );
+
+    assert.equal(
+      computeTieredCappedCommissionInCentavos(
+        8_000_000,
+      ),
+      60_000,
+    );
+
+    assert.equal(
+      computeTieredCappedCommissionInCentavos(
+        8_750_000,
+      ),
+      75_000,
+    );
+
+    assert.equal(
+      computeTieredCappedCommissionInCentavos(
+        9_950_000,
+      ),
+      99_000,
+    );
+
+    assert.equal(
+      computeTieredCappedCommissionInCentavos(
+        10_000_000,
+      ),
+      TIERED_COMMISSION_ABSOLUTE_CAP_CENTAVOS,
+    );
+
+    assert.equal(
+      computeTieredCappedCommissionInCentavos(
+        15_000_000,
+      ),
+      TIERED_COMMISSION_ABSOLUTE_CAP_CENTAVOS,
+    );
+
+    assert.equal(
+      computeTieredCappedCommissionInCentavos(
+        -1,
+      ),
+      null,
+    );
+  },
+);
+
+test(
+  "capped commission total allocates evenly across split payments",
+  () => {
+    const gross = 10_000_000;
+    const total =
+      computeTieredCappedCommissionInCentavos(
+        gross,
+      );
+
+    assert.equal(
+      total,
+      TIERED_COMMISSION_ABSOLUTE_CAP_CENTAVOS,
+    );
+
+    const afterDeposit =
+      allocateCumulativeFixedTotal({
+        totalInCentavos: total,
+        grossAmountInCentavos: gross,
+        cumulativeBaseAfterInCentavos:
+          5_000_000,
+      });
+
+    const afterFull =
+      allocateCumulativeFixedTotal({
+        totalInCentavos: total,
+        grossAmountInCentavos: gross,
+        cumulativeBaseAfterInCentavos:
+          gross,
+      });
+
+    assert.equal(afterDeposit, 50_000);
+    assert.equal(afterFull, total);
+    assert.equal(
+      afterFull - afterDeposit,
+      50_000,
     );
   },
 );

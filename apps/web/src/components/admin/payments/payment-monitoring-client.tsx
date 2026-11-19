@@ -25,6 +25,7 @@ import {
   loadAdminFinanceAttentionQueueAction,
   loadAdminPaymentDetailsAction,
   loadAdminPaymentsAction,
+  loadAdminProviderPayoutBoardAction,
 } from "@/app/admin/payments/actions";
 import {
   PaymentDetailsDrawer,
@@ -33,6 +34,9 @@ import {
   PaymentFinanceAttention,
   canRetryFailedDisbursement,
 } from "@/components/admin/payments/payment-finance-attention";
+import {
+  ProviderPayoutBoard,
+} from "@/components/admin/payments/provider-payout-board";
 import {
   formatPaymentTableDateParts,
   formatAdminPaymentPurpose,
@@ -80,6 +84,7 @@ import type {
   AdminPaymentSortField,
   AdminPaymentStatusFilter,
   AdminPaymentTypeFilter,
+  AdminProviderPayoutBoard,
 } from "@/lib/admin/payments/admin-payment-types";
 
 type PaymentMonitoringClientProps = {
@@ -87,6 +92,9 @@ type PaymentMonitoringClientProps = {
 
   initialAttention:
     AdminFinanceAttentionQueue;
+
+  initialPayoutBoard:
+    AdminProviderPayoutBoard;
 };
 
 const DEFAULT_FILTERS: AdminPaymentFilters = {
@@ -108,6 +116,7 @@ const FIRST_PAGE_CURSOR = "__first_page__";
 function PaymentMonitoringClient({
   initialPage,
   initialAttention,
+  initialPayoutBoard,
 }: PaymentMonitoringClientProps) {
   const [page, setPage] =
     useState<AdminPaymentPage>(initialPage);
@@ -122,6 +131,18 @@ function PaymentMonitoringClient({
 
   const [attentionError, setAttentionError] =
     useState<string>();
+
+  const [payoutBoard, setPayoutBoard] =
+    useState<AdminProviderPayoutBoard>(initialPayoutBoard);
+
+  const [payoutBoardLoading, setPayoutBoardLoading] =
+    useState(false);
+
+  const [payoutBoardError, setPayoutBoardError] =
+    useState<string>();
+
+  const [releasingPayoutId, setReleasingPayoutId] =
+    useState<string | null>(null);
 
   const [
     repairingAttentionId,
@@ -170,6 +191,7 @@ function PaymentMonitoringClient({
   const pageRequestId = useRef(0);
   const detailsRequestId = useRef(0);
   const attentionRequestId = useRef(0);
+  const payoutBoardRequestId = useRef(0);
 
   const loadPage = useCallback(
     (
@@ -258,6 +280,36 @@ function PaymentMonitoringClient({
             requestId
           ) {
             setAttentionLoading(false);
+          }
+        });
+    }, []);
+
+  const refreshProviderPayoutBoard =
+    useCallback(() => {
+      const requestId =
+        ++payoutBoardRequestId.current;
+
+      setPayoutBoardLoading(true);
+      setPayoutBoardError(undefined);
+
+      void loadAdminProviderPayoutBoardAction()
+        .then((result) => {
+          if (payoutBoardRequestId.current !== requestId) {
+            return;
+          }
+
+          setPayoutBoard(result);
+        })
+        .catch((error: unknown) => {
+          if (payoutBoardRequestId.current !== requestId) {
+            return;
+          }
+
+          setPayoutBoardError(errorMessage(error));
+        })
+        .finally(() => {
+          if (payoutBoardRequestId.current === requestId) {
+            setPayoutBoardLoading(false);
           }
         });
     }, []);
@@ -660,6 +712,19 @@ function PaymentMonitoringClient({
       </section>
 
       <PaymentFlowOverview />
+      <ProviderPayoutBoard
+        board={payoutBoard}
+        loading={payoutBoardLoading}
+        error={payoutBoardError}
+        releasingId={releasingPayoutId}
+        onRefresh={refreshProviderPayoutBoard}
+        onReleased={() => {
+          refreshProviderPayoutBoard();
+          refreshFinanceAttention();
+        }}
+        onReleaseStart={setReleasingPayoutId}
+        onReleaseEnd={() => setReleasingPayoutId(null)}
+      />
       <PaymentFinanceAttention
         statistics={page.statistics}
         queue={attentionQueue}

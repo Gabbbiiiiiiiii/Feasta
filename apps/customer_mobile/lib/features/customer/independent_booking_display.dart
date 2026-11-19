@@ -57,7 +57,11 @@ class IndependentBookingSummary extends StatelessWidget {
                 ? 'Date unavailable'
                 : 'Event date: ${eventDay.year}-${eventDay.month.toString().padLeft(2, '0')}-${eventDay.day.toString().padLeft(2, '0')}',
           ),
-          Text('${booking.eventTime} – ${booking.eventEndTime}'),
+          Text(
+            booking.eventEndTime.trim().isEmpty
+                ? booking.eventTime
+                : '${booking.eventTime} – ${booking.eventEndTime}',
+          ),
           Text('${booking.eventLocation}\n${booking.eventAddress}'),
           if (event != null) ...[
             const SizedBox(height: 8),

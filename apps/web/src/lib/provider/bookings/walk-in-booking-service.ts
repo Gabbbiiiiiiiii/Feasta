@@ -266,12 +266,31 @@ export async function mutateWalkIn(form: FormData) {
     const today = manilaToday();
     const eventDateKey = field(form, "event date", 10);
     const start = bookingDay(eventDateKey, today);
+    const selection = field(form, "package", 170, false);
+    const offer = /^(packages|addons)\/([A-Za-z0-9_-]{1,160})$/.exec(selection);
+    if (selection && selection !== "custom" && !offer) throw new WalkInInputError("Choose one of your published packages or services.");
+    const selectionId = offer?.[2];
+    const optionId = field(form, "pricing option", 40, false);
+    if (optionId && !selectionId) throw new WalkInInputError("Select a package before choosing a pricing option.");
+    const dropOff = optionId === "drop_off";
     const eventTime = field(form, "start time", 5);
-    const eventEndTime = field(form, "end time", 5);
+    const rawEndTime = field(form, "end time", 5, false);
     const timePattern = /^([01]\d|2[0-3]):[0-5]\d$/;
-    if (!timePattern.test(eventTime) || !timePattern.test(eventEndTime) || eventTime >= eventEndTime) {
-      throw new WalkInInputError("Enter a start and end time on the same day.");
+    if (!timePattern.test(eventTime)) {
+      throw new WalkInInputError(
+        dropOff
+          ? "Enter the estimated drop-off time."
+          : "Enter a start and end time on the same day.",
+      );
     }
+    if (!timePattern.test(rawEndTime) || eventTime >= rawEndTime) {
+      throw new WalkInInputError(
+        dropOff
+          ? "Enter an end time later than the estimated drop-off time."
+          : "Enter a start and end time on the same day.",
+      );
+    }
+    const eventEndTime = rawEndTime;
     const agreementDate = field(form, "agreement date", 10);
     const agreementTime = field(form, "agreement time", 5);
     const agreementAt = new Date(`${agreementDate}T${agreementTime}:00+08:00`);
@@ -285,12 +304,6 @@ export async function mutateWalkIn(form: FormData) {
     const guests = field(form, "number of guests", 6, false);
     const guestCount = guests ? Number(guests) : null;
     const price = field(form, "agreed price", 12, false);
-    const selection = field(form, "package", 170, false);
-    const offer = /^(packages|addons)\/([A-Za-z0-9_-]{1,160})$/.exec(selection);
-    if (selection && selection !== "custom" && !offer) throw new WalkInInputError("Choose one of your published packages or services.");
-    const selectionId = offer?.[2];
-    const optionId = field(form, "pricing option", 40, false);
-    if (optionId && !selectionId) throw new WalkInInputError("Select a package before choosing a pricing option.");
     const serviceName = selectionId ? "" : field(form, "custom service", 160);
     const submissionKey = field(form, "submission key", 36);
     if (!walkInReferencePattern.test(submissionKey)) throw new WalkInInputError("Invalid booking submission.");
@@ -313,6 +326,9 @@ export async function mutateWalkIn(form: FormData) {
       eventDateKey,
       eventTime,
       eventEndTime,
+      ...(optionId === "drop_off" || optionId === "buffet_setup" || optionId === "full_service"
+        ? {serviceTier: optionId}
+        : {}),
       venueName,
       venueAddress,
       eventLocation: venueName,

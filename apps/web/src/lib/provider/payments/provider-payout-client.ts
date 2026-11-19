@@ -17,6 +17,10 @@ import type {
   ProviderPayoutOnboardingResult,
   ProviderPayoutRefreshResult,
 } from "./provider-finance-types";
+import type {
+  MockProviderWithdrawalInput,
+  MockProviderWithdrawalResult,
+} from "./provider-mock-withdrawal-types";
 
 export async function startProviderPayoutSetup():
 Promise<ProviderPayoutOnboardingResult> {
@@ -37,6 +41,15 @@ export async function saveProviderPayoutActivationProfile(
 ): Promise<{saved: boolean}> {
   return callProviderFinance(
     "saveProviderPayoutActivationProfile",
+    input,
+  );
+}
+
+export async function requestMockProviderWithdrawal(
+  input: MockProviderWithdrawalInput,
+): Promise<MockProviderWithdrawalResult> {
+  return callProviderFinance(
+    "requestMockProviderWithdrawal",
     input,
   );
 }
@@ -103,9 +116,16 @@ function normalizeProviderFinanceError(
         "Only an approved provider can manage payout setup.",
       );
 
+    case "functions/invalid-argument":
     case "functions/failed-precondition":
+    case "functions/already-exists":
       return new Error(
         safeMessage(error.message),
+      );
+
+    case "functions/not-found":
+      return new Error(
+        "The withdraw service is not deployed yet. Deploy requestMockProviderWithdrawal, then try again.",
       );
 
     case "functions/resource-exhausted":
@@ -121,7 +141,10 @@ function normalizeProviderFinanceError(
 
     default:
       return new Error(
-        "The payout action could not be completed.",
+        safeMessage(error.message) ===
+          "The payout account is not ready for this action."
+          ? "The payout action could not be completed."
+          : safeMessage(error.message),
       );
   }
 }

@@ -74,6 +74,7 @@ const EMPTY_PROVIDER_FINANCE: ProviderFinanceOverview = {
     reconciliationRequiredCount: 0,
   },
   settlements: [],
+  mockWithdrawals: [],
 };
 
 const FIRST_PAGE_CURSOR = "__first_provider_payment_page__";

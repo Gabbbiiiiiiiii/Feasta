@@ -1,4 +1,5 @@
 import type {
+  PlatformCommissionModel,
   TaxRegistrationStatus,
 } from "@feasta/shared-types";
 
@@ -9,6 +10,9 @@ export type AdminPlatformSettings = {
   serviceAreaDescription: string;
 
   platformCommissionRateBps: number;
+
+  platformCommissionModel:
+    PlatformCommissionModel;
 
   /**
    * This is system configuration.
@@ -70,6 +74,9 @@ export type UpdateAdminPlatformSettingsResult = {
 
 export type UpdateAdminFinancialPolicyInput = {
   platformCommissionRateBps: number;
+
+  platformCommissionModel:
+    PlatformCommissionModel;
 
   platformTaxStatus:
     TaxRegistrationStatus;

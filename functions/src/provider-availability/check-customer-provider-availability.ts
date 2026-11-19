@@ -24,8 +24,12 @@ import {
   requireString,
 } from "../shared/validation.js";
 import {
+  cateringScheduleMode,
+  normalizeCateringSchedule,
+} from "../bookings/catering-schedule.js";
+import {
   AVAILABILITY_COUNTED_REQUEST_STATUSES,
-  isCanonicalEventTimeRange,
+  isCanonicalCateringSchedule,
   manilaDateFromKey,
   manilaDateRange,
   validateProviderAvailability,
@@ -41,6 +45,7 @@ const INPUT_FIELDS = [
   "eventTime",
   "eventEndTime",
   "guestCount",
+  "serviceTier",
 ] as const;
 const SAFE_DOCUMENT_ID = /^[A-Za-z0-9_-]{8,160}$/u;
 
@@ -49,7 +54,8 @@ type CustomerAvailabilityInput = {
   addonIds: string[];
   eventDate: Date;
   eventTime: string;
-  eventEndTime: string;
+  eventEndTime: string | null;
+  serviceTier: string | null;
   guestCount: number;
 };
 
@@ -296,6 +302,7 @@ export async function checkCustomerProviderAvailabilityForInput(
           eventDate: input.eventDate,
           eventTime: input.eventTime,
           eventEndTime: input.eventEndTime,
+          serviceTier: input.serviceTier,
           guestCount: input.guestCount,
           services: candidate.services,
         },
@@ -305,6 +312,7 @@ export async function checkCustomerProviderAvailabilityForInput(
           status: document.data().status,
           eventTime: document.data().eventTime,
           eventEndTime: document.data().eventEndTime,
+          serviceTier: document.data().serviceTier,
           expiresAt: document.data().expiresAt,
           acceptedAt: document.data().acceptedAt,
         })),
@@ -460,14 +468,22 @@ export function parseCustomerAvailabilityInput(
     maxLength: 10,
   });
   const eventDate = manilaDateFromKey(eventDateKey);
-  const eventTime = requireString(input.eventTime, "eventTime", {
-    minLength: 5,
-    maxLength: 5,
+  const serviceTier =
+    input.serviceTier === undefined || input.serviceTier === null
+      ? null
+      : requireString(input.serviceTier, "serviceTier", {
+        minLength: 1,
+        maxLength: 40,
+      });
+  const schedule = normalizeCateringSchedule({
+    serviceTier,
+    eventTime: input.eventTime,
+    eventEndTime: input.eventEndTime,
   });
-  const eventEndTime = requireString(input.eventEndTime, "eventEndTime", {
-    minLength: 5,
-    maxLength: 5,
-  });
+  if (!schedule.ok) {
+    throw new HttpsError("invalid-argument", schedule.message);
+  }
+  const {eventTime, eventEndTime} = schedule.value;
   const guestCount = requireNumber(input.guestCount, "guestCount", {
     min: 1,
     max: 10_000,
@@ -477,10 +493,12 @@ export function parseCustomerAvailabilityInput(
     throw new HttpsError("invalid-argument", "eventDate is invalid.");
   }
 
-  if (!isCanonicalEventTimeRange(eventTime, eventEndTime)) {
+  if (!isCanonicalCateringSchedule(eventTime, eventEndTime, serviceTier)) {
     throw new HttpsError(
       "invalid-argument",
-      "The event time range is invalid.",
+      cateringScheduleMode(serviceTier) === "drop_off_time"
+        ? "The estimated drop-off time range is invalid."
+        : "The event time range is invalid.",
     );
   }
 
@@ -494,6 +512,7 @@ export function parseCustomerAvailabilityInput(
     eventDate,
     eventTime,
     eventEndTime,
+    serviceTier,
     guestCount,
   };
 }

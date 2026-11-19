@@ -5,8 +5,9 @@ import {PaymentMonitoringClient} from "@/components/admin/payments/payment-monit
 import {PaymentFinanceAttention} from "@/components/admin/payments/payment-finance-attention";
 import type {AdminFinanceAttentionItem, AdminPaymentPage} from "@/lib/admin/payments/admin-payment-types";
 const mocks=vi.hoisted(()=>({retry:vi.fn(),repair:vi.fn(),refresh:vi.fn()}));
-vi.mock("@/lib/admin/payments/admin-payment-client",()=>({retryFailedProviderDisbursement:mocks.retry,repairAmbiguousProviderPayoutSetup:mocks.repair}));
-vi.mock("@/app/admin/payments/actions",()=>({loadAdminPaymentsAction:vi.fn(),loadAdminPaymentDetailsAction:vi.fn(),loadAdminFinanceAttentionQueueAction:mocks.refresh}));
+vi.mock("@/lib/admin/payments/admin-payment-client",()=>({retryFailedProviderDisbursement:mocks.retry,repairAmbiguousProviderPayoutSetup:mocks.repair,releaseMockProviderDisbursement:vi.fn()}));
+vi.mock("@/app/admin/payments/actions",()=>({loadAdminPaymentsAction:vi.fn(),loadAdminPaymentDetailsAction:vi.fn(),loadAdminFinanceAttentionQueueAction:mocks.refresh,loadAdminProviderPayoutBoardAction:vi.fn(async()=>({readyToPay:[],history:[]}))}));
+const emptyPayoutBoard={readyToPay:[],history:[]};
 const failed: AdminFinanceAttentionItem={id:"disbursement:payout",kind:"failed_payout",recordState:"valid",
  providerDisbursementId:"payout",canonicalDisbursementStatus:"failed",failedDisbursementRetryEligible:true,
  paymentId:"deposit",providerId:"provider",settlementId:null,payoutAttemptId:null,status:"failed",amountInCentavos:900000,
@@ -27,7 +28,7 @@ it.each([{recordState:"invalid"},{providerDisbursementId:undefined},{failedDisbu
  expect(screen.queryByRole("button",{name:"Retry failed payout"})).not.toBeInTheDocument();
 });
 it("requires confirmation and cancellation performs no retry",async()=>{
- render(<PaymentMonitoringClient initialPage={page} initialAttention={{items:[failed]}} />);
+ render(<PaymentMonitoringClient initialPage={page} initialAttention={{items:[failed]}} initialPayoutBoard={emptyPayoutBoard} />);
  await userEvent.click(screen.getByRole("button",{name:"Retry failed payout"}));
  const dialog=screen.getByRole("dialog",{name:"Retry failed Provider payout?"});
  expect(within(dialog).getByText(/new payout attempt is created only after financial revalidation/)).toBeInTheDocument();
@@ -35,7 +36,7 @@ it("requires confirmation and cancellation performs no retry",async()=>{
  expect(mocks.retry).not.toHaveBeenCalled();expect(mocks.repair).not.toHaveBeenCalled();
 });
 it("invokes only the protected aggregate retry with ID and refreshes issues",async()=>{
- render(<PaymentMonitoringClient initialPage={page} initialAttention={{items:[failed]}} />);
+ render(<PaymentMonitoringClient initialPage={page} initialAttention={{items:[failed]}} initialPayoutBoard={emptyPayoutBoard} />);
  await userEvent.click(screen.getByRole("button",{name:"Retry failed payout"}));
  await userEvent.click(screen.getByRole("button",{name:"Prepare payout retry"}));
  await waitFor(()=>expect(mocks.retry).toHaveBeenCalledExactlyOnceWith({providerDisbursementId:"payout"}));
@@ -45,7 +46,7 @@ it("invokes only the protected aggregate retry with ID and refreshes issues",asy
 });
 it("shows safe concurrent status-change feedback",async()=>{
  mocks.retry.mockRejectedValue(new Error("This payout changed or is no longer authoritatively failed. Refresh Provider payout issues."));
- render(<PaymentMonitoringClient initialPage={page} initialAttention={{items:[failed]}} />);
+ render(<PaymentMonitoringClient initialPage={page} initialAttention={{items:[failed]}} initialPayoutBoard={emptyPayoutBoard} />);
  await userEvent.click(screen.getByRole("button",{name:"Retry failed payout"}));
  await userEvent.click(screen.getByRole("button",{name:"Prepare payout retry"}));
  expect(await screen.findByText(/no longer authoritatively failed/)).toBeInTheDocument();expect(mocks.refresh).not.toHaveBeenCalled();

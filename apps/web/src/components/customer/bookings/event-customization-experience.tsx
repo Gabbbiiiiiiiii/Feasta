@@ -28,6 +28,16 @@ import {foodChoiceSelectionError, reconcileFoodChoiceSelections} from "@/lib/cus
 
 
 import {formatEventTime} from "@/lib/presentation/event-time";
+import {
+  DROP_OFF_END_TIME_LABEL,
+  DROP_OFF_TIME_HELPER,
+  DROP_OFF_TIME_LABEL,
+  EVENT_END_TIME_LABEL,
+  EVENT_START_TIME_LABEL,
+  cateringScheduleMode,
+  formatCateringScheduleDisplay,
+  normalizeCateringSchedule,
+} from "@/lib/catering/catering-schedule";
 
 import {CustomerEventAddressMap, type EventMapCoordinates} from "@/components/customer/bookings/customer-event-address-map";
 import {
@@ -62,7 +72,11 @@ import {
   type BookingThemeInspiration,
 } from "@/lib/customer/bookings/booking-customization-selection";
 import type {ProviderSetup} from "@/lib/provider/provider-setup-gallery";
-import type {CateringPackageServiceTier} from "@/lib/catering/catering-service-tier";
+import {
+  cateringPackageServiceTierDescription,
+  cateringPackageServiceTierLabel,
+  type CateringPackageServiceTier,
+} from "@/lib/catering/catering-service-tier";
 import {CustomerAuthLink} from "@/components/customer/layout/customer-auth-provider";
 import {
   useCallback,
@@ -98,6 +112,7 @@ import {ProviderDatePicker, type ProviderCalendarCache} from "./provider-date-pi
 import {PackagePaymentTerms} from "@/components/shared/package-payment-terms";
 import {PriceDisplay} from "@/components/shared/price-display";
 import {getCustomerProviderTaxPreview} from "@/lib/customer/bookings/customer-provider-vat-preview-client";
+import {customerFeastaCommissionEstimatePesos} from "@/lib/customer/bookings/customer-feasta-commission-estimate";
 import {customerProviderVatBreakdown, type CustomerProviderTaxStatus} from "@/lib/customer/bookings/customer-provider-vat-breakdown";
 import {Button} from "@/components/ui/button";
 import {Input} from "@/components/ui/input";
@@ -138,7 +153,7 @@ type EventDetailsDraft = {
 };
 
 type EventDetailsErrors = Partial<
-  Record<keyof EventDetailsDraft, string>
+  Record<keyof EventDetailsDraft | "serviceTier", string>
 >;
 
 type PackageCustomizationDraft = {
@@ -563,6 +578,7 @@ const submissionIdentityRef =
       addonIds: eventServices.map((service) => service.id),
       minimumGuests: packageRecord.minimumGuests,
       maximumGuests: packageRecord.maximumGuests,
+      serviceTier: offerSelection.serviceTier,
     }),
     [
       draft.eventDate,
@@ -570,6 +586,7 @@ const submissionIdentityRef =
       draft.eventTime,
       draft.guestCount,
       eventServices,
+      offerSelection.serviceTier,
       packageRecord.id,
       packageRecord.maximumGuests,
       packageRecord.minimumGuests,
@@ -707,7 +724,7 @@ const submissionIdentityRef =
   useEffect(() => {
     if (!reviewNavigationPending.current || eventListRestoreBlocked) return;
     if (hasRestoredOptionProblems ||
-        Object.keys(validateEventDetails(draft, packageRecord.minimumGuests, packageRecord.maximumGuests)).length ||
+        Object.keys(validateEventDetails(draft, packageRecord.minimumGuests, packageRecord.maximumGuests, offerSelection.serviceTier)).length ||
         bookingSubmissionDeadlineNotice(draft) ||
         (offerSelection.availableTiers.length > 0 && !offerSelection.serviceTier)) {
       reviewNavigationPending.current = false;
@@ -781,7 +798,7 @@ const submissionIdentityRef =
         feedback("Already in Event List. Open Event List to edit the saved configuration.", true);
         return;
       }
-      const errors = validateEventDetails(draft, packageRecord.minimumGuests, packageRecord.maximumGuests);
+      const errors = validateEventDetails(draft, packageRecord.minimumGuests, packageRecord.maximumGuests, offerSelection.serviceTier);
       const choiceError = foodChoiceSelectionError(packageRecord.foodChoiceGroups ?? [], customizationDraft.foodChoiceSelections ?? []);
       if (Object.keys(errors).length || choiceError || unresolvedServiceIds.length ||
           (offerSelection.availableTiers.length > 0 && !offerSelection.serviceTier) ||
@@ -1060,8 +1077,7 @@ function currentSubmissionDraftKey(): string {
 
     eventDate: draft.eventDate,
     eventTime: draft.eventTime,
-    eventEndTime:
-      draft.eventEndTime,
+    eventEndTime: draft.eventEndTime,
 
     eventLocation:
       draft.eventLocation.trim(),
@@ -1224,6 +1240,7 @@ async function handleSubmitBooking() {
       draft,
       packageRecord.minimumGuests,
       packageRecord.maximumGuests,
+      offerSelection.serviceTier,
     );
 
   if (
@@ -1298,7 +1315,10 @@ async function handleSubmitBooking() {
           addonIds: input.addonIds,
           eventDate: input.eventDate,
           eventTime: input.eventTime,
-          eventEndTime: input.eventEndTime,
+          ...(input.eventEndTime
+            ? {eventEndTime: input.eventEndTime}
+            : {}),
+          ...(input.serviceTier ? {serviceTier: input.serviceTier} : {}),
           guestCount: input.guestCount,
         },
         selectedProviderIds,
@@ -1390,7 +1410,14 @@ async function handleSubmitBooking() {
         draft,
         packageRecord.minimumGuests,
         packageRecord.maximumGuests,
+        offerSelection.serviceTier,
       );
+    if (
+      offerSelection.availableTiers.length > 0 &&
+      !offerSelection.serviceTier
+    ) {
+      nextErrors.serviceTier = "Choose a service level to continue.";
+    }
 
     setErrors(nextErrors);
 
@@ -1449,7 +1476,22 @@ async function handleSubmitBooking() {
     setPackageThemeId(next.packageThemeId);
     setThemeInspiration(next.themeInspiration);
     setOfferSelectionError(null);
+    setErrors((current) => {
+      const nextErrors = {...current};
+      delete nextErrors.serviceTier;
+      return nextErrors;
+    });
   }
+
+  // Time fields live on Step 1, so select the only published tier early.
+  useEffect(() => {
+    if (offerSelection.serviceTier || offerSelection.availableTiers.length !== 1) {
+      return;
+    }
+    selectServiceTier(offerSelection.availableTiers[0]!);
+    // Intentional: only react when available tiers / selection change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [offerSelection.availableTiers, offerSelection.serviceTier]);
 
   function selectPackageTheme(nextThemeId: string | null) {
     const next = reconcileBookingCustomization({
@@ -1881,9 +1923,64 @@ function discardAndLeave() {
                   </Field>
                 </div>
 
+                {offerSelection.availableTiers.length > 0 ? (
+                  <Field
+                    label="Service level"
+                    hint="Choose Drop-Off, Buffet Setup, or Full-Service before setting the schedule."
+                    error={errors.serviceTier}
+                  >
+                    <div
+                      role="radiogroup"
+                      aria-label="Service level"
+                      aria-invalid={Boolean(errors.serviceTier) || undefined}
+                      className="grid gap-2 sm:grid-cols-3"
+                    >
+                      {offerSelection.availableTiers.map((tier) => {
+                        const selected = offerSelection.serviceTier === tier;
+                        return (
+                          <label
+                            key={tier}
+                            className={[
+                              "flex cursor-pointer flex-col rounded-xl border p-3 transition-colors",
+                              selected
+                                ? "border-primary bg-secondary/50 ring-1 ring-primary/20"
+                                : "border-feasta-border-soft bg-feasta-canvas hover:border-primary/40",
+                            ].join(" ")}
+                          >
+                            <input
+                              type="radio"
+                              name="step1-service-tier"
+                              className="sr-only"
+                              checked={selected}
+                              onChange={() => selectServiceTier(tier)}
+                            />
+                            <span className="text-sm font-extrabold text-foreground">
+                              {cateringPackageServiceTierLabel(tier)}
+                            </span>
+                            <span className="mt-1 text-xs leading-5 text-feasta-text-secondary">
+                              {cateringPackageServiceTierDescription(tier)}
+                            </span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </Field>
+                ) : null}
+
                 <div className="grid gap-4 sm:grid-cols-2">
                   <Field
-                    label="Start time"
+                    label={
+                      cateringScheduleMode(offerSelection.serviceTier) === "drop_off_time"
+                        ? DROP_OFF_TIME_LABEL
+                        : EVENT_START_TIME_LABEL
+                    }
+                    hint={
+                      cateringScheduleMode(offerSelection.serviceTier) === "drop_off_time"
+                        ? DROP_OFF_TIME_HELPER
+                        : offerSelection.availableTiers.length > 0 && !offerSelection.serviceTier
+                          ? "Select a service level first. Drop-Off uses estimated drop-off and end time; Buffet Setup and Full-Service use a start and end time."
+                          : undefined
+                    }
                     error={errors.eventTime}
                   >
                     <Input
@@ -1903,7 +2000,11 @@ function discardAndLeave() {
                   </Field>
 
                   <Field
-                    label="End time"
+                    label={
+                      cateringScheduleMode(offerSelection.serviceTier) === "drop_off_time"
+                        ? DROP_OFF_END_TIME_LABEL
+                        : EVENT_END_TIME_LABEL
+                    }
                     error={
                       errors.eventEndTime
                     }
@@ -1923,6 +2024,11 @@ function discardAndLeave() {
                       aria-invalid={Boolean(
                         errors.eventEndTime,
                       )}
+                      aria-label={
+                        cateringScheduleMode(offerSelection.serviceTier) === "drop_off_time"
+                          ? "Estimated drop-off end time"
+                          : undefined
+                      }
                     />
                   </Field>
                 </div>
@@ -2502,12 +2608,16 @@ function discardAndLeave() {
                         aria-hidden="true"
                       />
                     }
-                    label="Time"
-                    value={
-                      draft.eventEndTime
-                        ? `${formatEventTime(draft.eventTime)} – ${formatEventTime(draft.eventEndTime)}`
-                        : formatEventTime(draft.eventTime)
+                    label={
+                      cateringScheduleMode(offerSelection.serviceTier) === "drop_off_time"
+                        ? DROP_OFF_TIME_LABEL
+                        : "Time"
                     }
+                    value={formatCateringScheduleDisplay({
+                      serviceTier: offerSelection.serviceTier,
+                      eventTime: draft.eventTime,
+                      eventEndTime: draft.eventEndTime,
+                    })}
                   />
                 ) : null}
 
@@ -3061,6 +3171,11 @@ function BookingReview({
     taxStatus,
   );
 
+  const feastaCommissionEstimate =
+    customerFeastaCommissionEstimatePesos(
+      displayedServicePrice,
+    );
+
   const estimatedTotal =
     displayedServicePrice !== null
       ? displayedServicePrice +
@@ -3330,6 +3445,11 @@ function BookingReview({
               detail={`${packageRecord.name} · ${eventDraft.guestCount} guests`} />
             <EstimateRow label="Selected FEASTA services" value={selectedEventServicesSubtotal} />
 
+            <EstimateRow
+              label="Service charge"
+              value={feastaCommissionEstimate}
+            />
+
             <div aria-label="Estimated provider tax breakdown" className="rounded-xl border border-feasta-divider bg-secondary/40 p-3">
               {taxStatus === null ? (
                 <p className="text-sm text-feasta-text-secondary">Checking provider tax verification...</p>
@@ -3442,11 +3562,6 @@ function BookingReview({
                   ? "Acknowledge every displayed Provider refund policy to continue."
                   : ""}
           </p>
-
-          <nav aria-label="Customer legal policies" className="flex flex-wrap gap-x-4 gap-y-2 text-xs text-muted-foreground">
-            <a href="/terms" target="_blank" rel="noopener noreferrer" className="underline underline-offset-2">Customer Terms &amp; Conditions</a>
-            <a href="/privacy" target="_blank" rel="noopener noreferrer" className="underline underline-offset-2">Privacy Policy</a>
-          </nav>
 
           <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center lg:justify-end">
             <Button
@@ -4040,15 +4155,19 @@ function availabilityInputForDraft(input: {
   addonIds: readonly string[];
   minimumGuests: number | null;
   maximumGuests: number | null;
+  serviceTier?: CateringPackageServiceTier | null;
 }): CustomerProviderAvailabilityInput | null {
   const guestCount = Number(input.guestCount);
+  const schedule = normalizeCateringSchedule({
+    serviceTier: input.serviceTier,
+    eventTime: input.eventTime,
+    eventEndTime: input.eventEndTime,
+  });
 
   if (
     !isCanonicalDateValue(input.eventDate) ||
     input.eventDate < tomorrowDateValue() ||
-    !/^([01]\d|2[0-3]):[0-5]\d$/u.test(input.eventTime) ||
-    !/^([01]\d|2[0-3]):[0-5]\d$/u.test(input.eventEndTime) ||
-    input.eventEndTime <= input.eventTime ||
+    !schedule.ok ||
     !Number.isInteger(guestCount) ||
     guestCount < 1 ||
     guestCount > 10_000 ||
@@ -4068,8 +4187,11 @@ function availabilityInputForDraft(input: {
     packageId: input.packageId,
     addonIds: input.addonIds,
     eventDate: input.eventDate,
-    eventTime: input.eventTime,
-    eventEndTime: input.eventEndTime,
+    eventTime: schedule.value.eventTime,
+    ...(schedule.value.eventEndTime
+      ? {eventEndTime: schedule.value.eventEndTime}
+      : {}),
+    ...(input.serviceTier ? {serviceTier: input.serviceTier} : {}),
     guestCount,
   };
 }
@@ -4096,6 +4218,7 @@ function validateEventDetails(
   draft: EventDetailsDraft,
   minimumGuests: number | null,
   maximumGuests: number | null,
+  serviceTier?: CateringPackageServiceTier | null,
 ): EventDetailsErrors {
   const errors: EventDetailsErrors = {};
 
@@ -4114,24 +4237,13 @@ function validateEventDetails(
     }
   }
 
-  if (!draft.eventTime) {
-    errors.eventTime =
-      "Enter the event start time.";
-  }
-
-  if (!draft.eventEndTime) {
-    errors.eventEndTime =
-      "Enter the event end time.";
-  }
-
-  if (
-    draft.eventTime &&
-    draft.eventEndTime &&
-    draft.eventEndTime <=
-      draft.eventTime
-  ) {
-    errors.eventEndTime =
-      "End time must be later than the start time.";
+  const schedule = normalizeCateringSchedule({
+    serviceTier,
+    eventTime: draft.eventTime,
+    eventEndTime: draft.eventEndTime,
+  });
+  if (!schedule.ok) {
+    errors[schedule.field] = schedule.message;
   }
 
   const guestCount =

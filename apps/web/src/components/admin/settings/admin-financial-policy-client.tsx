@@ -13,6 +13,11 @@ import {
 } from "react";
 
 import {
+  DEFAULT_PLATFORM_COMMISSION_MODEL,
+  DEFAULT_PLATFORM_COMMISSION_RATE_BPS,
+} from "@feasta/shared-types";
+
+import {
   updateAdminFinancialPolicyAction,
 } from "@/app/admin/settings/actions";
 import {Button} from "@/components/ui/button";
@@ -35,16 +40,6 @@ function AdminFinancialPolicyClient({
     setSavedSettings,
   ] = useState(
     initialSettings,
-  );
-
-  const [
-    commissionPercentage,
-    setCommissionPercentage,
-  ] = useState(
-    basisPointsToInput(
-      initialSettings
-        .platformCommissionRateBps,
-    ),
   );
 
   const [
@@ -105,9 +100,10 @@ function AdminFinancialPolicyClient({
   ] = useTransition();
 
   const commissionRateBps =
-    percentageInputToBasisPoints(
-      commissionPercentage,
-    );
+    DEFAULT_PLATFORM_COMMISSION_RATE_BPS;
+
+  const commissionModel =
+    DEFAULT_PLATFORM_COMMISSION_MODEL;
 
   const vatRateBps =
     percentageInputToBasisPoints(
@@ -141,11 +137,12 @@ function AdminFinancialPolicyClient({
    */
   const hasChanges = useMemo(
     () =>
-      commissionPercentage !==
-        basisPointsToInput(
-          savedSettings
-            .platformCommissionRateBps,
-        ) ||
+      savedSettings
+        .platformCommissionRateBps !==
+        commissionRateBps ||
+      savedSettings
+        .platformCommissionModel !==
+        commissionModel ||
       platformTaxStatus !==
         savedSettings
           .platformTaxStatus ||
@@ -165,7 +162,8 @@ function AdminFinancialPolicyClient({
             .maximumDepositRateBps,
         ),
     [
-      commissionPercentage,
+      commissionModel,
+      commissionRateBps,
       maximumDepositPercentage,
       minimumDepositPercentage,
       platformTaxStatus,
@@ -176,7 +174,6 @@ function AdminFinancialPolicyClient({
 
   const canSubmit =
     (hasChanges || savedSettings.financialPolicyEffectiveAt === null) &&
-    commissionRateBps !== null &&
     vatRateBps !== null &&
     depositBoundsValid &&
     (
@@ -196,12 +193,9 @@ function AdminFinancialPolicyClient({
     setError(null);
     setSuccess(null);
 
-    if (
-      commissionRateBps === null ||
-      vatRateBps === null
-    ) {
+    if (vatRateBps === null) {
       setError(
-        "Enter valid FEASTA percentage values between 0 and 100.",
+        "Enter a valid FEASTA VAT percentage between 0 and 100.",
       );
       return;
     }
@@ -246,6 +240,9 @@ function AdminFinancialPolicyClient({
                 platformCommissionRateBps:
                   commissionRateBps,
 
+                platformCommissionModel:
+                  commissionModel,
+
                 platformTaxStatus,
 
                 platformVatRateBps:
@@ -265,13 +262,6 @@ function AdminFinancialPolicyClient({
 
           setSavedSettings(
             result.settings,
-          );
-
-          setCommissionPercentage(
-            basisPointsToInput(
-              result.settings
-                .platformCommissionRateBps,
-            ),
           );
 
           setPlatformTaxStatus(
@@ -322,13 +312,6 @@ function AdminFinancialPolicyClient({
   };
 
   const reset = () => {
-    setCommissionPercentage(
-      basisPointsToInput(
-        savedSettings
-          .platformCommissionRateBps,
-      ),
-    );
-
     setPlatformTaxStatus(
       savedSettings
         .platformTaxStatus,
@@ -459,44 +442,50 @@ function AdminFinancialPolicyClient({
         onSubmit={submit}
       >
         <div className="grid gap-5 md:grid-cols-2">
-          <div className="grid gap-2">
-            <label
-              htmlFor="financial-policy-commission"
-              className="font-semibold text-foreground"
-            >
-              Platform commission rate (%)
-            </label>
+          <div className="grid content-start gap-2 rounded-lg border border-border bg-muted/30 p-4 md:col-span-2">
+            <p className="font-semibold text-foreground">
+              FEASTA commission policy
+            </p>
 
-            <Input
-              id="financial-policy-commission"
-              aria-describedby="financial-policy-commission-help"
-              type="number"
-              min="0"
-              max="100"
-              step="0.01"
-              inputMode="decimal"
-              value={
-                commissionPercentage
-              }
-              disabled={isPending}
-              onChange={(event) => {
-                setCommissionPercentage(
-                  event.currentTarget
-                    .value,
-                );
-              }}
-            />
+            <p className="text-sm leading-5 text-muted-foreground">
+              Fixed 2% base with dynamic
+              caps. Existing booking
+              snapshots keep their original
+              commission. New bookings use
+              this versioned policy.
+            </p>
 
-            <span
-              id="financial-policy-commission-help"
-              className="text-sm leading-5 text-muted-foreground"
-            >
-              FEASTA&apos;s initial policy
-              is 10%. Commission remains
-              separate from provider VAT,
-              FEASTA VAT, gateway fees,
-              refunds, and payouts.
-            </span>
+            <dl className="mt-2 grid gap-2 text-sm sm:grid-cols-2">
+              <PolicyValue
+                label="Base commission rate"
+                value="2%"
+              />
+
+              <PolicyValue
+                label="Standard commission cap"
+                value="₱500"
+              />
+
+              <PolicyValue
+                label="Standard cap maintained through"
+                value="₱75,000"
+              />
+
+              <PolicyValue
+                label="Progressive transition"
+                value="Above ₱75,000 to ₱100,000"
+              />
+
+              <PolicyValue
+                label="Absolute maximum cap"
+                value="₱1,000"
+              />
+
+              <PolicyValue
+                label="Absolute cap applies from"
+                value="₱100,000"
+              />
+            </dl>
           </div>
 
           <div className="grid gap-2">
@@ -665,10 +654,7 @@ function AdminFinancialPolicyClient({
             <dl className="grid gap-2 text-sm">
               <PolicyValue
                 label="Commission"
-                value={`${commissionRateBps === null
-                  ? "Invalid"
-                  : commissionRateBps /
-                    100}%`}
+                value="2% tiered capped (max ₱1,000)"
               />
 
               <PolicyValue

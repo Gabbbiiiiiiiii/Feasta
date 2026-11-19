@@ -12,6 +12,7 @@ import '../../app/router/customer_auth_navigation.dart';
 import 'customization_session.dart';
 import 'event_draft_persistence.dart';
 import '../../shared/models/booking_contract.dart';
+import '../../shared/models/catering_schedule.dart';
 import 'location_picker_screen.dart';
 import 'widgets/preparation_availability.dart';
 import 'widgets/provider_calendar.dart';
@@ -1607,20 +1608,28 @@ class _EventCustomizationScreenState extends State<EventCustomizationScreen>
       return;
     }
 
+    final dropOff = selectedServiceTier == 'drop_off';
     if (selectedStartTime == null) {
-      _showMessage('Please select an event start time.');
+      _showMessage(
+        dropOff
+            ? 'Please select an estimated drop-off time.'
+            : 'Please select an event start time.',
+      );
       return;
     }
 
     if (selectedEndTime == null) {
-      _showMessage('Please select an event end time.');
+      _showMessage(
+        dropOff
+            ? 'Please select an end time.'
+            : 'Please select an event end time.',
+      );
       return;
     }
 
     final startMinutes =
         selectedStartTime!.hour * 60 + selectedStartTime!.minute;
     final endMinutes = selectedEndTime!.hour * 60 + selectedEndTime!.minute;
-
     if (endMinutes <= startMinutes) {
       _showMessage('Event end time must be later than the start time.');
       return;
@@ -2396,14 +2405,26 @@ class _EventCustomizationScreenState extends State<EventCustomizationScreen>
                         LayoutBuilder(
                           builder: (context, constraints) {
                             final shouldStack = constraints.maxWidth < 320;
+                            final dropOff = selectedServiceTier == 'drop_off';
 
                             final startField = Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                const _FieldLabel(
+                                _FieldLabel(
                                   icon: Icons.schedule_rounded,
-                                  text: 'Start time',
+                                  text: dropOff
+                                      ? dropOffTimeLabel
+                                      : eventStartTimeLabel,
                                 ),
+                                if (dropOff) ...[
+                                  const SizedBox(height: AppSpacing.xs),
+                                  Text(
+                                    dropOffTimeHelper,
+                                    style: AppTypography.caption.copyWith(
+                                      color: AppColors.secondaryTextAccessible,
+                                    ),
+                                  ),
+                                ],
                                 const SizedBox(height: AppSpacing.sm),
                                 _PickerField(
                                   text: selectedStartTime == null
@@ -2419,9 +2440,11 @@ class _EventCustomizationScreenState extends State<EventCustomizationScreen>
                             final endField = Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                const _FieldLabel(
+                                _FieldLabel(
                                   icon: Icons.schedule_rounded,
-                                  text: 'End time',
+                                  text: dropOff
+                                      ? dropOffEndTimeLabel
+                                      : eventEndTimeLabel,
                                 ),
                                 const SizedBox(height: AppSpacing.sm),
                                 _PickerField(
@@ -2483,6 +2506,7 @@ class _EventCustomizationScreenState extends State<EventCustomizationScreen>
                       date: selectedDate,
                       start: selectedStartTime,
                       end: selectedEndTime,
+                      serviceTier: selectedServiceTier,
                       guests:
                           guestCount >=
                                   preparationMinimumGuests(_eventPackage) &&

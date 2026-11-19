@@ -92,13 +92,16 @@ class CustomerAvailability {
   static Map<String, dynamic> request(
     String packageId,
     EventCustomizationData c,
-  ) => {
-    'packageId': packageId,
-    'addonIds': c.selectedAddOns.map((a) => a['addonId']).toSet().toList(),
-    'eventDate':
-        '${c.eventDate.year.toString().padLeft(4, '0')}-${c.eventDate.month.toString().padLeft(2, '0')}-${c.eventDate.day.toString().padLeft(2, '0')}',
-    'eventTime': bookingTime(c.eventTime),
-    'eventEndTime': bookingTime(c.eventEndTime),
-    'guestCount': c.guestCount,
-  };
+  ) {
+    return {
+      'packageId': packageId,
+      'addonIds': c.selectedAddOns.map((a) => a['addonId']).toSet().toList(),
+      'eventDate':
+          '${c.eventDate.year.toString().padLeft(4, '0')}-${c.eventDate.month.toString().padLeft(2, '0')}-${c.eventDate.day.toString().padLeft(2, '0')}',
+      'eventTime': bookingTime(c.eventTime),
+      'eventEndTime': bookingTime(c.eventEndTime),
+      if (c.serviceTier != null) 'serviceTier': c.serviceTier,
+      'guestCount': c.guestCount,
+    };
+  }
 }

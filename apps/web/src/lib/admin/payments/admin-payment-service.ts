@@ -20,6 +20,9 @@ import {
 } from "@feasta/shared-types";
 
 import type {
+  AdminProviderPayoutBoard,
+  AdminProviderPayoutHistoryItem,
+  AdminReadyProviderPayoutItem,
   AdminFinanceAttentionQueue,
   AdminPayment,
   AdminPaymentAuditEntry,
@@ -424,6 +427,132 @@ export async function getAdminFinanceAttentionQueue(): Promise<
       );
 
   return {items};
+}
+
+export async function getAdminProviderPayoutBoard(): Promise<
+  AdminProviderPayoutBoard
+> {
+  await requireAdmin();
+
+  const [readySnapshot, historySnapshot] = await Promise.all([
+    adminDb
+      .collection("providerDisbursements")
+      .where("status", "==", "ready")
+      .limit(50)
+      .get(),
+    adminDb
+      .collection("providerMockWithdrawals")
+      .where("releaseChannel", "==", "admin_disbursement")
+      .limit(50)
+      .get(),
+  ]);
+
+  const readyBase: AdminReadyProviderPayoutItem[] = readySnapshot.docs.flatMap(
+    (document) => {
+      const data = document.data();
+      const amount = adminCentavos(data.amountInCentavos);
+      if (
+        data.schemaVersion !== 1 ||
+        data.policyVersion !== 1 ||
+        data.disbursementId !== document.id ||
+        data.currency !== "PHP" ||
+        amount === null ||
+        amount <= 0 ||
+        typeof data.providerId !== "string"
+      ) {
+        return [];
+      }
+
+      return [{
+        providerDisbursementId: document.id,
+        providerId: data.providerId,
+        providerName: null,
+        providerRequestId: nullableString(data.providerRequestId),
+        mainEventId: nullableString(data.mainEventId),
+        amountInCentavos: amount,
+        formattedAmount: formatCentavos(amount, "PHP"),
+        transportReady: data.transportReady === true,
+        dispatchBlockReason: nullableString(data.dispatchBlockReason),
+        eligibleAt: isoDateValue(data.payoutEligibleAt),
+        readyAt: isoDateValue(data.readyAt),
+        trigger: nullableString(data.trigger),
+      }];
+    },
+  );
+
+  const historyBase: AdminProviderPayoutHistoryItem[] =
+    historySnapshot.docs.flatMap((document) => {
+      const data = document.data();
+      const amount = adminCentavos(data.amountInCentavos);
+      if (
+        data.schemaVersion !== 1 ||
+        data.mode !== "mock" ||
+        data.status !== "succeeded" ||
+        data.currency !== "PHP" ||
+        data.withdrawalId !== document.id ||
+        amount === null ||
+        amount <= 0 ||
+        typeof data.providerId !== "string" ||
+        typeof data.providerDisbursementId !== "string"
+      ) {
+        return [];
+      }
+
+      return [{
+        providerDisbursementId: data.providerDisbursementId,
+        withdrawalId: document.id,
+        providerId: data.providerId,
+        providerName: null,
+        amountInCentavos: amount,
+        formattedAmount: formatCentavos(amount, "PHP"),
+        completedAt:
+          isoDateValue(data.completedAt) ?? isoDateValue(data.createdAt),
+        mode: "mock",
+      }];
+    });
+
+  const providerIds = [...new Set([
+    ...readyBase.map((item) => item.providerId),
+    ...historyBase.map((item) => item.providerId),
+  ])];
+
+  const providerSnapshots = await Promise.all(
+    providerIds.map((providerId) =>
+      adminDb.collection("providers").doc(providerId).get(),
+    ),
+  );
+
+  const providerNames = new Map<string, string | null>();
+  for (const snapshot of providerSnapshots) {
+    const name = snapshot.exists
+      ? nullableString(snapshot.data()?.businessName)
+      : null;
+    providerNames.set(snapshot.id, name);
+  }
+
+  const readyToPay = readyBase
+    .map((item) => ({
+      ...item,
+      providerName: providerNames.get(item.providerId) ?? null,
+    }))
+    .sort((left, right) => {
+      const leftMillis = new Date(left.eligibleAt ?? left.readyAt ?? 0).getTime();
+      const rightMillis = new Date(right.eligibleAt ?? right.readyAt ?? 0).getTime();
+      return leftMillis - rightMillis;
+    });
+
+  const history = historyBase
+    .map((item) => ({
+      ...item,
+      providerName: providerNames.get(item.providerId) ?? null,
+    }))
+    .sort((left, right) => {
+      const leftMillis = new Date(left.completedAt ?? 0).getTime();
+      const rightMillis = new Date(right.completedAt ?? 0).getTime();
+      return rightMillis - leftMillis;
+    });
+
+  return {readyToPay, history};
 }
 
 function mapAmbiguousPayoutSetupAttentionCandidate(

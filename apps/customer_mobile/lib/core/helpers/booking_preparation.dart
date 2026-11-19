@@ -112,12 +112,21 @@ String? validatePreparation({
     return 'This package supports ${package.eventType} events. Please choose the current event type.';
   }
   if (date == null) return 'Please select an event date.';
-  if (startMinutes == null) return 'Please select an event start time.';
-  if (endMinutes == null ||
-      endMinutes <= startMinutes ||
-      endMinutes > 1439 ||
-      startMinutes < 0) {
-    return 'Event end time must be later than the start time.';
+  final dropOff = serviceTier == 'drop_off';
+  if (startMinutes == null) {
+    return dropOff
+        ? 'Please select an estimated drop-off time.'
+        : 'Please select an event start time.';
+  }
+  if (startMinutes < 0 || startMinutes > 1439) {
+    return dropOff
+        ? 'Please select an estimated drop-off time.'
+        : 'Please select an event start time.';
+  }
+  if (endMinutes == null || endMinutes <= startMinutes || endMinutes > 1439) {
+    return dropOff
+        ? 'End time must be later than the estimated drop-off time.'
+        : 'Event end time must be later than the start time.';
   }
   final start = DateTime(
     date.year,
@@ -127,7 +136,9 @@ String? validatePreparation({
     startMinutes % 60,
   );
   if (!start.isAfter(now ?? DateTime.now())) {
-    return 'Choose a future event date and start time.';
+    return dropOff
+        ? 'Choose a future event date and estimated drop-off time.'
+        : 'Choose a future event date and start time.';
   }
   final maximum = preparationMaximumGuests(package);
   if (guests > 10000 ||

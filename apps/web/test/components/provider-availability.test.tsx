@@ -341,36 +341,26 @@ it("warns when the proposed limit is below already occupied future slots", async
 });
 
 
-it("saves operating days, notice and capacity together and separates unused capacity from bookable slots", async () => {
+it("saves operating days, notice and capacity together and points day capacity to Calendar", async () => {
   const user = userEvent.setup();
   render(<ProviderAvailabilityClient initialSettings={settings({
     operatingDays: [], unavailableDateReasons: {"2099-09-10": "Maintenance"},
   })} />);
   expect(screen.queryByRole("button", {name: "Save Capacity"})).not.toBeInTheDocument();
+  expect(screen.queryByLabelText("View capacity for date")).not.toBeInTheDocument();
   const button = screen.getByRole("button", {name: "Save Availability Settings"});
-  const date = screen.getByLabelText("View capacity for date");
-  fireEvent.change(date, {target: {value: "2099-09-09"}});
-  const saved = screen.getByText("Saved daily capacity", {selector: "dt"}).parentElement!;
-  const unused = screen.getByText("Unused capacity", {selector: "dt"}).parentElement!;
-  const bookable = screen.getByText("Bookable slots", {selector: "dt"}).parentElement!;
   await user.click(screen.getByRole("checkbox", {name: "Wednesday"}));
   fireEvent.change(screen.getByRole("spinbutton", {name: /^Minimum booking notice/u}), {target: {value: "5"}});
   fireEvent.change(screen.getByRole("spinbutton", {name: /Maximum events per day/i}), {target: {value: "2"}});
-  expect(within(saved).getByText("1")).toBeVisible();
-  expect(within(bookable).getByText("0")).toBeVisible();
+  expect(screen.getByText(/Save to apply this daily limit/i)).toBeVisible();
+  expect(screen.getByText(/Day-by-day booked and remaining slots stay on Calendar/i)).toBeVisible();
   await user.click(button);
   await waitFor(() => expect(button).toBeDisabled());
   expect(mocks.updateSettings).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
     maxEventsPerDay: 2, bookingLeadTimeDays: 5, operatingDays: ["wednesday"], expectedSettingsRevision: 0,
   }));
-  expect(within(saved).getByText("2")).toBeVisible();
-  expect(within(unused).getByText("2")).toBeVisible();
-  expect(within(bookable).getByText("2")).toBeVisible();
-  fireEvent.change(date, {target: {value: "2099-09-10"}});
-  expect(screen.getByText("Date Unavailable")).toBeVisible();
-  expect(screen.getByText(/Reason: Maintenance/)).toBeVisible();
-  expect(within(unused).getByText("2")).toBeVisible();
-  expect(within(bookable).getByText("0")).toBeVisible();
+  expect(screen.getByText(/Day-by-day booked and remaining slots stay on Calendar/i)).toBeVisible();
+  expect(screen.queryByText(/Save to apply this daily limit/i)).not.toBeInTheDocument();
 });
 
 it("keeps all edits unsaved when the combined settings request fails", async () => {
@@ -384,7 +374,7 @@ it("keeps all edits unsaved when the combined settings request fails", async () 
   expect(await screen.findByRole("alert")).toHaveTextContent("Could not persist settings.");
   expect(screen.getByRole("checkbox", {name: "Friday"})).toBeChecked();
   expect(screen.getByRole("spinbutton", {name: /Maximum events per day/i})).toHaveValue(2);
-  expect(within(screen.getByText("Saved daily capacity", {selector: "dt"}).parentElement!).getByText("1")).toBeVisible();
+  expect(screen.getByText(/Save to apply this daily limit/i)).toBeVisible();
   expect(mocks.success).not.toHaveBeenCalled();
   expect(save).toBeEnabled();
 });

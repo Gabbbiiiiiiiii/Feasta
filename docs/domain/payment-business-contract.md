@@ -58,14 +58,21 @@ greater than 0% and below 100%, and the stored balance deadline must be between
 policy with no remaining-balance deadline.
 ## Commission
 
-- The initial/default platform commission policy is 10%.
+- The default platform commission policy is a fixed 2% base with dynamic caps
+  (`platformCommissionModel = tiered_capped_2pct_v1`):
+  - ₱0–₱25,000: 2% of the provider booking amount
+  - Above ₱25,000–₱75,000: fixed ₱500
+  - Above ₱75,000–below ₱100,000: ₱500 + 2% of the amount exceeding ₱75,000
+  - ₱100,000 and above: fixed ₱1,000 absolute maximum
 - Commission is stored as versioned platform configuration in
   `appSettings/platform` rather than treated as a permanent hard-coded rate.
 - `financialPolicyVersion` identifies the version of the financial policy used
   for new trusted financial snapshots.
+- New provider-request snapshots freeze the commission model, 2% base rate, and
+  the resolved booking commission total. Existing snapshots are never rewritten.
 - There is one economic commission for each provider booking/request.
 - If the customer pays in multiple successful transactions, FEASTA allocates
-  that same commission proportionally as money is collected.
+  that same snapshotted commission proportionally as money is collected.
 - Failed or unpaid amounts do not earn commission.
 - Refund accounting must be capable of reversing the corresponding commission.
 - Money allocation uses integer centavos and basis points.

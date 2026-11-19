@@ -123,8 +123,24 @@ export type ProviderDisbursementView = {
   eligibleAt: string | null; trigger: string;
 };
 
+export type ProviderMockWithdrawalView = {
+  withdrawalId: string;
+  amountInCentavos: number;
+  status: "succeeded";
+  mode: "mock";
+  destinationType: "gcash" | "bank";
+  accountName: string;
+  mobileMasked: string | null;
+  bankName: string | null;
+  accountNumberMasked: string | null;
+  allocationCount: number;
+  createdAt: string | null;
+  completedAt: string | null;
+};
+
 export type ProviderFinanceOverview = {
   disbursements?: ProviderDisbursementView[];
+  mockWithdrawals?: ProviderMockWithdrawalView[];
   payoutAccount: ProviderPayoutAccountView;
 
   earnings: ProviderEarning[];

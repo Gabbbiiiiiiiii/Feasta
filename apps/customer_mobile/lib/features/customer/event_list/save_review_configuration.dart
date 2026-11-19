@@ -18,8 +18,8 @@ CustomerEventListEntry reviewEventListEntry({
   required PackageModel package,
   required EventCustomizationData data,
 }) {
-  final start = bookingTime(data.eventTime),
-      end = bookingTime(data.eventEndTime);
+  final start = bookingTime(data.eventTime);
+  final end = bookingTime(data.eventEndTime);
   int minutes(String time) =>
       int.parse(time.substring(0, 2)) * 60 + int.parse(time.substring(3));
   final error = validatePreparation(
@@ -27,7 +27,7 @@ CustomerEventListEntry reviewEventListEntry({
     providerId: provider.id,
     date: data.eventDate,
     startMinutes: minutes(start),
-    endMinutes: minutes(end),
+    endMinutes: end == null ? null : minutes(end),
     guests: data.guestCount,
     city: data.eventLocation,
     address: data.eventAddress,

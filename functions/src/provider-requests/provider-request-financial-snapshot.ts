@@ -8,14 +8,19 @@ import {
 } from "../payments/package-payment-terms.js";
 
 import {
+  DEFAULT_PLATFORM_COMMISSION_MODEL,
+  DEFAULT_PLATFORM_COMMISSION_RATE_BPS,
+  computeTieredCappedCommissionInCentavos,
+  parsePlatformCommissionModel,
+  type PlatformCommissionModel,
+} from "../payments/platform-commission-policy.js";
+
+import {
   PROVIDER_DISBURSEMENT_POLICY_VERSION,
 } from "../provider-finance/provider-disbursement-policy.js";
 
 const BASIS_POINTS_SCALE =
   10_000;
-
-const DEFAULT_PLATFORM_COMMISSION_RATE_BPS =
-  1_000;
 
 const DEFAULT_PLATFORM_VAT_RATE_BPS =
   1_200;
@@ -48,6 +53,12 @@ type ProviderRequestFinancialSnapshot = {
     number;
 
   platformCommissionRateBps:
+    number;
+
+  platformCommissionModel:
+    PlatformCommissionModel;
+
+  platformCommissionTotalInCentavos:
     number;
 
   platformTaxStatus:
@@ -146,11 +157,24 @@ export function buildProviderRequestFinancialSnapshot(
   const platformSettings =
     input.platformSettings ?? {};
 
-  const platformCommissionRateBps =
-    basisPointRate(
+  const platformCommissionModel =
+    parsePlatformCommissionModel(
       platformSettings
-        .platformCommissionRateBps,
-      DEFAULT_PLATFORM_COMMISSION_RATE_BPS,
+        .platformCommissionModel,
+    ) ??
+    DEFAULT_PLATFORM_COMMISSION_MODEL;
+
+  /*
+   * Tiered capped policy uses a fixed 2% base.
+   * Do not inherit a legacy flat percentage from
+   * older platform settings into new snapshots.
+   */
+  const platformCommissionRateBps =
+    DEFAULT_PLATFORM_COMMISSION_RATE_BPS;
+
+  const platformCommissionTotalInCentavos =
+    computeTieredCappedCommissionInCentavos(
+      grossAmountInCentavos,
     );
 
   const platformTaxStatus =
@@ -201,6 +225,10 @@ export function buildProviderRequestFinancialSnapshot(
     requiredUpfrontRateBps,
 
     platformCommissionRateBps,
+
+    platformCommissionModel,
+
+    platformCommissionTotalInCentavos,
 
     platformTaxStatus,
 

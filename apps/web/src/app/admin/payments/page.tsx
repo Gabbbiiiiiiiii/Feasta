@@ -4,6 +4,7 @@ import {
 import {
   getAdminFinanceAttentionQueue,
   getAdminPaymentPage,
+  getAdminProviderPayoutBoard,
 } from "@/lib/admin/payments/admin-payment-service";
 
 import {requireRole} from "@/lib/auth/session";
@@ -13,6 +14,7 @@ export default async function AdminPaymentsPage() {
   const [
     initialPage,
     initialAttention,
+    initialPayoutBoard,
   ] = await Promise.all([
     getAdminPaymentPage({
       search: "",
@@ -27,12 +29,14 @@ export default async function AdminPaymentsPage() {
     }),
 
     getAdminFinanceAttentionQueue(),
+    getAdminProviderPayoutBoard(),
   ]);
 
   return (
     <PaymentMonitoringClient
       initialPage={initialPage}
       initialAttention={initialAttention}
+      initialPayoutBoard={initialPayoutBoard}
     />
   );
 }

@@ -20,7 +20,7 @@ export default async function CustomerPackagePlanPage({params, searchParams}: {
   const routingQuery = new URLSearchParams(contextQuery);
   const bestFitReturnHref = query.returnTo ? parseProviderDirectoryReturnHref(query.returnTo) : undefined;
   if (bestFitReturnHref) routingQuery.set("returnTo", bestFitReturnHref);
-  const initialServiceTier = bestFitReturnHref ? normalizeCateringPackageServiceTier(query.serviceTier) : null;
+  const initialServiceTier = normalizeCateringPackageServiceTier(query.serviceTier);
   if (initialServiceTier) routingQuery.set("serviceTier", initialServiceTier);
   if (editProvider) routingQuery.set("eventListProvider", editProvider);
   if (account?.role === "customer") {

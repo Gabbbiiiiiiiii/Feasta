@@ -4,12 +4,18 @@ import {
   FirebaseError,
 } from "firebase/app";
 import {
+  EmailAuthProvider,
+  reauthenticateWithCredential,
+} from "firebase/auth";
+import {
   httpsCallable,
 } from "firebase/functions";
 
 import {
   WebAuthenticationError,
 } from "@/lib/auth/client-session";
+
+const ADMIN_RELEASE_CONFIRMATION_PHRASE = "RELEASE";
 import type {
   AdminPayoutSetupRepairInput,
   AdminPayoutSetupRepairResult,
@@ -171,5 +177,144 @@ export async function retryFailedProviderDisbursement(input: {providerDisburseme
       code === "resource-exhausted" ? "Too many payout retries were requested. Wait a moment and try again." :
       "The trusted payout retry service could not prepare this retry safely. Refresh Provider payout issues.";
     throw new Error(message);
+  }
+}
+
+export async function releaseMockProviderDisbursement(input: {
+  providerDisbursementId: string;
+  password: string;
+  confirmationPhrase: string;
+}): Promise<{
+  providerDisbursementId: string;
+  withdrawalId: string;
+  amountInCentavos: number;
+  currency: "PHP";
+  status: "succeeded";
+  mode: "mock";
+  providerId: string;
+}> {
+  await auth.authStateReady();
+  const user = auth.currentUser;
+  if (!user) {
+    throw new WebAuthenticationError(
+      "Your admin session has expired. Please sign in again.",
+      "session_expired",
+    );
+  }
+
+  const providerDisbursementId = input.providerDisbursementId;
+  if (!/^[A-Za-z0-9_-]{1,220}$/u.test(providerDisbursementId)) {
+    throw new Error("The Provider payout reference is invalid.");
+  }
+
+  if (input.confirmationPhrase !== ADMIN_RELEASE_CONFIRMATION_PHRASE) {
+    throw new Error("Type RELEASE exactly to confirm this payout release.");
+  }
+
+  if (typeof input.password !== "string" || input.password.length < 1) {
+    throw new Error("Enter your admin password to continue.");
+  }
+
+  if (!user.email) {
+    throw new Error(
+      "This admin account has no email/password sign-in. Use an email/password admin account to release payouts.",
+    );
+  }
+
+  const hasPasswordProvider = user.providerData.some(
+    (provider) => provider.providerId === EmailAuthProvider.PROVIDER_ID,
+  );
+  if (!hasPasswordProvider) {
+    throw new Error(
+      "This admin account has no email/password sign-in. Use an email/password admin account to release payouts.",
+    );
+  }
+
+  try {
+    await reauthenticateWithCredential(
+      user,
+      EmailAuthProvider.credential(user.email, input.password),
+    );
+  } catch (error: unknown) {
+    if (
+      error instanceof FirebaseError &&
+      (error.code === "auth/wrong-password" ||
+        error.code === "auth/invalid-credential" ||
+        error.code === "auth/invalid-login-credentials")
+    ) {
+      throw new Error("Admin password is incorrect.");
+    }
+
+    throw new Error("Admin re-authentication failed. Try again.");
+  }
+
+  await user.getIdToken(true);
+  initializeBrowserAppCheck();
+
+  const callable = httpsCallable<
+    {
+      providerDisbursementId: string;
+      confirmationPhrase: string;
+    },
+    {
+      providerDisbursementId: string;
+      withdrawalId: string;
+      amountInCentavos: number;
+      currency: "PHP";
+      status: "succeeded";
+      mode: "mock";
+      providerId: string;
+    }
+  >(functions, "releaseMockProviderDisbursement", {timeout: 30_000});
+
+  try {
+    return (await callable({
+      providerDisbursementId,
+      confirmationPhrase: ADMIN_RELEASE_CONFIRMATION_PHRASE,
+    })).data;
+  } catch (error: unknown) {
+    const code =
+      error instanceof FirebaseError
+        ? normalizeCallableCode(error.code)
+        : "unknown";
+
+    if (code === "not-found") {
+      throw new Error(
+        "The withdraw service is not deployed yet. Deploy releaseMockProviderDisbursement, then try again.",
+      );
+    }
+
+    if (code === "failed-precondition" || code === "invalid-argument") {
+      throw new Error(
+        error instanceof FirebaseError && error.message.trim().length >= 4
+          ? error.message.replace(/^Firebase:\s*/u, "").replace(/\s*\([^)]*\)\.?$/u, "").trim()
+          : "Only a ready Provider payout obligation can be mock-released.",
+      );
+    }
+
+    if (code === "unauthenticated") {
+      const message =
+        error instanceof FirebaseError ? error.message : "";
+      if (/Recent authentication/iu.test(message)) {
+        throw new Error(
+          "Recent admin authentication is required. Re-enter your password and try again.",
+        );
+      }
+
+      throw new WebAuthenticationError(
+        "Your admin session has expired. Please sign in again.",
+        "session_expired",
+      );
+    }
+
+    if (code === "permission-denied") {
+      throw new Error("Only an authorized FEASTA Admin can release this payout.");
+    }
+
+    if (code === "resource-exhausted") {
+      throw new Error("Too many payout releases were requested. Wait a moment and try again.");
+    }
+
+    throw new Error("The mock provider payout could not be completed.");
   }
 }

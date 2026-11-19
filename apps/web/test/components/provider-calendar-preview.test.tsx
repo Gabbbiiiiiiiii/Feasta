@@ -13,6 +13,9 @@ vi.mock("@/lib/provider/calendar/provider-calendar-client", () => ({
   updateProviderAvailability: vi.fn(),
 }));
 
+const eventDate = "2099-11-21";
+const emptyDate = "2099-11-22";
+
 function event(overrides?: Partial<ProviderCalendarEvent>): ProviderCalendarEvent {
   return {
     id: "booking-1",
@@ -21,7 +24,7 @@ function event(overrides?: Partial<ProviderCalendarEvent>): ProviderCalendarEven
     customer: {name: "Ana Reyes"},
     event: {
       eventType: "birthday",
-      eventDate: "2026-10-21",
+      eventDate,
       eventTime: "15:00",
       eventEndTime: "20:30",
       guestCount: 100,
@@ -29,14 +32,14 @@ function event(overrides?: Partial<ProviderCalendarEvent>): ProviderCalendarEven
       city: "Ormoc City",
     },
     packageName: "Gold Celebration",
-    status: "completed",
+    status: "confirmed",
     ...overrides,
   };
 }
 
 function data(events: ProviderCalendarEvent[] = [event()]): ProviderCalendarData {
   return {
-    month: "2026-10",
+    month: "2099-11",
     providerId: "provider-1",
     settings: {
       operatingDays: ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"],
@@ -52,7 +55,7 @@ function data(events: ProviderCalendarEvent[] = [event()]): ProviderCalendarData
 describe("provider calendar quick preview", () => {
   it("shows the essential overview on mouse hover without package or guests", () => {
     render(<ProviderCalendarClient initialData={data()} />);
-    const date = screen.getByRole("button", {name: /2026-10-21/i});
+    const date = screen.getByRole("button", {name: new RegExp(eventDate, "i")});
     fireEvent.pointerEnter(date, {pointerType: "mouse"});
     const tip = screen.getByRole("tooltip");
     expect(within(tip).getByText("Ana Reyes")).toBeInTheDocument();
@@ -66,7 +69,7 @@ describe("provider calendar quick preview", () => {
 
   it("opens the complete panel on date selection and closes the bubble", () => {
     render(<ProviderCalendarClient initialData={data()} />);
-    const date = screen.getByRole("button", {name: /2026-10-21/i});
+    const date = screen.getByRole("button", {name: new RegExp(eventDate, "i")});
     fireEvent.pointerEnter(date, {pointerType: "mouse"});
     fireEvent.click(date);
     expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
@@ -82,7 +85,7 @@ describe("provider calendar quick preview", () => {
       packageName: null,
     });
     render(<ProviderCalendarClient initialData={data([incomplete])} />);
-    const date = screen.getByRole("button", {name: /2026-10-21/i});
+    const date = screen.getByRole("button", {name: new RegExp(eventDate, "i")});
     fireEvent.pointerEnter(date, {pointerType: "mouse"});
     expect(screen.getByRole("tooltip")).toHaveTextContent("End not provided");
     expect(screen.getByRole("tooltip")).toHaveTextContent("Venue not provided");
@@ -97,7 +100,7 @@ describe("provider calendar quick preview", () => {
       customer: {name: "Maria Cruz"},
     });
     render(<ProviderCalendarClient initialData={data([event(), second])} />);
-    const date = screen.getByRole("button", {name: /2026-10-21/i});
+    const date = screen.getByRole("button", {name: new RegExp(eventDate, "i")});
     fireEvent.pointerEnter(date, {pointerType: "mouse"});
     expect(within(screen.getByRole("tooltip")).getByText("Maria Cruz")).toBeInTheDocument();
     fireEvent.keyDown(date, {key: "Escape"});
@@ -106,43 +109,51 @@ describe("provider calendar quick preview", () => {
 
   it("does not display a mouse hover bubble for touch pointers or empty days", () => {
     render(<ProviderCalendarClient initialData={data()} />);
-    fireEvent.pointerEnter(screen.getByRole("button", {name: /2026-10-21/i}), {pointerType: "touch"});
+    fireEvent.pointerEnter(screen.getByRole("button", {name: new RegExp(eventDate, "i")}), {pointerType: "touch"});
     expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
-    fireEvent.pointerEnter(screen.getByRole("button", {name: /2026-10-22/i}), {pointerType: "mouse"});
+    fireEvent.pointerEnter(screen.getByRole("button", {name: new RegExp(emptyDate, "i")}), {pointerType: "mouse"});
     expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
   });
 });
 
-it("opens the requested date, shows both booking sources and excludes cancelled bookings from occupancy", () => {
+it("opens the requested date, shows both booking sources and hides cancelled or past bookings", () => {
   const online = event({status: "confirmed"});
-  const walkIn = event({id: "walk-in", source: "walk_in", mainEventId: null, status: "confirmed", event: {...online.event, eventType: "wedding"}});
+  const walkIn = event({
+    id: "walk-in", source: "walk_in", mainEventId: null, status: "confirmed",
+    event: {...online.event, eventType: "wedding"},
+  });
   const cancelled = event({id: "cancelled", mainEventId: "cancelled", status: "cancelled"});
-  render(<ProviderCalendarClient initialData={data([online, walkIn, cancelled])}
-    initialSelectedDate="2026-10-21" highlightBooking="walk-in" />);
-  expect(screen.getByRole("button", {name: /2026-10-21: 2\/1 booked/})).toHaveAttribute("aria-pressed", "true");
+  const past = event({
+    id: "past", mainEventId: "past", status: "confirmed",
+    event: {...online.event, eventDate: "2020-01-01"},
+  });
+  render(<ProviderCalendarClient initialData={data([online, walkIn, cancelled, past])}
+    initialSelectedDate={eventDate} highlightBooking="walk-in" />);
+  expect(screen.getByRole("button", {name: new RegExp(`${eventDate}: 2/1 booked`, "i")}))
+    .toHaveAttribute("aria-pressed", "true");
   expect(screen.getByRole("link", {name: /wedding.*walk-in/i})).toHaveAttribute("href", "/provider/bookings/walk-in?reference=walk-in");
   expect(screen.getByRole("link", {name: /wedding.*walk-in/i})).toHaveClass("ring-2");
   expect(screen.getByRole("link", {name: /birthday.*online/i})).toHaveAttribute("href", "/provider/bookings?request=booking-1");
-  fireEvent.click(screen.getByRole("button", {name: /show 1 more bookings/i}));
-  expect(screen.getByText("Cancelled")).toBeVisible();
+  expect(screen.queryByText("Cancelled")).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", {name: /show .+ more bookings/i})).not.toBeInTheDocument();
 });
 
 it("switches to week and agenda views and navigates by their periods", () => {
   router.push.mockClear();
-  render(<ProviderCalendarClient initialData={data()} initialSelectedDate="2026-10-21" />);
+  render(<ProviderCalendarClient initialData={data()} initialSelectedDate={eventDate} />);
   fireEvent.click(screen.getByRole("button", {name: "Week"}));
   expect(screen.getByRole("button", {name: "Week"})).toHaveAttribute("aria-pressed", "true");
   fireEvent.click(screen.getByRole("button", {name: "Next week"}));
-  expect(router.push).toHaveBeenCalledWith("/provider/calendar?date=2026-10-28&view=week");
+  expect(router.push).toHaveBeenCalledWith("/provider/calendar?date=2099-11-28&view=week");
   fireEvent.click(screen.getByRole("button", {name: "Schedule"}));
   expect(screen.getByRole("button", {name: "Schedule"})).toHaveAttribute("aria-pressed", "true");
-  expect(screen.getByRole("button", {name: /october 21, 2026/i})).toBeVisible();
+  expect(screen.getByRole("button", {name: /november 21, 2099/i})).toBeVisible();
   fireEvent.click(screen.getByRole("button", {name: "Previous month"}));
-  expect(router.push).toHaveBeenCalledWith("/provider/calendar?date=2026-09-01&view=agenda");
+  expect(router.push).toHaveBeenCalledWith("/provider/calendar?date=2099-10-01&view=agenda");
 });
 
 it("shows the selected date and compact capacity summary without Today or walk-in shortcuts", () => {
-  render(<ProviderCalendarClient initialData={data()} initialSelectedDate="2026-10-21" />);
+  render(<ProviderCalendarClient initialData={data()} initialSelectedDate={eventDate} />);
   expect(screen.getByRole("link", {name: "Availability settings"})).toHaveAttribute("href", "/provider/availability");
   expect(screen.getByText("Day status")).toBeVisible();
   expect(screen.getByText("1 of 1 slot")).toBeVisible();

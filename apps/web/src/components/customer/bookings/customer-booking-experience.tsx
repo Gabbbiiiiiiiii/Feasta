@@ -303,21 +303,9 @@ function CustomerBookingExperience({initialPage}: CustomerBookingExperienceProps
         description="Keep track of your events, provider responses, and payments."
         className="pb-4"
       />
-      <div className="flex items-center gap-2 text-sm">
-        {realtime.unavailable ? <span role="status">Live updates unavailable.</span> : null}
-        <Button variant="ghost" size="compact" disabled={isPending || realtime.refreshing} onClick={() => {
-          if (realtime.unavailable) realtime.retry();
-          const requestId = ++requestIdRef.current;
-          startTransition(async () => {
-            try {
-              const result = await revalidateCustomerBookingPageAction(filters, true);
-              if (requestId === requestIdRef.current) setPage((previous) => ({...previous, ...result}));
-            } catch {
-              if (requestId === requestIdRef.current) setError("Your booking history could not be updated. Please try again.");
-            }
-          });
-        }}>Refresh bookings</Button>
-      </div>
+      {realtime.unavailable ? (
+        <p role="status" className="text-sm text-muted-foreground">Live updates unavailable.</p>
+      ) : null}
 
       {submittedBookingId ? (
         <section

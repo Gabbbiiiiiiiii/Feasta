@@ -40,20 +40,22 @@ class BookingSelection {
 
     final type = d.eventType.trim().toLowerCase();
     final v2 = d.sharedContractVersion == 2;
-    if (v2 && (d.expectedPackageRevision == null || d.expectedPackageRevision! < 1)) {
+    if (v2 &&
+        (d.expectedPackageRevision == null || d.expectedPackageRevision! < 1)) {
       throw const FormatException('Invalid package revision.');
     }
-    if (!(v2 && RegExp(r'^[a-z][a-z0-9_]{1,63}$').hasMatch(type)) && !const [
-          'birthday',
-          'wedding',
-          'debut',
-          'anniversary',
-          'reunion',
-          'corporate',
-          'baptism',
-          'graduation',
-          'other',
-        ].contains(type) ||
+    if (!(v2 && RegExp(r'^[a-z][a-z0-9_]{1,63}$').hasMatch(type)) &&
+            !const [
+              'birthday',
+              'wedding',
+              'debut',
+              'anniversary',
+              'reunion',
+              'corporate',
+              'baptism',
+              'graduation',
+              'other',
+            ].contains(type) ||
         d.guestCount < 1 ||
         d.guestCount > 10000) {
       throw const FormatException('Invalid event type or guest count.');
@@ -97,7 +99,8 @@ class BookingSelection {
       // A calendar day in Manila, independent of the device timezone.
       'eventDate':
           '${date.year.toString().padLeft(4, "0")}-${date.month.toString().padLeft(2, "0")}-${date.day.toString().padLeft(2, "0")}',
-      'eventTime': start, 'eventEndTime': end,
+      'eventTime': start,
+      'eventEndTime': end,
       'guestCount': d.guestCount,
       'eventLocation': text(d.eventLocation, 180, required: true),
       'eventAddress': text(d.eventAddress, 500, required: true),

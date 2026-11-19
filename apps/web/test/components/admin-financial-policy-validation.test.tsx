@@ -14,7 +14,9 @@ function validInput(
 ) {
   return {
     platformCommissionRateBps:
-      1000,
+      200,
+    platformCommissionModel:
+      "tiered_capped_2pct_v1",
     platformTaxStatus:
       "non_vat",
     platformVatRateBps:
@@ -111,10 +113,42 @@ describe(
     );
 
     it(
+      "rejects non-2-percent commission rates",
+      () => {
+        expect(() =>
+          validateAdminFinancialPolicyUpdate(
+            validInput({
+              platformCommissionRateBps:
+                1000,
+            }),
+          ),
+        ).toThrow(
+          "FEASTA commission base rate must be 2%.",
+        );
+      },
+    );
+
+    it(
+      "rejects unsupported commission models",
+      () => {
+        expect(() =>
+          validateAdminFinancialPolicyUpdate(
+            validInput({
+              platformCommissionModel:
+                "flat_bps_v1",
+            }),
+          ),
+        ).toThrow(
+          "FEASTA commission must use the tiered capped 2% policy.",
+        );
+      },
+    );
+
+    it(
       "rejects malformed FEASTA basis-point rates",
       () => {
         for (
-          const platformCommissionRateBps
+          const platformVatRateBps
           of [
             -1,
             10001,
@@ -125,7 +159,7 @@ describe(
           expect(() =>
             validateAdminFinancialPolicyUpdate(
               validInput({
-                platformCommissionRateBps,
+                platformVatRateBps,
               }),
             ),
           ).toThrow();

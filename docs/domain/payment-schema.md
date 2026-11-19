@@ -91,6 +91,7 @@ Relevant canonical fields include:
 - `timezone`
 - `currencyCode`
 - `platformCommissionRateBps`
+- `platformCommissionModel`
 - `platformTaxStatus`
 - `platformVatRateBps`
 - `minimumDepositRateBps`
@@ -104,7 +105,8 @@ Relevant canonical fields include:
 
 Initial/default values are:
 
-- `platformCommissionRateBps = 1000`
+- `platformCommissionRateBps = 200`
+- `platformCommissionModel = tiered_capped_2pct_v1`
 - `platformTaxStatus = non_vat`
 - `platformVatRateBps = 1200`
 - `minimumDepositRateBps = 2000`

@@ -776,8 +776,12 @@ class EventDetailsCard extends StatelessWidget {
 
           _DetailRow(
             icon: Icons.schedule_rounded,
-            label: 'Time',
-            value: '${booking.eventTime} – ${booking.eventEndTime}',
+            label: booking.eventEndTime.trim().isEmpty
+                ? 'Estimated Drop-Off Time'
+                : 'Time',
+            value: booking.eventEndTime.trim().isEmpty
+                ? booking.eventTime
+                : '${booking.eventTime} – ${booking.eventEndTime}',
           ),
 
           const _CardDivider(),

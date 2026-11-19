@@ -70,8 +70,8 @@ it("returns to the walk-in list with the saved reference", async () => {
   fireEvent.change(screen.getByLabelText("Service selection"), {target: {value: "custom"}});
   for (const [label, value] of [
     ["Full name", "Sample Customer"], ["Contact number", "09123456789"],
-    ["Event type", "Birthday"], ["Event date", tomorrow], ["Start time", "09:00"],
-    ["End time", "12:00"], ["Venue name", "Sample Hall"], ["Complete venue address", "Ormoc City"],
+    ["Event type", "Birthday"], ["Event date", tomorrow], ["Event Start Time", "09:00"],
+    ["Event End Time", "12:00"], ["Venue name", "Sample Hall"], ["Complete venue address", "Ormoc City"],
     ["Service name", "Catering"], ["Date of agreement", "2025-01-01"], ["Time of agreement", "10:00"],
   ]) {
     fireEvent.change(screen.getByLabelText(label), {target: {value}});
@@ -82,7 +82,7 @@ it("returns to the walk-in list with the saved reference", async () => {
   await waitFor(() => expect(actions.push).toHaveBeenCalledWith(`/provider/bookings/walk-in?saved=${reference}`));
 });
 
-it("shows published details and pricing options and supports switching to a custom service", () => {
+it("shows guests and inclusions without description text and supports switching to a custom service", () => {
   render(<WalkInForm packages={[
     {id: "wedding", kind: "packages", name: "Wedding catering", category: "catering_service",
       description: "Wedding buffet", inclusions: ["Rice and entrées"], publishedPriceCentavos: 1500000,
@@ -101,11 +101,23 @@ it("shows published details and pricing options and supports switching to a cust
   const select = screen.getByLabelText("Service selection");
   expect(screen.getAllByRole("option").at(-1)).toHaveTextContent("+ Custom Walk-In Service");
   fireEvent.change(select, {target: {value: "packages/wedding"}});
-  expect(screen.getByText("Wedding buffet")).toBeVisible();
-  expect(screen.getByLabelText(/Agreed price in/)).toBeRequired();
+  expect(screen.queryByText("Wedding buffet")).not.toBeInTheDocument();
+  expect(screen.getByText("Minimum guests: 40 · Maximum guests: 100")).toBeVisible();
+  expect(screen.getByText("Rice and entrées")).toBeVisible();
+  expect(screen.queryByRole("option", {name: /Enter an agreed amount instead/i})).not.toBeInTheDocument();
+  expect(screen.getByLabelText("Pricing option")).toHaveValue("drop_off");
+  expect(screen.getByLabelText("Estimated Drop-Off Time")).toBeVisible();
+  expect(screen.getByText(/Delivery window for your event location/i)).toBeVisible();
+  expect(screen.getByLabelText("to")).toBeVisible();
+  expect(screen.queryByLabelText("Event End Time")).not.toBeInTheDocument();
+  expect(screen.getByLabelText(/Agreed price in/)).not.toBeRequired();
+  expect(screen.getByLabelText(/Agreed price in/)).toHaveValue("15000.00");
   fireEvent.change(screen.getByLabelText("Pricing option"), {target: {value: "full_service"}});
   const price = screen.getByLabelText(/Agreed price in/);
   expect(price).toHaveValue("20000.00");
+  expect(screen.getByLabelText("Event Start Time")).toBeVisible();
+  expect(screen.getByLabelText("Event End Time")).toBeVisible();
+  expect(screen.getByText("Buffet staff")).toBeVisible();
   fireEvent.change(price, {target: {value: "18500"}});
   expect(price).toHaveValue("18500");
   fireEvent.change(select, {target: {value: "addons/photos"}});

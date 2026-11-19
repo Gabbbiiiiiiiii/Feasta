@@ -35,10 +35,11 @@ import {
 } from "@/lib/provider/calendar/provider-calendar-client";
 import {ProviderCalendarHoverPreview} from "./provider-calendar-hover-preview";
 
-import type {
-  ProviderCalendarData,
-  ProviderCalendarEvent,
-  ProviderCalendarView,
+import {
+  isScheduledCalendarEvent,
+  type ProviderCalendarData,
+  type ProviderCalendarEvent,
+  type ProviderCalendarView,
 } from "@/lib/provider/calendar/provider-calendar-types";
 
 type ProviderCalendarClientProps = {
@@ -152,6 +153,10 @@ export function ProviderCalendarClient({
         const event of
         initialData.events
       ) {
+        if (!isScheduledCalendarEvent(event, today)) {
+          continue;
+        }
+
         const current =
           map.get(
             event.event.eventDate,
@@ -166,7 +171,7 @@ export function ProviderCalendarClient({
       }
 
       return map;
-    }, [initialData.events]);
+    }, [initialData.events, today]);
 
   const selectedEvents =
     eventsByDate.get(

@@ -4,6 +4,14 @@ import {createContext, useContext, useEffect, useRef, useState, useTransition} f
 import Link from "next/link";
 import {useRouter} from "next/navigation";
 import {walkInInputError} from "@/lib/provider/bookings/walk-in-validation";
+import {
+  DROP_OFF_END_TIME_LABEL,
+  DROP_OFF_TIME_HELPER,
+  DROP_OFF_TIME_LABEL,
+  EVENT_END_TIME_LABEL,
+  EVENT_START_TIME_LABEL,
+  cateringScheduleMode,
+} from "@/lib/catering/catering-schedule";
 import {Button} from "@/components/ui/button";
 import type {WalkInOffer} from "@/lib/provider/bookings/walk-in-booking-service";
 import {checkWalkInDayAction, saveWalkIn, type WalkInActionState} from "./actions";
@@ -50,7 +58,12 @@ function fieldError(input: HTMLInputElement | HTMLSelectElement): string {
     const field = input.form?.elements.namedItem(name);
     return field instanceof HTMLInputElement ? field.value : "";
   };
-  if (input.name === "end time" && peer("start time") && input.value <= peer("start time")) {
+  if (
+    input.name === "end time" &&
+    peer("start time") &&
+    input.value &&
+    input.value <= peer("start time")
+  ) {
     return "End time must be later than start time.";
   }
   if ((input.name === "agreement time" || input.name === "agreement date") &&
@@ -105,6 +118,7 @@ export function WalkInForm({packages, catalogUnavailable = false, agreementDefau
   const [state, setState] = useState<WalkInActionState>({});
   const selected = packages.find((offer) => `${offer.kind}/${offer.id}` === selection);
   const chosenOption = selected?.options.find((option) => option.id === pricingOption);
+  const dropOffSchedule = cateringScheduleMode(pricingOption) === "drop_off_time";
   const [pending, startTransition] = useTransition();
   const dateError = date ? walkInInputError("event date", date) : "";
   const availability: Availability | undefined = !date || dateError ? undefined :
@@ -241,8 +255,21 @@ export function WalkInForm({packages, catalogUnavailable = false, agreementDefau
 
           </div>
           {eventType === "other" && <Field name="custom event type" label="Specify event type" maxLength={100} />}
-          <Field name="start time" label="Start time" type="time" />
-          <Field name="end time" label="End time" type="time" />
+          <div className="grid content-start gap-1">
+            <Field
+              name="start time"
+              label={dropOffSchedule ? DROP_OFF_TIME_LABEL : EVENT_START_TIME_LABEL}
+              type="time"
+            />
+            {dropOffSchedule ? (
+              <p className="text-xs text-muted-foreground">{DROP_OFF_TIME_HELPER}</p>
+            ) : null}
+          </div>
+          <Field
+            name="end time"
+            label={dropOffSchedule ? DROP_OFF_END_TIME_LABEL : EVENT_END_TIME_LABEL}
+            type="time"
+          />
           <Field name="venue name" label="Venue name" maxLength={160} />
           <Field name="venue address" label="Complete venue address" maxLength={300} />
           <Field name="number of guests" label="Expected guests (where applicable)" inputMode="numeric" required={false} maxLength={6} />
@@ -259,7 +286,7 @@ export function WalkInForm({packages, catalogUnavailable = false, agreementDefau
               onChange={(event) => {
                 const value = event.target.value;
                 const offer = packages.find((item) => `${item.kind}/${item.id}` === value);
-                const option = offer?.options.length === 1 ? offer.options[0] : undefined;
+                const option = offer?.options[0];
                 setSelection(value);
                 setPricingOption(option?.id ?? "");
                 setAgreedPrice(suggestedPrice(offer, option));
@@ -281,7 +308,6 @@ export function WalkInForm({packages, catalogUnavailable = false, agreementDefau
           {selected && <div className="space-y-2 rounded-md border p-3 sm:col-span-2">
             <p className="font-medium">{selected.name}</p>
             {selected.category && <p className="capitalize">{selected.category.replaceAll("_", " ")}</p>}
-            {selected.description && <p>{selected.description}</p>}
             <p>{pricingLabels[selected.pricingModel]}{selected.publishedPriceCentavos !== null &&
               ` · ${selected.options.length > 1 ? "From " : ""}${peso.format(selected.publishedPriceCentavos / 100)}`}</p>
             {(selected.minimumGuests !== null || selected.maximumGuests !== null) && <p>
@@ -312,14 +338,13 @@ export function WalkInForm({packages, catalogUnavailable = false, agreementDefau
                   .map((item) => <li key={item}>{item}</li>)}
               </ul>}
             {selected.options.length > 0 && <label className="grid gap-1 sm:max-w-sm">Pricing option
-              <select className={inputClass} name="pricing option" value={pricingOption}
+              <select className={inputClass} name="pricing option" value={pricingOption} required
                 onChange={(event) => {
                   const option = selected.options.find((item) => item.id === event.target.value);
                   setPricingOption(event.target.value);
                   setAgreedPrice(suggestedPrice(selected, option));
                   setErrors((current) => ({...current, "agreed price": ""}));
                 }}>
-                {selected.options.length > 1 && <option value="">Enter an agreed amount instead</option>}
                 {selected.options.map((option) => <option key={option.id} value={option.id}>
                   {option.label} · {peso.format(option.priceCentavos / 100)}
                 </option>)}
@@ -336,9 +361,8 @@ export function WalkInForm({packages, catalogUnavailable = false, agreementDefau
         </fieldset>
         {selection && <fieldset className="grid gap-3 sm:grid-cols-2">
           <legend className="mb-2 font-medium">Agreed price</legend>
-          <Field name="agreed price" label={selected && selected.options.length > 1 && !pricingOption
-            ? "Agreed price in ₱ (for reference)" : "Agreed price in ₱ (optional, for reference)"}
-            inputMode="decimal" required={Boolean(selected && selected.options.length > 1 && !pricingOption)}
+          <Field name="agreed price" label="Agreed price in ₱ (optional, for reference)"
+            inputMode="decimal" required={false}
             maxLength={12} value={agreedPrice} onValueChange={setAgreedPrice} />
           <Field name="pricing notes" label="Pricing notes (optional)" required={false} maxLength={1000} />
         </fieldset>}

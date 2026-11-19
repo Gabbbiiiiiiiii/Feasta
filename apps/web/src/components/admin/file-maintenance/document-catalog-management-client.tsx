@@ -17,7 +17,6 @@ import {
   PublishAgreementConfirmation,
 } from "@/components/admin/file-maintenance/agreement-version-dialogs";
 import {
-  AgreementTypeManagerDialog,
   AgreementTypePickerDialog,
   SingletonAgreementDialog,
 } from "@/components/admin/file-maintenance/agreement-type-dialogs";
@@ -140,9 +139,8 @@ export function AgreementTemplateManagement({
   agreementTypes?: AgreementTypeRecord[];
 }) {
   const [agreements, setAgreements] = useState(initialAgreements);
-  const [agreementTypes, setAgreementTypes] = useState(initialAgreementTypes);
+  const agreementTypes = initialAgreementTypes;
   const [typePickerOpen, setTypePickerOpen] = useState(false);
-  const [typeManagerOpen, setTypeManagerOpen] = useState(false);
   const [singletonType, setSingletonType] = useState<AgreementTypeRecord | null>(null);
   const [singletonAgreement, setSingletonAgreement] = useState<AdminAgreementTemplate | null>(null);
   const [searchValue, setSearchValue] = useState("");
@@ -235,18 +233,13 @@ export function AgreementTemplateManagement({
       ),
     },
     {
-      id: "type",
-      header: "Type",
-      cell: (agreement) => agreementTypes.find((type) => type.code === agreement.agreementTypeCode)?.name ?? "Not assigned",
-    },
-    {
       id: "audience",
       header: "Audience",
       cell: (agreement) => {
         const type = agreementTypes.find((item) => item.code === agreement.agreementTypeCode);
         switch (type?.targetAudience) {
           case "provider": return "Providers only";
-          case "platform": return "Platform-wide";
+          case "platform": return "Customer only";
           case "custom": return "Custom";
           default: return "Not assigned";
         }
@@ -534,13 +527,9 @@ export function AgreementTemplateManagement({
     <CatalogSection
       title="Agreements and contracts"
       description="Choose an agreement type, then draft and publish versions for that agreement. Provider onboarding uses the published Provider Agreement type."
-      actionLabel="Add agreement"
+      actionLabel="Update an agreement"
+      showActionIcon={false}
       onCreate={openCreate}
-      extraActions={(
-        <Button type="button" variant="secondary" onClick={() => setTypeManagerOpen(true)}>
-          Agreement types
-        </Button>
-      )}
       searchValue={searchValue}
       onSearchChange={setSearchValue}
       onSearchSubmit={setSearch}
@@ -574,7 +563,7 @@ export function AgreementTemplateManagement({
         />
       )}
       editorOpen={editorOpen}
-      editorTitle={editing ? (publishedVersion ? "View agreement" : "Edit draft") : "Add agreement"}
+      editorTitle={editing ? (publishedVersion ? "View agreement" : "Edit draft") : "Update an agreement"}
       editorDescription={publishedVersion
         ? "Published versions cannot be edited. Create a new version to change the agreement text or effective date."
         : "Paste agreement text in your usual format. Formatting is cleaned up when you save or publish. Saving a draft does not publish it."}
@@ -712,14 +701,6 @@ export function AgreementTemplateManagement({
         setVersionAgreement(agreement);
         setVersionSource(current);
         setVersionMode("create");
-      }}
-    />
-    <AgreementTypeManagerDialog
-      open={typeManagerOpen}
-      types={agreementTypes}
-      onOpenChange={setTypeManagerOpen}
-      onType={(type) => {
-        setAgreementTypes((current) => current.map((item) => item.code === type.code ? type : item));
       }}
     />
     <AgreementVersionDialogs
@@ -1523,6 +1504,7 @@ function CatalogSection<T>({
   title,
   description,
   actionLabel,
+  showActionIcon = true,
   extraActions,
   onCreate,
   searchValue,
@@ -1553,6 +1535,7 @@ function CatalogSection<T>({
   title: string;
   description: string;
   actionLabel: string;
+  showActionIcon?: boolean;
   extraActions?: ReactNode;
   onCreate: () => void;
   searchValue: string;
@@ -1597,7 +1580,7 @@ function CatalogSection<T>({
         <div className="flex flex-wrap gap-2">
           {extraActions}
           <Button onClick={onCreate}>
-            <Plus aria-hidden="true" className="size-5" />
+            {showActionIcon ? <Plus aria-hidden="true" className="size-5" /> : null}
             {actionLabel}
           </Button>
         </div>

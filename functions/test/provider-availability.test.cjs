@@ -149,6 +149,50 @@ test("same-day non-overlapping events are rejected by the daily limit", () => {
   assert.equal(codes(result).includes("TIME_CONFLICT"), false);
 });
 
+test("drop_off uses capacity without inventing time-window conflicts", () => {
+  const capacityOpen = validate({
+    providerData: provider({
+      acceptsMultipleEventsPerDay: true,
+      maxEventsPerDay: 2,
+    }),
+    request: request({
+      serviceTier: "drop_off",
+      eventTime: "11:00",
+      eventEndTime: null,
+    }),
+    existingBookings: [{
+      providerRequestId: "request_existing",
+      status: "confirmed",
+      serviceTier: "drop_off",
+      eventTime: "11:00",
+      eventEndTime: null,
+    }],
+  });
+  assert.equal(capacityOpen.available, true);
+
+  const capacityFull = validate({
+    providerData: provider({
+      acceptsMultipleEventsPerDay: false,
+      maxEventsPerDay: 1,
+    }),
+    request: request({
+      serviceTier: "drop_off",
+      eventTime: "15:00",
+      eventEndTime: null,
+    }),
+    existingBookings: [{
+      providerRequestId: "request_existing",
+      status: "confirmed",
+      serviceTier: "buffet_setup",
+      eventTime: "10:00",
+      eventEndTime: "14:00",
+    }],
+  });
+  assert.equal(capacityFull.available, false);
+  assert.equal(codes(capacityFull).includes("MAX_EVENTS_REACHED"), true);
+  assert.equal(codes(capacityFull).includes("TIME_CONFLICT"), false);
+});
+
 test("occupancy follows lifecycle status even after the payment deadline", () => {
   const now = new Date("2026-08-20T12:00:00+08:00");
   const activeHold = new Date(now.getTime() + 60 * 60 * 1_000);

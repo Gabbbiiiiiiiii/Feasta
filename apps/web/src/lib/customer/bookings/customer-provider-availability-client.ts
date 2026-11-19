@@ -51,7 +51,8 @@ export type CustomerProviderAvailabilityInput = {
   addonIds: readonly string[];
   eventDate: string;
   eventTime: string;
-  eventEndTime: string;
+  eventEndTime?: string | null;
+  serviceTier?: string | null;
   guestCount: number;
 };
 
@@ -80,15 +81,84 @@ export async function checkCustomerProviderAvailability(
       "checkCustomerProviderAvailability",
       {timeout: 30_000},
     );
-    const response = await callable(input);
+    const payload = normalizeAvailabilityPayload(input);
 
-    return parseAvailabilityResponse(
-      response.data,
-      expectedProviderIds,
-    );
+    try {
+      const response = await callable(payload);
+      return parseAvailabilityResponse(
+        response.data,
+        expectedProviderIds,
+      );
+    } catch (error: unknown) {
+      // Deployed callables that predate service-tier-aware schedules reject
+      // `serviceTier`. Retry without it, keeping eventTime/eventEndTime so
+      // Step 1 availability still works before Functions are redeployed.
+      const legacy = legacyAvailabilityPayload(payload, error);
+      if (!legacy) throw error;
+      const response = await callable(legacy);
+      return parseAvailabilityResponse(
+        response.data,
+        expectedProviderIds,
+      );
+    }
   } catch (error: unknown) {
     throw normalizeAvailabilityError(error);
   }
+}
+
+function normalizeAvailabilityPayload(
+  input: CustomerProviderAvailabilityInput,
+): CustomerProviderAvailabilityInput {
+  return {
+    ...input,
+    eventTime: canonicalizeClock(input.eventTime) ?? input.eventTime,
+    ...(input.eventEndTime
+      ? {eventEndTime: canonicalizeClock(input.eventEndTime) ?? input.eventEndTime}
+      : {}),
+  };
+}
+
+function legacyAvailabilityPayload(
+  input: CustomerProviderAvailabilityInput,
+  error: unknown,
+): CustomerProviderAvailabilityInput | null {
+  if (!isInvalidArgumentError(error)) return null;
+  if (!input.serviceTier) return null;
+  const eventTime = canonicalizeClock(input.eventTime);
+  const eventEndTime =
+    canonicalizeClock(input.eventEndTime) ??
+    (eventTime ? nextClockMinute(eventTime) : null);
+  if (!eventTime || !eventEndTime) return null;
+  return {
+    packageId: input.packageId,
+    addonIds: input.addonIds,
+    eventDate: input.eventDate,
+    eventTime,
+    eventEndTime,
+    guestCount: input.guestCount,
+  };
+}
+
+function isInvalidArgumentError(error: unknown): boolean {
+  return error instanceof FirebaseError &&
+    error.code.replace(/^functions\//u, "") === "invalid-argument";
+}
+
+function canonicalizeClock(value: string | null | undefined): string | null {
+  if (typeof value !== "string") return null;
+  const match = /^([01]\d|2[0-3]):([0-5]\d)(?::[0-5]\d)?$/u.exec(value.trim());
+  return match ? `${match[1]}:${match[2]}` : null;
+}
+
+/** Availability-only legacy range bound; never persisted for Drop-Off bookings. */
+function nextClockMinute(eventTime: string): string | null {
+  const match = /^([01]\d|2[0-3]):([0-5]\d)$/u.exec(eventTime);
+  if (!match) return null;
+  const minutes = Number(match[1]) * 60 + Number(match[2]) + 1;
+  if (minutes >= 24 * 60) return null;
+  const hour = Math.floor(minutes / 60);
+  const minute = minutes % 60;
+  return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
 }
 
 function parseAvailabilityResponse(
@@ -161,8 +231,18 @@ function normalizeAvailabilityError(error: unknown): Error {
       return new Error("Please sign in again to check provider availability.");
     case "permission-denied":
       return new Error("Your account cannot check provider availability.");
-    case "invalid-argument":
+    case "invalid-argument": {
+      const detail = error.message.replace(/^[^:]+:\s*/u, "").trim();
+      if (
+        detail &&
+        detail !== "invalid-argument" &&
+        !/^INTERNAL$/iu.test(detail) &&
+        detail.length <= 180
+      ) {
+        return new Error(detail);
+      }
       return new Error("Review the event date, time, and guest count.");
+    }
     case "failed-precondition":
       return new Error("Booking options changed. Refresh the page and try again.");
     case "resource-exhausted":

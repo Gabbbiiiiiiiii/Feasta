@@ -3,7 +3,8 @@ import Link from "next/link";
 import {CalendarDays, CircleCheck, ClipboardList, Eye, Inbox, Search} from "lucide-react";
 import {SummaryCard} from "@/components/data";
 import {Button} from "@/components/ui/button";
-import {FieldPath, Timestamp, type DocumentData} from "firebase-admin/firestore";
+import {Timestamp, type DocumentData} from "firebase-admin/firestore";
+import {usesDropOffTimeDisplay} from "@/lib/catering/catering-schedule";
 import {walkInReferencePattern, readWalkInProvider} from "@/lib/provider/bookings/walk-in-booking-service";
 import {CopyWalkInReference, WalkInStatusForm} from "./walk-in-status-form";
 
@@ -39,7 +40,9 @@ export async function WalkInBookingRecords({filters}: {filters: WalkInSearch}) {
     return booking && record ? <WalkInDetails id={record.id} booking={booking} />
       : <p className="rounded-card border border-border bg-card p-5">Walk-in booking not found.</p>;
   }
-  let query = records.orderBy("createdAt", "desc").orderBy(FieldPath.documentId(), "desc");
+  // Single-field createdAt ordering uses Firestore's automatic index. Avoid a
+  // second orderBy(__name__) here so the list loads even before composite indexes deploy.
+  let query = records.orderBy("createdAt", "desc");
   if (typeof after === "string" && walkInReferencePattern.test(after)) {
     const cursor = await records.doc(after).get();
     if (cursor.exists) query = query.startAfter(cursor);
@@ -48,12 +51,23 @@ export async function WalkInBookingRecords({filters}: {filters: WalkInSearch}) {
   const today = new Intl.DateTimeFormat("en-CA", {
     timeZone: "Asia/Manila", year: "numeric", month: "2-digit", day: "2-digit",
   }).format(new Date());
+  // Summary counts must not block the records list. The upcoming card needs the
+  // walkInBookings (status + eventDateKey) composite index; if that index is still
+  // building or undeployed, keep the page usable and leave that metric blank.
+  const countOf = async (run: () => Promise<{data: () => {count: number}}>) => {
+    try {
+      return (await run()).data().count;
+    } catch (error) {
+      console.error("Walk-in summary count failed", error instanceof Error ? error.name : "UnknownError");
+      return null;
+    }
+  };
   const [batch, summary, savedRecord] = await Promise.all([
     query.limit(batchSize + 1).get().then((page) => page.docs),
     Promise.all([
-      records.count().get(),
-      records.where("status", "==", "confirmed").where("eventDateKey", ">=", today).count().get(),
-      records.where("status", "==", "completed").count().get(),
+      countOf(() => records.count().get()),
+      countOf(() => records.where("status", "==", "confirmed").where("eventDateKey", ">=", today).count().get()),
+      countOf(() => records.where("status", "==", "completed").count().get()),
     ]),
     typeof saved === "string" && walkInReferencePattern.test(saved) ? records.doc(saved).get() : null,
   ]);
@@ -72,6 +86,7 @@ export async function WalkInBookingRecords({filters}: {filters: WalkInSearch}) {
     if (visible.length === pageSize) break;
   }
   const nextCursor = batch.length > scanned ? batch[scanned - 1]?.id : undefined;
+  const [totalCount, upcomingCount, completedCount] = summary;
   return (
     <div id="walk-in-records" className="grid scroll-mt-24 gap-4">
       {savedRecord?.exists && <div role="status" className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-card p-4">
@@ -84,11 +99,11 @@ export async function WalkInBookingRecords({filters}: {filters: WalkInSearch}) {
           </Link>
         </div>
       </div>}
-      {summary && <div className="grid gap-3 sm:grid-cols-3">
-        <SummaryCard label="Total walk-ins" value={summary[0].data().count} icon={<ClipboardList className="size-5" />} />
-        <SummaryCard label="Upcoming events" value={summary[1].data().count} icon={<CalendarDays className="size-5" />} />
-        <SummaryCard label="Completed" value={summary[2].data().count} icon={<CircleCheck className="size-5" />} />
-      </div>}
+      <div className="grid gap-3 sm:grid-cols-3">
+        <SummaryCard label="Total walk-ins" value={totalCount ?? undefined} icon={<ClipboardList className="size-5" />} />
+        <SummaryCard label="Upcoming events" value={upcomingCount ?? undefined} icon={<CalendarDays className="size-5" />} />
+        <SummaryCard label="Completed" value={completedCount ?? undefined} icon={<CircleCheck className="size-5" />} />
+      </div>
       <section aria-labelledby="walk-in-records-heading" className="grid min-w-0 gap-4 rounded-card border border-border bg-card p-4 sm:p-5">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 id="walk-in-records-heading" className="text-lg font-semibold">Walk-in records</h2>
@@ -137,7 +152,7 @@ export async function WalkInBookingRecords({filters}: {filters: WalkInSearch}) {
               {visible.map(({id, data: booking}) => <tr key={id}>
                 <td className="px-4 py-3"><p className="font-semibold">{booking.customerName}</p><p className="text-muted-foreground">{booking.phone}</p></td>
                 <td className="px-4 py-3"><p>{booking.eventType}</p><p className="text-muted-foreground">{booking.serviceName}</p></td>
-                <td className="px-4 py-3"><p>{booking.eventDate instanceof Timestamp ? manilaDate.format(booking.eventDate.toDate()) : booking.eventDateKey}</p><p className="text-muted-foreground">{booking.eventTime}–{booking.eventEndTime}</p></td>
+                <td className="px-4 py-3"><p>{booking.eventDate instanceof Timestamp ? manilaDate.format(booking.eventDate.toDate()) : booking.eventDateKey}</p><p className="text-muted-foreground">{walkInScheduleLabel(booking)}</p></td>
                 <td className="px-4 py-3">{typeof booking.agreedPriceCentavos === "number" ? peso.format(booking.agreedPriceCentavos / 100) : "—"}</td>
                 <td className="px-4 py-3">
                   <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold capitalize ${booking.status === "confirmed" ? "bg-accent text-primary" : booking.status === "cancelled" ? "bg-destructive/10 text-destructive" : "bg-muted text-foreground"}`}>{booking.status}</span>
@@ -175,6 +190,20 @@ function timeLabel(value: unknown): string {
   return Number.isFinite(date.getTime()) ? clock.format(date) : value;
 }
 
+function walkInScheduleLabel(booking: DocumentData): string {
+  const start = timeLabel(booking.eventTime);
+  if (!start) return "";
+  if (usesDropOffTimeDisplay({
+    serviceTier: typeof booking.serviceTier === "string" ? booking.serviceTier : null,
+    eventTime: typeof booking.eventTime === "string" ? booking.eventTime : null,
+    eventEndTime: typeof booking.eventEndTime === "string" ? booking.eventEndTime : null,
+  })) {
+    return start;
+  }
+  const end = timeLabel(booking.eventEndTime);
+  return end ? `${start}–${end}` : start;
+}
+
 function Detail({label, children}: {label: string; children: ReactNode}) {
   return <div className="grid min-w-0 content-start gap-1">
     <dt className="text-sm text-muted-foreground">{label}</dt>
@@ -187,7 +216,7 @@ const detailNote = "text-sm text-muted-foreground";
 function WalkInDetails({id, booking}: {id: string; booking: DocumentData}) {
   const recorded = dateLabel(booking.createdAt);
   const eventDate = dateLabel(booking.eventDate, booking.eventDateKey);
-  const eventTimes = [timeLabel(booking.eventTime), timeLabel(booking.eventEndTime)].filter(Boolean).join(" – ");
+  const eventTimes = walkInScheduleLabel(booking);
   const agreement = [dateLabel(booking.agreementAt, booking.agreementDate), timeLabel(booking.agreementTime)]
     .filter(Boolean).join(" · ");
   const venue = [booking.venueName ?? booking.eventLocation, booking.venueAddress].filter(Boolean).join(", ");

@@ -96,6 +96,9 @@ import {
   type ProviderRequestRefundPolicyEvidence,
 } from "./booking-refund-policy.js";
 import {
+  normalizeCateringSchedule,
+} from "./catering-schedule.js";
+import {
   AVAILABILITY_COUNTED_REQUEST_STATUSES,
   manilaDateRange,
   validateProviderAvailability,
@@ -286,21 +289,33 @@ async function handleBookingSelection(request: CallableRequest, disclosureOnly: 
         "eventType",
       );
 
-      const eventTime = requireText(
+      const rawEventTime = requireText(
         input,
         "eventTime",
         1,
         40,
       );
 
-      const eventEndTime = cateringSelectionType === "package"
-        ? requireText(
-            input,
-            "eventEndTime",
-            1,
-            40,
-          )
-        : customMenuEventEndTime(eventTime);
+      let eventTime = rawEventTime;
+      let eventEndTime: string | null;
+
+      if (cateringSelectionType === "custom_menu") {
+        eventEndTime = customMenuEventEndTime(rawEventTime);
+      } else {
+        const schedule = normalizeCateringSchedule({
+          serviceTier,
+          eventTime: rawEventTime,
+          eventEndTime: input.eventEndTime,
+        });
+        if (!schedule.ok) {
+          throw new HttpsError(
+            "invalid-argument",
+            schedule.message,
+          );
+        }
+        eventTime = schedule.value.eventTime;
+        eventEndTime = schedule.value.eventEndTime;
+      }
 
       const eventLocation = requireText(
         input,
@@ -1261,7 +1276,8 @@ async function handleBookingSelection(request: CallableRequest, disclosureOnly: 
                 offer: resolvedPackageOffer.selection, guestCount: resolvedGuestCount,
                 ...(foodChoiceSnapshot.length ? {foodChoiceSelections: foodChoiceSnapshot} : {}),
                 selectedFoods, selectedDecorations, selectedFurniture},
-              eventStartAt: submissionEligibility.eventStartAt, eventEndTime,
+              eventStartAt: submissionEligibility.eventStartAt,
+              eventEndTime: eventEndTime ?? "",
               grossAmountInCentavos: Math.round(cateringSubtotal * 100),
               requiredUpfrontAmountInCentavos: Math.round(cateringDownPaymentAmount * 100),
               depositEligible: submissionEligibility.depositEligible,
@@ -1280,7 +1296,8 @@ async function handleBookingSelection(request: CallableRequest, disclosureOnly: 
 
               serviceTierLabel: null,
               selection: {services: addons.map(serviceFromAddOn)}, eventStartAt: submissionEligibility.eventStartAt,
-              eventEndTime, grossAmountInCentavos: Math.round(calculateServiceTotal(addons.map(serviceFromAddOn)) * 100),
+              eventEndTime: eventEndTime ?? "",
+              grossAmountInCentavos: Math.round(calculateServiceTotal(addons.map(serviceFromAddOn)) * 100),
               requiredUpfrontAmountInCentavos: Math.round(calculateServiceTotal(addons.map(serviceFromAddOn)) * 100),
               depositEligible: false, paymentPolicy: {paymentPolicy: "full_payment"},
               refundPolicy: refundPolicyEvidence.get(providerId)?.refundPolicySnapshot ?? null})),
@@ -1440,6 +1457,7 @@ async function handleBookingSelection(request: CallableRequest, disclosureOnly: 
                     eventDate,
                     eventTime,
                     eventEndTime,
+                    serviceTier,
                     guestCount:
                       resolvedGuestCount,
                     services:
@@ -1460,6 +1478,9 @@ async function handleBookingSelection(request: CallableRequest, disclosureOnly: 
                         eventEndTime:
                           document.data()
                             .eventEndTime,
+                        serviceTier:
+                          document.data()
+                            .serviceTier,
                         expiresAt:
                           document.data()
                             .expiresAt,

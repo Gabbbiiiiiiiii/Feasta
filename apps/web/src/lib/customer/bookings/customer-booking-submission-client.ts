@@ -55,7 +55,8 @@ export type SubmitPackageBookingRequestInput =
     serviceTier?: CateringPackageServiceTier;
     packageThemeId?: string;
 
-    eventEndTime: string;
+    /** Required for Buffet Setup / Full-Service; omit for Drop-Off. */
+    eventEndTime?: string | null;
     guestCount: number;
 
     foodChoiceSelections?: FoodChoiceSelectionV2[];

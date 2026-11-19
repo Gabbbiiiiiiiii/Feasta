@@ -82,7 +82,7 @@ export default async function CustomerPackageBookingPage({
   const routingQuery = new URLSearchParams(customerBookingPlanningQuery(initialEventContext, planningContext));
   const bestFitReturnHref = query.returnTo ? parseProviderDirectoryReturnHref(query.returnTo) : undefined;
   if (bestFitReturnHref) routingQuery.set("returnTo", bestFitReturnHref);
-  const initialServiceTier = bestFitReturnHref ? normalizeCateringPackageServiceTier(query.serviceTier) : null;
+  const initialServiceTier = normalizeCateringPackageServiceTier(query.serviceTier);
   if (initialServiceTier) routingQuery.set("serviceTier", initialServiceTier);
   if (editProvider) routingQuery.set("eventListProvider", editProvider);
   const eventListReviewIntent = Boolean(editProvider) && query.eventListIntent === "review";

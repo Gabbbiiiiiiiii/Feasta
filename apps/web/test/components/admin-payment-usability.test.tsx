@@ -15,8 +15,15 @@ vi.mock("@/app/admin/payments/actions", () => ({
   loadAdminPaymentsAction: vi.fn(),
   loadAdminPaymentDetailsAction: vi.fn(),
   loadAdminFinanceAttentionQueueAction: vi.fn(),
+  loadAdminProviderPayoutBoardAction: vi.fn(),
 }));
-vi.mock("@/lib/admin/payments/admin-payment-client", () => ({repairAmbiguousProviderPayoutSetup: vi.fn(), retryFailedProviderDisbursement: vi.fn()}));
+vi.mock("@/lib/admin/payments/admin-payment-client", () => ({
+  repairAmbiguousProviderPayoutSetup: vi.fn(),
+  retryFailedProviderDisbursement: vi.fn(),
+  releaseMockProviderDisbursement: vi.fn(),
+}));
+
+const emptyPayoutBoard = {readyToPay: [], history: []};
 
 const payment: AdminPayment = {
   id: "payment_b38b84603355ec4e87de373fbe7ef0a4", paymentId: "payment_b38b84603355ec4e87de373fbe7ef0a4",
@@ -87,6 +94,7 @@ it("shows only checkout payment types while retaining refund statuses", () => {
     <PaymentMonitoringClient
       initialPage={page}
       initialAttention={queue}
+      initialPayoutBoard={emptyPayoutBoard}
     />,
   );
 
@@ -139,6 +147,7 @@ it("shows a distinct full-payment filter and label", () => {
   render(<PaymentMonitoringClient
     initialPage={{...page, payments: [{...payment, paymentChoice: "full"}]}}
     initialAttention={queue}
+    initialPayoutBoard={emptyPayoutBoard}
   />);
   const types = screen.getByRole("combobox", {name: "Payment type"});
   expect(within(types).getAllByRole("option").map(item => item.textContent?.trim()))
@@ -152,7 +161,7 @@ it("uses existing references with a simple missing-booking fallback", () => {
   expect(paymentReferenceLabel(payment)).not.toBe(payment.paymentId);
 });
 it("shows four cards and plain filters without normal internal references", () => {
-  render(<PaymentMonitoringClient initialPage={page} initialAttention={queue} />);
+  render(<PaymentMonitoringClient initialPage={page} initialAttention={queue} initialPayoutBoard={emptyPayoutBoard} />);
   const statistics = screen.getByRole("region", {name: "Payment statistics"});
   for (const label of ["Net customer payments", "Pending payments", "Failed payments", "Refunded amount"]) expect(within(statistics).getByText(label)).toBeInTheDocument();
   expect(within(statistics).queryByText("Failed provider payouts")).not.toBeInTheDocument();
@@ -176,6 +185,7 @@ it("distinguishes original payment amounts from completed refunds", () => {
     <PaymentMonitoringClient
       initialPage={{...page, payments: [refundedPayment]}}
       initialAttention={queue}
+      initialPayoutBoard={emptyPayoutBoard}
     />,
   );
 
@@ -201,6 +211,7 @@ it("separates customer and provider into different table columns", () => {
     <PaymentMonitoringClient
       initialPage={page}
       initialAttention={queue}
+      initialPayoutBoard={emptyPayoutBoard}
     />,
   );
 
@@ -246,6 +257,7 @@ it("formats payment dates on two lines in Philippine time", () => {
     <PaymentMonitoringClient
       initialPage={page}
       initialAttention={queue}
+      initialPayoutBoard={emptyPayoutBoard}
     />,
   );
 
@@ -264,6 +276,7 @@ it("keeps platform revenue out of payment monitoring", () => {
     <PaymentMonitoringClient
       initialPage={page}
       initialAttention={queue}
+      initialPayoutBoard={emptyPayoutBoard}
     />,
   );
 

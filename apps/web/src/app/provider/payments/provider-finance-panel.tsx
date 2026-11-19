@@ -19,9 +19,11 @@ import {
   refreshProviderPayoutSetup,
   startProviderPayoutSetup,
 } from "@/lib/provider/payments/provider-payout-client";
+import {ProviderMockWithdrawDialog} from "./provider-mock-withdraw-dialog";
 import {ProviderPayoutActivationForm} from "./provider-payout-activation-form";
 import type {
   ProviderFinanceOverview,
+  ProviderMockWithdrawalView,
   ProviderPayoutSetupStatus,
   ProviderSettlementStatus,
 } from "@/lib/provider/payments/provider-finance-types";
@@ -50,6 +52,9 @@ export function ProviderFinancePanel({
 
   const [error, setError] =
     useState<string | null>(null);
+
+  const [withdrawOpen, setWithdrawOpen] =
+    useState(false);
 
   const reload =
     async () => {
@@ -202,7 +207,65 @@ export function ProviderFinancePanel({
 
 
         </div>
-        <p className="text-sm">Reversed by refunds: <strong>{formatCentavos(finance.earningSummary.reversedAmountInCentavos)}</strong></p>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <p className="text-sm">Reversed by refunds: <strong>{formatCentavos(finance.earningSummary.reversedAmountInCentavos)}</strong></p>
+          <Button
+            type="button"
+            size="compact"
+            disabled={
+              finance.earningSummary.availableAmountInCentavos <= 0 ||
+              working !== null
+            }
+            onClick={() => setWithdrawOpen(true)}
+          >
+            Withdraw available earnings
+          </Button>
+        </div>
+      </section>
+
+      <ProviderMockWithdrawDialog
+        open={withdrawOpen}
+        availableAmountInCentavos={
+          finance.earningSummary.availableAmountInCentavos
+        }
+        onOpenChange={setWithdrawOpen}
+        onCompleted={reload}
+      />
+
+      <section
+        className="grid gap-4"
+        aria-labelledby="provider-withdrawal-history-heading"
+      >
+        <div>
+          <h2
+            id="provider-withdrawal-history-heading"
+            className="text-xl font-bold"
+          >
+            Withdrawal history
+          </h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Your self-service mock withdrawals only. Admin releases are tracked
+            on Admin Payments; they still reduce available earnings and raise
+            paid out here.
+          </p>
+        </div>
+
+        {(finance.mockWithdrawals?.length ?? 0) === 0 ? (
+          <p
+            className="rounded-card border border-dashed border-border bg-card p-4 text-sm text-muted-foreground"
+            role="status"
+          >
+            No withdrawals yet. Use Withdraw available earnings to record one.
+          </p>
+        ) : (
+          <ul className="grid gap-3">
+            {(finance.mockWithdrawals ?? []).map((withdrawal) => (
+              <li key={withdrawal.withdrawalId}>
+                <WithdrawalHistoryCard withdrawal={withdrawal} />
+              </li>
+            ))}
+          </ul>
+        )}
       </section>
 
       <section
@@ -577,6 +640,56 @@ function SettlementStatus({
     <span className="inline-flex rounded-full border border-border bg-muted/40 px-2.5 py-1 text-xs font-semibold">
       {({awaiting_availability: "Waiting for eligibility", ready: "Eligible for payout", reserved: "Transfer reserved", processing: "Transfer processing", paid: "Transfer confirmed", reconciliation_required: "Requires attention", cancelled: "Cancelled"} as Record<ProviderSettlementStatus, string>)[status]}
     </span>
+  );
+}
+
+function WithdrawalHistoryCard({
+  withdrawal,
+}: {
+  withdrawal: ProviderMockWithdrawalView;
+}) {
+  const method =
+    withdrawal.destinationType === "gcash"
+      ? "GCash"
+      : "Bank transfer";
+
+  const destinationDetail =
+    withdrawal.destinationType === "gcash"
+      ? withdrawal.mobileMasked
+      : [withdrawal.bankName, withdrawal.accountNumberMasked]
+          .filter(Boolean)
+          .join(" · ");
+
+  return (
+    <article className="rounded-card border border-border bg-card p-4 shadow-card">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="font-semibold">
+            {formatCentavos(withdrawal.amountInCentavos)}
+          </p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {method}
+            {destinationDetail ? ` · ${destinationDetail}` : null}
+          </p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {withdrawal.accountName}
+          </p>
+        </div>
+        <div className="text-right">
+          <p className="text-sm font-semibold text-success">Recorded</p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {withdrawal.completedAt || withdrawal.createdAt
+              ? formatDateTime(
+                  withdrawal.completedAt ?? withdrawal.createdAt ?? "",
+                )
+              : "Date unavailable"}
+          </p>
+        </div>
+      </div>
+      <p className="mt-3 break-all text-xs text-muted-foreground">
+        Reference: {withdrawal.withdrawalId}
+      </p>
+    </article>
   );
 }
 

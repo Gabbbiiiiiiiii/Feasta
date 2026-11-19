@@ -40,7 +40,10 @@ const initialSettings:
       "FEASTA serves customers and verified event service providers in Ormoc City.",
 
     platformCommissionRateBps:
-      1000,
+      200,
+
+    platformCommissionModel:
+      "tiered_capped_2pct_v1",
 
     platformTaxStatus:
       "non_vat",
@@ -117,8 +120,16 @@ describe(
         expect(discard).toBeDisabled();
 
         expect(
-          screen.getByLabelText("Platform commission rate (%)"),
-        ).toHaveValue(10);
+          screen.getByText("FEASTA commission policy"),
+        ).toBeInTheDocument();
+
+        expect(
+          screen.getByText("Base commission rate"),
+        ).toBeInTheDocument();
+
+        expect(
+          screen.getByText("Absolute maximum cap"),
+        ).toBeInTheDocument();
 
         expect(
           screen.getByLabelText("Minimum deposit (%)"),
@@ -188,10 +199,18 @@ describe(
         ).toBeInTheDocument();
 
         expect(
-          screen.getByLabelText(
-            "Platform commission rate (%)",
+          screen.getByText(
+            "FEASTA commission policy",
           ),
-        ).toHaveValue(10);
+        ).toBeInTheDocument();
+
+        expect(
+          screen.getByText("2%"),
+        ).toBeInTheDocument();
+
+        expect(
+          screen.getByText("₱1,000"),
+        ).toBeInTheDocument();
 
         expect(
           screen.getByLabelText(
@@ -299,11 +318,11 @@ describe(
 
         fireEvent.change(
           screen.getByLabelText(
-            "Platform commission rate (%)",
+            "Minimum deposit (%)",
           ),
           {
             target: {
-              value: "12.5",
+              value: "25",
             },
           },
         );
@@ -438,7 +457,10 @@ describe(
             ...initialSettings,
 
             platformCommissionRateBps:
-              1250,
+              200,
+
+            platformCommissionModel:
+              "tiered_capped_2pct_v1",
 
             platformTaxStatus:
               "vat_registered",
@@ -475,17 +497,6 @@ describe(
               initialSettings
             }
           />,
-        );
-
-        fireEvent.change(
-          screen.getByLabelText(
-            "Platform commission rate (%)",
-          ),
-          {
-            target: {
-              value: "12.5",
-            },
-          },
         );
 
         fireEvent.change(
@@ -551,7 +562,10 @@ describe(
             updateAdminFinancialPolicyAction,
           ).toHaveBeenCalledWith({
             platformCommissionRateBps:
-              1250,
+              200,
+
+            platformCommissionModel:
+              "tiered_capped_2pct_v1",
 
             platformTaxStatus:
               "vat_registered",
@@ -617,17 +631,6 @@ describe(
 
         fireEvent.change(
           screen.getByLabelText(
-            "Platform commission rate (%)",
-          ),
-          {
-            target: {
-              value: "25",
-            },
-          },
-        );
-
-        fireEvent.change(
-          screen.getByLabelText(
             "Maximum deposit (%)",
           ),
           {
@@ -649,10 +652,10 @@ describe(
         );
 
         expect(
-          screen.getByLabelText(
-            "Platform commission rate (%)",
+          screen.getByText(
+            "FEASTA commission policy",
           ),
-        ).toHaveValue(10);
+        ).toBeInTheDocument();
 
         expect(
           screen.getByLabelText(

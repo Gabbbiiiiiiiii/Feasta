@@ -1,3 +1,9 @@
+import {
+  allocateCumulativeFixedTotal,
+  parsePlatformCommissionModel,
+  type PlatformCommissionModel,
+} from "./platform-commission-policy.js";
+
 const BASIS_POINTS_SCALE = 10_000;
 
 export const FINANCIAL_LEDGER_SCHEMA_VERSION = 1;
@@ -42,6 +48,16 @@ type FinancialSnapshot = {
   grossAmountInCentavos: number;
 
   platformCommissionRateBps: number;
+
+  /*
+   * Present on new tiered capped snapshots.
+   * Absent on legacy flat-bps snapshots.
+   */
+  platformCommissionModel:
+    PlatformCommissionModel | null;
+
+  platformCommissionTotalInCentavos:
+    number | null;
 
   platformTaxStatus:
     TaxRegistrationStatus;
@@ -148,6 +164,12 @@ export type SuccessfulPaymentFinancialAllocation = {
     commissionRateBps:
       number;
 
+    platformCommissionModel:
+      PlatformCommissionModel | null;
+
+    platformCommissionTotalInCentavos:
+      number | null;
+
     providerVatRateBps:
       number;
 
@@ -202,23 +224,15 @@ export function buildSuccessfulPaymentFinancialAllocation(
     );
   }
 
-  const commissionBefore =
-    applyBasisPoints(
-      settledBefore,
-      financial
-        .platformCommissionRateBps,
-    );
-
-  const commissionAfter =
-    applyBasisPoints(
-      settledAfter,
-      financial
-        .platformCommissionRateBps,
-    );
-
-  const commissionForPayment =
-    commissionAfter -
-    commissionBefore;
+  const {
+    commissionBefore,
+    commissionAfter,
+    commissionForPayment,
+  } = allocateCommissionForSettlement({
+    financial,
+    settledBefore,
+    settledAfter,
+  });
 
   const commissionReversed =
     optionalNonNegativeSafeInteger(
@@ -406,6 +420,14 @@ export function buildSuccessfulPaymentFinancialAllocation(
         financial
           .platformCommissionRateBps,
 
+      platformCommissionModel:
+        financial
+          .platformCommissionModel,
+
+      platformCommissionTotalInCentavos:
+        financial
+          .platformCommissionTotalInCentavos,
+
       providerVatRateBps,
 
       platformVatRateBps:
@@ -414,6 +436,96 @@ export function buildSuccessfulPaymentFinancialAllocation(
               .platformVatRateBps
           : 0,
     },
+  };
+}
+
+function allocateCommissionForSettlement(
+  input: {
+    financial: FinancialSnapshot;
+    settledBefore: number;
+    settledAfter: number;
+  },
+): {
+  commissionBefore: number;
+  commissionAfter: number;
+  commissionForPayment: number;
+} {
+  const {
+    financial,
+    settledBefore,
+    settledAfter,
+  } = input;
+
+  if (
+    financial.platformCommissionModel &&
+    financial
+      .platformCommissionTotalInCentavos !==
+      null
+  ) {
+    const commissionBefore =
+      settledBefore === 0
+        ? 0
+        : allocateCumulativeFixedTotal({
+            totalInCentavos:
+              financial
+                .platformCommissionTotalInCentavos,
+            grossAmountInCentavos:
+              financial
+                .grossAmountInCentavos,
+            cumulativeBaseAfterInCentavos:
+              settledBefore,
+          });
+
+    const commissionAfter =
+      allocateCumulativeFixedTotal({
+        totalInCentavos:
+          financial
+            .platformCommissionTotalInCentavos,
+        grossAmountInCentavos:
+          financial
+            .grossAmountInCentavos,
+        cumulativeBaseAfterInCentavos:
+          settledAfter,
+      });
+
+    if (
+      commissionAfter <
+        commissionBefore
+    ) {
+      throw financialAllocationInvalid(
+        "Capped commission allocation decreased after settlement.",
+      );
+    }
+
+    return {
+      commissionBefore,
+      commissionAfter,
+      commissionForPayment:
+        commissionAfter -
+        commissionBefore,
+    };
+  }
+
+  const commissionBefore =
+    applyBasisPoints(
+      settledBefore,
+      financial
+        .platformCommissionRateBps,
+    );
+
+  const commissionAfter =
+    applyBasisPoints(
+      settledAfter,
+      financial
+        .platformCommissionRateBps,
+    );
+
+  return {
+    commissionBefore,
+    commissionAfter,
+    commissionForPayment:
+      commissionAfter -
+      commissionBefore,
   };
 }
 
@@ -551,6 +663,33 @@ function requireFinancialSnapshot(
         .providerTaxVerificationStatus,
     );
 
+  const platformCommissionModel =
+    optionalPlatformCommissionModel(
+      snapshot
+        .platformCommissionModel,
+    );
+
+  const platformCommissionTotalInCentavos =
+    optionalPlatformCommissionTotal(
+      snapshot
+        .platformCommissionTotalInCentavos,
+    );
+
+  if (
+    (
+      platformCommissionModel ===
+        null
+    ) !==
+    (
+      platformCommissionTotalInCentavos ===
+        null
+    )
+  ) {
+    throw financialAllocationInvalid(
+      "Provider-request commission model and total must both be present or both absent.",
+    );
+  }
+
   return {
     schemaVersion: 1,
     currency: "PHP",
@@ -568,6 +707,10 @@ function requireFinancialSnapshot(
           .platformCommissionRateBps,
         "Platform commission rate",
       ),
+
+    platformCommissionModel,
+
+    platformCommissionTotalInCentavos,
 
     platformTaxStatus:
       requiredTaxStatus(
@@ -593,6 +736,46 @@ function requireFinancialSnapshot(
 
     providerTaxVerificationStatus,
   };
+}
+
+function optionalPlatformCommissionModel(
+  value: unknown,
+): PlatformCommissionModel | null {
+  if (
+    value === undefined ||
+    value === null
+  ) {
+    return null;
+  }
+
+  const model =
+    parsePlatformCommissionModel(
+      value,
+    );
+
+  if (!model) {
+    throw financialAllocationInvalid(
+      "Platform commission model is unsupported.",
+    );
+  }
+
+  return model;
+}
+
+function optionalPlatformCommissionTotal(
+  value: unknown,
+): number | null {
+  if (
+    value === undefined ||
+    value === null
+  ) {
+    return null;
+  }
+
+  return nonNegativeSafeInteger(
+    value,
+    "Platform commission total",
+  );
 }
 
 function requiredTaxStatus(

@@ -522,3 +522,161 @@ test(
     );
   },
 );
+
+test(
+  "legacy flat-bps snapshots keep uncapped 10 percent commission",
+  () => {
+    const allocation =
+      buildSuccessfulPaymentFinancialAllocation({
+        providerRequest:
+          providerRequest(),
+
+        paymentAmountInCentavos:
+          3_000_000,
+      });
+
+    assert.equal(
+      allocation
+        .commissionAccruedAfterInCentavos,
+      300_000,
+    );
+
+    assert.equal(
+      allocation.calculationSnapshot
+        .platformCommissionModel,
+      null,
+    );
+
+    assert.equal(
+      allocation.calculationSnapshot
+        .platformCommissionTotalInCentavos,
+      null,
+    );
+  },
+);
+
+test(
+  "tiered capped snapshots allocate the frozen commission across split payments",
+  () => {
+    const cappedSnapshot =
+      financialSnapshot({
+        grossAmountInCentavos:
+          10_000_000,
+
+        requiredUpfrontAmountInCentavos:
+          5_000_000,
+
+        remainingBalanceInCentavos:
+          5_000_000,
+
+        requiredUpfrontRateBps:
+          5_000,
+
+        platformCommissionRateBps:
+          200,
+
+        platformCommissionModel:
+          "tiered_capped_2pct_v1",
+
+        platformCommissionTotalInCentavos:
+          100_000,
+
+        platformTaxStatus:
+          "non_vat",
+
+        providerTaxType:
+          null,
+
+        providerTaxVerificationStatus:
+          null,
+      });
+
+    const deposit =
+      buildSuccessfulPaymentFinancialAllocation({
+        providerRequest:
+          providerRequest({
+            financialSnapshot:
+              cappedSnapshot,
+          }),
+
+        paymentAmountInCentavos:
+          5_000_000,
+      });
+
+    const balance =
+      buildSuccessfulPaymentFinancialAllocation({
+        providerRequest:
+          providerRequest({
+            financialSnapshot:
+              cappedSnapshot,
+
+            grossSettledAmountInCentavos:
+              5_000_000,
+          }),
+
+        paymentAmountInCentavos:
+          5_000_000,
+      });
+
+    assert.equal(
+      deposit
+        .commissionAccruedForPaymentInCentavos,
+      50_000,
+    );
+
+    assert.equal(
+      balance
+        .commissionAccruedForPaymentInCentavos,
+      50_000,
+    );
+
+    assert.equal(
+      deposit
+        .commissionAccruedForPaymentInCentavos +
+        balance
+          .commissionAccruedForPaymentInCentavos,
+      100_000,
+    );
+
+    assert.equal(
+      balance
+        .commissionAccruedAfterInCentavos,
+      100_000,
+    );
+
+    assert.equal(
+      balance.calculationSnapshot
+        .platformCommissionModel,
+      "tiered_capped_2pct_v1",
+    );
+
+    assert.equal(
+      balance.calculationSnapshot
+        .platformCommissionTotalInCentavos,
+      100_000,
+    );
+  },
+);
+
+test(
+  "tiered capped commission rejects mismatched model and total",
+  () => {
+    assert.throws(
+      () =>
+        buildSuccessfulPaymentFinancialAllocation({
+          providerRequest:
+            providerRequest({
+              financialSnapshot:
+                financialSnapshot({
+                  platformCommissionModel:
+                    "tiered_capped_2pct_v1",
+                }),
+            }),
+
+          paymentAmountInCentavos:
+            100,
+        }),
+      /commission model and total must both be present or both absent/u,
+    );
+  },
+);

@@ -11,9 +11,6 @@ import {
 import Link from "next/link";
 
 import { SummaryCard } from "@/components/data";
-import {
-  FeastaRevenueChart,
-} from "@/components/data/feasta-revenue-chart";
 import { PageHeading } from "@/components/layout/page-heading";
 import { requireRole } from "@/lib/auth/session";
 import { getAdminDashboardData, type AdminDashboardData } from "../../lib/admin/dashboard/admin-dashboard-data";
@@ -186,12 +183,6 @@ export default async function AdminPage() {
 
       <section className="grid min-w-0 gap-6 xl:grid-cols-[minmax(0,2fr)_minmax(300px,1fr)]">
         <div className="grid min-w-0 content-start gap-6">
-          <FeastaRevenueChart
-            data={
-              dashboard.revenueByRange
-            }
-          />
-
           <RecentActivities
             title={dashboard.settings.recentActivitiesTitle}
             activities={dashboard.recentActivities}

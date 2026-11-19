@@ -196,6 +196,37 @@ export type AdminFinanceAttentionQueue = {
   items: AdminFinanceAttentionItem[];
 };
 
+export type AdminReadyProviderPayoutItem = {
+  providerDisbursementId: string;
+  providerId: string;
+  providerName: string | null;
+  providerRequestId: string | null;
+  mainEventId: string | null;
+  amountInCentavos: number;
+  formattedAmount: string;
+  transportReady: boolean;
+  dispatchBlockReason: string | null;
+  eligibleAt: string | null;
+  readyAt: string | null;
+  trigger: string | null;
+};
+
+export type AdminProviderPayoutHistoryItem = {
+  providerDisbursementId: string;
+  withdrawalId: string;
+  providerId: string;
+  providerName: string | null;
+  amountInCentavos: number;
+  formattedAmount: string;
+  completedAt: string | null;
+  mode: "mock";
+};
+
+export type AdminProviderPayoutBoard = {
+  readyToPay: AdminReadyProviderPayoutItem[];
+  history: AdminProviderPayoutHistoryItem[];
+};
+
 export type AdminPayoutSetupRepairInput = {
   providerId: string;
   expectedUpdatedAtMillis: number;

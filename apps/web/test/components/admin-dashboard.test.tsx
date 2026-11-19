@@ -182,9 +182,8 @@ describe("Admin dashboard financial and population metrics", () => {
     await expect(getAdminDashboardData()).rejects.toThrow("invalid financial ledger entry");
   });
 
-  it("renders four linked cards and switches revenue ranges", async () => {
+  it("renders four linked cards without the FEASTA revenue chart", async () => {
     database.rows.financialLedgerEntries.push(entry("earlier-fee", "2026-09-01T00:00:00Z", 625025));
-    const user = userEvent.setup();
     render(await AdminPage());
     const summary = screen.getByRole("region", { name: "Platform summary" });
     expect(within(summary).getAllByRole("region")).toHaveLength(4);
@@ -198,25 +197,9 @@ describe("Admin dashboard financial and population metrics", () => {
     expect(bookings).toHaveAttribute("href", "/admin/bookings");
     expect(within(summary).getByRole("link", { name: /Pending provider verifications/ })).toHaveAttribute("href", "/admin/providers");
     expect(within(summary).getByRole("link", { name: /Open complaints/i })).toHaveAttribute("href", "/admin/complaints");
-    expect(screen.getByText(/Platform and service fees earned through eligible FEASTA transactions\./)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "1M" })).toHaveAttribute("aria-pressed", "true");
-    await user.click(screen.getByRole("button", { name: "7D" }));
-    expect(screen.getByText(/Total FEASTA revenue for this range is \u20b1500.00/)).toBeInTheDocument();
-    await user.tab();
-    expect(screen.getByRole("button", { name: "1M" })).toHaveFocus();
-    await user.keyboard("{Enter}");
-    expect(screen.getByText(/Total FEASTA revenue for this range is \u20b16,750.25/)).toBeInTheDocument();
-    expect(screen.getByTestId("revenue-axis")).toHaveTextContent("\u20b11K");
-  });
-
-  it("keeps negative refund-only revenue visible on the chart", async () => {
-    database.rows.financialLedgerEntries = [
-      entry("old", "2024-01-01T00:00:00Z", 50000),
-      entry("reversal", "2026-09-27T16:00:00Z", 50000, true),
-    ];
-    render(await AdminPage());
-    expect(Number(screen.getByTestId("revenue-axis").getAttribute("data-min"))).toBeLessThanOrEqual(-50000);
-    expect(screen.getByText(/Total FEASTA revenue for this range is -\u20b1500.00/)).toBeInTheDocument();
+    expect(screen.queryByText("FEASTA Revenue")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "1M" })).not.toBeInTheDocument();
+    expect(screen.queryByTestId("revenue-axis")).not.toBeInTheDocument();
   });
 
   it("ranks active providers by distinct completed events and links their actual verification application", async () => {

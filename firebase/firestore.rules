@@ -1146,6 +1146,11 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // Mock provider withdrawals are server-managed demo cash-out records.
+    match /providerMockWithdrawals/{withdrawalId} {
+      allow read, write: if false;
+    }
+
     // P13 Provider disbursements are canonical server-managed money-movement records.
     match /providerDisbursementAttempts/{attemptId} {
       allow read, write: if false;

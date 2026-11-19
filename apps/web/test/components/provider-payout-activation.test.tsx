@@ -12,6 +12,7 @@ vi.mock("@/lib/provider/payments/provider-payout-client", () => ({
   startProviderPayoutSetup: vi.fn(),
   refreshProviderPayoutSetup: vi.fn(),
   saveProviderPayoutActivationProfile: vi.fn(),
+  requestMockProviderWithdrawal: vi.fn(),
 }));
 
 import {loadProviderFinanceOverviewAction} from "@/app/provider/payments/actions";
@@ -54,6 +55,7 @@ const finance: ProviderFinanceOverview = {
     paidOutAmountInCentavos: 0,
     reconciliationRequiredCount: 0,
   },
+  mockWithdrawals: [],
 };
 
 describe("provider payout activation form", () => {

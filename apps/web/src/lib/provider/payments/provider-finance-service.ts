@@ -20,6 +20,7 @@ import type {
   ProviderEarningStatus,
   ProviderFinanceOverview,
   ProviderLinkedAccountType,
+  ProviderMockWithdrawalView,
   ProviderPayoutAccountView,
   ProviderPayoutSetupStatus,
   ProviderSettlementStatus,
@@ -124,6 +125,7 @@ Promise<ProviderFinanceOverview> {
     aggregateSnapshot,
     settlementsSnapshot,
     disbursementsSnapshot,
+    mockWithdrawalsSnapshot,
   ] = await Promise.all([
     payoutReference.get(),
 
@@ -161,6 +163,11 @@ Promise<ProviderFinanceOverview> {
 
     settlementsQuery.get(),
     adminDb.collection("providerDisbursements").where("providerId", "==", providerId).get(),
+    /*
+     * Equality-only query avoids a new composite index.
+     * Newest-first ordering is applied after trusted normalization.
+     */
+    adminDb.collection("providerMockWithdrawals").where("providerId", "==", providerId).get(),
   ]);
 
   const aggregate =
@@ -201,6 +208,17 @@ Promise<ProviderFinanceOverview> {
         eligibleAt: data.payoutEligibleAt instanceof Timestamp ? data.payoutEligibleAt.toDate().toISOString() : null,
         trigger: String(data.trigger)}];
     }).sort((a, b) => String(b.eligibleAt).localeCompare(String(a.eligibleAt))).slice(0, 20),
+    mockWithdrawals: mockWithdrawalsSnapshot.docs
+      .flatMap((document) => {
+        const withdrawal = normalizeMockWithdrawal(document, providerId);
+        return withdrawal ? [withdrawal] : [];
+      })
+      .sort((left, right) => {
+        const leftMillis = new Date(left.completedAt ?? left.createdAt ?? 0).getTime();
+        const rightMillis = new Date(right.completedAt ?? right.createdAt ?? 0).getTime();
+        return rightMillis - leftMillis;
+      })
+      .slice(0, 20),
     payoutAccount:
       normalizePayoutAccount(
         payoutSnapshot.exists
@@ -261,6 +279,72 @@ Promise<ProviderFinanceOverview> {
       summarizeSettlements(
         settlements,
       ),
+  };
+}
+
+function normalizeMockWithdrawal(
+  document: QueryDocumentSnapshot,
+  providerId: string,
+): ProviderMockWithdrawalView | null {
+  const data = document.data();
+  const destination =
+    data.destination &&
+    typeof data.destination === "object" &&
+    !Array.isArray(data.destination)
+      ? data.destination as DocumentData
+      : null;
+
+  /*
+   * Admin mock releases share this collection but belong on the Admin
+   * payout board, not the provider self-withdrawal history.
+   * Available/paid earnings still update from the ledger either way.
+   */
+  if (data.releaseChannel === "admin_disbursement") {
+    return null;
+  }
+
+  if (
+    data.schemaVersion !== 1 ||
+    data.mode !== "mock" ||
+    data.status !== "succeeded" ||
+    data.currency !== "PHP" ||
+    data.providerId !== providerId ||
+    data.withdrawalId !== document.id ||
+    !Number.isSafeInteger(data.amountInCentavos) ||
+    (data.amountInCentavos as number) <= 0 ||
+    !destination ||
+    (destination.type !== "gcash" && destination.type !== "bank") ||
+    typeof destination.accountName !== "string"
+  ) {
+    return null;
+  }
+
+  const allocations = Array.isArray(data.allocations)
+    ? data.allocations
+    : [];
+
+  return {
+    withdrawalId: document.id,
+    amountInCentavos: data.amountInCentavos as number,
+    status: "succeeded",
+    mode: "mock",
+    destinationType: destination.type,
+    accountName: destination.accountName.trim(),
+    mobileMasked:
+      typeof destination.mobileMasked === "string"
+        ? destination.mobileMasked
+        : null,
+    bankName:
+      typeof destination.bankName === "string"
+        ? destination.bankName
+        : null,
+    accountNumberMasked:
+      typeof destination.accountNumberMasked === "string"
+        ? destination.accountNumberMasked
+        : null,
+    allocationCount: allocations.length,
+    createdAt: dateString(data.createdAt),
+    completedAt: dateString(data.completedAt),
   };
 }
 

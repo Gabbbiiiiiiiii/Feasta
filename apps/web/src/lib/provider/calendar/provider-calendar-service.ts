@@ -16,6 +16,7 @@ import type {
   ProviderCalendarEvent,
   ProviderCalendarEventStatus,
 } from "./provider-calendar-types";
+import {isScheduledCalendarEvent} from "./provider-calendar-types";
 
 export const ACTIVE_EVENT_STATUSES:
 readonly ProviderCalendarEventStatus[] = [
@@ -27,7 +28,15 @@ readonly ProviderCalendarEventStatus[] = [
   "completed",
 ];
 
-const CALENDAR_STATUSES = [...ACTIVE_EVENT_STATUSES, "pending", "cancelled", "expired"] as const;
+// Past cancelled/expired noise stays off the calendar. Only current and upcoming
+// scheduled bookings are projected into the provider workspace.
+const CALENDAR_STATUSES = [...ACTIVE_EVENT_STATUSES, "pending"] as const;
+
+function manilaToday(): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Manila", year: "numeric", month: "2-digit", day: "2-digit",
+  }).format(new Date());
+}
 
 export async function getProviderCalendarData(month?: string):
 Promise<ProviderCalendarData> {
@@ -37,12 +46,16 @@ Promise<ProviderCalendarData> {
   const selectedMonth = month && /^(20|21)\d{2}-(0[1-9]|1[0-2])$/.test(month)
     ? month : currentMonth;
   const [year, monthNumber] = selectedMonth.split("-").map(Number);
+  const today = manilaToday();
   const monthStart = new Date(`${selectedMonth}-01T00:00:00+08:00`);
   const monthEnd = new Date(Date.UTC(year, monthNumber, 1) - 8 * 60 * 60 * 1000);
   // Include the adjacent days needed by a week that crosses a month boundary.
+  // Event reads still start at today so past bookings never enter the projection.
   const margins = 6 * 86_400_000;
-  const start = new Date(monthStart.getTime() - margins);
+  const rangeStart = new Date(monthStart.getTime() - margins);
+  const start = new Date(Math.max(rangeStart.getTime(), new Date(`${today}T00:00:00+08:00`).getTime()));
   const end = new Date(monthEnd.getTime() + margins);
+  const hasUpcomingRange = start < end;
 
   const account =
     await requireApprovedProvider();
@@ -58,14 +71,14 @@ Promise<ProviderCalendarData> {
     .collection("providers")
     .doc(providerId);
 
+const emptyQuery = {docs: [] as {id: string; data: () => Record<string, unknown>}[]};
 const [
   providerSnapshot,
   requestsSnapshot,
   walkInsSnapshot,
 ] = await Promise.all([
   providerReference.get(),
-
-  adminDb
+  hasUpcomingRange ? adminDb
     .collection("providerRequests")
     .where(
       "providerId",
@@ -87,11 +100,11 @@ const [
       "in",
       [...CALENDAR_STATUSES],
     )
-    .get(),
-  providerReference.collection("walkInBookings")
+    .get() : Promise.resolve(emptyQuery),
+  hasUpcomingRange ? providerReference.collection("walkInBookings")
     .where("eventDate", ">=", Timestamp.fromDate(start))
     .where("eventDate", "<", Timestamp.fromDate(end))
-    .get(),
+    .get() : Promise.resolve(emptyQuery),
 ]);
 
 if (!providerSnapshot.exists) {
@@ -115,14 +128,14 @@ const onlineEvents = requestsSnapshot.docs
   .map((document) => mapCalendarEvent(document.id, document.data()));
 const walkInEvents = walkInsSnapshot.docs.flatMap((document) => {
   const data = document.data();
-  if (data.status !== "confirmed" && data.status !== "completed" && data.status !== "cancelled") return [];
+  if (data.status !== "confirmed" && data.status !== "completed") return [];
   return [mapCalendarEvent(document.id, {
     ...data,
     packageName: data.serviceName,
   }, "walk_in")];
 });
 const events = [...onlineEvents, ...walkInEvents]
-  .filter((event): event is ProviderCalendarEvent => event !== null)
+  .filter((event): event is ProviderCalendarEvent => event !== null && isScheduledCalendarEvent(event, today))
   .sort((left, right) => left.event.eventDate.localeCompare(right.event.eventDate) ||
     (left.event.eventTime ?? "").localeCompare(right.event.eventTime ?? ""));
 

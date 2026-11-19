@@ -54,3 +54,13 @@ export function validProviderCalendarDate(value: unknown): value is string {
   const date = new Date(`${value}T00:00:00Z`);
   return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === value;
 }
+
+/** Present and upcoming scheduled bookings only — past, cancelled, and expired stay off the calendar. */
+export function isScheduledCalendarEvent(
+  event: Pick<ProviderCalendarEvent, "status"> & {event: Pick<ProviderCalendarEvent["event"], "eventDate">},
+  today: string,
+): boolean {
+  return event.event.eventDate >= today &&
+    event.status !== "cancelled" &&
+    event.status !== "expired";
+}
