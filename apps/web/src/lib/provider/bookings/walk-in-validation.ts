@@ -3,15 +3,18 @@ export function walkInInputError(name: string, value: string, now = Date.now()):
   if (!text) return "";
   switch (name) {
     case "full name":
+      return /^(?:\p{L}\p{M}*)+(?: +(?:\p{L}\p{M}*)+)*$/u.test(text)
+        ? "" : "Enter a name using letters only.";
     case "event type":
     case "custom event type":
     case "custom service":
       return /\p{L}/u.test(text) ? "" : "Enter a name that includes letters.";
-    case "contact number": {
-      const digits = text.replace(/\D/g, "");
-      return /^\+?[\d(). -]+$/.test(text) && /^\d{7,15}$/.test(digits) && !/^(\d)\1+$/.test(digits)
-        ? "" : "Enter a valid contact number with 7 to 15 digits.";
-    }
+    case "contact number":
+      return /^09\d{9}$/.test(text)
+        ? "" : "Enter an 11-digit mobile number starting with 09.";
+    case "email":
+      return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(text)
+        ? "" : "Please enter a valid email address";
     case "number of guests":
       return /^\d{1,6}$/.test(text) && Number(text) >= 1 && Number(text) <= 100000
         ? "" : "Enter a whole number from 1 to 100,000.";

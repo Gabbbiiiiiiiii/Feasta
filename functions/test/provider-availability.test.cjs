@@ -149,7 +149,7 @@ test("same-day non-overlapping events are rejected by the daily limit", () => {
   assert.equal(codes(result).includes("TIME_CONFLICT"), false);
 });
 
-test("occupancy follows status and the stored payment hold deadline", () => {
+test("occupancy follows lifecycle status even after the payment deadline", () => {
   const now = new Date("2026-08-20T12:00:00+08:00");
   const activeHold = new Date(now.getTime() + 60 * 60 * 1_000);
   const expiredHold = new Date(now.getTime() - 60 * 1_000);
@@ -183,7 +183,7 @@ test("occupancy follows status and the stored payment hold deadline", () => {
       expiresAt: expiredHold,
       acceptedAt: recentAcceptance,
     })],
-  }).available, true);
+  }).available, false);
 
   assert.ok(codes(validate({
     now,
@@ -251,7 +251,7 @@ test("occupancy follows status and the stored payment hold deadline", () => {
       status: "accepted",
       acceptedAt: staleAcceptance,
     })],
-  }).available, true);
+  }).available, false);
 
   assert.equal(providerRequestOccupiesAvailability({
     status: "waiting_for_down_payment",
@@ -262,7 +262,7 @@ test("occupancy follows status and the stored payment hold deadline", () => {
     status: "waiting_for_down_payment",
     expiresAt: {toMillis: () => now.getTime()},
     now,
-  }), false);
+  }), true);
 });
 
 test("unresolved payment evidence protects capacity without renewing an unpaid hold", () => {
@@ -286,7 +286,7 @@ test("unresolved payment evidence protects capacity without renewing an unpaid h
   for (const expiresAt of [undefined, null, "malformed", new Date(now.getTime()-1)]) {
     assert.equal(providerRequestAvailabilityState({status: "payment_processing", expiresAt, now}), "payment_reconciliation");
   }
-  assert.equal(providerRequestAvailabilityState({status: "waiting_for_down_payment", expiresAt, now}), "released");
+  assert.equal(providerRequestAvailabilityState({status: "waiting_for_down_payment", expiresAt, now}), "temporary_hold");
   assert.equal(providerRequestAvailabilityState({status: "confirmed", expiresAt, now}), "committed");
   for (const status of ["expired", "cancelled", "rejected"]) {
     assert.equal(providerRequestAvailabilityState({status, expiresAt, paymentId: "retained", now}), "released");
@@ -505,4 +505,17 @@ test("daily capacity is shared by walk-ins and distinct online events", () => {
   assert.deepEqual(codes(validate({providerData, existingBookings})), ["MAX_EVENTS_REACHED"]);
   assert.equal(validate({providerData, existingBookings, request: request({mainEventId: "wedding"})}).available, true);
   assert.deepEqual(codes(validate({providerData: {...providerData, maxEventsPerDay: 1}, existingBookings})), ["TIME_CONFLICT"]);
+});
+
+test("providers without daily capacity keep the default one-event limit", () => {
+  const providerData = provider();
+  delete providerData.maxEventsPerDay;
+  const existingBookings = [overlappingBooking({status: "confirmed"})];
+  assert.equal(validate({providerData, existingBookings}).available, false);
+  assert.equal(validate({providerData, existingBookings: []}).available, true);
+});
+
+test("manual blocks take precedence over remaining business capacity", () => {
+  const providerData = provider({maxEventsPerDay: 3, unavailableDates: ["2026-08-24"]});
+  assert.ok(codes(validate({providerData})).includes("BLOCKED_DATE"));
 });

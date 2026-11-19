@@ -24,8 +24,6 @@ import {Button} from "@/components/ui/button";
 import {Input} from "@/components/ui/input";
 import {formatPhilippineDate} from "@/lib/dates/philippine-date";
 import {
-  getProviderAvailabilityOccasions,
-  type AvailabilityOccasionCatalog,
   updateProviderAvailability,
   updateProviderAvailabilitySettings,
 } from "@/lib/provider/availability/provider-availability-client";
@@ -40,7 +38,6 @@ type ProviderAvailabilityClientProps = {
 };
 
 type AvailabilityFormState = {
-  supportedOccasionIds: string[];
   operatingDays: ProviderOperatingDay[];
   bookingLeadTimeDays: string;
   maxEventsPerDay: string;
@@ -64,18 +61,6 @@ export function ProviderAvailabilityClient({
   const router = useRouter();
   const savePending = useRef(false);
   const [settingsRevision, setSettingsRevision] = useState(initialSettings.availabilitySettingsRevision ?? 0);
-  const [catalog, setCatalog] = useState<AvailabilityOccasionCatalog | null>(null);
-  const [catalogError, setCatalogError] = useState<string | null>(null);
-  const [catalogAttempt, setCatalogAttempt] = useState(0);
-  useEffect(() => {
-    let active = true;
-    getProviderAvailabilityOccasions().then(result => {
-      if (active) setCatalog(result);
-    }).catch(error => {
-      if (active) setCatalogError(safeErrorMessage(error, "Event types could not be loaded."));
-    });
-    return () => { active = false; };
-  }, [catalogAttempt]);
   const initialForm = useMemo(
     () => formFromSettings(initialSettings),
     [initialSettings],
@@ -85,15 +70,58 @@ export function ProviderAvailabilityClient({
   const [unavailableDates, setUnavailableDates] = useState(
     [...initialSettings.unavailableDates],
   );
+  const [capacityDate, setCapacityDate] = useState(todayInManila);
   const [selectedDate, setSelectedDate] = useState("");
+  const [blockReason, setBlockReason] = useState("");
+  const [unavailableDateReasons, setUnavailableDateReasons] = useState(initialSettings.unavailableDateReasons ?? {});
   const [savingSettings, setSavingSettings] = useState(false);
+  const [validationAttempted, setValidationAttempted] = useState(false);
   const [datePending, setDatePending] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [dateError, setDateError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
+  const capacityDirty = form.maxEventsPerDay !== canonicalForm.maxEventsPerDay;
   const dirty = serializeForm(form) !== serializeForm(canonicalForm);
+  const fieldErrors = validationAttempted ? settingsFieldErrors(form) : {};
+  const hasUnsavedChanges = dirty || Boolean(selectedDate || blockReason.trim());
+  useEffect(() => {
+    if (!hasUnsavedChanges) return;
+    function beforeUnload(event: BeforeUnloadEvent) {
+      event.preventDefault();
+      event.returnValue = "";
+    }
+    function confirmLink(event: MouseEvent) {
+      if (event.defaultPrevented || event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+      const link = event.target instanceof Element ? event.target.closest("a[href]") : null;
+      if (!(link instanceof HTMLAnchorElement) || link.hasAttribute("download") || (link.target && link.target !== "_self")) return;
+      const destination = new URL(link.href);
+      if (destination.pathname === window.location.pathname && destination.search === window.location.search &&
+          destination.origin === window.location.origin) return;
+      if (!window.confirm("Leave without saving your availability changes?")) event.preventDefault();
+    }
+    window.addEventListener("beforeunload", beforeUnload);
+    document.addEventListener("click", confirmLink, true);
+    return () => {
+      window.removeEventListener("beforeunload", beforeUnload);
+      document.removeEventListener("click", confirmLink, true);
+    };
+  }, [hasUnsavedChanges]);
   const today = todayInManila();
+  const currentCapacity = Number(canonicalForm.maxEventsPerDay);
+  const occupiedSlots = initialSettings.occupiedSlotsByDate?.[capacityDate] ?? 0;
+  const peakOccupied = Object.values(initialSettings.occupiedSlotsByDate ?? {})
+    .reduce((peak, occupied) => Math.max(peak, occupied), 0);
+  const proposedCapacity = Number(form.maxEventsPerDay);
+  const capacityBelowReservations = Number.isInteger(proposedCapacity) && proposedCapacity >= 1 &&
+    proposedCapacity < currentCapacity && proposedCapacity < peakOccupied;
+  const capacityDay = new Date(`${capacityDate}T00:00:00Z`).getUTCDay();
+  const operatingDay = PROVIDER_OPERATING_DAYS[(capacityDay + 6) % 7];
+  const manuallyBlocked = unavailableDates.includes(capacityDate);
+  const closedDay = !canonicalForm.operatingDays.includes(operatingDay);
+  const unusedCapacity = Math.max(0, currentCapacity - occupiedSlots);
+  const bookableSlots = manuallyBlocked || closedDay ? 0 : unusedCapacity;
+  const selectedDateHasBookings = (initialSettings.occupiedSlotsByDate?.[selectedDate] ?? 0) > 0;
   const duplicateDate = selectedDate !== "" &&
     unavailableDates.includes(selectedDate);
   const selectedDateIsPast = selectedDate !== "" && selectedDate < today;
@@ -118,43 +146,36 @@ export function ProviderAvailabilityClient({
 
   async function saveSettings() {
     if (savePending.current || !dirty) return;
-
     setFormError(null);
     setSuccessMessage(null);
+    setValidationAttempted(true);
 
-    let input: UpdateProviderAvailabilitySettingsInput;
-
-    try {
-      input = {
-        ...settingsInput(form, initialSettings),
-        ...(catalog ? {
-          supportedOccasionIds: form.supportedOccasionIds,
-          occasionCatalogRevision: catalog.revision,
-        } : {}),
-        expectedSettingsRevision: settingsRevision,
-      };
-    } catch (error) {
-      setFormError(safeErrorMessage(error, "Check the highlighted availability values."));
+    const errors = settingsFieldErrors(form);
+    const firstInvalid = Object.keys(errors)[0];
+    if (firstInvalid) {
+      const target = document.getElementById(firstInvalid);
+      if (target instanceof HTMLFieldSetElement) target.querySelector("input")?.focus();
+      else target?.focus();
       return;
     }
 
     savePending.current = true;
     setSavingSettings(true);
-
     try {
-      const result = await updateProviderAvailabilitySettings(input);
+      const result = await updateProviderAvailabilitySettings({
+        ...settingsInput(form, initialSettings),
+        expectedSettingsRevision: settingsRevision,
+      });
       const savedForm = formFromMutation(result.settings);
       setSettingsRevision(result.settings.availabilitySettingsRevision ?? settingsRevision + 1);
       setForm(savedForm);
       setCanonicalForm(savedForm);
+      setValidationAttempted(false);
       setSuccessMessage("Availability settings saved.");
       feastaToast.success("Availability settings saved.");
       router.refresh();
     } catch (error) {
-      const message = safeErrorMessage(
-        error,
-        "The availability settings could not be saved.",
-      );
+      const message = safeErrorMessage(error, "The availability settings could not be saved.");
       setFormError(message);
       feastaToast.error(message);
     } finally {
@@ -168,6 +189,7 @@ export function ProviderAvailabilityClient({
       datePending ||
       selectedDate === "" ||
       duplicateDate ||
+      selectedDateHasBookings ||
       selectedDateIsPast
     ) return;
 
@@ -179,9 +201,12 @@ export function ProviderAvailabilityClient({
       const result = await updateProviderAvailability({
         date: selectedDate,
         action: "mark_unavailable",
+        ...(blockReason.trim() ? {reason: blockReason.trim()} : {}),
       });
       setUnavailableDates([...result.unavailableDates].sort());
+      if (result.unavailableDateReasons) setUnavailableDateReasons(result.unavailableDateReasons);
       setSelectedDate("");
+      setBlockReason("");
       setSuccessMessage("Unavailable date added.");
       feastaToast.success("Unavailable date added.");
       router.refresh();
@@ -210,6 +235,7 @@ export function ProviderAvailabilityClient({
         action: "mark_available",
       });
       setUnavailableDates([...result.unavailableDates].sort());
+      if (result.unavailableDateReasons) setUnavailableDateReasons(result.unavailableDateReasons);
       setSuccessMessage("The date is available again.");
       feastaToast.success("The date is available again.");
       router.refresh();
@@ -228,179 +254,185 @@ export function ProviderAvailabilityClient({
   const capabilities = initialSettings.capacityCapabilities;
 
   return (
-    <div className="grid min-w-0 gap-6">
+    <div className="grid min-w-0 gap-4">
       <div className="flex">
         <Button
           type="button"
           variant="secondary"
           size="compact"
-          onClick={() => router.push("/provider/calendar")}
+          onClick={() => {
+            if (!hasUnsavedChanges || window.confirm("Leave without saving your availability changes?")) {
+              router.push("/provider/calendar");
+            }
+          }}
         >
           ← Back to Calendar
         </Button>
       </div>
       <PageHeading
+        className="pb-4 [&_h1]:text-2xl [&_h1]:font-bold [&_h1]:sm:text-3xl"
         eyebrow="Provider operations"
         title="Availability & Scheduling"
         description="Control when your business can accept event bookings and configure your booking capacity."
       />
 
-      <div className="grid min-w-0 gap-5 lg:grid-cols-2 lg:items-start">
-        <AvailabilityCard
-          icon={<CalendarRange className="size-5" />}
-          title="Operating Days"
-          description="Bookings can only be accepted on your selected operating days."
-        >
-          <fieldset disabled={savingSettings}>
-            <legend className="sr-only">Select operating days</legend>
-            <div className="grid gap-2 sm:grid-cols-2">
-              {PROVIDER_OPERATING_DAYS.map((day) => (
-                <label
-                  key={day}
-                  className="flex min-h-12 cursor-pointer items-center gap-3 rounded-lg border border-border px-3 py-2 transition-colors hover:bg-secondary focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2 has-[:checked]:border-primary has-[:checked]:bg-primary/5"
-                >
-                  <input
-                    type="checkbox"
-                    name="operatingDays"
-                    value={day}
-                    checked={form.operatingDays.includes(day)}
-                    onChange={() => toggleOperatingDay(day)}
-                    className="size-5 shrink-0 accent-primary"
-                  />
-                  <span className="font-semibold">{DAY_LABELS[day]}</span>
-                </label>
-              ))}
-            </div>
-          </fieldset>
-        </AvailabilityCard>
-
-        <AvailabilityCard
-          icon={<Clock3 className="size-5" />}
-          title="Minimum booking notice (days)"
-          description="How many days in advance should customers normally book? Enter 0 if you accept same-day or rush bookings."
-          requiredMark
-        >
-          <FormField
-            id="bookingLeadTimeDays"
-            label="Minimum booking notice (days)"
-            required
-            labelClassName="sr-only"
+      <div className="grid min-w-0 gap-4 lg:grid-cols-2 lg:items-start">
+        <div className="grid min-w-0 gap-4">
+          <AvailabilityCard
+            icon={<CalendarRange className="size-5" />}
+            title="Operating Days"
+            description="Bookings can only be accepted on your selected operating days."
           >
-            <Input
-              type="number"
-              inputMode="numeric"
-              min={0}
-              max={365}
-              step={1}
-              value={form.bookingLeadTimeDays}
-              disabled={savingSettings}
-              onChange={(event) => {
-                const value = event.currentTarget.value;
-                setSuccessMessage(null);
-                setFormError(null);
-                setForm((current) => ({
-                  ...current,
-                  bookingLeadTimeDays: value,
-                }));
-              }}
-            />
-          </FormField>
-        </AvailabilityCard>
+            <fieldset id="operatingDays" disabled={savingSettings} aria-describedby={fieldErrors.operatingDays ? "operating-days-error" : undefined}>
+              <legend className="sr-only">Select operating days</legend>
+              <div className="grid gap-2 sm:grid-cols-2">
+                {PROVIDER_OPERATING_DAYS.map((day) => (
+                  <label
+                    key={day}
+                    className="flex min-h-9 cursor-pointer items-center gap-2 rounded-md border border-border px-2.5 py-1.5 text-sm transition-colors hover:bg-secondary focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2 has-[:checked]:bg-muted/50"
+                  >
+                    <input
+                      type="checkbox"
+                      name="operatingDays"
+                      value={day}
+                      checked={form.operatingDays.includes(day)}
+                      onChange={() => toggleOperatingDay(day)}
+                      className="size-4 shrink-0 accent-primary"
+                    />
+                    <span className="font-semibold">{DAY_LABELS[day]}</span>
+                  </label>
+                ))}
+              </div>
+              {fieldErrors.operatingDays && <p id="operating-days-error" role="alert" className="text-sm font-semibold text-destructive">{fieldErrors.operatingDays}</p>}
+            </fieldset>
+          </AvailabilityCard>
 
-        <AvailabilityCard
-          icon={<UsersRound className="size-5" />}
-          title="Event Capacity"
-          description="Only capacity settings that apply to your verified service categories are shown."
-        >
-          <FormField id="maxEventsPerDay" label="Maximum events per day" required>
-            <Input type="number" inputMode="numeric" min={1} max={100} step={1}
-              value={form.maxEventsPerDay} disabled={savingSettings}
-              onChange={(event) => {
-                const value = event.currentTarget.value;
-                setForm((current) => ({...current, maxEventsPerDay: value}));
-              }} />
-          </FormField>
-          <p className="mb-4 text-sm text-muted-foreground">Online and walk-in bookings share this limit across your business.</p>
-          {capabilities.requiresGuestCapacity ? (
-            <div className="grid gap-4 sm:grid-cols-2">
-              <CapacityInput
-                id="minGuestsPerEvent"
-                label="Minimum guests"
-                value={form.minGuestsPerEvent}
-                minimum={1}
-                disabled={savingSettings}
-                onChange={(value) => setForm((current) => ({
-                  ...current,
-                  minGuestsPerEvent: value,
-                }))}
-              />
-              <CapacityInput
-                id="maxGuestsPerEvent"
-                label="Maximum guests"
-                value={form.maxGuestsPerEvent}
-                minimum={1}
-                disabled={savingSettings}
-                onChange={(value) => setForm((current) => ({
-                  ...current,
-                  maxGuestsPerEvent: value,
-                }))}
-              />
-            </div>
-          ) : (
-            <p className="rounded-lg border border-dashed border-border p-4 text-sm text-muted-foreground">
-              Your current service categories do not require additional capacity settings.
-            </p>
-          )}
-        </AvailabilityCard>
-      </div>
+          <AvailabilityCard
+            icon={<Clock3 className="size-5" />}
+            title="Minimum booking notice (days)"
+            description="How many days in advance should customers normally book? Enter 0 if you accept same-day or rush bookings."
+            requiredMark
+          >
+            <FormField
+              id="bookingLeadTimeDays"
+              error={fieldErrors.bookingLeadTimeDays}
+              label="Minimum booking notice (days)"
+              required
+              labelClassName="sr-only"
+            >
+              <div className="flex w-full max-w-40 items-stretch">
+                <Input
+                  className="min-h-9 rounded-e-none px-2.5 py-1.5 text-sm"
+                  type="number"
+                  inputMode="numeric"
+                  min={0}
+                  max={365}
+                  step={1}
+                  value={form.bookingLeadTimeDays}
+                  disabled={savingSettings}
+                  onChange={(event) => {
+                    const value = event.currentTarget.value;
+                    setSuccessMessage(null);
+                    setFormError(null);
+                    setForm((current) => ({
+                      ...current,
+                      bookingLeadTimeDays: value,
+                    }));
+                  }}
+                />
+                <span className="grid place-items-center rounded-e-md border border-s-0 border-border bg-muted px-2.5 text-sm text-muted-foreground" aria-hidden="true">days</span>
+              </div>
+            </FormField>
+          </AvailabilityCard>
+        </div>
 
-      <AvailabilityCard
-        icon={<CalendarRange className="size-5" />}
-        title="Supported Event Types"
-        description="Choose the event types your business accepts."
-        action={catalog ? (
-          <div className="flex justify-end">
-            <Button type="button" variant="ghost" size="compact" disabled={savingSettings || catalog.items.length === 0}
-              onClick={() => {
-                setSuccessMessage(null);
-                setFormError(null);
-                setForm(current => ({...current, supportedOccasionIds:
-                  catalog.items.every(item => current.supportedOccasionIds.includes(item.id))
-                    ? [] : catalog.items.map(item => item.id).sort()}));
-              }}>
-              {catalog.items.length > 0 && catalog.items.every(item => form.supportedOccasionIds.includes(item.id)) ? "Deselect all" : "Select all"}
-            </Button>
-          </div>
-        ) : null}
-      >
-        {!catalog && !catalogError ? <p role="status">Loading event types...</p> : null}
-        {catalogError ? <div role="alert"><p>{catalogError}</p><Button type="button" variant="secondary" onClick={() => { setCatalogError(null); setCatalogAttempt(value => value + 1); }}>Retry event types</Button></div> : null}
-        {catalog ? <>
-
-          {catalog.items.length === 0 ? <p className="text-sm text-muted-foreground">No approved event types are currently available for your service categories.</p> : null}
-          <fieldset disabled={savingSettings} className="grid gap-2 sm:grid-cols-2">
-            <legend className="sr-only">Select supported event types</legend>
-            {catalog.items.map(item => <label key={item.id} className="flex min-h-12 cursor-pointer items-center gap-3 rounded-lg border border-border px-3 py-2 transition-colors hover:bg-secondary focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2 has-[:checked]:border-primary has-[:checked]:bg-primary/5">
-              <input type="checkbox" name="supportedOccasionIds" value={item.id}
-                checked={form.supportedOccasionIds.includes(item.id)} className="size-5 shrink-0 accent-primary"
-                onChange={() => {
+        <div className="grid min-w-0 gap-4">
+          <AvailabilityCard
+            icon={<CalendarRange className="size-5" />}
+            title="Daily Event Capacity"
+            description="Online and walk-in bookings share this limit across your business."
+          >
+            <FormField id="maxEventsPerDay" label="Maximum events per day" required error={fieldErrors.maxEventsPerDay}>
+              <Input className="min-h-9 max-w-36 px-2.5 py-1.5 text-sm" type="number" inputMode="numeric" min={1} max={100} step={1}
+                value={form.maxEventsPerDay} disabled={savingSettings}
+                onChange={(event) => {
+                  const value = event.currentTarget.value;
                   setSuccessMessage(null);
                   setFormError(null);
-                  setForm(current => ({...current, supportedOccasionIds: current.supportedOccasionIds.includes(item.id)
-                    ? current.supportedOccasionIds.filter(id => id !== item.id) : [...current.supportedOccasionIds, item.id].sort()}));
+                  setForm((current) => ({...current, maxEventsPerDay: value}));
                 }} />
-              <span className="font-semibold">{item.label}</span>
-            </label>)}
-          </fieldset>
-          {form.supportedOccasionIds.some(id => !catalog.items.some(item => item.id === id)) ?
-            <div role="alert" className="text-sm text-muted-foreground">Some saved event types are no longer eligible. Remove them before saving.
-              <Button type="button" variant="ghost" disabled={savingSettings} onClick={() => setForm(current => ({...current, supportedOccasionIds: current.supportedOccasionIds.filter(id => catalog.items.some(item => item.id === id))}))}>Remove unavailable event types</Button>
-            </div> : null}
-        </> : null}
-      </AvailabilityCard>
+            </FormField>
+            {capacityDirty && <p className="my-3 text-sm text-muted-foreground">
+              The summary uses your saved limit until you save availability settings.
+            </p>}
+            <div className="rounded-lg border border-border bg-muted/35 p-3">
+              <FormField id="capacityDate" label="View capacity for date">
+                <Input className="min-h-9 bg-card px-2.5 py-1.5 text-sm" type="date" min={today} value={capacityDate} onChange={(event) => {
+                  if (event.currentTarget.value >= today) setCapacityDate(event.currentTarget.value);
+                }} />
+              </FormField>
+              <p className="mt-2 text-sm text-muted-foreground">Selected date: {formatPhilippineDate(capacityDate)}</p>
+              <dl className="mt-2 grid grid-cols-2 gap-2 text-xs xl:grid-cols-4 [&>div]:rounded-md [&>div]:bg-muted [&>div]:p-2 [&_dd]:text-sm">
+                <div><dt>Saved daily capacity</dt><dd className="font-bold">{currentCapacity}</dd></div>
+                <div><dt>Occupied slots</dt><dd className="font-bold">{occupiedSlots}</dd></div>
+                <div><dt>Unused capacity</dt><dd className="font-bold">{unusedCapacity}</dd></div>
+                <div><dt>Bookable slots</dt><dd className="font-bold">{bookableSlots}</dd></div>
+              </dl>
+              {(manuallyBlocked || closedDay) && <div className="mt-3 rounded-lg border border-border bg-muted/50 p-3 text-sm">
+                <p className="font-semibold">Date Unavailable</p>
+                <p className="mt-1 text-muted-foreground">
+                  {manuallyBlocked ? "This date has been manually blocked." : "This date falls outside your saved operating days."}
+                  {manuallyBlocked && unavailableDateReasons[capacityDate] && ` Reason: ${unavailableDateReasons[capacityDate]}.`}
+                  {" No new bookings can be accepted, even if the daily limit has room."}
+                </p>
+              </div>}
+            </div>
+            {capacityBelowReservations && <p role="status" className="mt-3 rounded-lg bg-amber-100 p-3 text-sm text-amber-950 dark:bg-amber-950 dark:text-amber-100">
+              At least one upcoming date already has {peakOccupied} occupied slots. Existing bookings will stay in place.
+            </p>}
+          </AvailabilityCard>
+
+          <AvailabilityCard
+            icon={<UsersRound className="size-5" />}
+            title="Guest Capacity"
+            description="Guest limits apply to services that require them."
+          >
+            {capabilities.requiresGuestCapacity ? (
+              <div className="grid gap-4 sm:grid-cols-2">
+                <CapacityInput
+                  id="minGuestsPerEvent"
+                  label="Minimum guests"
+                  value={form.minGuestsPerEvent}
+                  minimum={1}
+                  disabled={savingSettings}
+                  onChange={(value) => setForm((current) => ({
+                    ...current,
+                    minGuestsPerEvent: value,
+                  }))}
+                />
+                <CapacityInput
+                  id="maxGuestsPerEvent"
+                  label="Maximum guests"
+                  value={form.maxGuestsPerEvent}
+                  minimum={1}
+                  disabled={savingSettings}
+                  onChange={(value) => setForm((current) => ({
+                    ...current,
+                    maxGuestsPerEvent: value,
+                  }))}
+                />
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                Your current service categories do not require additional capacity settings.
+              </p>
+            )}
+          </AvailabilityCard>
+        </div>
+      </div>
 
       <section
-        className="grid min-w-0 gap-5 rounded-card border border-border bg-card p-5 shadow-card sm:p-6"
+        className="grid min-w-0 gap-4 rounded-xl border border-border bg-card p-4 shadow-sm sm:p-5"
         aria-labelledby="unavailable-dates-heading"
       >
         <CardHeading
@@ -410,12 +442,14 @@ export function ProviderAvailabilityClient({
           description="Block dates when your business cannot accept events. Dates use Philippine calendar time."
         />
 
-        <div className="grid min-w-0 gap-3 sm:grid-cols-[minmax(0,18rem)_auto] sm:items-end">
+        <div className="grid min-w-0 max-w-2xl gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] sm:items-end">
           <FormField
             id="unavailableDate"
             label="Date to make unavailable"
           >
             <PhilippineDateInput
+              className="min-h-9 py-1.5 ps-3 pe-10 text-sm [&::-webkit-calendar-picker-indicator]:absolute [&::-webkit-calendar-picker-indicator]:end-3 [&::-webkit-calendar-picker-indicator]:top-1/2 [&::-webkit-calendar-picker-indicator]:-translate-y-1/2 [&::-webkit-calendar-picker-indicator]:opacity-65"
+              displayClassName="start-3 end-10 text-sm"
               min={today}
               value={selectedDate}
               disabled={datePending !== null}
@@ -426,12 +460,19 @@ export function ProviderAvailabilityClient({
             />
           </FormField>
 
+          <FormField id="unavailableDateReason" label="Reason (optional)">
+            <Input className="min-h-9 px-3 py-1.5 text-sm" value={blockReason} maxLength={160} disabled={datePending !== null}
+              onChange={(event) => setBlockReason(event.currentTarget.value)}
+              placeholder="e.g., Holiday, Maintenance, Off-site event" />
+          </FormField>
+
           <Button
             type="button"
             size="compact"
             disabled={
               selectedDate === "" ||
               duplicateDate ||
+              selectedDateHasBookings ||
               selectedDateIsPast ||
               datePending !== null
             }
@@ -442,7 +483,7 @@ export function ProviderAvailabilityClient({
             }}
           >
             <Plus className="size-4" aria-hidden="true" />
-            Add unavailable date
+            Block date
           </Button>
         </div>
 
@@ -451,6 +492,10 @@ export function ProviderAvailabilityClient({
             This date is already unavailable.
           </p>
         ) : null}
+
+        {selectedDateHasBookings && !duplicateDate && <p role="status" className="text-sm font-medium text-destructive">
+          This date has confirmed or reserved bookings and cannot be blocked.
+        </p>}
 
         {selectedDateIsPast ? (
           <p className="text-sm font-medium text-destructive" role="alert">
@@ -464,6 +509,8 @@ export function ProviderAvailabilityClient({
           </p>
         ) : null}
 
+        <div className="grid gap-3 border-t border-border pt-4">
+          <h3 className="text-sm font-semibold">Blocked dates ({unavailableDates.length})</h3>
         {unavailableDates.length === 0 ? (
           <div className="rounded-lg border border-dashed border-border p-6 text-center">
             <CalendarRange
@@ -476,27 +523,28 @@ export function ProviderAvailabilityClient({
             </p>
           </div>
         ) : (
-          <ul className="grid min-w-0 gap-2 sm:grid-cols-2 xl:grid-cols-3">
+          <ul className="grid min-w-0 gap-2 sm:grid-cols-[repeat(auto-fill,minmax(17rem,1fr))] [&>li]:max-w-md">
             {unavailableDates.map((date) => {
               const isPast = date < today;
 
               return (
                 <li
                   key={date}
-                  className="flex min-w-0 items-center justify-between gap-3 rounded-lg border border-border px-4 py-3"
+                  className="flex min-w-0 items-center justify-between gap-2 rounded-lg border border-border bg-muted/35 px-3 py-2 text-sm"
                 >
                   <div className="min-w-0">
                     <time className="block truncate font-semibold" dateTime={date}>
                       {formatPhilippineDate(date)}
                     </time>
-                    <span className="text-xs text-muted-foreground">
-                      {isPast ? "Past date" : "Unavailable"}
+                    <span className="mt-1 inline-flex max-w-full items-start gap-1.5 break-words rounded-full bg-destructive/10 px-2 py-0.5 text-xs text-destructive">
+                      <span className="mt-1 size-1.5 shrink-0 rounded-full bg-current" aria-hidden="true" />
+                      <span>{isPast ? "Past date" : "Blocked"}{unavailableDateReasons[date] ? ` · ${unavailableDateReasons[date]}` : ""}</span>
                     </span>
                   </div>
 
                   <Button
                     type="button"
-                    variant="ghost"
+                    variant="secondary"
                     size="compact"
                     disabled={isPast || datePending !== null}
                     loading={datePending === date}
@@ -513,6 +561,7 @@ export function ProviderAvailabilityClient({
             })}
           </ul>
         )}
+        </div>
       </section>
 
       {formError ? (
@@ -554,7 +603,6 @@ function AvailabilityCard({
   title,
   description,
   requiredMark = false,
-  action,
   children,
 }: {
   icon: React.ReactNode;
@@ -562,25 +610,21 @@ function AvailabilityCard({
   description: string;
   requiredMark?: boolean;
   children: React.ReactNode;
-  action?: React.ReactNode;
 }) {
   const id = `availability-${title.toLowerCase().replaceAll(/[^a-z0-9]+/gu, "-").replaceAll(/^-|-$/gu, "")}`;
 
   return (
     <section
-      className="grid min-w-0 gap-5 rounded-card border border-border bg-card p-5 shadow-card sm:p-6"
+      className="grid min-w-0 gap-3 rounded-xl border border-border bg-card p-4 shadow-sm sm:p-5"
       aria-labelledby={id}
     >
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <CardHeading
-          icon={icon}
-          id={id}
-          title={title}
-          description={description}
-          requiredMark={requiredMark}
-        />
-        {action}
-      </div>
+      <CardHeading
+        icon={icon}
+        id={id}
+        title={title}
+        description={description}
+        requiredMark={requiredMark}
+      />
       {children}
     </section>
   );
@@ -602,19 +646,19 @@ function CardHeading({
   return (
     <div className="flex min-w-0 items-start gap-3">
       <span
-        className="grid size-10 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary-strong"
+        className="grid size-8 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary-strong [&>svg]:size-4"
         aria-hidden="true"
       >
         {icon}
       </span>
       <div className="min-w-0">
-        <h2 id={id} className="text-lg font-bold tracking-tight">
+        <h2 id={id} className="text-base font-semibold tracking-tight">
           {title}
           {requiredMark ? (
             <span aria-hidden="true" className="ml-1 text-destructive">*</span>
           ) : null}
         </h2>
-        <p className="mt-1 text-sm text-muted-foreground">{description}</p>
+        <p className="text-sm text-muted-foreground">{description}</p>
       </div>
     </div>
   );
@@ -655,7 +699,6 @@ function formFromSettings(
   settings: ProviderAvailabilitySettings,
 ): AvailabilityFormState {
   return {
-    supportedOccasionIds: [...(settings.supportedOccasionIds ?? [])].sort(),
     operatingDays: [...settings.operatingDays],
     bookingLeadTimeDays: String(settings.bookingLeadTimeDays),
     maxEventsPerDay: String(settings.maxEventsPerDay),
@@ -671,7 +714,6 @@ function formFromMutation(
     operatingDays: [...settings.operatingDays],
     bookingLeadTimeDays: String(settings.bookingLeadTimeDays),
     maxEventsPerDay: String(settings.maxEventsPerDay),
-    supportedOccasionIds: [...(settings.supportedOccasionIds ?? [])].sort(),
     minGuestsPerEvent: String(settings.minGuestsPerEvent),
     maxGuestsPerEvent: String(settings.maxGuestsPerEvent),
   };
@@ -720,6 +762,23 @@ function settingsInput(
   };
 }
 
+function settingsFieldErrors(form: AvailabilityFormState): Partial<Record<"operatingDays" | "bookingLeadTimeDays" | "maxEventsPerDay", string>> {
+  const errors: Partial<Record<"operatingDays" | "bookingLeadTimeDays" | "maxEventsPerDay", string>> = {};
+  if (!form.operatingDays.length) errors.operatingDays = "Select at least one operating day.";
+  if (!isBoundedInteger(form.bookingLeadTimeDays, 0, 365)) {
+    errors.bookingLeadTimeDays = "Minimum booking notice must be a whole number from 0 to 365.";
+  }
+  if (!isBoundedInteger(form.maxEventsPerDay, 1, 100)) {
+    errors.maxEventsPerDay = "Maximum events per day must be a whole number from 1 to 100.";
+  }
+  return errors;
+}
+
+function isBoundedInteger(value: string, minimum: number, maximum: number): boolean {
+  const number = Number(value);
+  return /^\d+$/.test(value.trim()) && Number.isSafeInteger(number) && number >= minimum && number <= maximum;
+}
+
 function boundedInteger(
   value: string,
   label: string,
@@ -728,7 +787,7 @@ function boundedInteger(
 ): number {
   const number = Number(value);
 
-  if (!Number.isSafeInteger(number) || number < minimum || number > maximum) {
+  if (!isBoundedInteger(value, minimum, maximum)) {
     throw new Error(`${label} must be a whole number from ${minimum} to ${maximum}.`);
   }
 

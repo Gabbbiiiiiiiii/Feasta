@@ -105,12 +105,9 @@ export type ExistingProviderBooking = AvailabilityPaymentEvidence & {
 /**
  * Whether a stored provider request currently occupies its event slot.
  *
- * Pending, rejected, cancelled, and expired requests do not.
- * Confirmed, in-progress, and completed requests do. An accepted unpaid request
- * occupies only while its stored expiresAt is still ahead of now. A
- * lineup-incomplete accepted request has no expiresAt, so that hold
- * instead ends one payment window after acceptedAt. Requests with payment or
- * reconciliation evidence retain capacity until authoritative resolution.
+ * Pending, rejected, cancelled, and expired requests do not reserve capacity.
+ * Accepted requests retain their slot until an authoritative status transition.
+ * The checkout deadline independently controls payment eligibility.
  */
 export function providerRequestAvailabilityState(input: AvailabilityPaymentEvidence & {
   status: unknown;
@@ -147,22 +144,12 @@ export function providerRequestAvailabilityState(input: AvailabilityPaymentEvide
 
   if (input.initialPaymentDeadlinePolicyVersion != null) {
     try {
-      return originalInitialPaymentDeadline(input).toMillis() > nowMs ? "temporary_hold" : "released";
-    } catch { return "payment_reconciliation"; }
+      originalInitialPaymentDeadline(input);
+    } catch {
+      return "payment_reconciliation";
+    }
   }
-
-  const explicitDeadline = timestampMillis(input.expiresAt);
-
-  if (explicitDeadline !== null) {
-    return explicitDeadline > nowMs ? "temporary_hold" : "released";
-  }
-
-  if (status !== "accepted") return "released";
-
-  const acceptedAt = timestampMillis(input.acceptedAt);
-
-  return acceptedAt !== null && acceptedAt + PROVIDER_PAYMENT_HOLD_WINDOW_MS > nowMs
-    ? "temporary_hold" : "released";
+  return "temporary_hold";
 }
 
 export function providerRequestOccupiesAvailability(
@@ -593,40 +580,6 @@ function validateGuestCapacity(
       "guestCount",
     ));
   }
-}
-
-function timestampMillis(value: unknown): number | null {
-  if (value instanceof Date) {
-    return Number.isFinite(value.getTime()) ? value.getTime() : null;
-  }
-
-  if (
-    value !== null &&
-    typeof value === "object"
-  ) {
-    const record = value as {
-      toMillis?: () => unknown;
-      toDate?: () => unknown;
-    };
-
-    if (typeof record.toMillis === "function") {
-      const millis = record.toMillis();
-
-      return typeof millis === "number" && Number.isFinite(millis)
-        ? millis
-        : null;
-    }
-
-    if (typeof record.toDate === "function") {
-      const date = record.toDate();
-
-      return date instanceof Date && Number.isFinite(date.getTime())
-        ? date.getTime()
-        : null;
-    }
-  }
-
-  return null;
 }
 
 function parseTimeRange(

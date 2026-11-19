@@ -168,24 +168,25 @@ async function dailyOccupancy(transaction: Transaction, providerId: string,
   const day = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"][
     new Date(`${eventDateKey}T00:00:00Z`).getUTCDay()
   ];
-  if ((Array.isArray(data.operatingDays) && !data.operatingDays.includes(day)) ||
-      (Array.isArray(data.unavailableDates) && data.unavailableDates.includes(eventDateKey))) {
-    throw new WalkInInputError("Your schedule is unavailable on this date.");
-  }
+  const blocked = (!Array.isArray(data.operatingDays) || !data.operatingDays.includes(day)) ||
+    (Array.isArray(data.unavailableDates) && data.unavailableDates.includes(eventDateKey));
   const end = new Date(start.getTime() + 86_400_000);
   const requests = await transaction.get(adminDb.collection("providerRequests")
     .where("providerId", "==", providerId)
     .where("status", "in", ["accepted", "waiting_for_down_payment", "payment_processing", "confirmed", "in_progress", "completed"])
     .where("eventDate", ">=", Timestamp.fromDate(start))
     .where("eventDate", "<", Timestamp.fromDate(end)));
-  const now = Date.now();
-  const online = requests.docs.filter((request) => calendarRequestOccupies(request.data(), now));
+  const online = requests.docs.filter((request) => calendarRequestOccupies(request.data()));
   const occupiedOnline = new Set(online.map((request) => {
     const eventId = request.get("mainEventId");
     return typeof eventId === "string" && eventId ? `event:${eventId}` : `request:${request.id}`;
   })).size;
   const occupiedWalkIn = counts[eventDateKey] ?? 0;
-  return {counts, occupiedWalkIn, remaining: Math.max(0, dailyEventCapacity(data) - occupiedOnline - occupiedWalkIn)};
+  const capacity = dailyEventCapacity(data);
+  const occupied = occupiedOnline + occupiedWalkIn;
+  return {counts, occupiedWalkIn, capacity, occupied, blocked,
+    remaining: blocked ? 0 : Math.max(0, capacity - occupied)};
+
 }
 
 export async function checkWalkInDay(date: string) {
@@ -195,8 +196,8 @@ export async function checkWalkInDay(date: string) {
     const start = bookingDay(date, today);
     return await adminDb.runTransaction(async (transaction) => {
       const data = await readProvider(transaction, provider, account.uid);
-      const {remaining} = await dailyOccupancy(transaction, provider.id, data, date, start, today);
-      return {remaining};
+      const {capacity, occupied, remaining, blocked} = await dailyOccupancy(transaction, provider.id, data, date, start, today);
+      return {date, capacity, occupied, remaining, blocked};
     });
   } catch (error) {
     return {error: error instanceof WalkInInputError ? error.message : "Availability could not be checked. Try again."};
@@ -247,6 +248,9 @@ export async function mutateWalkIn(form: FormData) {
             availabilityReservationUpdatedAt: FieldValue.serverTimestamp(),
           });
         }
+        if (action === "completed") {
+          transaction.update(provider, {availabilityReservationUpdatedAt: FieldValue.serverTimestamp()});
+        }
         transaction.update(reference, {
           status: action,
           updatedAt: FieldValue.serverTimestamp(),
@@ -277,9 +281,6 @@ export async function mutateWalkIn(form: FormData) {
       throw new WalkInInputError("Record the customer's acknowledgment and agreement date.");
     }
     const email = field(form, "email", 254, false);
-    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      throw new WalkInInputError("Enter a valid email address.");
-    }
     const phone = field(form, "contact number", 40);
     const guests = field(form, "number of guests", 6, false);
     const guestCount = guests ? Number(guests) : null;
@@ -337,9 +338,10 @@ export async function mutateWalkIn(form: FormData) {
       const data = await readProvider(transaction, provider, account.uid);
       const previous = await transaction.get(reference);
       if (previous.exists) return null;
-      const {counts, occupiedWalkIn, remaining} = await dailyOccupancy(
+      const {counts, occupiedWalkIn, remaining, blocked} = await dailyOccupancy(
         transaction, provider.id, data, eventDateKey, start, today,
       );
+      if (blocked) throw new WalkInInputError("Your schedule is unavailable on this date.");
       if (remaining === 0) {
         throw new WalkInInputError("Your business has reached its booking capacity for this date.");
       }

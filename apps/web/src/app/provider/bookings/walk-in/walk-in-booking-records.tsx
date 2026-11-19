@@ -76,7 +76,13 @@ export async function WalkInBookingRecords({filters}: {filters: WalkInSearch}) {
     <div id="walk-in-records" className="grid scroll-mt-24 gap-4">
       {savedRecord?.exists && <div role="status" className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-card p-4">
         <p>Walk-in booking recorded successfully. <span className="break-all">Reference {savedRecord.id}</span></p>
-        <Link className="font-semibold text-primary underline" href={`${path}?reference=${savedRecord.id}`}>View details</Link>
+        <div className="flex flex-wrap gap-3">
+          <Link className="font-semibold text-primary underline" href={`${path}?reference=${savedRecord.id}`}>View details</Link>
+          <Link className="font-semibold text-primary underline"
+            href={`/provider/calendar?${new URLSearchParams({date: savedRecord.get("eventDateKey"), booking: savedRecord.id})}`}>
+            View in Calendar
+          </Link>
+        </div>
       </div>}
       {summary && <div className="grid gap-3 sm:grid-cols-3">
         <SummaryCard label="Total walk-ins" value={summary[0].data().count} icon={<ClipboardList className="size-5" />} />

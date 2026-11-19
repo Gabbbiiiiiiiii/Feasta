@@ -1,6 +1,6 @@
 "use client";
 
-import {createContext, useContext, useRef, useState, useTransition} from "react";
+import {createContext, useContext, useEffect, useRef, useState, useTransition} from "react";
 import Link from "next/link";
 import {useRouter} from "next/navigation";
 import {walkInInputError} from "@/lib/provider/bookings/walk-in-validation";
@@ -21,7 +21,11 @@ function suggestedPrice(offer: WalkInOffer | undefined, option?: WalkInOffer["op
 }
 
 const eventTypes = ["Birthday", "Wedding", "Corporate Event", "Catering Only"];
-type Availability = {kind: "checking" | "available" | "full" | "error"; text: string};
+type Availability = {
+  kind: "checking" | "available" | "full" | "blocked" | "error";
+  text: string;
+  counts?: {capacity: number; occupied: number; remaining: number};
+};
 
 const inputClass = "w-full rounded-md border border-input bg-background px-3 py-2";
 
@@ -40,6 +44,7 @@ function fieldError(input: HTMLInputElement | HTMLSelectElement): string {
   }
   const message = walkInInputError(input.name, input.value);
   if (message) return message;
+  if (input.type === "email" && input.validity.typeMismatch) return "Please enter a valid email address";
   if (!input.validity.valid) return input.validationMessage;
   const peer = (name: string) => {
     const field = input.form?.elements.namedItem(name);
@@ -81,9 +86,10 @@ function Field({name, label, type = "text", required = true, maxLength, inputMod
   </label>;
 }
 
-export function WalkInForm({packages, catalogUnavailable = false, agreementDefaults}: {
+export function WalkInForm({packages, catalogUnavailable = false, agreementDefaults, initialEventDate = ""}: {
   packages: WalkInOffer[];
   catalogUnavailable?: boolean;
+  initialEventDate?: string;
   agreementDefaults?: {date: string; time: string};
 }) {
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -94,33 +100,42 @@ export function WalkInForm({packages, catalogUnavailable = false, agreementDefau
   const [pricingOption, setPricingOption] = useState("");
   const [agreedPrice, setAgreedPrice] = useState("");
   const submissionKey = useRef<string | undefined>(undefined);
-  const [date, setDate] = useState("");
-  const [availability, setAvailability] = useState<Availability>();
-  const availabilityRequest = useRef(0);
+  const [date, setDate] = useState(initialEventDate);
+  const [availabilityResult, setAvailabilityResult] = useState<{date: string; result: Availability}>();
   const [state, setState] = useState<WalkInActionState>({});
   const selected = packages.find((offer) => `${offer.kind}/${offer.id}` === selection);
   const chosenOption = selected?.options.find((option) => option.id === pricingOption);
   const [pending, startTransition] = useTransition();
-  async function refreshAvailability(input: HTMLInputElement) {
-    const nextDate = input.value;
-    const request = ++availabilityRequest.current;
-    const error = fieldError(input);
-    setDate(nextDate);
-    setErrors((current) => ({...current, "event date": nextDate ? error : ""}));
-    setAvailability(undefined);
-    if (!nextDate || error) return;
-    setAvailability({kind: "checking", text: "Checking availability…"});
-    let result: Availability;
-    try {
-      const check = await checkWalkInDayAction(nextDate);
-      if ("error" in check) result = {kind: "error", text: check.error ?? "Availability could not be checked."};
-      else if (check.remaining === 0) result = {kind: "full", text: "Date Fully Booked"};
-      else result = {kind: "available", text: `Available (${check.remaining} ${check.remaining === 1 ? "slot" : "slots"} free)`};
-    } catch {
-      result = {kind: "error", text: "Availability could not be checked. The date will be checked when you confirm."};
+  const dateError = date ? walkInInputError("event date", date) : "";
+  const availability: Availability | undefined = !date || dateError ? undefined :
+    availabilityResult?.date === date ? availabilityResult.result :
+      {kind: "checking", text: "Checking availability…"};
+
+  useEffect(() => {
+    if (!date || dateError) return;
+    let active = true;
+    async function checkDate() {
+      let result: Availability;
+      try {
+        const check = await checkWalkInDayAction(date);
+        if ("error" in check) result = {kind: "error", text: check.error ?? "Availability could not be checked."};
+        else {
+          const counts = {capacity: check.capacity, occupied: check.occupied, remaining: check.remaining};
+          if (check.blocked) result = {kind: "blocked", text: "This date is unavailable. Choose another date.", counts};
+          else if (check.remaining === 0) result = {kind: "full", text: "Date Fully Booked", counts};
+          else result = {kind: "available", text: `Available (${check.remaining} ${check.remaining === 1 ? "slot" : "slots"} free)`, counts};
+        }
+      } catch {
+        result = {kind: "error", text: "Availability could not be checked. The date will be checked when you confirm."};
+      }
+      if (active) setAvailabilityResult({date, result});
     }
-    if (request === availabilityRequest.current) setAvailability(result);
-  }
+    void checkDate();
+    return () => { active = false; };
+  }, [date, dateError]);
+
+  const unavailable = availability?.kind === "full" || availability?.kind === "blocked";
+  const checking = availability?.kind === "checking";
 
   return (
     <Validation.Provider value={errors}>
@@ -149,6 +164,7 @@ export function WalkInForm({packages, catalogUnavailable = false, agreementDefau
         }}
         onSubmit={(event) => {
           event.preventDefault();
+          if (unavailable || checking || pending) return;
           const form = event.currentTarget;
           const invalid = Array.from(form.elements).flatMap((input) => {
             if (!(input instanceof HTMLInputElement || input instanceof HTMLSelectElement) || input.type === "hidden") return [];
@@ -174,12 +190,11 @@ export function WalkInForm({packages, catalogUnavailable = false, agreementDefau
                 setErrors({});
                 setSelection(packages.length ? "" : "custom");
                 setEventType("");
-                availabilityRequest.current++;
                 setPricingOption("");
                 setAgreedPrice("");
                 submissionKey.current = undefined;
                 setDate("");
-                setAvailability(undefined);
+                setAvailabilityResult(undefined);
                 router.push(`/provider/bookings/walk-in?saved=${encodeURIComponent(result.reference)}`);
               }
             } catch {
@@ -192,7 +207,7 @@ export function WalkInForm({packages, catalogUnavailable = false, agreementDefau
         <fieldset className="grid gap-3 sm:grid-cols-2">
           <legend className="mb-2 font-medium">Customer details</legend>
           <Field name="full name" label="Full name" maxLength={160} />
-          <Field name="contact number" label="Contact number" type="tel" maxLength={40} />
+          <Field name="contact number" label="Contact number" type="tel" inputMode="numeric" maxLength={40} />
           <Field name="email" label="Email (optional)" type="email" required={false} maxLength={254} />
           <Field name="additional contact" label="Additional contact information (optional)" required={false} maxLength={300} />
         </fieldset>
@@ -212,20 +227,18 @@ export function WalkInForm({packages, catalogUnavailable = false, agreementDefau
           <div className="grid content-start gap-1">
             <label>Event date
               <input className={inputClass} name="event date" type="date" required value={date}
-                aria-invalid={Boolean(errors["event date"]) || undefined}
-                aria-describedby={errors["event date"] ? "error-event-date" : "walk-in-availability"}
-                onChange={(event) => void refreshAvailability(event.currentTarget)} />
+                aria-invalid={Boolean(errors["event date"] || dateError) || undefined}
+                aria-describedby={errors["event date"] || dateError ? "error-event-date" : "walk-in-availability"}
+                onChange={(event) => {
+                  const nextDate = event.currentTarget.value;
+                  if (nextDate !== date) setAvailabilityResult(undefined);
+                  setDate(nextDate);
+                }} />
             </label>
-            <FieldError name="event date" />
-            <div id="walk-in-availability" role="status">
-              {availability && <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold ${availability.kind === "available"
-                ? "bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-200"
-                : availability.kind === "checking" ? "bg-muted text-muted-foreground"
-                  : "bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-200"}`}>
-                {availability.kind !== "checking" && <span aria-hidden="true">{availability.kind === "available" ? "✓" : "⚠"}</span>}
-                {availability.text}
-              </span>}
-            </div>
+            {!errors["event date"] && dateError
+              ? <span id="error-event-date" className="text-sm text-destructive">{dateError}</span>
+              : <FieldError name="event date" />}
+
           </div>
           {eventType === "other" && <Field name="custom event type" label="Specify event type" maxLength={100} />}
           <Field name="start time" label="Start time" type="time" />
@@ -329,6 +342,25 @@ export function WalkInForm({packages, catalogUnavailable = false, agreementDefau
             maxLength={12} value={agreedPrice} onValueChange={setAgreedPrice} />
           <Field name="pricing notes" label="Pricing notes (optional)" required={false} maxLength={1000} />
         </fieldset>}
+        <section id="walk-in-availability" aria-labelledby="walk-in-availability-heading" className="grid gap-3 rounded-lg border border-border p-4">
+          <h3 id="walk-in-availability-heading" className="font-medium">Availability check</h3>
+          <p className="text-sm text-muted-foreground">{date ? `Selected event date: ${date}` : "Select an event date to check availability."}</p>
+          <div role="status">
+              {availability && <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold ${availability.kind === "available"
+                ? "bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-200"
+                : availability.kind === "checking" ? "bg-muted text-muted-foreground"
+                  : "bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-200"}`}>
+                {availability.kind !== "checking" && <span aria-hidden="true">{availability.kind === "available" ? "✓" : "⚠"}</span>}
+                {availability.text}
+              </span>}
+            </div>
+          {availability?.counts && <dl className="grid grid-cols-3 gap-2 text-sm">
+            <div><dt>Daily capacity</dt><dd className="font-semibold">{availability.counts.capacity}</dd></div>
+            <div><dt>Occupied slots</dt><dd className="font-semibold">{availability.counts.occupied}</dd></div>
+            <div><dt>Remaining slots</dt><dd className="font-semibold">{availability.counts.remaining}</dd></div>
+          </dl>}
+          {availability?.kind === "full" && <p className="text-sm text-muted-foreground">Choose another date to confirm this booking.</p>}
+        </section>
         <fieldset className="grid gap-3 sm:grid-cols-2">
           <legend className="mb-2 font-medium">Booking agreement</legend>
           <Field name="agreement date" label="Date of agreement" type="date" defaultValue={agreementDefaults?.date} />
@@ -362,8 +394,8 @@ export function WalkInForm({packages, catalogUnavailable = false, agreementDefau
               }}>Cancel</Link>
             </Button>
           )}
-          <Button type="submit" size="compact" loading={pending} loadingLabel="Saving…">
-            Confirm walk-in booking
+          <Button type="submit" size="compact" disabled={unavailable || checking} loading={pending} loadingLabel="Saving…">
+            Save &amp; Confirm Booking
           </Button>
         </div>
       </form>

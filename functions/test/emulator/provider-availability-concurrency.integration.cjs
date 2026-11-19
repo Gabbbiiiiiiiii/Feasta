@@ -91,8 +91,6 @@ async function run() {
         ],
         unavailableDates: [],
         bookingLeadTimeDays: 0,
-        acceptsMultipleEventsPerDay: true,
-        maxEventsPerDay: 50,
         minGuestsPerEvent: 1,
         maxGuestsPerEvent: 500,
         availableStaffCount: 0,
@@ -193,6 +191,10 @@ async function run() {
       }),
     ]);
 
+    await db.collection("providers").doc(providerId).update({
+      maxEventsPerDay: 2,
+      acceptsMultipleEventsPerDay: true,
+    });
     const openOutcomes = await Promise.allSettled([
       callFunction(
         "acceptProviderRequest",
@@ -212,17 +214,16 @@ async function run() {
     );
     assert.equal(
       openOutcomes.filter((outcome) => outcome.status === "fulfilled").length,
-      0,
+      1,
       JSON.stringify(openSummary),
     );
     assert.equal(
       openOutcomes.filter((outcome) => outcome.status === "rejected").length,
-      2,
+      1,
       JSON.stringify(openSummary),
     );
     assert.ok(
-      openOutcomes.every((outcome) =>
-        outcome.status === "rejected" &&
+      openOutcomes.filter((outcome) => outcome.status === "rejected").every((outcome) =>
         /FAILED_PRECONDITION/u.test(outcome.reason.message)
       ),
       JSON.stringify(openSummary),
@@ -238,9 +239,13 @@ async function run() {
     ]);
     assert.deepEqual(
       openRequests.map((snapshot) => snapshot.data()?.status).sort(),
-      ["pending", "pending"],
+      ["confirmed", "pending"],
     );
 
+    await db.collection("providers").doc(providerId).update({
+      maxEventsPerDay: 1,
+      acceptsMultipleEventsPerDay: false,
+    });
     // A separate unreserved Manila day must still allow one booking.
     const eventDateMillis = typeof eventDate.toMillis === "function"
       ? eventDate.toMillis()

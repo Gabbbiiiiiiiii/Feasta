@@ -2,18 +2,20 @@ import Link from "next/link";
 import {ArrowLeft} from "lucide-react";
 import {Suspense} from "react";
 import {listWalkInOffers, readWalkInProvider} from "@/lib/provider/bookings/walk-in-booking-service";
+import {validProviderCalendarDate} from "@/lib/provider/calendar/provider-calendar-types";
 import {currentWalkInAgreement} from "@/lib/provider/bookings/walk-in-validation";
 import {WalkInForm} from "../walk-in-form";
 
-async function WalkInFormWithCatalog() {
+async function WalkInFormWithCatalog({date}: {date?: string}) {
   const catalog = await listWalkInOffers().then(
     (packages) => ({packages, catalogUnavailable: false}),
     () => ({packages: [], catalogUnavailable: true}),
   );
-  return <WalkInForm {...catalog} agreementDefaults={currentWalkInAgreement()} />;
+  return <WalkInForm {...catalog} agreementDefaults={currentWalkInAgreement()} initialEventDate={date} />;
 }
 
-export default async function NewWalkInPage() {
+export default async function NewWalkInPage({searchParams}: {searchParams: Promise<{date?: string}>}) {
+  const {date} = await searchParams;
   await readWalkInProvider();
   return (
     <div className="mx-auto grid max-w-4xl gap-6">
@@ -28,7 +30,7 @@ export default async function NewWalkInPage() {
         <h1 className="text-2xl font-semibold">Add Walk-In Booking</h1>
       </header>
       <Suspense fallback={<p role="status" className="rounded-lg border p-5">Loading published packages and services…</p>}>
-        <WalkInFormWithCatalog />
+        <WalkInFormWithCatalog date={validProviderCalendarDate(date) ? date : undefined} />
       </Suspense>
     </div>
   );

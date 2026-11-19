@@ -10,6 +10,8 @@ import {
   type ProviderServiceType,
 } from "@feasta/shared-types";
 
+import {Timestamp} from "firebase-admin/firestore";
+import {ACTIVE_EVENT_STATUSES, timestampToIsoDate} from "@/lib/provider/calendar/provider-calendar-service";
 import {requireApprovedProvider} from "@/lib/auth/session";
 import {adminDb} from "@/lib/firebase/admin";
 
@@ -56,15 +58,53 @@ Promise<ProviderAvailabilitySettings> {
   const minimumGuests = integer(provider.minGuestsPerEvent, 0, 100_000, 0);
   const maximumGuests = integer(provider.maxGuestsPerEvent, 0, 100_000, 0);
 
+  const today = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Manila", year: "numeric", month: "2-digit", day: "2-digit",
+  }).format(new Date());
+  const online = await adminDb.collection("providerRequests")
+    .where("providerId", "==", providerId)
+    .where("status", "in", [...ACTIVE_EVENT_STATUSES])
+    .where("eventDate", ">=", Timestamp.fromDate(new Date(`${today}T00:00:00+08:00`)))
+    .select("eventDate", "mainEventId")
+    .get();
+  const eventsByDate = new Map<string, Set<string>>();
+  for (const row of online.docs) {
+    const date = timestampToIsoDate(row.get("eventDate"));
+    if (!date) continue;
+    const eventId = row.get("mainEventId");
+    const key = typeof eventId === "string" && eventId ? `event:${eventId}` : `request:${row.id}`;
+    const events = eventsByDate.get(date) ?? new Set<string>();
+    events.add(key);
+    eventsByDate.set(date, events);
+  }
+  const occupiedSlotsByDate = Object.fromEntries(Array.from(eventsByDate, ([date, events]) => [date, events.size]));
+  const walkIns = provider.walkInReservedCounts;
+  const storedCounts = walkIns && typeof walkIns === "object" && !Array.isArray(walkIns)
+    ? Object.entries(walkIns)
+    : [...new Set(Array.isArray(provider.walkInReservedDates) ? provider.walkInReservedDates : [])].map((date) => [date, 1]);
+  for (const [date, count] of storedCounts) {
+    if (typeof date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(date) && date >= today &&
+        typeof count === "number" && Number.isSafeInteger(count) && count > 0 && count <= 100) {
+      occupiedSlotsByDate[date] = (occupiedSlotsByDate[date] ?? 0) + count;
+    }
+  }
+
+  const blockedDates = unavailableDates(provider.unavailableDates);
+  const storedReasons = (await providerSnapshot.ref.collection("availabilityDetails").doc("blockedDates").get()).data()?.reasons;
+  const unavailableDateReasons = Object.fromEntries(blockedDates.flatMap((date) =>
+    typeof storedReasons?.[date] === "string" ? [[date, storedReasons[date]]] : []));
+
   return {
     supportedOccasionIds: Array.isArray(provider.supportedOccasionIds)
       ? provider.supportedOccasionIds.filter((id: unknown): id is string => typeof id === "string") : [],
     availabilitySettingsRevision: integer(provider.availabilitySettingsRevision, 0, Number.MAX_SAFE_INTEGER, 0),
     providerId,
+    occupiedSlotsByDate,
     providerServiceType,
     serviceCategories,
     operatingDays: operatingDays(provider.operatingDays),
-    unavailableDates: unavailableDates(provider.unavailableDates),
+    unavailableDates: blockedDates,
+    unavailableDateReasons,
     bookingLeadTimeDays: integer(
       provider.bookingLeadTimeDays,
       0,

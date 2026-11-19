@@ -372,9 +372,8 @@ export function customerSafeAvailabilityMessage(
   case "BLOCKED_DATE":
     return "Not available on this date.";
   case "MAX_EVENTS_REACHED":
-    return "Already fully booked for this date.";
   case "TIME_CONFLICT":
-    return "Not available during the selected time.";
+    return "This provider has reached the maximum number of bookings for your selected date. Please choose another date or provider.";
   case "GUEST_CAPACITY_BELOW_MINIMUM":
     return "The guest count is below this provider's supported range.";
   case "GUEST_CAPACITY_EXCEEDED":

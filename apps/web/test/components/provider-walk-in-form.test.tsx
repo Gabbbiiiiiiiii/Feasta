@@ -10,7 +10,7 @@ import {WalkInForm} from "@/app/provider/bookings/walk-in/walk-in-form";
 const eventDate = (offset: number) => new Date(Date.now() + (8 + offset * 24) * 3600000).toISOString().slice(0, 10);
 
 beforeEach(() => {
-  actions.checkWalkInDayAction.mockReset().mockResolvedValue({remaining: 1});
+  actions.checkWalkInDayAction.mockReset().mockResolvedValue({capacity: 3, occupied: 2, remaining: 1, blocked: false});
   actions.saveWalkIn.mockReset();
   actions.push.mockReset();
 });
@@ -23,9 +23,11 @@ it("checks availability automatically and shows one free slot", async () => {
   fireEvent.change(date, {target: {value: eventDate(1)}});
   expect(await screen.findByText("Available (1 slot free)")).toBeVisible();
   expect(actions.checkWalkInDayAction).toHaveBeenCalledWith(eventDate(1));
-  actions.checkWalkInDayAction.mockResolvedValueOnce({remaining: 0});
+  actions.checkWalkInDayAction.mockResolvedValueOnce({capacity: 3, occupied: 3, remaining: 0, blocked: false});
   fireEvent.change(date, {target: {value: eventDate(2)}});
   expect(await screen.findByText("Date Fully Booked")).toBeVisible();
+  expect(screen.getByText("Occupied slots")).toBeVisible();
+  expect(screen.getByRole("button", {name: "Save & Confirm Booking"})).toBeDisabled();
 });
 
 it("pre-fills the agreement, defaults to custom service for empty catalogs, and offers Other event type", () => {
@@ -39,15 +41,23 @@ it("pre-fills the agreement, defaults to custom service for empty catalogs, and 
   expect(screen.getByLabelText("Specify event type")).toBeRequired();
 });
 
-it("shows invalid names and guest counts before submitting", () => {
+it("shows invalid customer details and guest counts before submitting", () => {
   render(<WalkInForm packages={[]} />);
   const name = screen.getByLabelText("Full name");
   const guests = screen.getByLabelText("Expected guests (where applicable)");
-  fireEvent.change(name, {target: {value: "1111111111"}});
+  fireEvent.change(name, {target: {value: "Sophia 123"}});
   fireEvent.blur(name);
-  expect(name).toHaveAccessibleDescription("Enter a name that includes letters.");
+  expect(name).toHaveAccessibleDescription("Enter a name using letters only.");
+  const phone = screen.getByLabelText("Contact number");
+  fireEvent.change(phone, {target: {value: "08123456789"}});
+  fireEvent.blur(phone);
+  expect(phone).toHaveAccessibleDescription("Enter an 11-digit mobile number starting with 09.");
+  const email = screen.getByLabelText("Email (optional)");
+  fireEvent.change(email, {target: {value: "sophia.com"}});
+  fireEvent.blur(email);
+  expect(email).toHaveAccessibleDescription("Please enter a valid email address");
   fireEvent.change(guests, {target: {value: "100001"}});
-  fireEvent.submit(screen.getByRole("button", {name: "Confirm walk-in booking"}).closest("form")!);
+  fireEvent.submit(screen.getByRole("button", {name: "Save & Confirm Booking"}).closest("form")!);
   expect(guests).toHaveAccessibleDescription("Enter a whole number from 1 to 100,000.");
   expect(actions.saveWalkIn).not.toHaveBeenCalled();
 });
@@ -67,7 +77,8 @@ it("returns to the walk-in list with the saved reference", async () => {
     fireEvent.change(screen.getByLabelText(label), {target: {value}});
   }
   for (const checkbox of screen.getAllByRole("checkbox")) fireEvent.click(checkbox);
-  fireEvent.submit(screen.getByRole("button", {name: "Confirm walk-in booking"}).closest("form")!);
+  await screen.findByText("Available (1 slot free)");
+  fireEvent.submit(screen.getByRole("button", {name: "Save & Confirm Booking"}).closest("form")!);
   await waitFor(() => expect(actions.push).toHaveBeenCalledWith(`/provider/bookings/walk-in?saved=${reference}`));
 });
 
@@ -105,4 +116,12 @@ it("shows published details and pricing options and supports switching to a cust
   expect(screen.getByLabelText("Service name")).toBeRequired();
   expect(screen.getByLabelText("Service description (optional)")).toBeVisible();
   expect(screen.getByLabelText(/Agreed price in/)).toHaveValue("");
+});
+
+it("checks the event date supplied from the calendar", async () => {
+  const date = eventDate(1);
+  render(<WalkInForm packages={[]} initialEventDate={date} />);
+  expect(screen.getByLabelText("Event date")).toHaveValue(date);
+  expect(await screen.findByText("Available (1 slot free)")).toBeVisible();
+  expect(actions.checkWalkInDayAction).toHaveBeenCalledWith(date);
 });

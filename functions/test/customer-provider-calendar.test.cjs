@@ -12,18 +12,19 @@ const booking = (status, extra = {}) => ({status, eventDate: new Date("2026-10-1
 const state = (records, settings = {}) => buildCalendarDates("2026-10", {...provider, ...settings}, records, now).find((d) => d.date === "2026-10-20")?.state;
 for (const status of ["confirmed", "in_progress", "completed"]) test(`${status} blocks one Manila date`, () => assert.equal(state([booking(status)]), "booked"));
 for (const status of ["accepted", "waiting_for_down_payment"]) {
-  test(`${status} active hold blocks; expiry releases`, () => {
+  test(`${status} holds remain booked until the expiration transition`, () => {
     assert.equal(state([booking(status, {expiresAt: new Date(now.getTime() + 1000)})]), "on_hold");
-    assert.equal(state([booking(status, {expiresAt: now})]), undefined);
+    assert.equal(state([booking(status, {expiresAt: now})]), "on_hold");
+    assert.equal(state([booking("expired", {expiresAt: now})]), undefined);
   });
 }
 test("payment_processing retains its hold after expiry for reconciliation", () => {
   assert.equal(state([booking("payment_processing", {expiresAt: now})]), "on_hold");
 });
 for (const status of ["pending", "rejected", "cancelled", "expired"]) test(`${status} does not occupy`, () => assert.equal(state([booking(status)]), undefined));
-test("accepted fallback hold expires", () => {
+test("legacy accepted holds remain until transitioned", () => {
   assert.equal(state([booking("accepted", {acceptedAt: now})]), "on_hold");
-  assert.equal(state([booking("accepted", {acceptedAt: new Date(now.getTime()-86400000)})]), undefined);
+  assert.equal(state([booking("accepted", {acceptedAt: new Date(now.getTime()-86400000)})]), "on_hold");
 });
 test("unresolved payment capacity remains on hold after checkout expiry without leaking evidence", () => {
   for (const extra of [{status: "payment_processing"}, {status: "waiting_for_down_payment", paymentId: "PRIVATE"},

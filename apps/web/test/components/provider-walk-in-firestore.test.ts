@@ -22,7 +22,8 @@ vi.mock("@/lib/firebase/admin", async () => {
 
 const testApp = await vi.importMock<{testApp?: Parameters<typeof deleteApp>[0]}>("@/lib/firebase/admin");
 const {adminDb} = await import("@/lib/firebase/admin");
-const {mutateWalkIn} = await import("@/lib/provider/bookings/walk-in-booking-service");
+const {getProviderCalendarData} = await import("@/lib/provider/calendar/provider-calendar-service");
+const {checkWalkInDay, mutateWalkIn} = await import("@/lib/provider/bookings/walk-in-booking-service");
 afterAll(async () => { if (testApp.testApp) await deleteApp(testApp.testApp); });
 
 it.skipIf(!fixture.host || !/^127\.0\.0\.1:\d+$/.test(fixture.host))(
@@ -46,7 +47,10 @@ it.skipIf(!fixture.host || !/^127\.0\.0\.1:\d+$/.test(fixture.host))(
       "custom service": "Photography", "agreement date": dateKey(-1), "agreement time": "10:00",
       acknowledgment: "on", "submission key": key,
     });
-    await provider.set({ownerId: "walk-in-owner", verificationStatus: "approved", isActive: true});
+    await provider.set({
+      ownerId: "walk-in-owner", verificationStatus: "approved", isActive: true,
+      operatingDays: ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"],
+    });
     try {
       const results = await Promise.all([mutateWalkIn(create()), mutateWalkIn(create())]);
       expect(results.filter((result) => result.message)).toHaveLength(1);
@@ -56,9 +60,25 @@ it.skipIf(!fixture.host || !/^127\.0\.0\.1:\d+$/.test(fixture.host))(
       const record = records.docs[0];
       expect(record.get("status")).toBe("confirmed");
       expect((await provider.get()).get("walkInReservedCounts")).toEqual({[date]: 1});
+      const calendar = await getProviderCalendarData(date.slice(0, 7));
+      expect(calendar.events).toEqual([expect.objectContaining({
+        id: record.id, source: "walk_in", status: "confirmed",
+        event: expect.objectContaining({eventDate: date}),
+      })]);
       expect(await mutateWalkIn(fields({action: "cancelled", reference: record.id, "cancellation reason": "Customer request"}))).toHaveProperty("message");
       expect((await record.ref.get()).get("status")).toBe("cancelled");
       expect((await provider.get()).get("walkInReservedCounts")).toEqual({});
+
+      await online.set({
+        providerId: fixture.providerId,
+        status: "waiting_for_down_payment",
+        eventDate: Timestamp.fromDate(new Date(`${date}T12:00:00+08:00`)),
+        expiresAt: Timestamp.fromMillis(Date.now() - 60_000),
+      });
+      expect(await checkWalkInDay(date)).toMatchObject({date, capacity: 1, occupied: 1, remaining: 0});
+      expect(await mutateWalkIn(create())).toHaveProperty("error");
+      await online.update({status: "expired"});
+      expect(await checkWalkInDay(date)).toMatchObject({date, capacity: 1, occupied: 0, remaining: 1});
 
       await online.set({
         providerId: fixture.providerId, status: "confirmed",
@@ -70,6 +90,12 @@ it.skipIf(!fixture.host || !/^127\.0\.0\.1:\d+$/.test(fixture.host))(
       expect(await mutateWalkIn(create(key))).toMatchObject({reference: key, remaining: 1});
       expect(await mutateWalkIn(create(key))).toMatchObject({reference: key, remaining: null});
       expect(await mutateWalkIn(create())).toMatchObject({remaining: 0});
+      const shared = await getProviderCalendarData(date.slice(0, 7));
+      expect(shared.events.filter((event) => event.status === "confirmed")).toEqual(expect.arrayContaining([
+        expect.objectContaining({source: "online", id: online.id}),
+        expect.objectContaining({source: "walk_in", id: key}),
+      ]));
+      expect(shared.events.find((event) => event.id === record.id)?.status).toBe("cancelled");
       await provider.update({maxEventsPerDay: 1, acceptsMultipleEventsPerDay: false});
       expect((await walkIns.where("status", "==", "confirmed").get()).size).toBe(2);
       expect(await mutateWalkIn(create())).toHaveProperty("error");

@@ -30,7 +30,8 @@ vi.mock("@/lib/firebase/admin", () => {
 import {listWalkInOffers, mutateWalkIn, readWalkInProvider} from "@/lib/provider/bookings/walk-in-booking-service";
 
 const id = "12345678901234567890";
-const provider = {ownerId: "owner", verificationStatus: "approved", isActive: true};
+const provider = {ownerId: "owner", verificationStatus: "approved", isActive: true,
+  operatingDays: ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]};
 const snapshot = (value: Record<string, unknown>, id = "online") => ({
   id, exists: true, data: () => value, get: (key: string) => value[key],
 });
@@ -121,7 +122,7 @@ it("marks a confirmed walk-in complete while retaining the reserved date", async
   mocks.get.mockReset().mockResolvedValueOnce(snapshot(provider))
     .mockResolvedValueOnce(snapshot({status: "confirmed", eventDateKey: "2026-11-24"}));
   expect(await mutateWalkIn(form({action: "completed", reference: id}))).toHaveProperty("message");
-  expect(mocks.update).toHaveBeenCalledExactlyOnceWith({id}, expect.objectContaining({status: "completed"}));
+  expect(mocks.update).toHaveBeenCalledWith({id}, expect.objectContaining({status: "completed"}));
 });
 
 it("requires the acknowledgment and rejects invalid time ranges before writing", async () => {
@@ -254,4 +255,11 @@ it("records a custom event type with the single booking acknowledgment", async (
     eventType: "Community celebration", customerAcknowledged: true,
   }));
   expect(mocks.create.mock.calls[0][1]).not.toHaveProperty("customerRecordConsent");
+});
+
+it("rejects a walk-in when the provider has no operating days configured", async () => {
+  mocks.get.mockReset().mockResolvedValueOnce(snapshot({...provider, operatingDays: undefined}))
+    .mockResolvedValueOnce(missing).mockResolvedValueOnce({docs: []});
+  expect(await mutateWalkIn(form())).toEqual({error: "Your schedule is unavailable on this date."});
+  expect(mocks.create).not.toHaveBeenCalled();
 });

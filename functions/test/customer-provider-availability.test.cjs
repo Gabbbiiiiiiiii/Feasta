@@ -73,8 +73,8 @@ test("maps canonical validator reasons to bounded customer-safe copy", () => {
     ["LEAD_TIME_NOT_MET", "Requires booking at least 14 days in advance."],
     ["BLOCKED_DATE", "Not available on this date."],
     ["OUTSIDE_OPERATING_DAY", "Not available on this date."],
-    ["TIME_CONFLICT", "Not available during the selected time."],
-    ["MAX_EVENTS_REACHED", "Already fully booked for this date."],
+    ["TIME_CONFLICT", "This provider has reached the maximum number of bookings for your selected date. Please choose another date or provider."],
+    ["MAX_EVENTS_REACHED", "This provider has reached the maximum number of bookings for your selected date. Please choose another date or provider."],
     ["GUEST_CAPACITY_EXCEEDED", "Guest count exceeds this provider's supported capacity."],
   ];
 

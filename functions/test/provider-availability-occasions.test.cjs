@@ -44,6 +44,7 @@ function fixture() {
     return result;
   }};
   let policyEnabled = true;
+  let auditFails = false;
   const filename = path.resolve(__dirname, '../lib/providers/update-provider-availability.js');
   const real = createRequire(filename); const exports = {};
   const mocks = {
@@ -52,7 +53,9 @@ function fixture() {
     '../shared/auth.js': {requireAuth(r) {if (!r.auth) throw new https.HttpsError('unauthenticated', 'Sign in'); return r.auth;}},
     '../shared/authorization.js': {async requireRole(uid) {if (uid !== 'owner') throw new https.HttpsError('permission-denied', 'Provider only');}},
     '../shared/rate-limit.js': {enforceCallableRateLimit: async () => {}},
-    '../shared/audit.js': {writeAuditLogInTransaction: () => {}},
+    '../shared/audit.js': {writeAuditLogInTransaction: () => {
+      if (auditFails) throw new Error('Audit write failed');
+    }},
     '../shared/timestamps.js': {serverTimestamp: () => 'server-time'},
     '../packages/provider-package-v2-policy-read.js': {async loadOccasionCatalogReadPolicy() {
       if (!policyEnabled) throw new https.HttpsError('failed-precondition', 'Catalog disabled');
@@ -64,9 +67,27 @@ function fixture() {
     maxEventsPerDay: 1, minGuestsPerEvent: 10, maxGuestsPerEvent: 100, availableStaffCount: 5,
     availableEquipmentCount: 8, supportedOccasionIds: ['birthday'], expectedSettingsRevision: 0, occasionCatalogRevision: 7};
   return {records, writes, input, disablePolicy: () => {policyEnabled = false;},
+    failAudit: () => {auditFails = true;},
+    blockDate: date => exports.updateProviderAvailability({auth: {uid: 'owner'},
+      data: {date, action: 'mark_unavailable'}}),
     read: auth => exports.getProviderAvailabilityOccasions({auth: auth === undefined ? {uid: 'owner'} : auth, data: {}}),
     save: (extra = {}, auth = {uid: 'owner'}) => exports.updateProviderAvailabilitySettings({auth, data: {...input, ...extra}})};
 }
+test('a failure after the provider update is staged rolls back the entire combined save', async () => {
+  const f = fixture();
+  const before = {...f.records.get('providers/provider')};
+  f.failAudit();
+  await assert.rejects(f.save({operatingDays: ['tuesday'], bookingLeadTimeDays: 0,
+    acceptsMultipleEventsPerDay: true, maxEventsPerDay: 2}), /Audit write failed/);
+  assert.deepEqual(f.records.get('providers/provider'), before);
+  assert.deepEqual(f.writes, []);
+});
+test('rejects a duplicate blocked date without updating the provider', async () => {
+  const f = fixture();
+  await assert.rejects(f.blockDate('2099-09-10'), {code: 'already-exists'});
+  assert.deepEqual(f.records.get('providers/provider').unavailableDates, ['2099-09-10']);
+  assert.deepEqual(f.writes, []);
+});
 test('catalog uses only active approved applicable occasions and reflects activation', async () => {
   const f = fixture(); assert.deepEqual((await f.read()).items.map(i => i.id), ['birthday', 'wedding']);
   f.records.get('occasions/inactive').active = true;
@@ -143,4 +164,31 @@ test('capacity settings change only the provider and retain existing reservation
   assert.equal(f.records.get('providers/provider').availabilityCapacityReducedAt, 'server-time');
   assert.equal(f.records.get('providerRequests/confirmed'), booking);
   assert.deepEqual(f.writes, ['providers/provider', 'providers/provider']);
+});
+
+test('schedule, notice and capacity are saved together or all rejected', async () => {
+  const f = fixture();
+  f.records.get('providers/provider').operatingDays = [];
+  const original = structuredClone(f.records.get('providers/provider'));
+  for (const invalid of [
+    {operatingDays: []}, {maxEventsPerDay: 2.5}, {maxEventsPerDay: 0},
+    {maxEventsPerDay: 101}, {bookingLeadTimeDays: -1}, {bookingLeadTimeDays: ''},
+    {bookingLeadTimeDays: NaN}, {bookingLeadTimeDays: 366},
+  ]) {
+    await assert.rejects(f.save({
+      operatingDays: ['friday'], bookingLeadTimeDays: 0, maxEventsPerDay: 2,
+      acceptsMultipleEventsPerDay: true, ...invalid,
+    }), {code: 'invalid-argument'});
+  }
+  assert.equal(f.writes.length, 0);
+  assert.deepEqual(f.records.get('providers/provider'), original);
+  await f.save({
+    operatingDays: ['friday'], bookingLeadTimeDays: 0, maxEventsPerDay: 2,
+    acceptsMultipleEventsPerDay: true,
+  });
+  const saved = f.records.get('providers/provider');
+  assert.deepEqual(saved.operatingDays, ['friday']);
+  assert.equal(saved.maxEventsPerDay, 2);
+  assert.equal(saved.bookingLeadTimeDays, 0);
+  assert.deepEqual(f.writes, ['providers/provider']);
 });

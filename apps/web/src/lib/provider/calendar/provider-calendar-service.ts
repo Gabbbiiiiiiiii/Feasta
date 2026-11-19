@@ -17,7 +17,7 @@ import type {
   ProviderCalendarEventStatus,
 } from "./provider-calendar-types";
 
-const ACTIVE_EVENT_STATUSES:
+export const ACTIVE_EVENT_STATUSES:
 readonly ProviderCalendarEventStatus[] = [
   "accepted",
   "waiting_for_down_payment",
@@ -26,6 +26,8 @@ readonly ProviderCalendarEventStatus[] = [
   "in_progress",
   "completed",
 ];
+
+const CALENDAR_STATUSES = [...ACTIVE_EVENT_STATUSES, "pending", "cancelled", "expired"] as const;
 
 export async function getProviderCalendarData(month?: string):
 Promise<ProviderCalendarData> {
@@ -37,6 +39,10 @@ Promise<ProviderCalendarData> {
   const [year, monthNumber] = selectedMonth.split("-").map(Number);
   const monthStart = new Date(`${selectedMonth}-01T00:00:00+08:00`);
   const monthEnd = new Date(Date.UTC(year, monthNumber, 1) - 8 * 60 * 60 * 1000);
+  // Include the adjacent days needed by a week that crosses a month boundary.
+  const margins = 6 * 86_400_000;
+  const start = new Date(monthStart.getTime() - margins);
+  const end = new Date(monthEnd.getTime() + margins);
 
   const account =
     await requireApprovedProvider();
@@ -69,22 +75,22 @@ const [
     .where(
       "eventDate",
       ">=",
-      Timestamp.fromDate(monthStart),
+      Timestamp.fromDate(start),
     )
     .where(
       "eventDate",
       "<",
-      Timestamp.fromDate(monthEnd),
+      Timestamp.fromDate(end),
     )
     .where(
       "status",
       "in",
-      [...ACTIVE_EVENT_STATUSES],
+      [...CALENDAR_STATUSES],
     )
     .get(),
   providerReference.collection("walkInBookings")
-    .where("eventDate", ">=", Timestamp.fromDate(monthStart))
-    .where("eventDate", "<", Timestamp.fromDate(monthEnd))
+    .where("eventDate", ">=", Timestamp.fromDate(start))
+    .where("eventDate", "<", Timestamp.fromDate(end))
     .get(),
 ]);
 
@@ -105,25 +111,24 @@ if (
   );
 }
 
-const nowMs = Date.now();
 const onlineEvents = requestsSnapshot.docs
-  .filter((document) => calendarRequestOccupies(document.data(), nowMs))
   .map((document) => mapCalendarEvent(document.id, document.data()));
 const walkInEvents = walkInsSnapshot.docs.flatMap((document) => {
   const data = document.data();
-  if (data.status !== "confirmed" && data.status !== "completed") return [];
+  if (data.status !== "confirmed" && data.status !== "completed" && data.status !== "cancelled") return [];
   return [mapCalendarEvent(document.id, {
     ...data,
-    eventType: `${data.eventType} · Walk-in`,
     packageName: data.serviceName,
-  })];
+  }, "walk_in")];
 });
 const events = [...onlineEvents, ...walkInEvents]
   .filter((event): event is ProviderCalendarEvent => event !== null)
-  .sort((left, right) => left.event.eventDate.localeCompare(right.event.eventDate));
+  .sort((left, right) => left.event.eventDate.localeCompare(right.event.eventDate) ||
+    (left.event.eventTime ?? "").localeCompare(right.event.eventTime ?? ""));
 
   return {
     providerId,
+    ownerId: account.uid,
     month: selectedMonth,
 
     settings: {
@@ -151,52 +156,21 @@ const events = [...onlineEvents, ...walkInEvents]
   };
 }
 
-// Keep calendar reservations aligned with the booking availability rules.
-function timestampMs(value: unknown): number | null {
-  if (value instanceof Timestamp) return value.toMillis();
-  if (value instanceof Date && Number.isFinite(value.getTime())) return value.getTime();
-  return null;
-}
-
 export function dailyEventCapacity(data: Record<string, unknown>): number {
   const value = data.maxEventsPerDay;
   return typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= 100
     ? value : 1;
 }
 
-export function calendarRequestOccupies(
-  data: Record<string, unknown>,
-  nowMs: number,
-): boolean {
-  const status = data.status;
-  if (status === "confirmed" || status === "in_progress" || status === "completed") {
-    return true;
-  }
-  if (status !== "accepted" && status !== "waiting_for_down_payment" &&
-      status !== "payment_processing") return false;
-
-  if (status === "payment_processing" || data.paymentId != null || data.initialPaymentId != null ||
-      data.initialPaymentDispatchReservedAt != null || data.initialPaymentReview != null ||
-      data.paymentStatus === "processing" || data.paymentStatus === "paid" ||
-      data.reconciliationRequired === true || data.lifecycleReconciliationRequired === true) return true;
-  if (data.initialPaymentDeadlinePolicyVersion != null) {
-    const deadline = timestampMs(data.initialPaymentDeadlineAt);
-    const expiry = timestampMs(data.expiresAt);
-    if (data.initialPaymentDeadlinePolicyVersion !== 4 || deadline === null ||
-        (data.expiresAt != null && expiry !== deadline)) return true;
-    return deadline > nowMs;
-  }
-  const expiresAt = timestampMs(data.expiresAt);
-  if (expiresAt !== null) return expiresAt > nowMs;
-  if (status !== "accepted") return false;
-
-  const acceptedAt = timestampMs(data.acceptedAt);
-  return acceptedAt !== null && acceptedAt + 24 * 60 * 60 * 1000 > nowMs;
+// Deadlines govern checkout; only a lifecycle transition releases capacity.
+export function calendarRequestOccupies(data: Record<string, unknown>): boolean {
+  return ACTIVE_EVENT_STATUSES.some((status) => status === data.status);
 }
 
 function mapCalendarEvent(
   id: string,
   data: Record<string, unknown>,
+  source: ProviderCalendarEvent["source"] = "online",
 ): ProviderCalendarEvent | null {
   const eventDate =
     timestampToIsoDate(
@@ -226,6 +200,7 @@ function mapCalendarEvent(
 
   return {
     id,
+    source,
 
     mainEventId:
       stringOrNull(
@@ -356,14 +331,14 @@ function normalizeStatus(
     return null;
   }
 
-  return ACTIVE_EVENT_STATUSES.includes(
+  return CALENDAR_STATUSES.includes(
     value as ProviderCalendarEventStatus,
   )
     ? value as ProviderCalendarEventStatus
     : null;
 }
 
-function timestampToIsoDate(
+export function timestampToIsoDate(
   value: unknown,
 ): string | null {
   if (

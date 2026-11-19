@@ -13,9 +13,11 @@ export type ProviderAvailabilitySettings = {
   serviceCategories: readonly ServiceCategoryCode[];
   operatingDays: readonly ProviderOperatingDay[];
   unavailableDates: readonly string[];
+  unavailableDateReasons?: Readonly<Record<string, string>>;
   bookingLeadTimeDays: number;
   acceptsMultipleEventsPerDay: boolean;
   maxEventsPerDay: number;
+  occupiedSlotsByDate?: Readonly<Record<string, number>>;
   guestCapacity: {
     minimum: number;
     maximum: number;
@@ -54,6 +56,7 @@ export type ProviderAvailabilityAction =
 
 export type UpdateProviderAvailabilityInput = {
   date: string;
+  reason?: string;
   action: ProviderAvailabilityAction;
 };
 
@@ -62,4 +65,5 @@ export type UpdateProviderAvailabilityResult = {
   date: string;
   action: ProviderAvailabilityAction;
   unavailableDates: string[];
+  unavailableDateReasons?: Record<string, string>;
 };
