@@ -71,22 +71,34 @@ function exposed(data: Readonly<Record<string, unknown>>): boolean {
   return data.isPublished !== false || data.isActive !== false ||
     data.providerPubliclyVisible !== false || data.status === "published";
 }
-function affected(data: Readonly<Record<string, unknown>>, occasionId: string,
-  categories: ReadonlySet<string>): {include: boolean; ambiguous: boolean} {
+function affected(
+  data: Readonly<Record<string, unknown>>,
+  occasionId: string,
+  categories: ReadonlySet<string>,
+  action: "activate" | "deactivate",
+): {include: boolean; ambiguous: boolean} {
+  // Activation of a new/inactive occasion must only block on packages that
+  // already reference that occasion. Fits-all packages and unrelated malformed
+  // records are deactivation concerns, not activation blockers.
   if (data.occasionSchemaVersion === 2) {
     if (!uniqueCanonicalList(data.occasionIds) ||
       !uniqueCanonicalList(data.occasionMatchIds) ||
       !["specific", "all"].includes(data.occasionScope as string) ||
       (data.occasionScope === "all" && data.occasionIds.length !== 0) ||
       (data.occasionScope === "specific" && data.occasionIds.length === 0)) {
-      return {include: true, ambiguous: true};
+      return action === "deactivate" ?
+        {include: true, ambiguous: true} :
+        {include: false, ambiguous: false};
     }
     if (data.occasionIds.includes(occasionId) ||
       data.occasionMatchIds.includes(occasionId)) {
       return {include: true, ambiguous: false};
     }
     if (data.occasionScope === "all") {
-      // Unknown category must be treated as potentially affected.
+      if (action === "activate") {
+        return {include: false, ambiguous: false};
+      }
+      // Unknown category must be treated as potentially affected on deactivate.
       if (!canonical(data.serviceCategoryCode)) {
         return {include: true, ambiguous: true};
       }
@@ -97,11 +109,15 @@ function affected(data: Readonly<Record<string, unknown>>, occasionId: string,
   if ((own(data, "occasionSchemaVersion") && data.occasionSchemaVersion !== 1) ||
     (own(data, "offerSchemaVersion") && data.offerSchemaVersion !== 1) ||
     v2Fields.some((field) => own(data, field))) {
-    return {include: true, ambiguous: true};
+    return action === "deactivate" ?
+      {include: true, ambiguous: true} :
+      {include: false, ambiguous: false};
   }
   if (data.eventType === occasionId) return {include: true, ambiguous: false};
   if (typeof data.eventType !== "string" || !legacyIds.has(data.eventType)) {
-    return {include: true, ambiguous: true};
+    return action === "deactivate" ?
+      {include: true, ambiguous: true} :
+      {include: false, ambiguous: false};
   }
   return {include: false, ambiguous: false};
 }
@@ -157,7 +173,12 @@ export async function scanOccasionPackageInventory(input: {
       scannedCount++;
       if (scannedCount > maxRecords) throw new Error("OCCASION_INVENTORY_LIMIT");
       if (!exposed(row.data)) continue;
-      const match = affected(row.data, input.occasionId, categories);
+      const match = affected(
+        row.data,
+        input.occasionId,
+        categories,
+        input.action,
+      );
       if (match.include) {
         candidates.push(row.id);
         if (match.ambiguous) ambiguous.push(row.id);

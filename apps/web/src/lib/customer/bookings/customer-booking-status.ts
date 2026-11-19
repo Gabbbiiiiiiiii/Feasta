@@ -4,7 +4,6 @@ import type {
 
 export const CUSTOMER_BOOKING_STATUS_FILTERS = [
   "all",
-  "draft",
   "awaiting_provider",
   "awaiting_payment",
   "confirmed",
@@ -22,7 +21,6 @@ ReadonlyArray<{
   label: string;
 }> = [
   {value: "all", label: "All bookings"},
-  {value: "draft", label: "Drafts"},
   {
     value: "awaiting_provider",
     label: "Awaiting provider",
@@ -44,7 +42,6 @@ const STATUS_GROUPS: Record<
   Exclude<CustomerBookingStatusFilter, "all">,
   readonly MainEventStatus[]
 > = {
-  draft: ["draft"],
   awaiting_provider: [
     "pending_provider_approval",
     "needs_provider_replacement",

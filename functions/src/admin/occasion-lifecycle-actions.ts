@@ -1,6 +1,7 @@
 /** Admin-only atomic lifecycle endpoint; no browser-supplied release evidence. */
 import {onCall} from "firebase-functions/v2/https";
-import {activateRoutineOccasion, inspectRoutineOccasionActivation} from "./occasion-routine-transaction.js";
+import {activateRoutineOccasion, inspectRoutineOccasionActivation,
+  repairPublishedPackageDiscovery} from "./occasion-routine-transaction.js";
 import {deactivateRoutineOccasion, inspectRoutineOccasionDeactivation} from "./occasion-routine-deactivation.js";
 import {FieldPath} from "firebase-admin/firestore";
 import {db} from "../shared/firestore.js";
@@ -54,6 +55,7 @@ async function execute(request: Parameters<typeof requireOccasionLifecycleActor>
         "UNSORTED_OR_MALFORMED_OCCASION_INVENTORY",
         "ROUTINE_ACTIVATION_PACKAGE_REVIEW_REQUIRED",
         "ROUTINE_ACTIVATION_GALLERY_REVIEW_REQUIRED",
+        "PACKAGE_DISCOVERY_REFRESH_REQUIRED",
       ].includes(error.message)) {
         fail(error.message, error.message === "ADMIN_REQUIRED" ?
           "permission-denied" : "failed-precondition");
@@ -146,6 +148,33 @@ export const activateAdminOccasion = onCall(appCheckCallableOptions,
   (request) => execute(request, "activate"));
 export const deactivateAdminOccasion = onCall(appCheckCallableOptions,
   (request) => execute(request, "deactivate"));
+
+/** Bounded repair of published V2 packages whose discovery pins are stale. */
+export const repairAdminPublishedPackageDiscovery = onCall(appCheckCallableOptions,
+  async (request) => {
+    const actorUid = await requireOccasionLifecycleActor(request,
+      "adminOccasions.packageDiscovery.repair");
+    if (request.data !== undefined && request.data !== null &&
+        !(typeof request.data === "object" &&
+          !Array.isArray(request.data) &&
+          Object.keys(request.data as object).length === 0)) {
+      fail("INVALID_REVIEW_TARGET", "invalid-argument");
+    }
+    try {
+      return await repairPublishedPackageDiscovery(actorUid);
+    } catch (error) {
+      if (error instanceof Error && [
+        "ADMIN_REQUIRED",
+        "OCCASION_LIFECYCLE_REVISION_OR_STATE_CONFLICT",
+        "PACKAGE_INVENTORY_TOO_LARGE",
+        "PACKAGE_DISCOVERY_REFRESH_REQUIRED",
+      ].includes(error.message)) {
+        fail(error.message, error.message === "ADMIN_REQUIRED" ?
+          "permission-denied" : "failed-precondition");
+      }
+      throw error;
+    }
+  });
 
 /** Read-only advisory preview; execution rechecks all evidence in its transaction. */
 export const inspectAdminOccasionAtomicReadiness = onCall(appCheckCallableOptions,

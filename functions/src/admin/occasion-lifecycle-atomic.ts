@@ -127,8 +127,10 @@ export function planOccasionGalleryWithdrawal(input: {
         entry.setupOccasionSchemaVersion !== 1) ||
         Object.keys(entry).some((key) => !legacySetupKeys.has(key));
       const unknown = !legacySetupTypes.has(entry.eventType as string);
-      // Ambiguous public V2 and malformed records are withdrawn, never trusted.
-      const affected = entry.eventType === input.occasionId || opaque || unknown;
+      // Activation only touches setups that already use this occasion.
+      // Opaque/unknown records remain a deactivation review concern.
+      const affected = entry.eventType === input.occasionId ||
+        (input.action === "deactivate" && (opaque || unknown));
       if (entry.isPublished && affected) {
         withdrawnIds.push(entry.id);
         return {...entry, isPublished: false};

@@ -1,15 +1,17 @@
 /**
  * Routine, admin-only activation.
  *
- * This does not publish, withdraw or restore provider content.
- * It refuses transitions requiring existing content migration.
+ * Refreshes published V2 discovery pins to the new catalog revision.
+ * Does not withdraw, republish, or restore provider publication flags.
+ * Refuses transitions when discovery pins cannot be refreshed safely.
  */
 import {createHash} from "node:crypto";
 import {FieldPath} from "firebase-admin/firestore";
 import type {Transaction} from "firebase-admin/firestore";
+import type {GlobalOccasion} from "@feasta/shared-types/provider-package-v2";
 import {db} from "../shared/firestore.js";
 import {isServiceCategoryCode} from "../shared/service-category-code.js";
-import {scanOccasionPackageInventory} from "../packages/occasion-transition-inventory-scan.js";
+import {planPublishedPackageDiscoveryRefresh} from "../packages/occasion-package-discovery-refresh.js";
 import {planOccasionGalleryWithdrawal} from "./occasion-lifecycle-atomic.js";
 import {isRoutineOccasionTransitionValid} from "./occasion-routine-activation.js";
 import {requireOccasionLifecycleAdmin} from "./occasion-activation-readiness.js";
@@ -43,6 +45,78 @@ function fingerprint(uid: string, input: Input): string {
     uid, input.occasionId, input.expectedOccasionRevision,
     input.expectedCatalogRevision, input.reason,
   ])).digest("hex");
+}
+
+function asGlobalOccasion(
+  id: string, data: Record<string, unknown>, forceActive?: boolean,
+): GlobalOccasion {
+  if (data.id !== id || data.moderationState !== "approved" ||
+      !Array.isArray(data.applicableServiceCategoryCodes) ||
+      !revision(data.revision) ||
+      typeof data.sortOrder !== "number" ||
+      !Number.isSafeInteger(data.sortOrder)) {
+    refuse("PACKAGE_DISCOVERY_REFRESH_REQUIRED");
+  }
+  return {
+    id,
+    label: typeof data.label === "string" ? data.label : id,
+    normalizedName: typeof data.normalizedName === "string" ?
+      data.normalizedName : id,
+    aliases: Array.isArray(data.aliases) ? data.aliases as string[] : [],
+    active: forceActive === true ? true : data.active === true,
+    moderationState: "approved",
+    applicableServiceCategoryCodes:
+      data.applicableServiceCategoryCodes as string[],
+    sortOrder: data.sortOrder,
+    revision: data.revision,
+    createdBy: typeof data.createdBy === "string" ? data.createdBy : "system",
+    createdAt: data.createdAt as GlobalOccasion["createdAt"],
+    updatedAt: data.updatedAt as GlobalOccasion["updatedAt"],
+  };
+}
+
+async function loadRefreshAuthority(
+  tx: Transaction,
+  input: {
+    activatingOccasionId: string;
+    activatingOccasion: Record<string, unknown>;
+    catalogRevision: number;
+    categoryCodes: readonly string[];
+  },
+) {
+  const policy = (await tx.get(
+    db.doc("contractPolicies/providerPackageV2")
+  )).data();
+  if (!policy ||
+      !Number.isSafeInteger(policy.maxSpecificOccasions) ||
+      policy.maxSpecificOccasions < 1 ||
+      policy.maxSpecificOccasions > 100) {
+    refuse("PACKAGE_DISCOVERY_REFRESH_REQUIRED");
+  }
+
+  const occasionSnap = await tx.get(
+    db.collection("occasions").where("active", "==", true).limit(1001)
+  );
+  if (occasionSnap.size > 1000) {
+    refuse("PACKAGE_DISCOVERY_REFRESH_REQUIRED");
+  }
+
+  const byId = new Map<string, GlobalOccasion>();
+  for (const doc of occasionSnap.docs) {
+    byId.set(doc.id, asGlobalOccasion(doc.id, doc.data() as Record<string, unknown>));
+  }
+  byId.set(input.activatingOccasionId, asGlobalOccasion(
+    input.activatingOccasionId,
+    input.activatingOccasion,
+    true,
+  ));
+
+  return {
+    catalog: [...byId.values()],
+    catalogRevision: input.catalogRevision,
+    maxSpecificOccasions: policy.maxSpecificOccasions as number,
+    approvedActiveCategoryCodes: [...input.categoryCodes],
+  };
 }
 
 export async function activateRoutineOccasion(
@@ -126,7 +200,6 @@ export async function activateRoutineOccasion(
       }
     }
 
-    // Complete bounded inventory, not a partial sample.
     const packageSnap = await tx.get(db.collection("packages")
       .orderBy(FieldPath.documentId()).limit(41));
     if (packageSnap.size > 40) {
@@ -134,22 +207,28 @@ export async function activateRoutineOccasion(
     }
 
     const packageRows = packageSnap.docs.map((doc) => ({
-      id: doc.id, data: doc.data(),
+      id: doc.id, data: doc.data() as Record<string, unknown>,
     }));
 
-    const inventory = await scanOccasionPackageInventory({
-      action: "activate",
-      occasionId: input.occasionId,
-      applicableCategoryCodes: codes as string[],
-      readPage: async (after, limit) => packageRows
-        .filter((row) => after === null || row.id > after)
-        .slice(0, limit),
+    const nextCatalogRevision = catalog.revision + 1;
+    const authority = await loadRefreshAuthority(tx, {
+      activatingOccasionId: input.occasionId,
+      activatingOccasion: occasion as Record<string, unknown>,
+      catalogRevision: nextCatalogRevision,
+      categoryCodes: codes as string[],
     });
 
-    // Any package requiring occasion migration goes through
-    // the existing release-sensitive workflow.
-    if (inventory.candidatePackageIds.length > 0) {
-      refuse("ROUTINE_ACTIVATION_PACKAGE_REVIEW_REQUIRED");
+    let refreshPlan;
+    try {
+      refreshPlan = planPublishedPackageDiscoveryRefresh({
+        packageRows,
+        catalog: authority.catalog,
+        catalogRevision: authority.catalogRevision,
+        maxSpecificOccasions: authority.maxSpecificOccasions,
+        approvedActiveCategoryCodes: authority.approvedActiveCategoryCodes,
+      });
+    } catch {
+      refuse("PACKAGE_DISCOVERY_REFRESH_REQUIRED");
     }
 
     const gallerySnap = await tx.get(
@@ -164,7 +243,7 @@ export async function activateRoutineOccasion(
       occasionId: input.occasionId,
       docs: gallerySnap.docs.map((doc) => ({
         ref: doc.ref,
-        data: doc.data(),
+        data: doc.data() as Record<string, unknown>,
       })),
     });
 
@@ -173,20 +252,23 @@ export async function activateRoutineOccasion(
     }
 
     const now = new Date();
+    const refreshedPackageIds = refreshPlan
+      .filter((item) => item.changed)
+      .map((item) => item.packageId);
     const result = {
       operationId: id,
       occasionId: input.occasionId,
       action: "activate" as const,
       active: true,
       occasionRevision: occasion.revision + 1,
-      catalogRevision: catalog.revision + 1,
+      catalogRevision: nextCatalogRevision,
       withdrawnPackageIds: [] as string[],
       withdrawnGallerySetupIds: [] as string[],
+      refreshedPackageIds,
       state: "completed" as const,
       idempotentReplay: false,
     };
 
-    // Only catalog and occasion authority change.
     tx.update(occasionRef, {
       active: true,
       revision: result.occasionRevision,
@@ -196,6 +278,14 @@ export async function activateRoutineOccasion(
       revision: result.catalogRevision,
       updatedAt: now,
     });
+
+    for (const item of refreshPlan) {
+      if (!item.changed) continue;
+      tx.update(db.collection("packages").doc(item.packageId), {
+        ...item.patch,
+        updatedAt: now,
+      });
+    }
 
     tx.create(opRef, {
       operationId: id,
@@ -219,6 +309,7 @@ export async function activateRoutineOccasion(
       afterOccasionRevision: result.occasionRevision,
       beforeCatalogRevision: catalog.revision,
       afterCatalogRevision: result.catalogRevision,
+      refreshedPackageIds,
       createdAt: now,
     });
 
@@ -330,25 +421,30 @@ export async function inspectRoutineOccasionActivation(
         try {
           const rows = packages.docs.map((doc) => ({
             id: doc.id,
-            data: doc.data(),
+            data: doc.data() as Record<string, unknown>,
           }));
-
-          const inventory = await scanOccasionPackageInventory({
-            action: "activate",
-            occasionId: input.occasionId,
-            applicableCategoryCodes: codes as string[],
-            readPage: async (after, limit) => rows
-              .filter((row) => after === null || row.id > after)
-              .slice(0, limit),
+          if (!catalog || !revision(catalog.revision) || !occasion) {
+            throw new Error("PACKAGE_DISCOVERY_REFRESH_REQUIRED");
+          }
+          const authority = await loadRefreshAuthority(tx, {
+            activatingOccasionId: input.occasionId,
+            activatingOccasion: occasion as Record<string, unknown>,
+            catalogRevision: catalog.revision + 1,
+            categoryCodes: codes as string[],
           });
-
-          affectedPackages = inventory.candidatePackageIds.length;
-          check("ROUTINE_ACTIVATION_PACKAGE_REVIEW_REQUIRED",
-            affectedPackages === 0,
-            "Existing packages must not need withdrawal or migration.");
+          const refreshPlan = planPublishedPackageDiscoveryRefresh({
+            packageRows: rows,
+            catalog: authority.catalog,
+            catalogRevision: authority.catalogRevision,
+            maxSpecificOccasions: authority.maxSpecificOccasions,
+            approvedActiveCategoryCodes: authority.approvedActiveCategoryCodes,
+          });
+          affectedPackages = refreshPlan.filter((item) => item.changed).length;
+          check("PACKAGE_DISCOVERY_REFRESH_REQUIRED", true,
+            "Published packages can be refreshed to the new catalog revision.");
         } catch {
-          check("PACKAGE_INVENTORY_REQUIRES_REVIEW", false,
-            "Package inventory could not be verified.");
+          check("PACKAGE_DISCOVERY_REFRESH_REQUIRED", false,
+            "Published packages could not be refreshed for this activation.");
         }
       }
 
@@ -367,7 +463,7 @@ export async function inspectRoutineOccasionActivation(
             occasionId: input.occasionId,
             docs: galleries.docs.map((doc) => ({
               ref: doc.ref,
-              data: doc.data(),
+              data: doc.data() as Record<string, unknown>,
             })),
           });
 
@@ -405,8 +501,111 @@ export async function inspectRoutineOccasionActivation(
       galleryCount,
       affectedPackages,
       affectedGallerySetups,
-      disclaimer: "Read-only preview. Activation repeats checks " +
-        "inside its transaction and does not withdraw provider content.",
+      disclaimer: "Read-only preview. Activation refreshes published " +
+        "package discovery pins and does not withdraw provider content.",
     };
   });
+}
+
+/** Bounded repair of already-stale published V2 discovery pins. */
+export async function repairPublishedPackageDiscovery(actorUid: string) {
+  return db.runTransaction(async (tx: Transaction) => {
+    await requireOccasionLifecycleAdmin(tx, actorUid);
+
+    const catalog = (await tx.get(
+      db.doc("occasionCatalog/current")
+    )).data();
+    if (catalog?.activationState !== "stable" || !revision(catalog.revision)) {
+      refuse("OCCASION_LIFECYCLE_REVISION_OR_STATE_CONFLICT");
+    }
+
+    const policy = (await tx.get(
+      db.doc("contractPolicies/providerPackageV2")
+    )).data();
+    if (!policy ||
+        !Number.isSafeInteger(policy.maxSpecificOccasions) ||
+        policy.maxSpecificOccasions < 1 ||
+        policy.maxSpecificOccasions > 100) {
+      refuse("PACKAGE_DISCOVERY_REFRESH_REQUIRED");
+    }
+
+    const categoriesSnap = await tx.get(
+      db.collection("serviceCategories").where("status", "==", "active").limit(101)
+    );
+    if (categoriesSnap.size > 100) {
+      refuse("PACKAGE_DISCOVERY_REFRESH_REQUIRED");
+    }
+    const activeCategories = categoriesSnap.docs
+      .map((doc) => {
+        const row = doc.data();
+        if (!row || row.code !== doc.id ||
+            !isServiceCategoryCode(row.code) ||
+            !["catering", "addon"].includes(row.serviceType)) {
+          return null;
+        }
+        return row.code as string;
+      })
+      .filter((code): code is string => code !== null);
+
+    if (activeCategories.length < 1) {
+      refuse("PACKAGE_DISCOVERY_REFRESH_REQUIRED");
+    }
+
+    const occasionSnap = await tx.get(
+      db.collection("occasions").where("active", "==", true).limit(1001)
+    );
+    if (occasionSnap.size > 1000) {
+      refuse("PACKAGE_DISCOVERY_REFRESH_REQUIRED");
+    }
+    const catalogRows = occasionSnap.docs.map((doc) =>
+      asGlobalOccasion(doc.id, doc.data() as Record<string, unknown>));
+
+    const packageSnap = await tx.get(db.collection("packages")
+      .orderBy(FieldPath.documentId()).limit(41));
+    if (packageSnap.size > 40) {
+      refuse("PACKAGE_INVENTORY_TOO_LARGE");
+    }
+
+    const packageRows = packageSnap.docs.map((doc) => ({
+      id: doc.id,
+      data: doc.data() as Record<string, unknown>,
+    }));
+
+    const refreshPlan = planPublishedPackageDiscoveryRefresh({
+      packageRows,
+      catalog: catalogRows,
+      catalogRevision: catalog.revision,
+      maxSpecificOccasions: policy.maxSpecificOccasions as number,
+      approvedActiveCategoryCodes: activeCategories,
+      onlyStale: true,
+    });
+
+    const now = new Date();
+    const refreshedPackageIds: string[] = [];
+    for (const item of refreshPlan) {
+      tx.update(db.collection("packages").doc(item.packageId), {
+        ...item.patch,
+        updatedAt: now,
+      });
+      refreshedPackageIds.push(item.packageId);
+    }
+
+    const skippedPackageIds = packageRows
+      .filter((row) => row.data.occasionSchemaVersion === 2 &&
+        exposedPackage(row.data) &&
+        !refreshedPackageIds.includes(row.id))
+      .map((row) => row.id)
+      .sort();
+
+    return {
+      catalogRevision: catalog.revision as number,
+      refreshedPackageIds: refreshedPackageIds.sort(),
+      skippedPackageIds,
+    };
+  });
+}
+
+function exposedPackage(data: Readonly<Record<string, unknown>>): boolean {
+  return data.isPublished !== false || data.isActive !== false ||
+    data.providerPubliclyVisible !== false || data.status === "published";
 }

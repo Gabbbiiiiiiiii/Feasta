@@ -310,6 +310,45 @@ describe("customer package marketplace", () => {
     expect(screen.queryAllByRole("listitem")).toHaveLength(0);
   });
 
+  it("links photographer media packages to the media detail route", () => {
+    const mediaPackage: PublicPackage = {
+      id: "photo-service-one",
+      providerId: "photographer-one",
+      providerName: "Sophie's Shot",
+      name: "wedding",
+      description: "Story-driven photography for celebrations.",
+      eventType: "wedding",
+      occasionMatchIds: ["birthday", "wedding"],
+      price: 10000,
+      paymentPolicy: "full_payment",
+      imageUrl: null,
+      minimumGuests: null,
+      maximumGuests: null,
+      inclusions: [],
+      detailHref: "/customer/packages/media/photographer-one/photo-service-one",
+    };
+    render(
+      <PackageResults
+        filters={{eventType: "all", cursor: null}}
+        page={{
+          packages: [packageRecord, mediaPackage],
+          previousCursor: null,
+          nextCursor: null,
+          pageSize: 12,
+        }}
+      />,
+    );
+    expect(screen.getByRole("link", {
+      name: `View ${mediaPackage.name} package details`,
+    })).toHaveAttribute(
+      "href",
+      "/customer/packages/media/photographer-one/photo-service-one",
+    );
+    expect(screen.getByRole("link", {
+      name: `View ${packageRecord.name} package details`,
+    })).toHaveAttribute("href", "/customer/packages/package-one");
+  });
+
   it.each([0, 1, 2, 5])("omits %s inclusions from compact discovery cards", (count) => {
     const inclusions = ["Buffet menu", "Event styling", "Service staff", "Venue setup", "Lighting"].slice(0, count);
     render(<PublicPackageCard compactPreview packageRecord={{...packageRecord, inclusions}} marketplaceHref="/customer/packages" />);

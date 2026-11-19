@@ -33,6 +33,14 @@ const imports = [
     'import {FieldPath} from "./harness.mjs";',
   ],
   [
+    'import type {Transaction} from "firebase-admin/firestore";',
+    'type Transaction = any;',
+  ],
+  [
+    'import type {GlobalOccasion} from "@feasta/shared-types/provider-package-v2";',
+    'type GlobalOccasion = any;',
+  ],
+  [
     'import {db} from "../shared/firestore.js";',
     'import {db} from "./harness.mjs";',
   ],
@@ -41,8 +49,8 @@ const imports = [
     'import {isServiceCategoryCode} from "./harness.mjs";',
   ],
   [
-    'import {scanOccasionPackageInventory} from "../packages/occasion-transition-inventory-scan.js";',
-    'import {scanOccasionPackageInventory} from "./harness.mjs";',
+    'import {planPublishedPackageDiscoveryRefresh} from "../packages/occasion-package-discovery-refresh.js";',
+    'import {planPublishedPackageDiscoveryRefresh} from "./harness.mjs";',
   ],
   [
     'import {planOccasionGalleryWithdrawal} from "./occasion-lifecycle-atomic.js";',
@@ -101,6 +109,9 @@ export const db = {
     orderBy: () => ({
       limit: (n) => ({kind: "packages", limit: n}),
     }),
+    where: (field, op, value) => ({
+      limit: (n) => ({kind: "where", collection: name, field, op, value, limit: n}),
+    }),
   }),
 
   collectionGroup: () => ({
@@ -133,6 +144,24 @@ export const db = {
               data: () => item.data,
             }));
 
+          return {docs, size: docs.length};
+        }
+
+        if (target.kind === "where") {
+          const prefix = target.collection + "/";
+          const docs = [...current.docs.entries()]
+            .filter(([path, data]) => {
+              if (!path.startsWith(prefix) || path.split("/").length !== 2) {
+                return false;
+              }
+              return data?.[target.field] === target.value;
+            })
+            .slice(0, target.limit)
+            .map(([path, data]) => ({
+              id: path.slice(prefix.length),
+              ref: ref(path),
+              data: () => data,
+            }));
           return {docs, size: docs.length};
         }
 
@@ -186,21 +215,17 @@ export const isServiceCategoryCode = (value) =>
   typeof value === "string" &&
   /^[a-z][a-z0-9_]{1,63}$/.test(value);
 
-export async function scanOccasionPackageInventory() {
-  if (current.scanError) {
-    throw Error("PACKAGE_INVENTORY_REQUIRES_REVIEW");
+export function planPublishedPackageDiscoveryRefresh() {
+  if (current.refreshError) {
+    throw Error("PACKAGE_DISCOVERY_REFRESH_REQUIRED");
   }
-
-  return {
-    candidatePackageIds: current.candidatePackageIds,
-  };
+  return current.refreshPlan ?? [];
 }
 
 export function planOccasionGalleryWithdrawal() {
   if (current.galleryError) {
     throw Error("GALLERY_INVENTORY_REQUIRES_REVIEW");
   }
-
   return current.galleryChanges;
 }
 
@@ -218,6 +243,7 @@ const harness = await import(
 const {
   activateRoutineOccasion,
   inspectRoutineOccasionActivation,
+  repairPublishedPackageDiscovery,
 } = await import(
   pathToFileURL(
     join(stage, "occasion-routine-transaction.ts")
@@ -238,12 +264,34 @@ function fixture(overrides = {}) {
         "occasions/birthday",
         {
           id: "birthday",
+          label: "Birthday",
+          normalizedName: "birthday",
+          aliases: [],
           moderationState: "approved",
           active: false,
           revision: 4,
+          sortOrder: 1,
           applicableServiceCategoryCodes: [
             "catering_service",
           ],
+          createdBy: "admin",
+        },
+      ],
+      [
+        "occasions/wedding",
+        {
+          id: "wedding",
+          label: "Wedding",
+          normalizedName: "wedding",
+          aliases: [],
+          moderationState: "approved",
+          active: true,
+          revision: 2,
+          sortOrder: 2,
+          applicableServiceCategoryCodes: [
+            "catering_service",
+          ],
+          createdBy: "admin",
         },
       ],
       [
@@ -254,14 +302,21 @@ function fixture(overrides = {}) {
           serviceType: "catering",
         },
       ],
+      [
+        "contractPolicies/providerPackageV2",
+        {
+          maxSpecificOccasions: 10,
+          maxThemeImages: 4,
+        },
+      ],
     ]),
 
     authorized: true,
     packages: [],
     galleries: [],
-    candidatePackageIds: [],
+    refreshPlan: [],
+    refreshError: false,
     galleryChanges: [],
-    scanError: false,
     galleryError: false,
     writes: [],
 
@@ -301,7 +356,7 @@ test("readiness is advisory and makes no writes", async () => {
   assert.deepEqual(f.writes, []);
 });
 
-test("activation updates only authority and audit records", async () => {
+test("activation updates authority and audit records", async () => {
   const f = fixture();
 
   const result = await activateRoutineOccasion(
@@ -312,6 +367,7 @@ test("activation updates only authority and audit records", async () => {
   assert.equal(result.active, true);
   assert.equal(result.occasionRevision, 5);
   assert.equal(result.catalogRevision, 7);
+  assert.deepEqual(result.refreshedPackageIds, []);
 
   assert.equal(
     f.docs.get("occasions/birthday").active,
@@ -337,15 +393,50 @@ test("activation updates only authority and audit records", async () => {
     f.writes.filter((write) => write.type === "create").length,
     2
   );
+});
 
-  assert(
-    f.writes.every(
-      (write) =>
-        !/bookings|payments|refunds|packages|providers|catalog\/setups/.test(
-          write.path
-        )
-    )
+test("activation refreshes published V2 discovery pins", async () => {
+  const f = fixture({
+    packages: [{
+      id: "pkg_all",
+      data: {
+        occasionSchemaVersion: 2,
+        occasionScope: "all",
+        serviceCategoryCode: "catering_service",
+      },
+    }],
+    refreshPlan: [{
+      packageId: "pkg_all",
+      changed: true,
+      patch: {
+        eventType: "wedding",
+        occasionMatchIds: ["birthday", "wedding"],
+        occasionCatalogRevision: 7,
+        providerEligibilityRevision: 1,
+        occasionEligibilityState: "valid",
+      },
+    }],
+  });
+  f.docs.set("packages/pkg_all", {
+    occasionCatalogRevision: 6,
+    status: "published",
+  });
+
+  const result = await activateRoutineOccasion(
+    "admin_one",
+    input()
   );
+
+  assert.deepEqual(result.refreshedPackageIds, ["pkg_all"]);
+  assert.equal(
+    f.docs.get("packages/pkg_all").occasionCatalogRevision,
+    7
+  );
+  assert.deepEqual(
+    f.docs.get("packages/pkg_all").occasionMatchIds,
+    ["birthday", "wedding"]
+  );
+  assert.equal(f.docs.get("packages/pkg_all").status, "published");
 });
 
 test("unauthorized administrator is denied", async () => {
@@ -417,9 +508,9 @@ test("inactive category is rejected", async () => {
   assert.deepEqual(f.writes, []);
 });
 
-test("affected packages block activation", async () => {
+test("unrefreshable packages block activation", async () => {
   const f = fixture({
-    candidatePackageIds: ["birthday_one"],
+    refreshError: true,
   });
 
   const readiness = await inspectRoutineOccasionActivation(
@@ -431,13 +522,13 @@ test("affected packages block activation", async () => {
 
   assert(
     readiness.blockers.includes(
-      "ROUTINE_ACTIVATION_PACKAGE_REVIEW_REQUIRED"
+      "PACKAGE_DISCOVERY_REFRESH_REQUIRED"
     )
   );
 
   await assert.rejects(
     activateRoutineOccasion("admin_one", input()),
-    /ROUTINE_ACTIVATION_PACKAGE_REVIEW_REQUIRED/
+    /PACKAGE_DISCOVERY_REFRESH_REQUIRED/
   );
 
   assert.deepEqual(f.writes, []);
@@ -544,4 +635,35 @@ test("same idempotency key with changed reason fails", async () => {
   );
 
   assert.equal(f.writes.length, count);
+});
+
+test("repair refreshes only stale published packages", async () => {
+  const f = fixture({
+    packages: [
+      {id: "stale", data: {occasionSchemaVersion: 2, status: "published"}},
+      {id: "current", data: {occasionSchemaVersion: 2, status: "published"}},
+    ],
+    refreshPlan: [{
+      packageId: "stale",
+      changed: true,
+      patch: {
+        eventType: "wedding",
+        occasionMatchIds: ["wedding"],
+        occasionCatalogRevision: 6,
+        providerEligibilityRevision: 1,
+        occasionEligibilityState: "valid",
+      },
+    }],
+  });
+  f.docs.set("packages/stale", {occasionCatalogRevision: 5});
+  f.docs.set("packages/current", {occasionCatalogRevision: 6});
+
+  const result = await repairPublishedPackageDiscovery("admin_one");
+
+  assert.deepEqual(result.refreshedPackageIds, ["stale"]);
+  assert.deepEqual(result.skippedPackageIds, ["current"]);
+  assert.equal(
+    f.docs.get("packages/stale").occasionCatalogRevision,
+    6
+  );
 });

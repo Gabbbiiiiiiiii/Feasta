@@ -161,11 +161,14 @@ export function PackageResults({
       <div className="grid min-w-0 grid-cols-1 items-start gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
         {page.packages.map((packageRecord) => (
           <PublicPackageCard
-            key={packageRecord.id}
+            key={packageRecord.detailHref ?? packageRecord.id}
             packageRecord={packageRecord}
             marketplaceHref={marketplaceHref}
             headingLevel="h3"
             compactPreview
+            detailHref={packageRecord.detailHref}
+            priceSuffix={packageRecord.priceSuffix}
+            unknownPriceLabel={packageRecord.unknownPriceLabel}
           />
         ))}
       </div>

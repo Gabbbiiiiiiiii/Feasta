@@ -54,8 +54,14 @@ describe("booking status filters", () => {
       ...page,
       statistics: {...page.statistics, availableStatuses: ["confirmed", "completed"]},
     }} />);
-    const options = within(screen.getByLabelText("Booking status")).getAllByRole("option");
-    expect(options.map((option) => option.textContent)).toEqual(["All booking statuses", "Confirmed", "Completed"]);
+    const statusSelect = screen.getByLabelText("Booking status");
+    const options = Array.from(statusSelect.querySelectorAll("option"));
+    expect(options.find((option) => option.value === "all")?.hidden).toBe(true);
+    expect(
+      options
+        .filter((option) => !option.hidden)
+        .map((option) => option.textContent),
+    ).toEqual(["Confirmed", "Completed"]);
   });
 
   it.each(Object.entries(adminBookingStatusLabels))("passes %s unchanged and consistently displays %s", async (value, label) => {

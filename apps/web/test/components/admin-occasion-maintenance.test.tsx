@@ -179,8 +179,10 @@ describe("Admin occasion maintenance", () => {
     mount(); await ready();
     await openLifecycle("Birthday");
     const dialog = screen.getByRole("dialog", {name: "Activate Event Type: Birthday"});
-    expect(await within(dialog).findByText("Approved occasion identity verified.")).toBeInTheDocument();
+    expect(await within(dialog).findByText("Activation is not available yet")).toBeInTheDocument();
     expect(within(dialog).getByText("Customer withdrawal protection still required.")).toBeInTheDocument();
+    expect(within(dialog).queryByText("Approved occasion identity verified.")).not.toBeInTheDocument();
+    expect(within(dialog).queryByText(/Verified for this check/)).not.toBeInTheDocument();
     expect(within(dialog).getByRole("button", {name: "Activate"})).toBeDisabled();
     expect(api.inspectAdminOccasionAtomicReadiness).toHaveBeenCalledWith({
       action: "activate", occasionId: "birthday",
@@ -217,10 +219,11 @@ describe("Admin occasion maintenance", () => {
       name: "Activate Event Type: Birthday",
     });
 
-    expect(await within(dialog).findByText("Approved.")).toBeInTheDocument();
-    expect(within(dialog).getByRole("alert")).toHaveTextContent(
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent(
       "Activation is not available yet"
     );
+    expect(within(dialog).queryByText("Approved.")).not.toBeInTheDocument();
+    expect(within(dialog).queryByText(/Verified for this check/)).not.toBeInTheDocument();
     expect(within(dialog).getByRole("button", {
       name: "Activate"
     })).toBeDisabled();
@@ -268,7 +271,9 @@ describe("Admin occasion maintenance", () => {
     const dialog = screen.getByRole("dialog", {
       name: "Activate Event Type: Birthday"
     });
-    expect(await within(dialog).findByText("Approved.")).toBeInTheDocument();
+    expect(await within(dialog).findByText("Ready for activation")).toBeInTheDocument();
+    expect(within(dialog).queryByText("Approved.")).not.toBeInTheDocument();
+    expect(within(dialog).queryByText(/Verified for this check/)).not.toBeInTheDocument();
 
     fireEvent.change(within(dialog).getByLabelText("Lifecycle reason"), {
       target: {value: "Approved by administrator after inventory review"}
@@ -340,15 +345,11 @@ describe("Admin occasion maintenance", () => {
       occasion: expect.objectContaining({id: "wedding_2", label: "Wedding!"}),
     }), true));
   });
-  it("requires an active service and safe sort order before review", async () => {
+  it("requires an active service before review", async () => {
     mount(); await ready(); const dialog = await fillCreate();
     await userEvent.click(screen.getByLabelText("Catering Service"));
     fireEvent.submit(dialog.querySelector("form")!);
     expect(screen.getByRole("alert")).toHaveTextContent("active service category");
-    await userEvent.click(screen.getByLabelText("Catering Service"));
-    fireEvent.change(screen.getByLabelText("Sort order"), {target: {value: "9007199254740992"}});
-    fireEvent.submit(dialog.querySelector("form")!);
-    expect(screen.getByRole("alert")).toHaveTextContent("safe integer");
     expect(api.saveAdminOccasion).not.toHaveBeenCalled();
   });
   it("blocks dismissal throughout an in-flight save", async () => {
@@ -368,17 +369,14 @@ describe("Admin occasion maintenance", () => {
     await ready(); await userEvent.click(screen.getByRole("button", {name: "Add Occasion"}));
     expect(screen.getByLabelText("Catering Service")).not.toBeChecked();
     expect(screen.queryByLabelText("Retired Service")).not.toBeInTheDocument();
-    expect(screen.getByText("Advanced options").parentElement).not.toHaveAttribute("open");
+    expect(screen.queryByText("Advanced options")).not.toBeInTheDocument();
   });
-  it("sends explicit advanced metadata without changing the mutation shape", async () => {
+  it("sends auto-assigned create metadata without changing the mutation shape", async () => {
     mount(); await ready(); await fillCreate();
-    await userEvent.click(screen.getByText("Advanced options"));
-    fireEvent.change(screen.getByLabelText("Aliases (comma separated)"), {target: {value: "Garden Gathering"}});
-    fireEvent.change(screen.getByLabelText("Sort order"), {target: {value: "42"}});
     await userEvent.click(screen.getByRole("button", {name: "Review Occasion"}));
     await userEvent.click(screen.getByRole("button", {name: "Save occasion"}));
     await waitFor(() => expect(api.saveAdminOccasion).toHaveBeenCalledWith(expect.objectContaining({
-      occasion: {id: "garden_party", label: "Garden Party", aliases: ["Garden Gathering"], sortOrder: 42,
+      occasion: {id: "garden_party", label: "Garden Party", aliases: [], sortOrder: 3,
         applicableServiceCategoryCodes: ["catering_service"]}, expectedCatalogRevision: 7,
     }), true));
   });
@@ -387,7 +385,6 @@ describe("Admin occasion maintenance", () => {
       screen.getByRole("status", {name: "Loading occasions"})
     ).toHaveAttribute("aria-busy", "true"); await ready();
     expect(screen.getByText("Inactive", {selector: "span"})).toBeInTheDocument();
-    fireEvent.change(screen.getByLabelText("Sort occasions"), {target: {value: "name"}});
     expect(screen.getAllByRole("article")[0]).toHaveTextContent("Birthday");
     fireEvent.change(screen.getByLabelText("Search occasions"), {target: {value: "wedding"}});
     expect(screen.queryByRole("button", {name: "Edit Birthday"})).not.toBeInTheDocument();
@@ -422,7 +419,9 @@ describe("Admin occasion maintenance", () => {
     mount(); await ready(); const dialog = await fillCreate();
     expect(api.saveAdminOccasion).not.toHaveBeenCalled();
     await userEvent.click(within(dialog).getByRole("button", {name: /Review Occasion|Review changes/}));
-    expect(screen.getByRole("dialog", {name: "Save occasion metadata?"})).toHaveTextContent("It will remain inactive");
+    expect(screen.getByRole("dialog", {name: "Save occasion metadata?"})).toHaveTextContent(
+      "Save “Garden Party” as a new occasion? It will stay inactive until you activate it.",
+    );
     await userEvent.click(screen.getByRole("button", {name: "Save occasion"}));
     await waitFor(() => expect(api.saveAdminOccasion).toHaveBeenCalledTimes(1));
     expect(api.saveAdminOccasion.mock.calls[0]).toEqual([{
@@ -446,6 +445,9 @@ describe("Admin occasion maintenance", () => {
     mount(); await ready(); await userEvent.click(within(screen.getByText("Birthday", {selector: "h3"}).closest("article")!).getByRole("button", {name: "Edit"}));
     const dialog = screen.getByRole("dialog", {name: "Edit Occasion"});
     expect(within(dialog).queryByLabelText("Canonical ID")).not.toBeInTheDocument();
+    expect(within(dialog).queryByText("Advanced options")).not.toBeInTheDocument();
+    expect(within(dialog).queryByLabelText("Aliases (comma separated)")).not.toBeInTheDocument();
+    expect(within(dialog).queryByLabelText("Sort order")).not.toBeInTheDocument();
     expect(within(dialog).getByLabelText("Catering Service")).toBeEnabled();
     fireEvent.change(within(dialog).getByLabelText("Event Type Name", {exact: true}), {target: {value: "Birthday Celebration"}});
     fireEvent.change(within(dialog).getByLabelText("Reason for change"), {target: {value: "Update occasion label"}});
@@ -840,7 +842,7 @@ describe("Admin occasion maintenance", () => {
     expect(api.saveAdminOccasion).not.toHaveBeenCalled();
     expect(api.changeAdminOccasionState).not.toHaveBeenCalled();
   });
-  it("shows clear activation fallback and collapsible verified checks", async () => {
+  it("shows clear activation fallback without verified checklist", async () => {
     api.inspectAdminOccasionAtomicReadiness.mockResolvedValue({
       occasionId: "birthday",
       action: "activate",
@@ -878,26 +880,17 @@ describe("Admin occasion maintenance", () => {
       /The server has not confirmed activation readiness/
     )).toBeInTheDocument();
 
-    expect(within(dialog).getByText(
+    expect(within(dialog).queryByText(
       "Packages scanned"
-    )).toBeInTheDocument();
+    )).not.toBeInTheDocument();
 
-    const details = within(dialog).getByText(
+    expect(within(dialog).queryByText(
       /Verified for this check/
-    ).closest("details");
+    )).not.toBeInTheDocument();
 
-    expect(details).not.toBeNull();
-    expect(details).not.toHaveAttribute("open");
-
-    await userEvent.click(
-      within(details!).getByText(/Verified for this check/)
-    );
-
-    expect(details).toHaveAttribute("open");
-
-    expect(within(details!).getByText(
+    expect(within(dialog).queryByText(
       "Approved occasion identity verified."
-    )).toBeInTheDocument();
+    )).not.toBeInTheDocument();
 
     expect(within(dialog).getByRole("button", {
       name: "Activate"

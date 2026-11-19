@@ -623,7 +623,7 @@ function BookingMonitoringClient({
                 })
               }
             >
-              <option value="all">
+              <option value="all" hidden>
                 All booking statuses
               </option>
               {filters.status !== "all" && !page.statistics.availableStatuses.includes(filters.status) && (

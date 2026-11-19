@@ -215,7 +215,7 @@ function initialBusinessDocumentTypes(): AdminBusinessDocumentType[] {
     businessDocument("sanitary_permit", "Sanitary permit", [
       rule({
         effect: "required",
-        serviceTypes: ["catering", "both"],
+        serviceCategoryCodes: ["catering_service"],
       }),
     ]),
     businessDocument("mayors_permit", "Mayor's permit", [

@@ -1908,10 +1908,10 @@ class FeastaRepository {
     String bookingId,
   ) {
     return _db
-        .collection(FirestoreCollections.bookingTimelines)
-        .where('bookingId', isEqualTo: bookingId)
+        .collection(FirestoreCollections.mainEvents)
+        .doc(bookingId)
+        .collection('timeline')
         .orderBy('createdAt', descending: true)
-        .orderBy(FieldPath.documentId, descending: true)
         .limit(20)
         .snapshots();
   }

@@ -255,10 +255,13 @@ describe("customer booking history and details", () => {
       });
     });
 
-    const statusOptions = statusSelect.querySelectorAll("option");
-    expect(Array.from(statusOptions, (option) => option.value)).toEqual([
-      "all",
-      "draft",
+    const statusOptions = Array.from(statusSelect.querySelectorAll("option"));
+    expect(statusOptions.find((option) => option.value === "all")?.hidden).toBe(true);
+    expect(
+      statusOptions
+        .filter((option) => !option.hidden)
+        .map((option) => option.value),
+    ).toEqual([
       "awaiting_provider",
       "awaiting_payment",
       "confirmed",

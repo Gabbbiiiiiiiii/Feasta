@@ -65,9 +65,6 @@ type Props = {
 type StatusFilter =
   "all" | AdminServiceCategoryStatus;
 
-type ServiceTypeFilter =
-  "all" | AdminServiceCategoryServiceType;
-
 type EditorDraft = {
   name: string;
   serviceType: AdminServiceCategoryServiceType;
@@ -95,8 +92,6 @@ function ServiceCategoryManagementClient({
     useState("");
   const [status, setStatus] =
     useState<StatusFilter>("all");
-  const [serviceType, setServiceType] =
-    useState<ServiceTypeFilter>("all");
 
   const [editorOpen, setEditorOpen] =
     useState(false);
@@ -127,13 +122,6 @@ function ServiceCategoryManagementClient({
           return false;
         }
 
-        if (
-          serviceType !== "all" &&
-          category.serviceType !== serviceType
-        ) {
-          return false;
-        }
-
         if (!query) {
           return true;
         }
@@ -141,7 +129,6 @@ function ServiceCategoryManagementClient({
         return [
           category.name,
           category.code,
-          serviceTypeLabel(category.serviceType),
         ].some((value) =>
           value.toLowerCase().includes(query),
         );
@@ -156,20 +143,12 @@ function ServiceCategoryManagementClient({
   }, [
     categories,
     search,
-    serviceType,
     status,
   ]);
 
   const activeFilters = [
     ...(status !== "all"
       ? [`Status: ${statusLabel(status)}`]
-      : []),
-    ...(serviceType !== "all"
-      ? [
-          `Service type: ${
-            serviceTypeLabel(serviceType)
-          }`,
-        ]
       : []),
   ];
 
@@ -188,14 +167,6 @@ function ServiceCategoryManagementClient({
               </p>
             </div>
           ),
-        },
-        {
-          id: "serviceType",
-          header: "Service type",
-          cell: (category) =>
-            serviceTypeLabel(
-              category.serviceType,
-            ),
         },
         {
           id: "status",
@@ -514,58 +485,33 @@ function ServiceCategoryManagementClient({
           setSearchValue("");
           setSearch("");
           setStatus("all");
-          setServiceType("all");
         }}
         searchLabel="Search service categories"
         searchPlaceholder="Search name or code"
         searchHint={`${filtered.length} of ${categories.length} categories shown`}
         activeFilters={activeFilters}
         filterControls={
-          <>
-            <FormField label="Status">
-              <Select
-                value={status}
-                onChange={(event) =>
-                  setStatus(
-                    event.currentTarget
-                      .value as StatusFilter,
-                  )
-                }
-              >
-                <option value="all">
-                  All statuses
-                </option>
-                <option value="active">
-                  Active
-                </option>
-                <option value="discontinued">
-                  Inactive
-                </option>
-              </Select>
-            </FormField>
-
-            <FormField label="Service type">
-              <Select
-                value={serviceType}
-                onChange={(event) =>
-                  setServiceType(
-                    event.currentTarget
-                      .value as ServiceTypeFilter,
-                  )
-                }
-              >
-                <option value="all">
-                  All service types
-                </option>
-                <option value="addon">
-                  Add-on
-                </option>
-                <option value="catering">
-                  Catering
-                </option>
-              </Select>
-            </FormField>
-          </>
+          <FormField label="Status">
+            <Select
+              value={status}
+              onChange={(event) =>
+                setStatus(
+                  event.currentTarget
+                    .value as StatusFilter,
+                )
+              }
+            >
+              <option value="all">
+                All statuses
+              </option>
+              <option value="active">
+                Active
+              </option>
+              <option value="discontinued">
+                Inactive
+              </option>
+            </Select>
+          </FormField>
         }
       />
 
@@ -624,7 +570,7 @@ function ServiceCategoryManagementClient({
             </DialogTitle>
             <DialogDescription>
               {editing
-                ? "Update the display name, service type, and capacity requirements. The category code remains unchanged."
+                ? "Update the display name and capacity requirements. The category code remains unchanged."
                 : "Create a service category providers can select during setup and service management."}
             </DialogDescription>
           </DialogHeader>
@@ -653,41 +599,6 @@ function ServiceCategoryManagementClient({
                   }));
                 }}
               />
-            </FormField>
-
-            <FormField
-              label="Service type"
-              required
-              disabled={
-                isPending ||
-                editing?.status === "active"
-              }
-              description={
-                editing?.status === "active"
-                  ? "Deactivate this category before changing its service type."
-                  : "Catering categories belong to catering providers. Add-on categories belong to other event service providers."
-              }
-            >
-              <Select
-                value={draft.serviceType}
-                onChange={(event) => {
-                  const serviceType =
-                    event.currentTarget
-                      .value as AdminServiceCategoryServiceType;
-
-                  setDraft((current) => ({
-                    ...current,
-                    serviceType,
-                  }));
-                }}
-              >
-                <option value="addon">
-                  Add-on
-                </option>
-                <option value="catering">
-                  Catering
-                </option>
-              </Select>
             </FormField>
 
             <div className="grid gap-3 rounded-xl border border-border bg-muted/30 p-4">
@@ -873,17 +784,6 @@ function CategoryMobileCard({
         </Badge>
       </div>
 
-      <div>
-        <p className="text-xs font-bold uppercase tracking-wide text-muted-foreground">
-          Service type
-        </p>
-        <p className="mt-1 text-sm font-semibold">
-          {serviceTypeLabel(
-            category.serviceType,
-          )}
-        </p>
-      </div>
-
       <div className="grid gap-2 sm:grid-cols-2">
         <Button
           variant="secondary"
@@ -959,14 +859,6 @@ function normalizeServiceCategoryCode(
     .toLowerCase()
     .replaceAll(/[^a-z0-9]+/gu, "_")
     .replaceAll(/^_+|_+$/gu, "");
-}
-
-function serviceTypeLabel(
-  value: AdminServiceCategoryServiceType,
-): string {
-  return value === "catering"
-    ? "Catering"
-    : "Add-on";
 }
 
 function statusLabel(

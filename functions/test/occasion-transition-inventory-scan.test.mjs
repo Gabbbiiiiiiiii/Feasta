@@ -46,7 +46,7 @@ test('two full pages plus terminal page are required',async()=>{
   assert.equal(r.scannedCount,200);assert.equal(r.pageCount,3);
   assert.equal(f.calls[2].after,'p199');
 });
-test('specific V2 match and universal eligible category are candidates',async()=>{
+test('activation only includes packages that already reference the occasion',async()=>{
   const f=fakePages([
     doc('p001',pub({occasionSchemaVersion:2, occasionScope:'specific',
       occasionIds:['birthday'], occasionMatchIds:['birthday']})),
@@ -56,16 +56,38 @@ test('specific V2 match and universal eligible category are candidates',async()=
       occasionIds:[],occasionMatchIds:['wedding'],serviceCategoryCode:'photographer'})),
   ]);
   const r=await scan(input(f.readPage));
+  assert.deepEqual(r.candidatePackageIds,['p001']);
+  assert.deepEqual(r.ambiguousPackageIds,[]);
+});
+test('deactivation still treats fits-all category packages as candidates',async()=>{
+  const f=fakePages([
+    doc('p001',pub({occasionSchemaVersion:2, occasionScope:'specific',
+      occasionIds:['birthday'], occasionMatchIds:['birthday']})),
+    doc('p002',pub({occasionSchemaVersion:2, occasionScope:'all',
+      occasionIds:[],occasionMatchIds:['wedding'],serviceCategoryCode:'catering_service'})),
+    doc('p003',pub({occasionSchemaVersion:2,occasionScope:'all',
+      occasionIds:[],occasionMatchIds:['wedding'],serviceCategoryCode:'photographer'})),
+  ]);
+  const r=await scan(input(f.readPage,{action:'deactivate'}));
   assert.deepEqual(r.candidatePackageIds,['p001','p002']);
   assert.deepEqual(r.ambiguousPackageIds,[]);
 });
-test('unknown legacy event and corrupt schema are quarantined as ambiguous',async()=>{
+test('unknown legacy event and corrupt schema are quarantined as ambiguous on deactivate',async()=>{
+  const r=await scan(input(fakePages([
+    doc('p001',pub({eventType:'all'})),
+    doc('p002',pub({occasionSchemaVersion:2,occasionScope:'all',occasionIds:'bad'})),
+    doc('p003',pub({occasionIds:['birthday']})),
+  ]).readPage,{action:'deactivate'}));
+  assert.deepEqual(r.ambiguousPackageIds,['p001','p002','p003']);
+});
+test('activation ignores unrelated malformed packages',async()=>{
   const r=await scan(input(fakePages([
     doc('p001',pub({eventType:'all'})),
     doc('p002',pub({occasionSchemaVersion:2,occasionScope:'all',occasionIds:'bad'})),
     doc('p003',pub({occasionIds:['birthday']})),
   ]).readPage));
-  assert.deepEqual(r.ambiguousPackageIds,['p001','p002','p003']);
+  assert.deepEqual(r.candidatePackageIds,[]);
+  assert.deepEqual(r.ambiguousPackageIds,[]);
 });
 test('private packages do not become withdrawal candidates',async()=>{
   const r=await scan(input(fakePages([doc('p001',pub({status:'draft',

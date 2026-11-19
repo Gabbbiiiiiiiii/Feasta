@@ -25,7 +25,10 @@ import {DataTable, type DataTableColumn} from "@/components/data/data-table";
 import {FilterToolbar} from "@/components/data/filter-toolbar";
 import {feastaToast} from "@/components/feedback/toast";
 import {FormField} from "@/components/forms/form-field";
-import {CheckboxField} from "@/components/forms/selection-controls";
+import {
+  CheckboxField,
+  RadioGroup,
+} from "@/components/forms/selection-controls";
 import {ConfirmationDialog} from "@/components/shared/confirmation-dialog";
 import {Badge} from "@/components/ui/badge";
 import {Button} from "@/components/ui/button";
@@ -82,11 +85,8 @@ type StatusFilter = "all" | DocumentCatalogStatus;
 type LifecycleAction =
   FileMaintenanceLifecycleAction;
 
-const SERVICE_TYPES = ["catering", "addon", "both"] as const;
-
 type RuleTargetMode =
   | "all"
-  | "service_type"
   | "service_category";
 
 function ruleTargetMode(
@@ -94,10 +94,6 @@ function ruleTargetMode(
 ): RuleTargetMode {
   if (rule.serviceCategoryCodes.length > 0) {
     return "service_category";
-  }
-
-  if (rule.serviceTypes.length > 0) {
-    return "service_type";
   }
 
   return "all";
@@ -810,12 +806,13 @@ export function AgreementTemplateManagement({
 }
 
 type RequirementSummary = {
-  label: "Required" | "Conditional" | "Optional";
+  label: "Required" | "Optional";
   detail: string;
 };
 
 function businessDocumentRequirementSummary(
   documentType: AdminBusinessDocumentType,
+  serviceCategories: readonly AdminServiceCategory[] = [],
 ): RequirementSummary {
   if (documentType.rules.length === 0) {
     return {
@@ -824,86 +821,54 @@ function businessDocumentRequirementSummary(
     };
   }
 
-  const globallyRequired = documentType.rules.some(
-    (rule) =>
-      rule.effect === "required" &&
-      rule.registrationScope === "any" &&
-      rule.serviceTypes.length === 0 &&
+  const categoryNames = new Map(
+    serviceCategories.map((category) => [
+      category.code,
+      category.name,
+    ] as const),
+  );
+
+  const details = new Set<string>();
+
+  for (const rule of documentType.rules) {
+    if (rule.effect === "one_of") {
+      details.add("Alternative document group");
+      continue;
+    }
+
+    if (rule.registrationScope === "registered_business") {
+      details.add("Registered businesses");
+    } else if (rule.registrationScope === "individual") {
+      details.add("Individuals");
+    } else if (
       rule.serviceCategoryCodes.length === 0 &&
-      rule.excludeServiceCategoryCodes.length === 0,
-  );
+      rule.serviceTypes.length === 0
+    ) {
+      details.add("Every provider");
+    }
 
-  const hasAlternativeGroup =
-    documentType.rules.some(
-      (rule) => rule.effect === "one_of",
-    );
+    for (const code of rule.serviceCategoryCodes) {
+      details.add(
+        categoryNames.get(code) ?? code,
+      );
+    }
 
-  if (hasAlternativeGroup) {
-    return {
-      label: "Conditional",
-      detail: "Alternative document group",
-    };
-  }
-
-  if (globallyRequired) {
-    return {
-      label: "Required",
-      detail: "Every provider",
-    };
-  }
-
-  if (
-    documentType.rules.some(
-      (rule) =>
-        rule.registrationScope ===
-        "registered_business",
-    )
-  ) {
-    return {
-      label: "Conditional",
-      detail: "Registered businesses",
-    };
-  }
-
-  if (
-    documentType.rules.some((rule) =>
-      rule.serviceCategoryCodes.includes(
-        "venue_provider",
-      ),
-    )
-  ) {
-    return {
-      label: "Conditional",
-      detail: "Venue providers",
-    };
-  }
-
-  const serviceTypes = new Set(
-    documentType.rules.flatMap(
-      (rule) => rule.serviceTypes,
-    ),
-  );
-
-  if (
-    serviceTypes.has("catering") ||
-    serviceTypes.has("both")
-  ) {
-    return {
-      label: "Conditional",
-      detail: "Catering providers",
-    };
-  }
-
-  if (serviceTypes.has("addon")) {
-    return {
-      label: "Conditional",
-      detail: "Add-on providers",
-    };
+    for (const serviceType of rule.serviceTypes) {
+      if (serviceType === "catering" || serviceType === "both") {
+        details.add("Catering providers");
+      }
+      if (serviceType === "addon" || serviceType === "both") {
+        details.add("Add-on providers");
+      }
+    }
   }
 
   return {
-    label: "Conditional",
-    detail: "Applies when its rule matches",
+    label: "Required",
+    detail:
+      details.size > 0
+        ? [...details].join(" · ")
+        : "Applies when its rule matches",
   };
 }
 
@@ -963,6 +928,7 @@ export function BusinessDocumentManagement({
         const requirement =
           businessDocumentRequirementSummary(
             documentType,
+            serviceCategories,
           );
 
         return (
@@ -986,8 +952,8 @@ export function BusinessDocumentManagement({
           {statusLabel(documentType.status)}
         </Badge>
       ),
-    },
-  ], []);
+      },
+    ], [serviceCategories]);
 
   const save = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -996,20 +962,6 @@ export function BusinessDocumentManagement({
       setFormError("Enter a document name between 2 and 120 characters.");
       return;
     }
-    const incompleteServiceTypeRule =
-      draft.rules.some(
-        (entry) =>
-          entry.targetMode === "service_type" &&
-          entry.serviceTypes.length === 0,
-      );
-
-    if (incompleteServiceTypeRule) {
-      setFormError(
-        "Select at least one provider service type.",
-      );
-      return;
-    }
-
     const incompleteCategoryRule =
       draft.rules.some(
         (entry) =>
@@ -1028,20 +980,12 @@ export function BusinessDocumentManagement({
     let rules: AdminBusinessDocumentRule[];
     try {
       rules = draft.rules.map((entry) => ({
-        effect: entry.effect,
-        oneOfGroup:
-          entry.effect === "one_of"
-            ? normalizeDocumentCode(
-                entry.oneOfGroup,
-              )
-            : "",
+        effect: "required" as const,
+        oneOfGroup: "",
         registrationScope:
           entry.registrationScope,
 
-        serviceTypes:
-          entry.targetMode === "service_type"
-            ? entry.serviceTypes
-            : [],
+        serviceTypes: [],
 
         serviceCategoryCodes:
           entry.targetMode === "service_category"
@@ -1054,12 +998,6 @@ export function BusinessDocumentManagement({
       }));
     } catch (error: unknown) {
       setFormError(error instanceof Error ? error.message : "The requirement rules are invalid.");
-      return;
-    }
-    if (rules.some((entry) => entry.effect === "one_of" && entry.oneOfGroup.length < 2)) {
-      setFormError(
-        "Each one-of rule needs a group code.",
-      );
       return;
     }
     startTransition(async () => {
@@ -1131,6 +1069,8 @@ export function BusinessDocumentManagement({
               description: documentType.description,
               rules: documentType.rules.map((entry) => ({
                 ...entry,
+                effect: "required" as const,
+                oneOfGroup: "",
                 targetMode: ruleTargetMode(entry),
                 serviceCategoryCodes:
                   entry.serviceCategoryCodes.join(", "),
@@ -1149,7 +1089,7 @@ export function BusinessDocumentManagement({
       )}
       editorOpen={editorOpen}
       editorTitle={editing ? "Edit business document" : "Add business document"}
-      editorDescription="Define who must submit this document. Choose all provider services, a provider service type, or specific service categories. Providers that do not match a requirement automatically treat the document as optional."
+      editorDescription="Define who must submit this document. Choose all providers or specific service categories. Providers that do not match a requirement automatically treat the document as optional."
       wide
       onEditorOpenChange={(open) => {
         if (!isPending) setEditorOpen(open);
@@ -1185,115 +1125,81 @@ export function BusinessDocumentManagement({
         {draft.rules.map((entry, index) => (
           <fieldset key={index} className="grid gap-4 rounded-lg border border-border p-4">
             <legend className="px-1 font-semibold">Rule {index + 1}</legend>
-            <FormField label="Effect">
-              <Select
-                value={entry.effect}
-                onChange={(event) => updateRule(setDraft, index, {
-                  effect: event.target.value as "required" | "one_of",
-                })}
-              >
-                <option value="required">Required</option>
-                <option value="one_of">One of a group</option>
-              </Select>
-            </FormField>
-            {entry.effect === "one_of" ? (
-              <FormField label="Group code" description="Documents that share this code satisfy one requirement.">
-                <Input value={entry.oneOfGroup} onChange={(event) => updateRule(setDraft, index, {oneOfGroup: event.target.value})} />
-              </FormField>
-            ) : null}
-            <FormField label="Business registration type">
-              <Select
-                value={entry.registrationScope}
-                onChange={(event) => updateRule(setDraft, index, {
-                  registrationScope: event.target.value as AdminBusinessDocumentRule["registrationScope"],
-                })}
-              >
-                <option value="any">Every provider</option>
-                <option value="registered_business">Registered businesses</option>
-                <option value="individual">Individuals</option>
-              </Select>
-            </FormField>
-            <FormField
-              label="Apply this requirement to"
-              description="Choose one targeting method. Providers that do not match this requirement will treat the document as optional."
-            >
-              <Select
+            <CheckboxField
+              label="Required"
+              description="Providers matching this rule must submit this document."
+              checked
+              disabled
+            />
+            <RadioGroup
+              legend="Business registration type"
+              name={`document-requirement-registration-${index}`}
+              value={entry.registrationScope}
+              options={[
+                {
+                  value: "any",
+                  label: "Every provider",
+                  description:
+                    "Applies to all provider account types.",
+                },
+                {
+                  value: "registered_business",
+                  label: "Registered businesses",
+                  description:
+                    "Applies only to registered business accounts.",
+                },
+                {
+                  value: "individual",
+                  label: "Individuals",
+                  description:
+                    "Applies only to individual accounts.",
+                },
+              ]}
+              onValueChange={(value) =>
+                updateRule(setDraft, index, {
+                  registrationScope:
+                    value as AdminBusinessDocumentRule["registrationScope"],
+                })
+              }
+            />
+            <div className="grid gap-2">
+              <RadioGroup
+                legend="Apply this requirement to"
+                name={`document-requirement-target-${index}`}
                 value={entry.targetMode}
-                onChange={(event) => {
+                options={[
+                  {
+                    value: "all",
+                    label: "All providers",
+                    description:
+                      "Required for every provider that matches the other rule settings.",
+                  },
+                  {
+                    value: "service_category",
+                    label: "By service category",
+                    description:
+                      "Required only for the selected service categories.",
+                  },
+                ]}
+                onValueChange={(value) => {
                   const targetMode =
-                    event.target.value as RuleTargetMode;
+                    value as RuleTargetMode;
 
                   updateRule(setDraft, index, {
                     targetMode,
-
-                    serviceTypes:
-                      targetMode === "service_type"
-                        ? entry.serviceTypes
-                        : [],
-
+                    serviceTypes: [],
                     serviceCategoryCodes:
                       targetMode === "service_category"
                         ? entry.serviceCategoryCodes
                         : "",
-
                     excludeServiceCategoryCodes: "",
                   });
                 }}
-              >
-                <option value="all">
-                  All provider services
-                </option>
-
-                <option value="service_type">
-                  Provider service type
-                </option>
-
-                <option value="service_category">
-                  Specific service categories
-                </option>
-              </Select>
-            </FormField>
-            {entry.targetMode === "service_type" ? (
-              <fieldset className="grid gap-2">
-                <legend className="text-sm font-semibold">
-                  Provider service types
-                </legend>
-
-                <p className="text-sm text-muted-foreground">
-                  Select one or more provider service types.
-                </p>
-
-                {SERVICE_TYPES.map((serviceType) => (
-                  <CheckboxField
-                    key={serviceType}
-                    label={
-                      serviceType === "catering"
-                        ? "Catering only"
-                        : serviceType === "addon"
-                          ? "Add-on only"
-                          : "Catering & Add-on"
-                    }
-                    checked={entry.serviceTypes.includes(
-                      serviceType,
-                    )}
-                    onChange={(event) =>
-                      updateRule(setDraft, index, {
-                        serviceTypes:
-                          event.target.checked
-                            ? [
-                                ...entry.serviceTypes,
-                                serviceType,
-                              ]
-                            : entry.serviceTypes.filter(
-                                (type) =>
-                                  type !== serviceType,
-                              ),
-                      })
-                    }
-                  />
-                ))}
-              </fieldset>
-            ) : null}
+              />
+              <p className="text-sm text-muted-foreground">
+                Providers that do not match this requirement will treat the document as optional.
+              </p>
+            </div>
             {entry.targetMode ===
               "service_category" ? (
                 <fieldset className="grid gap-2">
@@ -1327,12 +1233,7 @@ export function BusinessDocumentManagement({
                         return (
                           <CheckboxField
                             key={category.code}
-                            label={`${category.name} · ${
-                              category.serviceType ===
-                              "catering"
-                                ? "Catering"
-                                : "Add-on"
-                            }`}
+                            label={category.name}
                             checked={checked}
                             onChange={(event) => {
                               const nextCodes =

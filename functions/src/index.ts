@@ -1185,7 +1185,8 @@ export {listAdminOccasions, createAdminOccasion, updateAdminOccasion,
 export {checkAdminOccasionActivationReadiness} from "./admin/occasion-activation-readiness.js";
 export {checkAdminOccasionDeactivationReadiness} from "./admin/occasion-activation-readiness.js";
 export {activateAdminOccasion, deactivateAdminOccasion,
-  inspectAdminOccasionAtomicReadiness} from "./admin/occasion-lifecycle-actions.js";
+  inspectAdminOccasionAtomicReadiness,
+  repairAdminPublishedPackageDiscovery} from "./admin/occasion-lifecycle-actions.js";
 
 // Private editor progress and canonical draft persistence have separate gates.
 // V2 publication remains unsupported; the draft handlers below are demo-only.

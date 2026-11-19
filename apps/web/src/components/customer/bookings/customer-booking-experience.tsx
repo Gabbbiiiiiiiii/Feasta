@@ -692,7 +692,13 @@ function FilterSelect({
         onChange={(event) => onChange(event.currentTarget.value as CustomerBookingStatusFilter)}
       >
         {BOOKING_STATUS_OPTIONS.map((option) => (
-          <option key={option.value} value={option.value}>{option.label}</option>
+          <option
+            key={option.value}
+            value={option.value}
+            hidden={option.value === "all"}
+          >
+            {option.label}
+          </option>
         ))}
       </Select>
     </div>

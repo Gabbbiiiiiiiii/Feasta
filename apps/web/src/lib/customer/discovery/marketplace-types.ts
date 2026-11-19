@@ -40,6 +40,10 @@ export type PublicPackage = {
   minimumGuests: number | null;
   maximumGuests: number | null;
   inclusions: readonly string[];
+  /** Marketplace media (addon) packages link to /customer/packages/media/... */
+  detailHref?: string;
+  priceSuffix?: string;
+  unknownPriceLabel?: string;
 };
 
 export type PublicPackageCustomization = {

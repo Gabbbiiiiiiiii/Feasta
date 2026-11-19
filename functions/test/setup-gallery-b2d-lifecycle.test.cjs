@@ -462,7 +462,13 @@ for (const operation of ["delete", "change type"]) {
     const {category, state} = fixture({"serviceCategories/unused": {
       code: "unused", name: "Unused", serviceType: "catering", status: "discontinued"}});
     state.beforeCommit = (attempt) => {
-      if (!attempt) state.docs.set("providers/concurrent", {serviceCategories: ["unused"]});
+      if (!attempt) {
+        state.docs.set("providers/concurrent", {
+          providerCategory: "unused",
+          serviceCategories: ["unused"],
+          isDeleted: false,
+        });
+      }
     };
     const call = operation === "delete" ? category.deleteServiceCategory(request({code: "unused"})) :
       category.updateServiceCategory(request({code: "unused", name: "Unused", serviceType: "addon",
@@ -488,20 +494,23 @@ for (const scenario of [
     name: "primary provider assignment",
     usage: {"providers/assigned-primary": {
       providerCategory: "unused",
-      serviceCategories: [],
-    }},
-  },
-  {
-    name: "secondary provider category assignment",
-    usage: {"providers/assigned-secondary": {
-      providerCategory: "catering",
-      serviceCategories: ["catering", "unused"],
+      serviceCategories: ["unused"],
+      isDeleted: false,
     }},
   },
   {
     name: "add-on service assignment",
     usage: {"addons/assigned-service": {
       category: "unused",
+      isDeleted: false,
+    }},
+  },
+  {
+    name: "live package assignment",
+    usage: {"packages/assigned-package": {
+      serviceCategoryCode: "unused",
+      status: "published",
+      isDeleted: false,
     }},
   },
 ]) {
@@ -525,6 +534,59 @@ for (const scenario of [
     assert.equal(state.commits.length, 0);
   });
 }
+
+test("category deactivation allows secondary-only provider multi-select leftovers", async () => {
+  const {category, state} = fixture({
+    "serviceCategories/unused": {
+      code: "unused",
+      name: "Unused",
+      serviceType: "addon",
+      status: "active",
+    },
+    "providers/assigned-secondary": {
+      providerCategory: "catering",
+      serviceCategories: ["catering", "unused"],
+      isDeleted: false,
+    },
+  });
+
+  const result = await category.discontinueServiceCategory(request({code: "unused"}));
+  assert.deepEqual(result, {success: true});
+  assert.equal(state.docs.get("serviceCategories/unused").status, "discontinued");
+});
+
+test("category delete ignores deleted providers, deleted services, and archived packages", async () => {
+  const {category, state} = fixture({
+    "serviceCategories/unused": {
+      code: "unused",
+      name: "Unused",
+      serviceType: "addon",
+      status: "discontinued",
+    },
+    "providers/deleted-primary": {
+      providerCategory: "unused",
+      serviceCategories: ["unused"],
+      isDeleted: true,
+    },
+    "providers/secondary-only": {
+      providerCategory: "catering",
+      serviceCategories: ["catering", "unused"],
+      isDeleted: false,
+    },
+    "addons/deleted-service": {
+      category: "unused",
+      isDeleted: true,
+    },
+    "packages/archived-package": {
+      serviceCategoryCode: "unused",
+      status: "archived",
+      isDeleted: false,
+    },
+  });
+
+  await category.deleteServiceCategory(request({code: "unused"}));
+  assert.equal(state.docs.has("serviceCategories/unused"), false);
+});
 
 test("concurrent provider assignment blocks category deactivation on retry", async () => {
   const {category, state} = fixture({

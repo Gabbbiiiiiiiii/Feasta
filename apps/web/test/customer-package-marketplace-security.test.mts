@@ -16,6 +16,11 @@ test("package discovery is bounded, batched, server-only, and provider-normalize
   assert.match(service, /normalizePublicProvider/u);
   assert.match(service, /normalizePublicPackage/u);
   assert.doesNotMatch(service, /documents\.map\([^)]*\.get\(/u);
+  assert.match(service, /MEDIA_PACKAGE_CANDIDATE_LIMIT = 60/u);
+  assert.match(service, /MEDIA_PACKAGE_RESULT_LIMIT = 20/u);
+  assert.match(service, /isMediaPackageCategory/u);
+  assert.match(service, /mediaPackageHref/u);
+  assert.match(service, /FIRESTORE_COLLECTIONS\.addons/u);
 });
 
 test("package candidates require every canonical publication projection", async () => {

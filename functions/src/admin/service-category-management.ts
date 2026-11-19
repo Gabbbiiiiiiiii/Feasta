@@ -257,35 +257,63 @@ async function authorizeAdmin(
 
 // Only zero/nonzero is needed. Bounded query reads join the mutation's read set
 // so a concurrent assignment cannot pass a stale preflight usage check.
+// Hard usage only: primary provider category, live services, and live packages.
+// Secondary serviceCategories multi-select leftovers do not block lifecycle.
 async function categoryUsageCounts(
   transaction: FirebaseFirestore.Transaction,
   code: string,
 ): Promise<{
   primaryProviders: number;
-  providers: number;
   services: number;
+  packages: number;
 }> {
-  const providers = db.collection("providers");
-  const services = db.collection("addons");
-
   const [
-    primaryProviderCount,
-    providerCount,
-    serviceCount,
+    primaryProviderSnap,
+    serviceSnap,
+    packageSnap,
   ] = await Promise.all([
-    transaction.get(providers.where("providerCategory", "==", code).limit(1)),
-    transaction.get(providers.where("serviceCategories", "array-contains", code).limit(1)),
-    transaction.get(services.where("category", "==", code).limit(1)),
+    transaction.get(
+      db.collection("providers")
+        .where("providerCategory", "==", code)
+        .limit(5),
+    ),
+    transaction.get(
+      db.collection("addons")
+        .where("category", "==", code)
+        .limit(5),
+    ),
+    transaction.get(
+      db.collection("packages")
+        .where("serviceCategoryCode", "==", code)
+        .limit(5),
+    ),
   ]);
 
   return {
-    primaryProviders:
-      primaryProviderCount.size,
-    providers:
-      providerCount.size,
-    services:
-      serviceCount.size,
+    primaryProviders: primaryProviderSnap.docs.filter(
+      (document) => document.data()?.isDeleted !== true,
+    ).length,
+    services: serviceSnap.docs.filter(
+      (document) => document.data()?.isDeleted !== true,
+    ).length,
+    packages: packageSnap.docs.filter((document) => {
+      const data = document.data() ?? {};
+      if (data.isDeleted === true) {
+        return false;
+      }
+
+      return data.status === "draft" ||
+        data.status === "published";
+    }).length,
   };
+}
+
+function categoryHasHardUsage(
+  usage: Awaited<ReturnType<typeof categoryUsageCounts>>,
+): boolean {
+  return usage.primaryProviders > 0 ||
+    usage.services > 0 ||
+    usage.packages > 0;
 }
 
 export const createServiceCategory = onCall(
@@ -425,12 +453,7 @@ export const updateServiceCategory = onCall(
             );
           }
 
-          if (
-            !usage ||
-            usage.primaryProviders > 0 ||
-            usage.providers > 0 ||
-            usage.services > 0
-          ) {
+          if (categoryHasHardUsage(usage)) {
             throw new HttpsError(
               "failed-precondition",
               "The service type cannot be changed while this category is in use.",
@@ -530,7 +553,7 @@ async function changeCategoryStatus(
 
       if (nextStatus === "discontinued") {
         const usage = await categoryUsageCounts(transaction, code);
-        if (usage.primaryProviders > 0 || usage.providers > 0 || usage.services > 0) {
+        if (categoryHasHardUsage(usage)) {
           throw new HttpsError(
             "failed-precondition",
             "This service category is assigned to a provider or service and cannot be deactivated.",
@@ -661,7 +684,7 @@ export const deleteServiceCategory = onCall(
         }
 
         const usage = await categoryUsageCounts(transaction, code);
-        if (usage.primaryProviders > 0 || usage.providers > 0 || usage.services > 0) {
+        if (categoryHasHardUsage(usage)) {
           throw new HttpsError(
             "failed-precondition",
             "This service category is currently in use and cannot be deleted.",

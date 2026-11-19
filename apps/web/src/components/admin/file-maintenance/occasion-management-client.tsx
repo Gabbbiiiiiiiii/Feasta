@@ -45,7 +45,7 @@ export function OccasionManagementClient({categories, onDirtyChange}: {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
-  const [sort, setSort] = useState("order");
+  const sort = "name";
   const [status, setStatus] = useState("all");
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [editor, setEditor] = useState<"create" | AdminOccasion | null>(null);
@@ -530,7 +530,7 @@ export function OccasionManagementClient({categories, onDirtyChange}: {
           </p>
         </button>
       </div>
-      <div className="grid gap-3 sm:grid-cols-3">
+      <div className="grid gap-3 sm:grid-cols-2">
         <Input
           aria-label="Search occasions"
           placeholder="Search event types"
@@ -546,20 +546,9 @@ export function OccasionManagementClient({categories, onDirtyChange}: {
           <option value="active">Active</option>
           <option value="inactive">Inactive</option>
         </Select>
-        <Select
-          aria-label="Sort occasions"
-          value={sort}
-          onChange={(e) => setSort(e.target.value)}
-        >
-          <option value="order">Catalog order</option>
-          <option value="name">Name</option>
-        </Select>
       </div>
 
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-sm text-muted-foreground">
-          Catalog revision {catalog.revision}
-        </p>
         <p className="text-sm text-muted-foreground" role="status">
           Showing {items.length} of {catalog.items.length} occasions
         </p>
@@ -584,9 +573,6 @@ export function OccasionManagementClient({categories, onDirtyChange}: {
                 <h3 className="font-semibold">{o.label}</h3>
                 <Badge>{o.active ? "Active" : "Inactive"}</Badge>
               </div>
-              <p className="mt-1 text-xs text-muted-foreground">
-                Order {o.sortOrder}
-              </p>
               <p className="mt-1 break-words text-xs text-muted-foreground">
                 {o.applicableServiceCategoryCodes.map(categoryName).join(", ") || "No service categories"}
               </p>
@@ -674,7 +660,6 @@ export function OccasionManagementClient({categories, onDirtyChange}: {
       <DialogHeader><DialogTitle>{readinessItem?.active ? "Deactivate Event Type" : "Activate Event Type"}: {readinessItem?.label}</DialogTitle>
         <DialogDescription>{readinessItem?.active ? "This event type will become unavailable for new bookings. Existing bookings and provider records will remain unchanged." : "This read-only check does not change the occasion or grant provider approval."}</DialogDescription>      </DialogHeader>
       <div className="min-h-0 flex-1 space-y-3 overflow-y-auto pr-1 text-sm">
-      {!readinessItem?.active && <p>The read-only inventory check does not change occasion status. Execution repeats the authority and inventory checks atomically and may still reject concurrent changes.</p>}
       {checkingReadiness && <p role="status">Checking event type availability…</p>}
       {readinessError && <div role="alert">{readinessError}<p>Readiness could not be verified. No change was made.</p></div>}
       {readiness && (readinessItem?.active ? (
@@ -713,40 +698,21 @@ export function OccasionManagementClient({categories, onDirtyChange}: {
         </div>
       ) : (
         <div className="space-y-3">
-          <p className="text-xs text-muted-foreground">
-            Catalog revision {readiness.catalogRevision ?? "unavailable"} ·
-            Occasion revision {readiness.occasionRevision ?? "unavailable"}.
-            Read-only results; execution repeats all checks.
-          </p>
-
-          <div className="grid grid-cols-2 gap-2">
-            <div className="rounded-lg border bg-muted/30 p-3">
-              <p className="text-xs text-muted-foreground">Packages scanned</p>
-              <p className="text-xl font-semibold">
-                {readiness.packageCount ?? "—"}
-              </p>
-            </div>
-            <div className="rounded-lg border bg-muted/30 p-3">
-              <p className="text-xs text-muted-foreground">Gallery documents</p>
-              <p className="text-xl font-semibold">
-                {readiness.galleryCount ?? "—"}
-              </p>
-            </div>
-          </div>
-
-          <p className="rounded-lg border p-3 text-sm">
-            Content requiring review:
-            {" "}{readiness.affectedPackages ?? "unknown"} packages,
-            {" "}{readiness.affectedGallerySetups ?? "unknown"} setup entries.
-          </p>
+          {(readiness.affectedPackages ?? 0) > 0 ||
+          (readiness.affectedGallerySetups ?? 0) > 0 ? (
+            <p className="rounded-lg border p-3 text-sm">
+              Content requiring review:
+              {" "}{readiness.affectedPackages ?? "unknown"} packages,
+              {" "}{readiness.affectedGallerySetups ?? "unknown"} setup entries.
+            </p>
+          ) : null}
 
           {readiness.lifecycleAvailable &&
           readiness.status === "ELIGIBLE_FOR_TRANSACTION" ? (
             <div role="status" className="rounded-lg border p-3">
               <p className="font-semibold">Ready for activation</p>
               <p className="mt-1 text-muted-foreground">
-                The preview checks passed. The server will recheck
-                everything before changing the event type.
+                Safety checks passed. You can activate this event type.
               </p>
             </div>
           ) : (
@@ -776,21 +742,6 @@ export function OccasionManagementClient({categories, onDirtyChange}: {
                 )}
             </div>
           )}
-
-          <details className="rounded-lg border p-3">
-            <summary className="cursor-pointer font-medium">
-              Verified for this check (
-              {readiness.checks.filter((check) =>
-                check.status === "SATISFIED").length})
-            </summary>
-            <ul className="mt-3 list-disc space-y-1 pl-5">
-              {readiness.checks
-                .filter((check) => check.status === "SATISFIED")
-                .map((check) => (
-                  <li key={check.code}>{check.message}</li>
-                ))}
-            </ul>
-          </details>
         </div>
       ))}
       </div>
@@ -952,11 +903,6 @@ export function OccasionManagementClient({categories, onDirtyChange}: {
   </p>
 </div>}
           <label className="grid gap-1">{editor === "create" ? "Reason for adding" : "Reason for change"}<Input placeholder={editor === "create" ? "Explain why this occasion should be added to FEASTA." : "Explain the change."} required minLength={10} maxLength={500} value={reason} onChange={(e) => {setReason(e.target.value); setDirty(true);}} /></label>
-          <details className="rounded-lg border p-3"><summary className="cursor-pointer font-medium">Advanced options</summary><div className="mt-4 grid gap-4">
-          <label className="grid gap-1">Aliases (comma separated)<Input value={draft.aliases.join(",")} onChange={(e) => {setDraft({...draft, aliases: e.target.value ? e.target.value.split(",") : []}); setDirty(true);}} /></label>
-          <label className="grid gap-1">Sort order<Input required type="number" step="1" min={Number.MIN_SAFE_INTEGER} max={Number.MAX_SAFE_INTEGER} value={Number.isNaN(draft.sortOrder) ? "" : draft.sortOrder} onChange={(e) => {setDraft({...draft, sortOrder: e.target.valueAsNumber}); setDirty(true);}} /></label>
-
-          </div></details>
         </fieldset>
         {formError && <p role="alert">{formError}</p>}
         </div><div className="flex shrink-0 justify-end gap-2 border-t bg-card p-4"><Button type="button" variant="secondary" disabled={busy} onClick={close}>Cancel</Button><Button type="submit" disabled={busy}>{editor === "create" ? "Review Occasion" : "Review changes"}</Button></div>
@@ -964,7 +910,9 @@ export function OccasionManagementClient({categories, onDirtyChange}: {
     <ConfirmationDialog open={confirm} stopEscapePropagation onCloseAutoFocus={(e) => {e.preventDefault(); nameInput.current?.focus();}} onOpenChange={setConfirm} title={applicabilityChanged ? "Add applicable services?" : "Save occasion metadata?"} description={applicabilityChanged ?
       `Add ${draft.applicableServiceCategoryCodes.filter((code) => !originalApplicableCodes.includes(code))
         .map(categoryName).join(", ")} to ${draft.label}. The occasion stays inactive. Reason: ${reason}` :
-      `Save ${draft.label} at catalog revision ${catalog?.revision}. ${editor === "create" ? "It will remain inactive." : "Publication status and eligibility stay unchanged."}`} confirmLabel="Save occasion" loading={busy} onConfirm={save} />
+      editor === "create"
+        ? `Save “${draft.label}” as a new occasion? It will stay inactive until you activate it.`
+        : `Save changes to “${draft.label}”? Publication status and eligibility stay unchanged.`} confirmLabel="Save occasion" loading={busy} onConfirm={save} />
     <ConfirmationDialog open={discard} stopEscapePropagation onCloseAutoFocus={(e) => {e.preventDefault(); nameInput.current?.focus();}} cancelLabel="Keep Editing" onOpenChange={setDiscard} title="Discard unsaved changes?" description="Your occasion edits have not been saved." confirmLabel="Discard Changes" onConfirm={resetEditor} />
     </DialogContent></Dialog>
     <Dialog open={!!previewItem} onOpenChange={(open) => {if (!open && !busy) setPreviewItem(undefined);}}><DialogContent>

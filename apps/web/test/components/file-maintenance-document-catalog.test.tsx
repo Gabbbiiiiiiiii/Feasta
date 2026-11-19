@@ -281,30 +281,20 @@ describe("File Maintenance document catalog", () => {
       }),
     );
 
-    fireEvent.change(
-      dialog.getByLabelText(
-        /business registration type/i,
-      ),
-      {
-        target: {
-          value: "registered_business",
-        },
-      },
-    );
-
-    fireEvent.change(
-      dialog.getByLabelText(
-        /apply this requirement to/i,
-      ),
-      {
-        target: {
-          value: "service_category",
-        },
-      },
+    await user.click(
+      dialog.getByRole("radio", {
+        name: /registered businesses/i,
+      }),
     );
 
     await user.click(
-      dialog.getByLabelText(/venue · add-on/i),
+      dialog.getByRole("radio", {
+        name: /by service category/i,
+      }),
+    );
+
+    await user.click(
+      dialog.getByLabelText(/^venue$/i),
     );
 
     await user.click(
