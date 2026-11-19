@@ -48,7 +48,7 @@ test("provider can request advance after customer payment", () => {
   assert.equal(request.status, "pending");
 });
 
-test("advance approval debits float by provider net amount", () => {
+test("deposit advance approval stays outstanding and tracks float debt", () => {
   const funded = domain.planCompanyFloatFunding({
     float: domain.emptyCompanyFloat(),
     amountInCentavos: 250_000,
@@ -68,9 +68,62 @@ test("advance approval debits float by provider net amount", () => {
     mainEventId: "event_1",
     issuedByAdminUid: "admin_1",
     requestStatus: "pending",
+    settlementStatus: "deposit_settled",
   });
   assert.equal(planned.float.availableBalanceInCentavos, 160_000);
+  assert.equal(planned.float.outstandingAdvanceInCentavos, 90_000);
   assert.equal(planned.advance.outstandingAmountInCentavos, 90_000);
+  assert.equal(planned.advance.status, "outstanding");
+  assert.equal(planned.advance.repaidAmountInCentavos, 0);
+});
+
+test("full-payment advance approval is repaid with no float debt", () => {
+  const funded = domain.planCompanyFloatFunding({
+    float: domain.emptyCompanyFloat(),
+    amountInCentavos: 250_000,
+  });
+  const planned = domain.planCompanyAdvanceApproval({
+    float: funded,
+    amountInCentavos: 90_000,
+    maxAmountInCentavos: 90_000,
+    advanceRequestId: "company_adv_req_full_1",
+    providerRequestId: "request_full_1",
+    providerId: "provider_1",
+    mainEventId: "event_1",
+    issuedByAdminUid: "admin_1",
+    requestStatus: "pending",
+    settlementStatus: "fully_settled",
+  });
+  assert.equal(planned.float.availableBalanceInCentavos, 160_000);
+  assert.equal(planned.float.outstandingAdvanceInCentavos, 0);
+  assert.equal(planned.advance.status, "repaid");
+  assert.equal(planned.advance.outstandingAmountInCentavos, 0);
+  assert.equal(planned.advance.repaidAmountInCentavos, 90_000);
+});
+
+test("advance approval plans pending earnings into available", () => {
+  const planned = domain.planProviderEarningAdvanceAvailability({
+    pendingAmountInCentavos: 90_000,
+    availableAmountInCentavos: 0,
+    paidAmountInCentavos: 0,
+    earningAmountInCentavos: 90_000,
+  });
+  assert.equal(planned.pendingAmountInCentavos, 0);
+  assert.equal(planned.availableAmountInCentavos, 90_000);
+  assert.equal(planned.status, "available");
+  assert.equal(planned.releasedAmountInCentavos, 90_000);
+});
+
+test("advance availability plan is a no-op when nothing is pending", () => {
+  assert.equal(
+    domain.planProviderEarningAdvanceAvailability({
+      pendingAmountInCentavos: 0,
+      availableAmountInCentavos: 50_000,
+      paidAmountInCentavos: 0,
+      earningAmountInCentavos: 50_000,
+    }),
+    null,
+  );
 });
 
 test("partial repayment reduces outstanding advance", () => {
@@ -88,6 +141,7 @@ test("partial repayment reduces outstanding advance", () => {
     mainEventId: "event_1",
     issuedByAdminUid: "admin_1",
     requestStatus: "pending",
+    settlementStatus: "deposit_settled",
   });
   const repaid = domain.planCompanyAdvanceRepayment({
     float: issued.float,

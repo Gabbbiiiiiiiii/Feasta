@@ -36,6 +36,21 @@ test("advance approval and requests are role gated", () => {
   assert.match(advanceSource, /ADVANCE_CONFIRMATION_PHRASE/);
 });
 
+test("advance approval releases pending earnings into available", () => {
+  assert.match(advanceSource, /loadCompanyAdvanceEarningReleasePlans/);
+  assert.match(advanceSource, /planProviderEarningAdvanceAvailability/);
+  assert.match(advanceSource, /companyAdvanceAvailabilityReleasedAt/);
+});
+
+test("advance approval persists settlement-based advance status", () => {
+  assert.match(advanceSource, /settlementStatus: booking\.settlementStatus/);
+  assert.match(advanceSource, /companyAdvanceStatus: planned\.advance\.status/);
+  assert.match(
+    advanceSource,
+    /companyAdvanceOutstandingInCentavos:\s*\n\s*planned\.advance\.outstandingAmountInCentavos/,
+  );
+});
+
 test("payment success credits commission into company float", () => {
   assert.match(
     webhookSource,

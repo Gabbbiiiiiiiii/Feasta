@@ -118,17 +118,34 @@ export function ProviderBookingsClient({
     {
       id: "payment",
       header: "Payment",
-      cell: (booking) => <div className="grid gap-1">{booking.paymentAttention
-        ? <span className="text-sm font-medium">{booking.paymentAttention}</span> : booking.paymentStatus
-        ? <StatusBadge status={booking.paymentStatus} />
-        : <span className="text-muted-foreground">Not recorded</span>}
-        {booking.balanceEnforcement ? <span className="text-xs text-warning">{booking.balanceEnforcement.explanation ?? booking.balanceEnforcement.label}</span> : null}</div>,
+      headerClassName: "min-w-[8.5rem]",
+      cellClassName: "min-w-[8.5rem] max-w-[12rem] overflow-hidden",
+      cell: (booking) => (
+        <div className="relative isolate grid max-w-full gap-1">
+          {booking.paymentAttention
+            ? <span className="text-sm font-medium">{booking.paymentAttention}</span>
+            : booking.paymentStatus
+              ? <StatusBadge status={booking.paymentStatus} className="max-w-full" />
+              : <span className="text-muted-foreground">Not recorded</span>}
+          {booking.balanceEnforcement
+            ? (
+              <span className="text-xs text-warning">
+                {booking.balanceEnforcement.explanation ?? booking.balanceEnforcement.label}
+              </span>
+            )
+            : null}
+        </div>
+      ),
     },
     {
       id: "status",
       header: "Status",
+      headerClassName: "min-w-[9rem]",
+      cellClassName: "min-w-[9rem] max-w-[14rem] overflow-hidden",
       cell: (booking) => (
-        <ProviderBookingStatus booking={booking} />
+        <div className="relative isolate max-w-full">
+          <ProviderBookingStatus booking={booking} />
+        </div>
       ),
     },
   ], []);
@@ -265,10 +282,26 @@ export function ProviderBookingsClient({
         onSearchInvalidate={() => {listGeneration.current += 1; setLoading(false);}}
         onSearchSubmit={search => void loadPage({...filters, search, cursor: null}, [], 1)}
         onClearSearch={() => {setSearchValue(""); void loadPage({...filters, search: "", cursor: null}, [], 1);}}
-        onClearFilters={() => {setSearchValue(""); void loadPage({...filters, search: "", secondary: "all", cursor: null}, [], 1);}}
+        onClearFilters={() => {
+          setSearchValue("");
+          const nextFilters = {
+            ...filters,
+            search: "",
+            status: "all" as const,
+            secondary: "all" as const,
+            dashboard: undefined,
+            cursor: null,
+          };
+          router.replace(pathname, {scroll: false});
+          void loadPage(nextFilters, [], 1);
+        }}
         searchLabel="Search bookings" searchPlaceholder="Customer, booking reference, event, package or service"
         searchHint="Search checks up to 150 booking records at a time. Use Next to continue through your history."
-        activeFilters={[...(filters.search ? [filters.search] : []), ...(filters.secondary && filters.secondary !== "all" ? [filters.secondary] : [])]}
+        activeFilters={[
+          ...(filters.search ? [filters.search] : []),
+          ...(filters.status !== "all" ? [filterOptions.find((option) => option.value === filters.status)?.label ?? filters.status] : []),
+          ...(filters.secondary && filters.secondary !== "all" ? [filters.secondary] : []),
+        ]}
         loading={loading}
         filterControls={filters.status === "past" || filters.status === "all" ? <label className="grid gap-1 text-sm">Booking filter
           <select aria-label="Booking filter" value={filters.secondary ?? "all"} onChange={event => void loadPage({...filters, secondary: event.target.value as ProviderBookingFilters["secondary"], cursor: null}, [], 1)} className="rounded-lg border border-input bg-card p-2">

@@ -256,7 +256,7 @@ describe("provider bookings workspace", () => {
       );
     });
 
-    await user.click(screen.getByRole("button", {name: "Waiting for Payment"}));
+    await user.click(screen.getByRole("button", {name: "Awaiting Payment"}));
     await waitFor(() => {
       expect(mocks.loadPage).toHaveBeenLastCalledWith(
         expect.objectContaining({status: "waiting_payment", cursor: null}),
@@ -270,7 +270,7 @@ describe("provider bookings workspace", () => {
 
   it.each([
         ["Active events", "upcoming"],
-    ["Waiting for Payment", "waiting_payment"],
+    ["Awaiting Payment", "waiting_payment"],
     ["Past Bookings", "past"],
   ] as const)("maps the %s filter to %s", async (label, status) => {
     const user = userEvent.setup();
@@ -466,7 +466,7 @@ it("ignores an older list response after a newer view loads", async () => {
   mocks.loadPage.mockImplementationOnce(() => new Promise(resolve => {resolveOld = resolve;})).mockResolvedValueOnce(page([{...booking(), customerDisplayName: "Latest customer"}]));
   renderWorkspace();
   const user = userEvent.setup();
-  await user.click(screen.getByRole("button", {name: "Waiting for Payment"}));
+  await user.click(screen.getByRole("button", {name: "Awaiting Payment"}));
   await user.click(screen.getByRole("button", {name: "Past Bookings"}));
   await screen.findAllByText("Latest customer");
   resolveOld(page([{...booking(), customerDisplayName: "Stale customer"}]));

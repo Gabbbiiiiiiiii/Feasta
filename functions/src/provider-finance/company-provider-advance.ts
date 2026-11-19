@@ -20,6 +20,7 @@ import {serverTimestamp} from "../shared/timestamps.js";
 import {
   COMPANY_FLOAT_DOC_PATH,
   COMPANY_FLOAT_LEDGER_SCHEMA_VERSION,
+  bookingPaymentIdsForEarnings,
   companyAdvancePayoutIdForAdvance,
   companyAdvanceRequestIdForProviderRequest,
   companyFloatCommissionLedgerId,
@@ -31,8 +32,13 @@ import {
   planCompanyAdvanceRequest,
   planCompanyFloatCommissionCredit,
   planCompanyFloatFunding,
+  planProviderEarningAdvanceAvailability,
   providerRequestHasCustomerPayment,
 } from "./company-float-domain.js";
+import {
+  releaseProviderSettlementAvailability,
+  settlementIdForEarning,
+} from "./provider-settlement-domain.js";
 
 const FUND_CONFIRMATION_PHRASE = "FUND";
 const ADVANCE_CONFIRMATION_PHRASE = "ADVANCE";
@@ -64,7 +70,7 @@ export type ApproveCompanyAdvanceRequestResult = {
   providerId: string;
   amountInCentavos: number;
   currency: "PHP";
-  status: "outstanding";
+  status: "outstanding" | "repaid";
   mode: "mock";
   repaymentDestination: "company_float";
 };
@@ -448,18 +454,81 @@ export const approveCompanyAdvanceRequest = onCall(
       if (!requestSnap.exists) {
         throw new HttpsError("not-found", "The advance request was not found.");
       }
-      if (advanceSnap.exists || payoutSnap.exists) {
-        throw new HttpsError(
-          "failed-precondition",
-          "This advance request was already approved.",
-        );
-      }
 
       const advanceRequest = requestSnap.data() ?? {};
       const providerRequestId = String(advanceRequest.providerRequestId ?? "");
       const bookingSnap = await transaction.get(
         db.collection("providerRequests").doc(providerRequestId),
       );
+
+      /*
+       * Idempotent repair: an already-approved outstanding advance can still
+       * release pending earnings into available if an older approve path
+       * skipped that step.
+       */
+      if (advanceSnap.exists || payoutSnap.exists) {
+        const existingAdvance = advanceSnap.exists
+          ? advanceSnap.data() ?? {}
+          : null;
+        if (
+          existingAdvance &&
+          existingAdvance.status === "outstanding" &&
+          typeof existingAdvance.providerRequestId === "string" &&
+          bookingSnap.exists
+        ) {
+          const timestamp = serverTimestamp();
+          const earningReleasePlans =
+            await loadCompanyAdvanceEarningReleasePlans({
+              transaction,
+              providerRequestId: existingAdvance.providerRequestId,
+              providerId: String(
+                existingAdvance.providerId ??
+                  advanceRequest.providerId ??
+                  "",
+              ),
+              booking: bookingSnap.data() ?? {},
+              timestamp,
+            });
+          for (const release of earningReleasePlans.releases) {
+            transaction.update(release.earningRef, {
+              ...release.earningUpdate,
+              companyAdvanceId: existingAdvance.advanceId,
+              companyAdvanceAvailabilityReleasedAt: timestamp,
+              updatedAt: timestamp,
+            });
+            if (release.settlementRef && release.settlementUpdate) {
+              transaction.update(release.settlementRef, {
+                ...release.settlementUpdate,
+                updatedAt: timestamp,
+              });
+            }
+          }
+          if (earningReleasePlans.releasedAmountInCentavos > 0) {
+            transaction.update(bookingSnap.ref, {
+              companyAdvanceEarningsReleasedInCentavos:
+                earningReleasePlans.releasedAmountInCentavos,
+              updatedAt: timestamp,
+            });
+          }
+          return {
+            advanceId: String(existingAdvance.advanceId),
+            advanceRequestId:
+              String(existingAdvance.advanceRequestId ?? advanceRequestId),
+            providerRequestId: String(existingAdvance.providerRequestId),
+            providerId: String(existingAdvance.providerId),
+            amountInCentavos: Number(existingAdvance.amountInCentavos),
+            currency: "PHP" as const,
+            status: "outstanding" as const,
+            mode: "mock" as const,
+            repaymentDestination: "company_float" as const,
+          };
+        }
+        throw new HttpsError(
+          "failed-precondition",
+          "This advance request was already approved.",
+        );
+      }
+
       if (!bookingSnap.exists) {
         throw new HttpsError("failed-precondition", "The booking was not found.");
       }
@@ -503,12 +572,22 @@ export const approveCompanyAdvanceRequest = onCall(
               : null,
           issuedByAdminUid: actor.uid,
           requestStatus: String(advanceRequest.status),
+          settlementStatus: booking.settlementStatus,
         });
       } catch (error) {
         throw toFailedPrecondition(error, "Company advance could not be approved.");
       }
 
       const timestamp = serverTimestamp();
+      const earningReleasePlans =
+        await loadCompanyAdvanceEarningReleasePlans({
+          transaction,
+          providerRequestId,
+          providerId: String(advanceRequest.providerId ?? booking.providerId ?? ""),
+          booking,
+          timestamp,
+        });
+
       transaction.update(floatRef, {
         ...planned.float,
         updatedAt: timestamp,
@@ -522,7 +601,8 @@ export const approveCompanyAdvanceRequest = onCall(
         createdAt: timestamp,
         updatedAt: timestamp,
         issuedAt: timestamp,
-        repaidAt: null,
+        repaidAt:
+          planned.advance.status === "repaid" ? timestamp : null,
         advancePayoutId: planned.advancePayoutId,
       });
       transaction.create(advancePayoutRef, {
@@ -551,18 +631,37 @@ export const approveCompanyAdvanceRequest = onCall(
         approvedByAdminUid: actor.uid,
         advanceId: planned.advance.advanceId,
         approvedAmountInCentavos: planned.advance.amountInCentavos,
+        companyAdvanceStatus: planned.advance.status,
         updatedAt: timestamp,
       });
       transaction.update(bookingSnap.ref, {
         companyAdvanceId: planned.advance.advanceId,
         companyAdvanceRequestId: advanceRequestId,
         companyAdvanceRequestStatus: "approved",
-        companyAdvanceStatus: "outstanding",
+        companyAdvanceStatus: planned.advance.status,
         companyAdvanceAmountInCentavos: planned.advance.amountInCentavos,
-        companyAdvanceOutstandingInCentavos: planned.advance.amountInCentavos,
+        companyAdvanceOutstandingInCentavos:
+          planned.advance.outstandingAmountInCentavos,
         companyAdvanceCommissionInCentavos: amounts.commissionAmountInCentavos,
+        companyAdvanceEarningsReleasedInCentavos:
+          earningReleasePlans.releasedAmountInCentavos,
         updatedAt: timestamp,
       });
+
+      for (const release of earningReleasePlans.releases) {
+        transaction.update(release.earningRef, {
+          ...release.earningUpdate,
+          companyAdvanceId: planned.advance.advanceId,
+          companyAdvanceAvailabilityReleasedAt: timestamp,
+          updatedAt: timestamp,
+        });
+        if (release.settlementRef && release.settlementUpdate) {
+          transaction.update(release.settlementRef, {
+            ...release.settlementUpdate,
+            updatedAt: timestamp,
+          });
+        }
+      }
 
       return planned.advance;
     });
@@ -574,7 +673,8 @@ export const approveCompanyAdvanceRequest = onCall(
       providerId: approved.providerId,
       amountInCentavos: approved.amountInCentavos,
       currency: "PHP",
-      status: "outstanding",
+      status:
+        approved.status === "repaid" ? "repaid" : "outstanding",
       mode: "mock",
       repaymentDestination: "company_float",
     };
@@ -850,6 +950,149 @@ function floatReference() {
   return db
     .collection(COMPANY_FLOAT_DOC_PATH.collection)
     .doc(COMPANY_FLOAT_DOC_PATH.document);
+}
+
+async function loadCompanyAdvanceEarningReleasePlans(input: {
+  transaction: Transaction;
+  providerRequestId: string;
+  providerId: string;
+  booking: Readonly<Record<string, unknown>>;
+  timestamp: unknown;
+}): Promise<{
+  releasedAmountInCentavos: number;
+  releases: Array<{
+    earningRef: DocumentReference;
+    earningUpdate: Record<string, unknown>;
+    settlementRef: DocumentReference | null;
+    settlementUpdate: Record<string, unknown> | null;
+  }>;
+}> {
+  const paymentIds = bookingPaymentIdsForEarnings(input.booking);
+  const earningRefs =
+    paymentIds.length > 0
+      ? paymentIds.map((paymentId) =>
+          db.collection("providerEarnings").doc(paymentId),
+        )
+      : [];
+
+  const earningSnaps =
+    earningRefs.length > 0
+      ? await input.transaction.getAll(...earningRefs)
+      : [];
+
+  const matchedEarnings = earningSnaps.flatMap((snap) => {
+    if (!snap.exists) {
+      return [];
+    }
+    const data = snap.data() ?? {};
+    if (
+      data.providerRequestId !== input.providerRequestId ||
+      (input.providerId &&
+        data.providerId !== input.providerId)
+    ) {
+      return [];
+    }
+    return [{ref: snap.ref, data}];
+  });
+
+  /*
+   * Fallback when booking payment pointers are missing: equality query on
+   * providerRequestId (single-field, no composite index required).
+   */
+  const earnings =
+    matchedEarnings.length > 0
+      ? matchedEarnings
+      : (
+          await input.transaction.get(
+            db
+              .collection("providerEarnings")
+              .where("providerRequestId", "==", input.providerRequestId),
+          )
+        ).docs
+          .filter((doc) => {
+            const data = doc.data();
+            return (
+              !input.providerId ||
+              data.providerId === input.providerId
+            );
+          })
+          .map((doc) => ({ref: doc.ref, data: doc.data()}));
+
+  const settlementRefs = earnings.map((earning) =>
+    db
+      .collection("providerSettlements")
+      .doc(settlementIdForEarning(earning.ref.id)),
+  );
+  const settlementSnaps =
+    settlementRefs.length > 0
+      ? await input.transaction.getAll(...settlementRefs)
+      : [];
+
+  const releases: Array<{
+    earningRef: DocumentReference;
+    earningUpdate: Record<string, unknown>;
+    settlementRef: DocumentReference | null;
+    settlementUpdate: Record<string, unknown> | null;
+  }> = [];
+  let releasedAmountInCentavos = 0;
+
+  for (let index = 0; index < earnings.length; index += 1) {
+    const earning = earnings[index];
+    const settlementSnap = settlementSnaps[index];
+    const settlement =
+      settlementSnap?.exists ? settlementSnap.data() ?? {} : null;
+
+    if (
+      settlement &&
+      settlement.status === "awaiting_availability"
+    ) {
+      try {
+        const release = releaseProviderSettlementAvailability({
+          settlement,
+          earning: earning.data,
+          timestamp: input.timestamp,
+        });
+        releases.push({
+          earningRef: earning.ref,
+          earningUpdate: release.earningUpdate,
+          settlementRef: settlementSnap.ref,
+          settlementUpdate: release.settlementUpdate,
+        });
+        releasedAmountInCentavos += Number(
+          earning.data.pendingAmountInCentavos ?? 0,
+        );
+        continue;
+      } catch {
+        // Fall through to earning-only release when settlement cannot move.
+      }
+    }
+
+    const planned = planProviderEarningAdvanceAvailability(earning.data);
+    if (!planned) {
+      continue;
+    }
+    releases.push({
+      earningRef: earning.ref,
+      earningUpdate: {
+        status: planned.status,
+        pendingAmountInCentavos: planned.pendingAmountInCentavos,
+        availableAmountInCentavos: planned.availableAmountInCentavos,
+        availableAt: input.timestamp,
+      },
+      settlementRef: null,
+      settlementUpdate: null,
+    });
+    releasedAmountInCentavos += planned.releasedAmountInCentavos;
+  }
+
+  if (!Number.isSafeInteger(releasedAmountInCentavos) || releasedAmountInCentavos < 0) {
+    throw new HttpsError(
+      "failed-precondition",
+      "Provider earning release amount for company advance is invalid.",
+    );
+  }
+
+  return {releasedAmountInCentavos, releases};
 }
 
 function requireObject(

@@ -119,7 +119,7 @@ function DataTable<T>({
         </div>
       ) : null}
       <div className={cn("max-w-full overflow-x-auto overscroll-x-contain rounded-card border border-border bg-card shadow-card", renderMobileRow && "hidden md:block")}> 
-        <table aria-busy={updating} className="w-full min-w-[42rem] border-collapse text-left">
+        <table aria-busy={updating} className="w-full min-w-[48rem] table-fixed border-collapse text-left md:table-auto">
           <caption className="sr-only">{caption}</caption>
           <thead className="border-b border-muted bg-secondary text-foreground">
             <tr>
@@ -173,7 +173,7 @@ function DataTable<T>({
             {!updating && rows.map((row) => (
               <tr key={getRowId(row)} className="hover:bg-table-hover focus-within:bg-accent">
                 {columns.map((column) => (
-                  <td key={column.id} className={cn("max-w-md px-4 py-4 align-top text-sm", column.cellClassName)}>
+                  <td key={column.id} className={cn("max-w-md min-w-0 overflow-hidden px-4 py-4 align-top text-sm", column.cellClassName)}>
                     {column.cell(row)}
                   </td>
                 ))}

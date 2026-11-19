@@ -3,7 +3,10 @@ import userEvent from "@testing-library/user-event";
 import {beforeEach, describe, expect, it, vi} from "vitest";
 
 import {ProviderPayoutBoard} from "@/components/admin/payments/provider-payout-board";
-import {releaseMockProviderDisbursement} from "@/lib/admin/payments/admin-payment-client";
+import {
+  approveCompanyAdvanceRequest,
+  releaseMockProviderDisbursement,
+} from "@/lib/admin/payments/admin-payment-client";
 import type {AdminProviderPayoutBoard} from "@/lib/admin/payments/admin-payment-types";
 
 vi.mock("@/lib/admin/payments/admin-payment-client", () => ({
@@ -166,5 +169,66 @@ describe("admin provider payout board", () => {
     expect(onReleaseStart).toHaveBeenCalledWith("disbursement_ready_1");
     expect(onReleased).toHaveBeenCalled();
     expect(onReleaseEnd).toHaveBeenCalled();
+  });
+
+  it("shows advance approval errors inside the modal", async () => {
+    const user = userEvent.setup();
+    vi.mocked(approveCompanyAdvanceRequest).mockRejectedValue(
+      new Error("Provide the advance request, amount, and ADVANCE confirmation."),
+    );
+
+    render(
+      <ProviderPayoutBoard
+        board={{
+          ...board,
+          advanceRequests: [
+            {
+              advanceRequestId: "adv_req_1",
+              providerRequestId: "provider_request_1",
+              providerId: "provider_1",
+              providerName: "Bagong Provider",
+              mainEventId: "main_event_1",
+              requestedAt: "2026-11-19T02:00:00.000Z",
+              providerNote: null,
+              grossAmountInCentavos: 100000,
+              formattedGrossAmount: "₱1,000.00",
+              commissionAmountInCentavos: 2000,
+              formattedCommissionAmount: "₱20.00",
+              providerNetAmountInCentavos: 98000,
+              formattedProviderNetAmount: "₱980.00",
+            },
+          ],
+        }}
+        loading={false}
+        releasingId={null}
+        onRefresh={vi.fn()}
+        onReleased={vi.fn()}
+        onReleaseStart={vi.fn()}
+        onReleaseEnd={vi.fn()}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", {name: "Approve advance"}));
+    const dialog = screen.getByRole("dialog", {
+      name: "Approve company advance?",
+    });
+    await user.type(within(dialog).getByLabelText("Admin password"), "secret");
+    await user.type(
+      within(dialog).getByLabelText("Type ADVANCE to confirm"),
+      "ADVANCE",
+    );
+    await user.click(within(dialog).getByRole("button", {name: "Approve advance"}));
+
+    await waitFor(() => {
+      expect(
+        within(dialog).getByText(
+          "Provide the advance request, amount, and ADVANCE confirmation.",
+        ),
+      ).toBeVisible();
+    });
+    expect(
+      screen.queryByText("Provider payout board could not complete an action"),
+    ).not.toBeInTheDocument();
+    expect(dialog).toBeVisible();
   });
 });

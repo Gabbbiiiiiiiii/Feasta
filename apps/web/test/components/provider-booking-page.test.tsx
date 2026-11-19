@@ -4,7 +4,7 @@ vi.mock("@/lib/provider/bookings/provider-booking-service", () => ({getProviderB
 vi.mock("@/app/provider/bookings/provider-bookings-client", () => ({ProviderBookingsClient: () => null}));
 import Page from "@/app/provider/bookings/page";
 it.each([
-  [{}, "upcoming", "all"],
+  [{}, "all", "all"],
   [{dashboard: "upcoming"}, "upcoming", "all"],
   [{dashboard: "payment"}, "waiting_payment", "all"],
   [{dashboard: "completed"}, "past", "completed"],

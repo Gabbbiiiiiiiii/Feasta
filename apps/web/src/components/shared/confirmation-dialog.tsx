@@ -42,6 +42,7 @@ type ConfirmationDialogProps = {
   bodyClassName?: string;
   restoreFocusId?: string;
   overlayClassName?: string;
+  error?: string | null;
   onCloseAutoFocus?: React.ComponentProps<typeof DialogContent>["onCloseAutoFocus"];
   stopEscapePropagation?: boolean;
 };
@@ -66,6 +67,7 @@ function ConfirmationDialog({
   bodyClassName,
   restoreFocusId,
   overlayClassName,
+  error = null,
   onCloseAutoFocus,
   stopEscapePropagation = false,
 }: ConfirmationDialogProps) {
@@ -158,6 +160,20 @@ function ConfirmationDialog({
             {description}
           </DialogDescription>
         </DialogHeader>
+
+        {error ? (
+          <div
+            className="rounded-xl border border-destructive/30 bg-destructive-subtle p-3"
+            role="alert"
+          >
+            <p className="text-sm font-bold text-destructive">
+              Action could not be completed
+            </p>
+            <p className="mt-1 text-sm text-destructive">
+              {error}
+            </p>
+          </div>
+        ) : null}
 
         {children ? (
           <div

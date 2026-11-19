@@ -271,6 +271,7 @@ export function planCompanyAdvanceApproval(input: {
   mainEventId: string | null;
   issuedByAdminUid: string;
   requestStatus: string;
+  settlementStatus: unknown;
 }): {
   float: CompanyFloatSnapshot;
   advance: CompanyProviderAdvanceRecord;
@@ -278,6 +279,15 @@ export function planCompanyAdvanceApproval(input: {
 } {
   if (input.requestStatus !== "pending") {
     throw companyFloatInvalid("Only pending advance requests can be approved.");
+  }
+
+  if (
+    input.settlementStatus !== "deposit_settled" &&
+    input.settlementStatus !== "fully_settled"
+  ) {
+    throw companyFloatInvalid(
+      "Customer payment must be deposit-settled or fully settled before advance approval.",
+    );
   }
 
   const amountInCentavos = positiveCentavos(
@@ -298,16 +308,24 @@ export function planCompanyAdvanceApproval(input: {
   }
 
   const advanceId = companyProviderAdvanceIdForRequest(input.advanceRequestId);
+  /*
+   * Full payment: customer already settled the booking, so the provider does
+   * not owe company float. Deposit path stays outstanding until remaining /
+   * ordinary proceeds repay float.
+   */
+  const fullPaymentSettled = input.settlementStatus === "fully_settled";
 
   return {
     float: {
       ...input.float,
       availableBalanceInCentavos:
         input.float.availableBalanceInCentavos - amountInCentavos,
-      outstandingAdvanceInCentavos: checkedAdd(
-        input.float.outstandingAdvanceInCentavos,
-        amountInCentavos,
-      ),
+      outstandingAdvanceInCentavos: fullPaymentSettled
+        ? input.float.outstandingAdvanceInCentavos
+        : checkedAdd(
+            input.float.outstandingAdvanceInCentavos,
+            amountInCentavos,
+          ),
     },
     advance: {
       schemaVersion: COMPANY_PROVIDER_ADVANCE_SCHEMA_VERSION,
@@ -323,10 +341,10 @@ export function planCompanyAdvanceApproval(input: {
           ? null
           : requireToken(input.mainEventId, "Main event"),
       amountInCentavos,
-      repaidAmountInCentavos: 0,
-      outstandingAmountInCentavos: amountInCentavos,
+      repaidAmountInCentavos: fullPaymentSettled ? amountInCentavos : 0,
+      outstandingAmountInCentavos: fullPaymentSettled ? 0 : amountInCentavos,
       currency: "PHP",
-      status: "outstanding",
+      status: fullPaymentSettled ? "repaid" : "outstanding",
       mode: "mock",
       fundedFrom: "company_float",
       repaymentDestination: "company_float",
@@ -413,6 +431,66 @@ export function providerRequestHasCustomerPayment(
     settlementStatus === "deposit_settled" ||
     settlementStatus === "fully_settled"
   );
+}
+
+/**
+ * Early-release helper for approved company advances.
+ * Moves pending provider earnings into available so the provider
+ * can use immediate funding without waiting for ordinary hold.
+ */
+export function planProviderEarningAdvanceAvailability(
+  earning: Readonly<Record<string, unknown>>,
+): {
+  pendingAmountInCentavos: number;
+  availableAmountInCentavos: number;
+  status: "available" | "paid";
+  releasedAmountInCentavos: number;
+} | null {
+  const pendingAmountInCentavos = nonNegativeCentavos(
+    earning.pendingAmountInCentavos ?? 0,
+    "Pending earning amount",
+  );
+  if (pendingAmountInCentavos <= 0) {
+    return null;
+  }
+
+  const availableAmountInCentavos = nonNegativeCentavos(
+    earning.availableAmountInCentavos ?? 0,
+    "Available earning amount",
+  );
+  const paidAmountInCentavos = nonNegativeCentavos(
+    earning.paidAmountInCentavos ?? 0,
+    "Paid earning amount",
+  );
+
+  return {
+    pendingAmountInCentavos: 0,
+    availableAmountInCentavos: checkedAdd(
+      availableAmountInCentavos,
+      pendingAmountInCentavos,
+    ),
+    status: paidAmountInCentavos > 0 ? "paid" : "available",
+    releasedAmountInCentavos: pendingAmountInCentavos,
+  };
+}
+
+export function bookingPaymentIdsForEarnings(
+  booking: Readonly<Record<string, unknown>>,
+): string[] {
+  const ids = new Set<string>();
+  for (const key of [
+    "initialPaymentId",
+    "remainingBalancePaymentId",
+  ] as const) {
+    const value = booking[key];
+    if (
+      typeof value === "string" &&
+      /^[A-Za-z0-9_-]{1,220}$/u.test(value)
+    ) {
+      ids.add(value);
+    }
+  }
+  return [...ids];
 }
 
 /**

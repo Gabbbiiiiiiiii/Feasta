@@ -223,16 +223,16 @@ function ProviderPayoutBoard({
         </p>
       </div>
 
-      {error || actionError ? (
+      {error && confirmState === null ? (
         <div
           className="rounded-xl border border-destructive/30 bg-destructive-subtle p-4"
           role="alert"
         >
           <p className="font-bold text-destructive">
-            Provider payout board could not complete an action
+            Provider payout board could not load
           </p>
           <p className="mt-1 text-sm text-destructive">
-            {actionError ?? error}
+            {error}
           </p>
         </div>
       ) : null}
@@ -677,6 +677,7 @@ function ProviderPayoutBoard({
         }}
         confirmDisabled={!canConfirm}
         loading={releasingId !== null}
+        error={actionError}
       >
         <div className="grid gap-4">
           {confirmState?.kind === "fund" ? (

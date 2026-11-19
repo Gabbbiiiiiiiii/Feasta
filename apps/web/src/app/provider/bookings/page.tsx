@@ -32,7 +32,7 @@ export default async function ProviderBookingsPage({
     requestedStatus as ProviderBookingFilter,
   )
     ? bookingView(requestedStatus as ProviderBookingFilter)
-    : "upcoming";
+    : "all";
   const dashboard = dashboardView(values.dashboard);
   const initialFilters = {
     search: typeof values.search === "string" ? values.search.slice(0, 160) : "",

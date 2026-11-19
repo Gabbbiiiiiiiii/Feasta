@@ -332,7 +332,7 @@ export async function approveCompanyAdvanceRequest(input: {
   providerId: string;
   amountInCentavos: number;
   currency: "PHP";
-  status: "outstanding";
+  status: "outstanding" | "repaid";
   mode: "mock";
   repaymentDestination: "company_float";
 }> {
@@ -358,7 +358,7 @@ export async function approveCompanyAdvanceRequest(input: {
       providerId: string;
       amountInCentavos: number;
       currency: "PHP";
-      status: "outstanding";
+      status: "outstanding" | "repaid";
       mode: "mock";
       repaymentDestination: "company_float";
     }
