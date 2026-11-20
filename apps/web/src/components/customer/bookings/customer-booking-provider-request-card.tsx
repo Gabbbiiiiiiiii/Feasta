@@ -137,8 +137,19 @@ function CustomerBookingProviderRequestCard({
         </div>
       ) : null}
 
+      {request.specialOffer && <h4 className="text-sm font-bold">Price breakdown</h4>}
       <dl className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-border bg-border">
-        <FinancialMetric label="Total service price" value={formatCurrency(request.amount)} />
+        {request.specialOffer && <>
+          {request.specialOffer.quantity !== undefined && (
+            <FinancialMetric label="Packages ordered" value={String(request.specialOffer.quantity)} />
+          )}
+          {request.specialOffer.unitAmountInCentavos !== undefined && (
+            <FinancialMetric label="Price per package" value={formatCurrency(request.specialOffer.unitAmountInCentavos / 100)} />
+          )}
+          <FinancialMetric label="Package subtotal" value={formatCurrency(request.specialOffer.subtotalInCentavos / 100)} />
+          {request.specialOffer.deliveryIncluded && <FinancialMetric label="Delivery" value="Included" />}
+        </>}
+        <FinancialMetric label={request.specialOffer ? "Total payable" : "Total service price"} value={formatCurrency(request.amount)} />
         {checkoutPresentation.currentAmount !== null ? <FinancialMetric label={checkoutPresentation.dueLabel} value={formatCurrency(checkoutPresentation.currentAmount)} /> : null}
       </dl>
       <section
@@ -149,7 +160,7 @@ function CustomerBookingProviderRequestCard({
           request.serviceVat.taxType === "vat_registered" ? (
             <div className="grid gap-1">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <span className="font-medium">Included provider VAT (12%)</span>
+                <span className="font-medium">{request.specialOffer ? "Included provider VAT" : "Included provider VAT (12%)"}</span>
                 <strong>{formatCurrency(request.serviceVat.includedInPriceInCentavos / 100)}</strong>
               </div>
               <details className="rounded-lg border border-border p-2">
@@ -170,10 +181,22 @@ function CustomerBookingProviderRequestCard({
           )
         ) : (
           <p className="text-xs text-muted-foreground">
-            VAT breakdown unavailable for this booking.
+            {request.specialOffer
+              ? "This booking has no verified provider VAT breakdown. Your accepted total still applies."
+              : "VAT breakdown unavailable for this booking."}
           </p>
         )}
       </section>
+      {request.specialOffer && (
+        <section className="rounded-xl border border-border bg-muted/20 p-3 text-sm">
+          <p className="font-semibold">FEASTA service fee</p>
+          {request.specialOffer.providerFeeInCentavos === null ? (
+            <p className="text-muted-foreground">This booking has no recorded fee breakdown.</p>
+          ) : (
+            <p>{formatCurrency(request.specialOffer.providerFeeInCentavos / 100)} provider commission, calculated on the total payable using FEASTA’s tiered caps. Customer charge {formatCurrency(0)}.</p>
+          )}
+        </section>
+      )}
       {request.lifecycle?.initialPaymentExpired && request.status === "expired" ? (
         <div role="status" className="grid gap-2 rounded-xl border border-border p-3.5 text-sm">
           <p className="font-bold">Payment expired — Submit a new booking request</p>

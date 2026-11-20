@@ -108,6 +108,13 @@ const providerBookingNavigation: readonly NavigationItem[] = [
   {
     kind: "link",
     section: "Bookings & Schedule",
+    label: "Special Requests",
+    href: "/provider/special-requests",
+    icon: ScrollText,
+  },
+  {
+    kind: "link",
+    section: "Bookings & Schedule",
     label: "My Bookings",
     href: "/provider/bookings",
     inactiveRoutes: ["/provider/bookings/walk-in"],

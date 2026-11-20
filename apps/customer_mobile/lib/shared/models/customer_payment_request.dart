@@ -177,6 +177,10 @@ class CustomerProviderPaymentRequest {
     this.initialPaymentDeadline,
     this.initialPaymentExplanation,
     this.serviceVat,
+    this.agreedPackagePriceInCentavos,
+    this.agreedTotalInCentavos,
+    this.providerFeeInCentavos,
+    this.deliveryIncluded = false,
   });
 
   final String id;
@@ -196,6 +200,10 @@ class CustomerProviderPaymentRequest {
   final InitialPaymentDeadline? initialPaymentDeadline;
   final String? initialPaymentExplanation;
   final CustomerBookingVat? serviceVat;
+  final int? agreedPackagePriceInCentavos;
+  final int? agreedTotalInCentavos;
+  final int? providerFeeInCentavos;
+  final bool deliveryIncluded;
 
   bool get canStartCheckout => checkoutOptions.isNotEmpty;
 
@@ -205,6 +213,31 @@ class CustomerProviderPaymentRequest {
     DateTime? now,
   }) {
     final data = document.data() ?? const <String, dynamic>{};
+    final quote =
+        _map(data['acceptedSpecialOffer']) ?? const <String, dynamic>{};
+    final financial =
+        _map(data['financialSnapshot']) ?? const <String, dynamic>{};
+    final total = _centavos(quote['totalInCentavos']);
+    final subtotal = _centavos(quote['subtotalInCentavos']);
+    final amount = data['amount'];
+    final hasQuote =
+        total != null &&
+        subtotal != null &&
+        subtotal > 0 &&
+        subtotal <= total &&
+        amount is num &&
+        amount.isFinite &&
+        (amount * 100 - total).abs() < 0.000001;
+    final commission = _centavos(
+      financial['platformCommissionTotalInCentavos'],
+    );
+    final hasFee =
+        hasQuote &&
+        commission != null &&
+        commission <= total &&
+        financial['schemaVersion'] == 1 &&
+        financial['currency'] == 'PHP' &&
+        financial['grossAmountInCentavos'] == total;
 
     return CustomerProviderPaymentRequest(
       id: document.id,
@@ -232,6 +265,10 @@ class CustomerProviderPaymentRequest {
       initialPaymentDeadline: InitialPaymentDeadline.fromRecord(data),
       initialPaymentExplanation: customerInitialPaymentExplanation(data),
       serviceVat: customerBookingVatFromRequest(data),
+      agreedPackagePriceInCentavos: hasQuote ? subtotal : null,
+      agreedTotalInCentavos: hasQuote ? total : null,
+      providerFeeInCentavos: hasFee ? commission : null,
+      deliveryIncluded: hasQuote && quote['deliveryIncluded'] == true,
       checkoutOptions: _checkoutOptions(
         data,
         providerRequestId: document.id,

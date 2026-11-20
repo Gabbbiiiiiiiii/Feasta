@@ -527,16 +527,49 @@ class _ProviderPaymentCard extends StatelessWidget {
             const SizedBox(height: AppSpacing.sm),
           ],
 
+          if (request.agreedTotalInCentavos case final total?) ...[
+            if (request.agreedPackagePriceInCentavos case final price?)
+              _DetailRow(
+                label: 'Agreed package price',
+                value: _peso(price / 100),
+              ),
+            if (request.deliveryIncluded)
+              const _DetailRow(label: 'Delivery', value: 'Included'),
+            _DetailRow(label: 'Total payable', value: _peso(total / 100)),
+            for (final option in request.checkoutOptions)
+              if (option.choice == CustomerPaymentChoice.minimum)
+                _DetailRow(
+                  label: 'Remaining after minimum payment',
+                  value: _peso((total - option.amountInCentavos) / 100),
+                ),
+            if (request.remainingBalanceDueAt case final dueAt?)
+              _DetailRow(
+                label: 'Balance payment deadline',
+                value: _manilaDeadline(context, dueAt),
+              ),
+            if (request.providerFeeInCentavos case final fee?)
+              Text(
+                'FEASTA service fee: ${_peso(fee / 100)} provider commission '
+                'based on the total payable and tiered caps. Customer charge ${_peso(0)}.',
+              )
+            else
+              const Text('This booking has no recorded service fee breakdown.'),
+          ],
           if (request.serviceVat == null)
             Text(
-              'VAT breakdown unavailable for this booking.',
+              request.agreedTotalInCentavos == null
+                  ? 'VAT breakdown unavailable for this booking.'
+                  : 'This booking has no verified provider VAT breakdown. '
+                        'Your accepted total still applies.',
               style: AppTypography.bodySmall.copyWith(
                 color: AppColors.secondaryTextAccessible,
               ),
             )
           else if (request.serviceVat!.taxType == 'vat_registered') ...[
             _DetailRow(
-              label: 'Included provider VAT (12%)',
+              label: request.agreedTotalInCentavos == null
+                  ? 'Included provider VAT (12%)'
+                  : 'Included provider VAT',
               value: _peso(request.serviceVat!.includedVatInCentavos / 100),
             ),
             ExpansionTile(
@@ -807,6 +840,14 @@ String _humanize(String value) {
       .where((part) => part.isNotEmpty)
       .map((part) => '${part[0].toUpperCase()}${part.substring(1)}')
       .join(' ');
+}
+
+String _manilaDeadline(BuildContext context, DateTime deadline) {
+  final local = deadline.toUtc().add(const Duration(hours: 8));
+  final labels = MaterialLocalizations.of(context);
+  final date = labels.formatMediumDate(local);
+  final time = labels.formatTimeOfDay(TimeOfDay.fromDateTime(local));
+  return '$date $time PHT';
 }
 
 String _peso(double amount) {

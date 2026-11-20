@@ -14,6 +14,12 @@ export function resolveCustomerNotificationDestination(
   const collection = notification.relatedCollection?.trim().toLowerCase() ?? "";
   const relatedId = safeDocumentId(notification.relatedId);
 
+  if (type === "special_request") {
+    return collection === "specialrequests" && relatedId
+      ? `/customer/special-requests/${encodeURIComponent(relatedId)}`
+      : null;
+  }
+
   if (type === "new_message") {
     return collection === "chatrooms" && relatedId
       ? `/customer/messages?room=${encodeURIComponent(relatedId)}`

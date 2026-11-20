@@ -8,7 +8,7 @@ import {db} from "../shared/firestore.js";
 import {enforceCallableRateLimit} from "../shared/rate-limit.js";
 import {requireObject, requireString} from "../shared/validation.js";
 import {
-  AVAILABILITY_COUNTED_REQUEST_STATUSES, countOnlineEvents, dailyEventCapacity,
+  AVAILABILITY_COUNTED_REQUEST_STATUSES, countActiveSpecialOfferHolds, countOnlineEvents, dailyEventCapacity,
   manilaDateFromKey, manilaDateKey, walkInReservationCount,
   providerRequestOccupiesAvailability, validateProviderAvailability,
 } from "./validate-provider-availability.js";
@@ -60,7 +60,7 @@ export function buildCalendarDates(month: string, providerData: Record<string, u
     const committed = occupied.filter((record) =>
       ["confirmed", "in_progress", "completed"].includes(String(record.status)));
     const state: CalendarState | null = countOnlineEvents(committed) + walkIns >= capacity ? "booked" :
-      countOnlineEvents(occupied) + walkIns >= capacity ? "on_hold" :
+      countOnlineEvents(occupied) + walkIns + countActiveSpecialOfferHolds(providerData, key, now.getTime()) >= capacity ? "on_hold" :
       unavailable ? "unavailable" : null;
     if (state) dates.push({date: key, state});
   }

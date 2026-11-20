@@ -1223,3 +1223,4 @@ export {listCustomerEventServices} from "./catalog/list-customer-event-services.
 export {adjudicateExpiredCustomerBooking, notifyEndedCustomerBookingRestrictions,
   getCustomerBookingStanding, getAdminCustomerViolations, reverseAdminCustomerViolation,
   retryAdminCustomerViolationAdjudication} from "./bookings/customer-violation-handlers.js";
+export {submitSpecialRequest, listSpecialRequests, updateSpecialRequest} from "./bookings/special-requests.js";

@@ -693,6 +693,7 @@ service cloud.firestore {
             'refundPolicy',
             'walkInReservedDates',
             'walkInReservedCounts',
+            'specialOfferHolds',
             'availabilityCapacityReducedAt',
             'maxEventsPerDay',
             'acceptsMultipleEventsPerDay',

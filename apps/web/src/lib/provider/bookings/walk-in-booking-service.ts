@@ -183,7 +183,12 @@ async function dailyOccupancy(transaction: Transaction, providerId: string,
   })).size;
   const occupiedWalkIn = counts[eventDateKey] ?? 0;
   const capacity = dailyEventCapacity(data);
-  const occupied = occupiedOnline + occupiedWalkIn;
+  const holds = data.specialOfferHolds;
+  const now = Date.now();
+  const activeOffers = holds && typeof holds === "object" ? Object.values(holds).filter(hold =>
+    hold?.date === eventDateKey && Number.isSafeInteger(hold.expiresAtMs) && hold.expiresAtMs > now
+  ).length : 0;
+  const occupied = occupiedOnline + occupiedWalkIn + activeOffers;
   return {counts, occupiedWalkIn, capacity, occupied, blocked,
     remaining: blocked ? 0 : Math.max(0, capacity - occupied)};
 

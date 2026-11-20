@@ -85,6 +85,15 @@ function codes(result) {
   return result.issues.map((issue) => issue.code);
 }
 
+test("a special offer holds one slot until the exact deadline", () => {
+  const expiresAtMs = Date.parse("2026-08-20T13:00:00+08:00");
+  const providerData = provider({specialOfferHolds: {
+    offer: {date: "2026-08-24", expiresAtMs},
+  }});
+  assert.ok(codes(validate({providerData, now: new Date(expiresAtMs - 1)})).includes("MAX_EVENTS_REACHED"));
+  assert.equal(validate({providerData, now: new Date(expiresAtMs)}).available, true);
+});
+
 test("uses Asia/Manila calendar days for operating-day checks", () => {
   const result = validate({
     providerData: provider({operatingDays: ["monday"]}),

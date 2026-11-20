@@ -291,6 +291,60 @@ for (const account of AUTH_FIXTURE_ACCOUNTS) {
   }
 }
 
+if (projectId === "demo-feasta-local") {
+  Object.assign(documents["providers/provider-approved"], {
+    publiclyVisible: true,
+    providerCategory: "catering_service",
+    serviceCategories: ["catering_service"],
+    operatingDays: ["saturday"],
+    bookingLeadTimeDays: 1,
+    minGuestsPerEvent: 20,
+    maxGuestsPerEvent: 100,
+  });
+  documents["providerPaymentAccounts/provider-approved"] = {
+    schemaVersion: 1, providerId: "provider-approved", ownerId: "dev-provider-approved",
+    linkedAccountType: "merchant", paymongoAccountId: "org_feasta_local_fixture",
+    setupStatus: "ready", payoutReady: true,
+  };
+  Object.assign(documents["packages/package-approved-wedding"], {
+    providerPubliclyVisible: true,
+    serviceCategoryCode: "catering_service",
+    minimumGuests: 20,
+    maximumGuests: 100,
+    serviceOptions: {drop_off: {price: 1500, includedServices: []}},
+    paymentTermsSchemaVersion: 2,
+    paymentPolicy: "deposit_then_balance",
+    depositPercentage: 30,
+    balanceDueDaysBeforeEvent: null,
+    balanceDueHoursBeforeEvent: 24,
+  });
+  documents["serviceCategories/catering_service"] = {
+    code: "catering_service", name: "Catering", serviceType: "catering",
+    status: "active", active: true, isActive: true, isDeleted: false,
+  };
+  const control = db.doc("maintenanceControls/intake");
+  await db.runTransaction(async transaction => {
+    const snapshot = await transaction.get(control);
+    if (!snapshot.exists) transaction.create(control, {
+      schemaVersion: 1, revision: 1, intake: false, publication: false,
+    });
+  });
+  documents["appSettings/initialPaymentExpirationPhaseA"] = {
+    schemaVersion: 1, isPublic: false, enrollmentEnabled: true,
+    expirationEnabled: true, historicalReviewEnabled: false,
+  };
+  documents["occasionCatalog/current"] = {activationState: "stable", revision: 1};
+  documents["occasions/wedding"] = {
+    id: "wedding", label: "Wedding", active: true, moderationState: "approved",
+    revision: 1, sortOrder: 0, applicableServiceCategoryCodes: ["catering_service"],
+  };
+  documents["contractPolicies/providerPackageV2"] = {
+    effectiveEnvironment: projectId, revision: 1, maxSpecificOccasions: 10,
+    maxPendingSuggestionsPerProvider: 10, maxThemeImages: 4,
+    featureGates: {occasionCatalogReads: true},
+  };
+}
+
 let batch = db.batch();
 let writes = 0;
 for (const [path, data] of Object.entries(documents)) {

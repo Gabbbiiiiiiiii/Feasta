@@ -95,6 +95,8 @@ export type ProviderBooking = {
   requestedAmount: number;
   acceptedAmount: number | null;
   downPaymentAmount: number;
+  specialOffer?: ReturnType<typeof import("@/lib/customer/bookings/customer-booking-service-vat").specialOfferBreakdown>;
+  specialOfferVat?: import("@/lib/customer/bookings/customer-booking-service-vat").CustomerBookingServiceVat;
   paymentAmount: number | null;
   remainingBalance: number | null;
   /** Provider share after FEASTA commission. */

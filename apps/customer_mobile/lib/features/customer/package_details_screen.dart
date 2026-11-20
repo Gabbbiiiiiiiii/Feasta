@@ -19,6 +19,7 @@ import '../../shared/widgets/loading_skeleton.dart';
 import '../authentication/data/repositories/feasta_repository.dart';
 import 'event_customization_screen.dart';
 import 'best_fit_controller.dart';
+import 'special_request_screen.dart';
 import '../../core/helpers/booking_preparation.dart';
 
 class PackageDetailsScreen extends StatefulWidget {
@@ -431,6 +432,18 @@ class _PackageDetailsScreenState extends State<PackageDetailsScreen> {
         price: eventPackage.price,
         unitLabel: eventPackage.priceUnitLabel,
         onPressed: _checkingPackage ? null : _customizeEvent,
+        onSpecialRequest:
+            {'catering', 'both'}.contains(provider.providerServiceType) &&
+                specialRequestDropOffPrice(eventPackage) != null
+            ? () async {
+                if (!await requireLogin(context) || !context.mounted) return;
+                await Navigator.of(context).push<void>(
+                  MaterialPageRoute(
+                    builder: (_) => SpecialRequestForm(package: eventPackage),
+                  ),
+                );
+              }
+            : null,
       ),
     );
   }
@@ -1216,10 +1229,12 @@ class _PackageBottomAction extends StatelessWidget {
   const _PackageBottomAction({
     required this.price,
     required this.onPressed,
+    required this.onSpecialRequest,
     this.unitLabel = 'Package price',
   });
 
   final double price;
+  final VoidCallback? onSpecialRequest;
   final String unitLabel;
   final VoidCallback? onPressed;
 
@@ -1275,14 +1290,19 @@ class _PackageBottomAction extends StatelessWidget {
               return Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [priceSummary, const SizedBox(height: 8), button],
+                children: [priceSummary, const SizedBox(height: 8), button,
+                  if (onSpecialRequest != null) OutlinedButton(onPressed: onSpecialRequest, child: const Text("Special Request"))],
               );
             }
             return Row(
               children: [
                 Expanded(flex: 4, child: priceSummary),
                 const SizedBox(width: 12),
-                Expanded(flex: 6, child: button),
+                Expanded(flex: 6, child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [button, if (onSpecialRequest != null) OutlinedButton(onPressed: onSpecialRequest, child: const Text("Special Request"))],
+                )),
               ],
             );
           },

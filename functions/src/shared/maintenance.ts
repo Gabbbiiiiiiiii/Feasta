@@ -24,9 +24,9 @@ export async function maintenanceOpen(tx: Transaction, db: Firestore,
   return control !== null && control[scope] === false;
 }
 export async function requireMaintenanceOpen(tx: Transaction, db: Firestore,
-  scope: MaintenanceScope): Promise<void> {
+  scope: MaintenanceScope, message = "New intake or publication is paused."): Promise<void> {
   if (!await maintenanceOpen(tx, db, scope)) {
-    throw new HttpsError("unavailable", "New intake or publication is paused.",
+    throw new HttpsError("unavailable", message,
       {reason: "MAINTENANCE_PAUSED", scope});
   }
 }

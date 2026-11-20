@@ -33,6 +33,10 @@ export function resolveNotificationDestination(
     return "/provider/tax-profile";
   }
 
+  if (role === "provider" && type === "special_request" && collection === "specialrequests" && relatedId) {
+    return "/provider/special-requests";
+  }
+
   const knownCollections = [
     "chatrooms",
     "providerverifications",

@@ -10,6 +10,29 @@ export type CustomerBookingServiceVat =
 
 type RecordData = Readonly<Record<string, unknown>>;
 
+export function specialOfferBreakdown(offer: unknown, gross: number, financialSnapshot: unknown) {
+  const quote = record(offer);
+  const snapshot = record(financialSnapshot);
+  if (!quote || quote.totalInCentavos !== gross ||
+      typeof quote.subtotalInCentavos !== "number" ||
+      !Number.isSafeInteger(quote.subtotalInCentavos) ||
+      quote.subtotalInCentavos <= 0 || quote.subtotalInCentavos > gross) return undefined;
+  const fee = snapshot?.platformCommissionTotalInCentavos;
+  const quantity = typeof quote.quantity === "number" &&
+    Number.isSafeInteger(quote.quantity) && quote.quantity > 0 ? quote.quantity : null;
+  const unit = quote.unitAmountInCentavos;
+  return {
+    ...(quantity !== null ? {quantity} : {}),
+    ...(quantity !== null && typeof unit === "number" && Number.isSafeInteger(unit) &&
+      unit > 0 && unit * quantity === quote.subtotalInCentavos ? {unitAmountInCentavos: unit} : {}),
+    subtotalInCentavos: quote.subtotalInCentavos,
+    deliveryIncluded: quote.deliveryIncluded === true,
+    providerFeeInCentavos: snapshot?.schemaVersion === 1 && snapshot.currency === "PHP" &&
+      snapshot.grossAmountInCentavos === gross && typeof fee === "number" &&
+      Number.isSafeInteger(fee) && fee >= 0 && fee <= gross ? fee : null,
+  };
+}
+
 function record(value: unknown): RecordData | null {
   return value !== null &&
     typeof value === "object" &&

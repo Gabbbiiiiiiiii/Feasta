@@ -1,5 +1,6 @@
 import {lifecycleEvidence} from "@/lib/presentation/booking-lifecycle";
 import "server-only";
+import {customerBookingServiceVat, specialOfferBreakdown} from "@/lib/customer/bookings/customer-booking-service-vat";
 import {bookingView, bookingMatchesView, bookingMatchesSecondary, bookingPaymentAttention, bookingScheduledStart, manilaDay} from "./provider-booking-projection";
 
 import {hasBookingSettlement, projectBookingPayment} from "@/lib/payments/booking-payment-projection";
@@ -481,6 +482,8 @@ function mapProviderBooking(
     paymentAmount: payment?.amount ?? null,
     providerNetAmount: netMoney.providerNetPesos,
     commissionAmount: netMoney.commissionPesos,
+    specialOffer: specialOfferBreakdown(request.acceptedSpecialOffer, Math.round(acceptedGross * 100), request.financialSnapshot),
+    specialOfferVat: request.acceptedSpecialOffer ? customerBookingServiceVat(request) : undefined,
     companyAdvanceRequestStatus: advanceRequestStatus,
     companyAdvanceStatus: advanceStatus,
     remainingBalance: requestStatus === "cancelled" || payment?.status === "refunded" ? 0 :

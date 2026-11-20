@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 
 
+import {SpecialRequestForm} from "./special-request-form";
 import {CustomerAuthLink} from "@/components/customer/layout/customer-auth-provider";
 import {PackagePaymentTerms} from "@/components/shared/package-payment-terms";
 import {PriceDisplay} from "@/components/shared/price-display";
@@ -72,6 +73,9 @@ export function PackageDetail({
         return option ? [{tier, option: {...option, includedServices: [...new Set([...option.includedServices, ...(option.decorInclusions ?? []), ...(option.furnitureInclusions ?? []), ...(option.equipmentInclusions ?? [])])]}}] : [];
       },
     );
+  const specialRequestPrice = provider.serviceType === "catering" || provider.serviceType === "both"
+    ? serviceOptions.find(({tier}) => tier === "drop_off")?.option.price
+    : undefined;
   const themeOptions =
     packageRecord.themeOptions ?? [];
 
@@ -124,6 +128,7 @@ export function PackageDetail({
                 className="size-4 transition-transform duration-normal group-hover:translate-x-0.5 motion-reduce:transform-none"
               />
             </CustomerAuthLink>
+            {specialRequestPrice != null && specialRequestPrice > 0 && <SpecialRequestForm packageId={packageRecord.id} providerId={provider.id} price={specialRequestPrice} />}
 
             <p className="mt-3 text-xs leading-5 text-feasta-text-secondary">
               Requesting does not confirm a booking or charge you. The provider

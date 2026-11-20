@@ -134,6 +134,9 @@ export function ProviderBookingDetailDrawer({
             </div> : null}
             <div className="flex items-center justify-between gap-3 text-sm"><span>Provider request</span><ProviderBookingStatus booking={booking} detailed /></div>
             <div className="flex items-center justify-between gap-3 text-sm"><span>Main event</span><BookingLifecycleStatus status={booking.mainEventStatus} evidence={booking.lifecycle} /></div>
+            {booking.providerRequestStatus === "waiting_for_down_payment" && (
+              <p className="text-sm font-semibold text-muted-foreground">Awaiting Payment — Not Yet Confirmed</p>
+            )}
             <BookingLifecycleNotice status={booking.mainEventStatus} evidence={booking.lifecycle} />
           </DrawerSection>
 
@@ -196,6 +199,18 @@ export function ProviderBookingDetailDrawer({
           </DrawerSection>
 
           <DrawerSection title="Payment Details">
+            {booking.specialOffer && <>
+              <AmountRow label="Agreed package price" amount={booking.specialOffer.subtotalInCentavos / 100} />
+              {booking.specialOffer.deliveryIncluded && <p>Delivery included</p>}
+              {booking.specialOfferVat?.status === "available" ? (
+                booking.specialOfferVat.taxType === "vat_registered"
+                  ? <AmountRow label="Included provider VAT" amount={booking.specialOfferVat.includedInPriceInCentavos / 100} />
+                  : <p>Non-VAT service</p>
+              ) : <p>Verified VAT breakdown unavailable</p>}
+              {booking.specialOffer.providerFeeInCentavos !== null && (
+                <AmountRow label="FEASTA provider commission" amount={booking.specialOffer.providerFeeInCentavos / 100} />
+              )}
+            </>}
             {booking.paymentAttention ? <p role="status">{booking.paymentAttention}{booking.paymentAttention === "Payment Being Checked" ? " ? Please wait for the payment result." : ""}</p> : null}
             {booking.remainingBalance !== null ? (
               <AmountRow label="Balance remaining" amount={booking.remainingBalance} />

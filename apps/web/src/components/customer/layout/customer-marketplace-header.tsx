@@ -3,6 +3,7 @@
 import {
   CalendarDays,
   ChevronDown,
+  FileText,
   Heart,
   LogOut,
   MessageSquareText,
@@ -45,6 +46,7 @@ const CUSTOMER_HOME_PATH = "/customer";
 const MARKETPLACE_HEADER_HEIGHT = "--feasta-marketplace-header-height";
 const CUSTOMER_FAVORITES_PATH = "/customer/favorites";
 const CUSTOMER_BOOKINGS_PATH = "/customer/bookings";
+const CUSTOMER_SPECIAL_REQUESTS_PATH = "/customer/special-requests";
 const CUSTOMER_MESSAGES_PATH = "/customer/messages";
 
 export function CustomerMarketplaceHeader({
@@ -478,6 +480,27 @@ function CustomerAccountMenu({
 }) {
   const pathname = usePathname();
   const [expanded, setExpanded] = useState(false);
+  const [offersToReview, setOffersToReview] = useState(0);
+  useEffect(() => {
+    if (!expanded) return;
+    let cancelled = false;
+    void Promise.all([import("firebase/functions"), import("@/lib/firebase/client")])
+      .then(async ([{httpsCallable}, {auth, functions, initializeBrowserAppCheck}]) => {
+        await auth.authStateReady();
+        const uid = auth.currentUser?.uid;
+        if (!uid || cancelled) return;
+        initializeBrowserAppCheck();
+        const {data} = await httpsCallable<{view: "customer"}, {requests: {status: string}[]}>(
+          functions, "listSpecialRequests",
+        )({view: "customer"});
+        if (!cancelled && auth.currentUser?.uid === uid) {
+          setOffersToReview(data.requests.filter(request => request.status === "quotation_sent").length);
+        }
+      }).catch(() => {
+        if (!cancelled) setOffersToReview(0);
+      });
+    return () => {cancelled = true;};
+  }, [expanded]);
   const trustedFirstName = firstName.trim();
   const trustedLastName = lastName.trim();
   const trustedEmail = email.trim() || (/^[^@\s]+@[^@\s]+$/u.test(accountLabel.trim()) ? accountLabel.trim() : "");
@@ -540,6 +563,7 @@ function CustomerAccountMenu({
         </div>
         {[
           {href: CUSTOMER_BOOKINGS_PATH, label: "My Bookings", icon: <CalendarDays aria-hidden="true" />},
+          {href: CUSTOMER_SPECIAL_REQUESTS_PATH, label: "My Special Requests", icon: <FileText aria-hidden="true" />, count: offersToReview},
           {href: CUSTOMER_MESSAGES_PATH, label: "Messages", icon: <MessageSquareText aria-hidden="true" />},
           {href: CUSTOMER_FAVORITES_PATH, label: "Favorites", icon: <Heart aria-hidden="true" />},
           {href: "/customer/account", label: "Account Settings", icon: <Settings aria-hidden="true" />},
@@ -558,10 +582,11 @@ function CustomerAccountMenu({
 
 const customerMenuRowClass = "flex min-h-11 w-full items-center gap-3 rounded-lg px-3 text-left text-sm font-semibold text-foreground hover:bg-primary-tint focus-visible:bg-primary-tint focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40";
 
-function CustomerMenuLink({href, label, icon, active, detailsRef}: {
+function CustomerMenuLink({href, label, icon, active, detailsRef, count}: {
   href: string;
   label: string;
   icon: ReactNode;
+  count?: number;
   active: boolean;
   detailsRef: RefObject<HTMLDetailsElement | null>;
 }) {
@@ -575,6 +600,9 @@ function CustomerMenuLink({href, label, icon, active, detailsRef}: {
     >
       <span className="shrink-0 text-feasta-text-secondary [&_svg]:size-[18px]">{icon}</span>
       {label}
+      {count ? <span className="ml-auto rounded-full bg-warning-subtle px-2 py-0.5 text-xs font-bold text-warning">
+        {count}<span className="sr-only"> offers to review</span>
+      </span> : null}
     </Link>
   );
 }

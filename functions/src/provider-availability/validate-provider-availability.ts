@@ -308,7 +308,8 @@ export function validateProviderAvailability(
     input.request.mainEventId !== "" &&
     occupyingBookings.some((booking) => booking.mainEventId === input.request.mainEventId);
   const occupiedSlots = countOnlineEvents(occupyingBookings) +
-    walkInReservationCount(input.providerData, eventDateKey);
+    walkInReservationCount(input.providerData, eventDateKey) +
+    countActiveSpecialOfferHolds(input.providerData, eventDateKey, now.getTime());
   const capacityReached = !input.preserveExistingReservation && !eventAlreadyReserved &&
     occupiedSlots >= dailyEventCapacity(input.providerData);
   const dropOff = cateringScheduleMode(input.request.serviceTier) === "drop_off_time";
@@ -386,6 +387,13 @@ export function walkInReservationCount(
   }
   return Array.isArray(provider.walkInReservedDates) &&
     provider.walkInReservedDates.includes(dateKey) ? 1 : 0;
+}
+
+export function countActiveSpecialOfferHolds(provider: Readonly<Record<string, unknown>>, date: string, nowMs: number): number {
+  const holds = provider.specialOfferHolds;
+  if (!holds || typeof holds !== "object") return 0;
+  return Object.values(holds).filter(hold => hold?.date === date &&
+    Number.isSafeInteger(hold.expiresAtMs) && hold.expiresAtMs > nowMs).length;
 }
 
 export function countOnlineEvents(bookings: readonly Record<string, unknown>[]): number {
