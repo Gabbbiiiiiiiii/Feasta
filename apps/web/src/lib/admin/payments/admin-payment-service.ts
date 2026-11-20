@@ -771,9 +771,11 @@ export async function getAdminProviderPayoutBoard(): Promise<
           ? (data.destination as Record<string, unknown>)
           : null;
       const destinationType =
-        destination?.type === "gcash" || destination?.type === "bank"
-          ? destination.type
-          : null;
+        destination?.type === "gcash"
+          ? ("gcash" as const)
+          : destination?.type === "bank"
+            ? ("bank" as const)
+            : null;
       const accountName = nullableString(destination?.accountName);
 
       if (

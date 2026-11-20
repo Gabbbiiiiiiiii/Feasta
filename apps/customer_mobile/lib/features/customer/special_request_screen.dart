@@ -3,9 +3,20 @@ import 'dart:math';
 
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
+import '../../core/theme/app_colors.dart';
+import '../../core/theme/app_radius.dart';
+import '../../core/theme/app_spacing.dart';
+import '../../core/theme/app_typography.dart';
+import '../../core/widgets/widgets.dart';
+import '../../shared/models/booking_refund_policy.dart';
 import '../../shared/models/feasta_models.dart';
+import '../../shared/models/provider_calendar_month.dart';
+import '../authentication/data/repositories/feasta_repository.dart';
 import 'booking_details_screen.dart';
+import 'booking_refund_policy_terms.dart';
+import 'widgets/provider_calendar.dart';
 
 FirebaseFunctions get _functions =>
     FirebaseFunctions.instanceFor(region: 'asia-southeast1');
@@ -21,12 +32,43 @@ num? specialRequestDropOffPrice(PackageModel package) {
       : null;
 }
 
-String _money(num amount) => '₱${amount.toStringAsFixed(2)}';
+String specialRequestMoney(num amount) => '₱${amount.toStringAsFixed(2)}';
+
+({String label, FeastaStatusTone tone}) specialRequestStatus(String status) {
+  return switch (status) {
+    'pending_review' => (label: 'Under review', tone: FeastaStatusTone.neutral),
+    'needs_clarification' => (
+      label: 'Provider needs more details',
+      tone: FeastaStatusTone.warning,
+    ),
+    'quotation_sent' => (
+      label: 'Price offer received',
+      tone: FeastaStatusTone.info,
+    ),
+    'revision_requested' => (
+      label: 'Changes requested',
+      tone: FeastaStatusTone.neutral,
+    ),
+    'quotation_accepted' => (
+      label: 'Offer accepted',
+      tone: FeastaStatusTone.success,
+    ),
+    'converted_to_booking' => (
+      label: 'Booking created',
+      tone: FeastaStatusTone.success,
+    ),
+    'declined' => (label: 'Declined', tone: FeastaStatusTone.error),
+    'cancelled' => (label: 'Cancelled', tone: FeastaStatusTone.neutral),
+    'expired' => (label: 'Offer expired', tone: FeastaStatusTone.neutral),
+    _ => (label: 'Status unavailable', tone: FeastaStatusTone.neutral),
+  };
+}
 
 class SpecialRequestForm extends StatefulWidget {
-  const SpecialRequestForm({super.key, required this.package});
+  const SpecialRequestForm({super.key, required this.package, this.repository});
 
   final PackageModel package;
+  final FeastaRepository? repository;
 
   @override
   State<SpecialRequestForm> createState() => _SpecialRequestFormState();
@@ -39,6 +81,8 @@ class _SpecialRequestFormState extends State<SpecialRequestForm> {
   final _instructions = TextEditingController();
   final _deliveryInstructions = TextEditingController();
   final _random = Random.secure();
+  late final FeastaRepository _repository =
+      widget.repository ?? FeastaRepository();
   String? _lastPayload;
   String? _submissionId;
   DateTime? _date;
@@ -58,19 +102,92 @@ class _SpecialRequestFormState extends State<SpecialRequestForm> {
   String _clock(TimeOfDay time) =>
       '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}';
 
+  Future<void> _pickDate() async {
+    final picked = await showModalBottomSheet<DateTime>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: AppColors.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(
+          top: Radius.circular(AppRadius.dialog),
+        ),
+      ),
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.sizeOf(context).height * .9,
+        maxWidth: 420,
+      ),
+      builder: (_) => ProviderCalendar(
+        providerId: widget.package.providerId,
+        selectedDate: _date,
+        loadMonth: _repository.getProviderCalendarMonth,
+        planningOnly: false,
+      ),
+    );
+    if (!mounted || picked == null) return;
+    setState(() {
+      _date = picked;
+      _error = null;
+    });
+  }
+
+  Future<void> _pickTime() async {
+    final value = await showTimePicker(
+      context: context,
+      initialTime: _start ?? TimeOfDay.now(),
+    );
+    if (mounted && value != null) {
+      setState(() {
+        _start = value;
+        _error = null;
+      });
+    }
+  }
+
+  Future<bool> _verifyCalendarDate(DateTime date) async {
+    try {
+      final result = await _repository.getProviderCalendarMonth(
+        widget.package.providerId,
+        calendarDateKey(date).substring(0, 7),
+      );
+      if (!mounted) return false;
+      if (result.status(date) != CalendarAvailability.available) {
+        setState(
+          () =>
+              _error = 'This date is no longer available. Choose another date.',
+        );
+        return false;
+      }
+      return true;
+    } catch (_) {
+      if (mounted) {
+        setState(
+          () => _error =
+              'Calendar availability could not be verified. Review your event date and try again.',
+        );
+      }
+      return false;
+    }
+  }
+
   Future<void> _submit() async {
-    if (!_form.currentState!.validate()) return;
+    if (_busy || !_form.currentState!.validate()) return;
     final date = _date;
     final start = _start;
-    if (date == null || start == null) {
-      setState(() => _error = 'Choose an event date and a valid time.');
+    if (date == null) {
+      setState(
+        () => _error = 'Choose an available event date from the calendar.',
+      );
+      return;
+    }
+    if (start == null) {
+      setState(() => _error = 'Choose a drop-off time.');
       return;
     }
 
     final data = {
       'packageId': widget.package.id,
       'quantity': int.parse(_quantity.text.trim()),
-      'eventDate': date.toIso8601String().split('T').first,
+      'eventDate': calendarDateKey(date),
       'eventTime': _clock(start),
       'address': _address.text.trim(),
       'instructions': _instructions.text.trim(),
@@ -89,6 +206,7 @@ class _SpecialRequestFormState extends State<SpecialRequestForm> {
       _error = null;
     });
     try {
+      if (!await _verifyCalendarDate(date)) return;
       await _functions.httpsCallable('submitSpecialRequest').call({
         ...data,
         'submissionId': _submissionId,
@@ -101,21 +219,16 @@ class _SpecialRequestFormState extends State<SpecialRequestForm> {
         MaterialPageRoute(builder: (_) => const SpecialRequestTracker()),
       );
     } on FirebaseFunctionsException catch (error) {
-      if (mounted)
-        setState(() => _error = error.message ?? 'Unable to submit request.');
+      if (mounted) {
+        setState(
+          () => _error = error.message ?? 'Unable to submit the request.',
+        );
+      }
     } catch (_) {
-      if (mounted) setState(() => _error = 'Unable to submit request.');
+      if (mounted) setState(() => _error = 'Unable to submit the request.');
     } finally {
       if (mounted) setState(() => _busy = false);
     }
-  }
-
-  Future<void> _pickTime() async {
-    final value = await showTimePicker(
-      context: context,
-      initialTime: _start ?? TimeOfDay.now(),
-    );
-    if (mounted && value != null) setState(() => _start = value);
   }
 
   @override
@@ -126,7 +239,13 @@ class _SpecialRequestFormState extends State<SpecialRequestForm> {
     final quantity = RegExp(r'^[0-9]+$').hasMatch(quantityText)
         ? int.tryParse(quantityText)
         : null;
+    final validQuantity = quantity != null && quantity >= 1 && quantity <= 100;
+    final dateLabel = _date == null
+        ? 'Select event date'
+        : MaterialLocalizations.of(context).formatFullDate(_date!);
+
     return Scaffold(
+      backgroundColor: AppColors.background,
       appBar: AppBar(
         title: const Text('Special Request'),
         actions: [
@@ -146,98 +265,198 @@ class _SpecialRequestFormState extends State<SpecialRequestForm> {
         child: Form(
           key: _form,
           child: ListView(
-            padding: const EdgeInsets.all(20),
+            padding: const EdgeInsets.all(AppSpacing.screen),
             children: [
-              Text(package.name, style: Theme.of(context).textTheme.titleLarge),
-              const SizedBox(height: 12),
-              TextFormField(
+              Text(
+                package.name,
+                style: AppTypography.sectionTitle.copyWith(
+                  color: AppColors.primaryStrong,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: AppSpacing.xxs),
+              Text(
+                'Send your package requirements to the provider for review.',
+                style: AppTypography.bodySmall.copyWith(
+                  color: AppColors.secondaryTextAccessible,
+                ),
+              ),
+              const SizedBox(height: AppSpacing.lg),
+              FeastaTextField(
+                label: 'Quantity',
                 controller: _quantity,
                 enabled: !_busy,
+                isRequired: true,
                 keyboardType: TextInputType.number,
-
-                decoration: const InputDecoration(labelText: 'Quantity'),
+                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                maxLength: 3,
+                helperText: 'Enter a whole quantity from 1 to 100.',
                 onChanged: (_) => setState(() {}),
-                validator: (_) =>
-                    quantity == null || quantity < 1 || quantity > 100
-                    ? 'Enter a whole number from 1 to 100.'
-                    : null,
-              ),
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                title: const Text('Event date'),
-                trailing: Text(
-                  _date?.toIso8601String().split('T').first ?? 'Choose',
-                ),
-                onTap: _busy
+                validator: (_) => validQuantity
                     ? null
-                    : () async {
-                        final now = DateTime.now();
-                        final date = await showDatePicker(
-                          context: context,
-                          initialDate: _date ?? now,
-                          firstDate: DateUtils.dateOnly(now),
-                          lastDate: DateTime(now.year + 3, 12, 31),
-                        );
-                        if (mounted && date != null)
-                          setState(() => _date = date);
-                      },
+                    : 'Enter a whole number from 1 to 100.',
               ),
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                title: const Text('Drop-Off Time'),
-                trailing: Text(_start?.format(context) ?? 'Choose'),
-                onTap: _busy ? null : _pickTime,
+              const SizedBox(height: AppSpacing.md),
+              Text(
+                'Event date',
+                style: AppTypography.label.copyWith(
+                  color: AppColors.mainText,
+                  fontWeight: FontWeight.w700,
+                ),
               ),
-              TextFormField(
+              const SizedBox(height: AppSpacing.xxs),
+              OutlinedButton(
+                onPressed: _busy ? null : _pickDate,
+                style: OutlinedButton.styleFrom(
+                  alignment: Alignment.centerLeft,
+                  minimumSize: const Size.fromHeight(52),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: AppSpacing.md,
+                  ),
+                  foregroundColor: _date == null
+                      ? AppColors.placeholder
+                      : AppColors.mainText,
+                  side: const BorderSide(color: AppColors.controlBorder),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(AppRadius.medium),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        dateLabel,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    const Icon(
+                      Icons.calendar_month_outlined,
+                      color: AppColors.primary,
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: AppSpacing.xxs),
+              Text(
+                'Choose an available date. The provider reviews your order before sending an offer.',
+                style: AppTypography.caption.copyWith(
+                  color: AppColors.secondaryTextAccessible,
+                ),
+              ),
+              const SizedBox(height: AppSpacing.md),
+              Text(
+                'Drop-Off Time',
+                style: AppTypography.label.copyWith(
+                  color: AppColors.mainText,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: AppSpacing.xxs),
+              OutlinedButton(
+                onPressed: _busy ? null : _pickTime,
+                style: OutlinedButton.styleFrom(
+                  alignment: Alignment.centerLeft,
+                  minimumSize: const Size.fromHeight(52),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: AppSpacing.md,
+                  ),
+                  foregroundColor: _start == null
+                      ? AppColors.placeholder
+                      : AppColors.mainText,
+                  side: const BorderSide(color: AppColors.controlBorder),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(AppRadius.medium),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        _start?.format(context) ?? 'Select drop-off time',
+                      ),
+                    ),
+                    const Icon(
+                      Icons.schedule_outlined,
+                      color: AppColors.primary,
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: AppSpacing.md),
+              FeastaTextField(
+                label: 'Delivery address',
                 controller: _address,
                 enabled: !_busy,
+                isRequired: true,
                 maxLength: 500,
-                decoration: const InputDecoration(
-                  labelText: 'Delivery address',
-                ),
                 validator: (value) => value == null || value.trim().isEmpty
                     ? 'Enter the delivery address.'
                     : null,
               ),
-              TextFormField(
+              const SizedBox(height: AppSpacing.md),
+              FeastaTextField(
+                label: 'Delivery instructions (optional)',
                 controller: _deliveryInstructions,
                 enabled: !_busy,
                 maxLength: 1000,
-                decoration: const InputDecoration(
-                  labelText: 'Delivery instructions (optional)',
-                ),
+                maxLines: 3,
+                minLines: 2,
               ),
-              TextFormField(
+              const SizedBox(height: AppSpacing.md),
+              FeastaTextField(
+                label: 'Special instructions (optional)',
                 controller: _instructions,
                 enabled: !_busy,
                 maxLength: 2000,
-                maxLines: 3,
-                decoration: const InputDecoration(
-                  labelText: 'Special instructions (optional)',
-                ),
+                maxLines: 4,
+                minLines: 3,
               ),
-              const SizedBox(height: 16),
-              if (unitPrice != null)
-                Text('Published unit price ${_money(unitPrice)}'),
-              if (unitPrice != null &&
-                  quantity != null &&
-                  quantity >= 1 &&
-                  quantity <= 100)
+              const SizedBox(height: AppSpacing.lg),
+              if (unitPrice != null) ...[
                 Text(
-                  'Estimated subtotal ${_money(unitPrice * quantity)}',
-                  style: Theme.of(context).textTheme.titleMedium,
+                  'Published unit price ${specialRequestMoney(unitPrice)}',
+                  style: AppTypography.body.copyWith(color: AppColors.mainText),
                 ),
-              const Text(
-                'Delivery is included. The provider will review your request.',
+                const SizedBox(height: AppSpacing.xxs),
+                if (validQuantity)
+                  Text(
+                    'Estimated subtotal ${specialRequestMoney(unitPrice * quantity)}',
+                    style: AppTypography.cardTitle.copyWith(
+                      color: AppColors.primaryStrong,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  )
+                else
+                  Text(
+                    'Enter a whole quantity from 1 to 100.',
+                    style: AppTypography.bodySmall.copyWith(
+                      color: AppColors.secondaryTextAccessible,
+                    ),
+                  ),
+              ],
+              const SizedBox(height: AppSpacing.sm),
+              Text(
+                'Delivery is included. The provider will review your request. '
+                'Submitting does not reserve the date or charge you.',
+                style: AppTypography.bodySmall.copyWith(
+                  color: AppColors.secondaryTextAccessible,
+                ),
               ),
-              if (_error != null)
+              if (_error != null) ...[
+                const SizedBox(height: AppSpacing.sm),
                 Text(
                   _error!,
-                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+                  style: AppTypography.bodySmall.copyWith(
+                    color: AppColors.error,
+                  ),
                 ),
-              const SizedBox(height: 12),
+              ],
+              const SizedBox(height: AppSpacing.lg),
               FilledButton(
-                onPressed: _busy || unitPrice == null ? null : _submit,
+                onPressed: _busy || unitPrice == null || !validQuantity
+                    ? null
+                    : _submit,
                 child: Text(_busy ? 'Submitting…' : 'Submit Special Request'),
               ),
             ],
@@ -269,14 +488,25 @@ class _SpecialRequestTrackerState extends State<SpecialRequestTracker> {
         .toList();
   }
 
+  Future<Map<String, dynamic>?> _fetchDetail(String id) async {
+    final response = await _functions.httpsCallable('listSpecialRequests').call(
+      {'view': 'customer', 'id': id},
+    );
+    final data = Map<String, dynamic>.from(response.data as Map);
+    final rows = data['requests'] as List?;
+    if (rows == null || rows.isEmpty) return null;
+    return Map<String, dynamic>.from(rows.first as Map);
+  }
+
   void _refresh() => setState(() => _requests = _fetch());
 
   Future<void> _update(
     String id,
-    String action, [
+    String action, {
     String? message,
     int? offerVersion,
-  ]) async {
+    List<Map<String, String>>? policyAcknowledgements,
+  }) async {
     if (_saving) return;
     setState(() => _saving = true);
     try {
@@ -286,7 +516,8 @@ class _SpecialRequestTrackerState extends State<SpecialRequestTracker> {
             'id': id,
             'action': action,
             'message': message,
-            if (offerVersion != null) 'offerVersion': offerVersion,
+            'offerVersion': ?offerVersion,
+            'policyAcknowledgements': ?policyAcknowledgements,
           });
       if (!mounted) return;
       _refresh();
@@ -307,15 +538,17 @@ class _SpecialRequestTrackerState extends State<SpecialRequestTracker> {
         );
       }
     } on FirebaseFunctionsException catch (error) {
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(error.message ?? 'Unable to update request.')),
         );
+      }
     } catch (_) {
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Unable to update request.')),
         );
+      }
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -339,19 +572,300 @@ class _SpecialRequestTrackerState extends State<SpecialRequestTracker> {
           ),
           FilledButton(
             onPressed: () {
-              if (message.trim().isNotEmpty)
+              if (message.trim().isNotEmpty) {
                 Navigator.pop(context, message.trim());
+              }
             },
             child: const Text('Send'),
           ),
         ],
       ),
     );
-    if (mounted && reply != null) await _update(id, 'clarify', reply);
+    if (mounted && reply != null) {
+      await _update(id, 'clarify', message: reply);
+    }
+  }
+
+  Future<void> _acceptOffer(Map<String, dynamic> summary) async {
+    final id = summary['id'] as String;
+    final offer = summary['priceOffer'];
+    if (offer is! Map || offer['version'] is! int) return;
+
+    Map<String, dynamic> detail = summary;
+    List<BookingRefundPolicy> policies = const [];
+    String? policyError;
+    try {
+      final loaded = await _fetchDetail(id);
+      if (loaded != null) detail = loaded;
+      policyError = detail['refundPolicyError'] as String?;
+      final raw = detail['refundPolicies'];
+      if (raw is List) {
+        policies = raw.map(BookingRefundPolicy.fromJson).toList();
+      }
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Unable to load the current offer terms. Refresh and try again.',
+          ),
+        ),
+      );
+      return;
+    }
+    if (!mounted) return;
+    if (policyError != null && policyError.isNotEmpty) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(policyError)));
+      return;
+    }
+
+    final acknowledgements = <String, bool>{
+      for (final policy in policies) policy.providerId: false,
+    };
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            final ready =
+                policies.isEmpty ||
+                policies.every((p) => acknowledgements[p.providerId] == true);
+            return AlertDialog(
+              title: const Text('Accept Price Offer?'),
+              content: SingleChildScrollView(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      'By accepting this ${specialRequestMoney((offer['totalInCentavos'] as num) / 100)} offer, '
+                      'you agree to the provider\'s quotation. Your booking will be created with an Awaiting Payment status.',
+                    ),
+                    const SizedBox(height: AppSpacing.sm),
+                    const Text(
+                      'Your booking will only be confirmed after FEASTA verifies the required payment.',
+                    ),
+                    for (final policy in policies) ...[
+                      const SizedBox(height: AppSpacing.md),
+                      BookingRefundPolicyTerms(
+                        policy: policy,
+                        acknowledged: acknowledgements[policy.providerId]!,
+                        onChanged: (value) => setDialogState(() {
+                          acknowledgements[policy.providerId] = value ?? false;
+                        }),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context, false),
+                  child: const Text('Cancel'),
+                ),
+                FilledButton(
+                  onPressed: ready ? () => Navigator.pop(context, true) : null,
+                  child: const Text('Accept & Proceed to Payment'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+    if (!mounted || confirmed != true) return;
+    await _update(
+      id,
+      'accept',
+      offerVersion: offer['version'] as int,
+      policyAcknowledgements: [
+        for (final policy in policies) policy.acknowledgement,
+      ],
+    );
+  }
+
+  Future<void> _openRequest(Map<String, dynamic> row) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: AppColors.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(
+          top: Radius.circular(AppRadius.dialog),
+        ),
+      ),
+      builder: (context) {
+        final status = specialRequestStatus(row['status'] as String);
+        final offer = row['priceOffer'];
+        final bookingId = row['bookingId'];
+        final eventDate = row['eventDate'] as String? ?? '';
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(
+              AppSpacing.screen,
+              AppSpacing.md,
+              AppSpacing.screen,
+              AppSpacing.screen,
+            ),
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          'Special Request Details',
+                          style: AppTypography.sectionTitle.copyWith(
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ),
+                      FeastaStatusBadge(label: status.label, tone: status.tone),
+                    ],
+                  ),
+                  const SizedBox(height: AppSpacing.xxs),
+                  Text(
+                    'Reference ${row['id']}',
+                    style: AppTypography.caption.copyWith(
+                      color: AppColors.secondaryTextAccessible,
+                    ),
+                  ),
+                  const SizedBox(height: AppSpacing.md),
+                  _DetailRow(
+                    label: 'Provider',
+                    value: '${row['providerName']}',
+                  ),
+                  _DetailRow(label: 'Package', value: '${row['packageName']}'),
+                  _DetailRow(label: 'Quantity', value: '${row['quantity']}'),
+                  _DetailRow(label: 'Event date', value: eventDate),
+                  _DetailRow(
+                    label: 'Drop-Off Time',
+                    value: '${row['eventTime']}',
+                  ),
+                  if (row['address'] is String &&
+                      (row['address'] as String).isNotEmpty)
+                    _DetailRow(
+                      label: 'Delivery address',
+                      value: row['address'] as String,
+                    ),
+                  if (offer is Map) ...[
+                    const SizedBox(height: AppSpacing.md),
+                    Text(
+                      'Price Offer',
+                      style: AppTypography.cardTitle.copyWith(
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: AppSpacing.xs),
+                    _DetailRow(
+                      label: 'Package subtotal',
+                      value: specialRequestMoney(
+                        (offer['subtotalInCentavos'] as num) / 100,
+                      ),
+                    ),
+                    _DetailRow(
+                      label: 'Total offered',
+                      value: specialRequestMoney(
+                        (offer['totalInCentavos'] as num) / 100,
+                      ),
+                    ),
+                    Text(
+                      offer['deliveryIncluded'] == true
+                          ? 'Delivery included. The provider will deliver your order to the specified event address.'
+                          : 'This earlier offer keeps its original quoted total.',
+                      style: AppTypography.bodySmall.copyWith(
+                        color: AppColors.secondaryTextAccessible,
+                      ),
+                    ),
+                    if (offer['notes'] is String &&
+                        (offer['notes'] as String).isNotEmpty) ...[
+                      const SizedBox(height: AppSpacing.xs),
+                      Text(offer['notes'] as String),
+                    ],
+                  ],
+                  const SizedBox(height: AppSpacing.lg),
+                  if (row['status'] == 'quotation_sent' &&
+                      offer is Map &&
+                      offer['version'] is int &&
+                      offer['expiresAtMs'] is int &&
+                      row['dropOffEligible'] != false)
+                    FilledButton(
+                      onPressed: _saving
+                          ? null
+                          : () {
+                              Navigator.pop(context);
+                              _acceptOffer(row);
+                            },
+                      child: const Text('Accept Offer'),
+                    ),
+                  if (row['status'] == 'quotation_sent' &&
+                      offer is Map &&
+                      offer['version'] is int)
+                    TextButton(
+                      onPressed: _saving
+                          ? null
+                          : () {
+                              Navigator.pop(context);
+                              _update(
+                                row['id'] as String,
+                                'declineOffer',
+                                offerVersion: offer['version'] as int,
+                              );
+                            },
+                      child: const Text('Decline Offer'),
+                    ),
+                  if (bookingId is String)
+                    TextButton(
+                      onPressed: () {
+                        Navigator.pop(context);
+                        Navigator.of(context).push(
+                          MaterialPageRoute<void>(
+                            builder: (_) =>
+                                BookingDetailsScreen(bookingId: bookingId),
+                          ),
+                        );
+                      },
+                      child: const Text('View Booking & Payment'),
+                    ),
+                  if (row['status'] == 'needs_clarification')
+                    TextButton(
+                      onPressed: _saving
+                          ? null
+                          : () {
+                              Navigator.pop(context);
+                              _clarify(row['id'] as String);
+                            },
+                      child: const Text('Reply to provider'),
+                    ),
+                  if ([
+                    'pending_review',
+                    'needs_clarification',
+                    'revision_requested',
+                  ].contains(row['status']))
+                    TextButton(
+                      onPressed: _saving
+                          ? null
+                          : () {
+                              Navigator.pop(context);
+                              _update(row['id'] as String, 'cancel');
+                            },
+                      child: const Text('Cancel request'),
+                    ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
   }
 
   @override
   Widget build(BuildContext context) => Scaffold(
+    backgroundColor: AppColors.background,
     appBar: AppBar(
       title: const Text('My Special Requests'),
       actions: [
@@ -372,134 +886,155 @@ class _SpecialRequestTrackerState extends State<SpecialRequestTracker> {
           return Center(
             child: TextButton(
               onPressed: _refresh,
-              child: const Text('Unable to load requests. Retry'),
+              child: const Text('Unable to load your requests. Try again'),
             ),
           );
         }
         final rows = snapshot.data ?? [];
-        if (rows.isEmpty)
-          return const Center(child: Text('No special requests yet.'));
-        return ListView.builder(
-          padding: const EdgeInsets.all(16),
-          itemCount: rows.length,
-          itemBuilder: (context, index) {
-            final row = rows[index];
-            final id = row['id'] as String;
-            final status = row['status'] as String;
-            final offer = row['priceOffer'];
-            final bookingId = row['bookingId'];
-            final statusLabel = status == 'quotation_sent'
-                ? 'Price offer received'
-                : status == 'converted_to_booking'
-                ? 'Offer accepted'
-                : status.replaceAll('_', ' ');
-            return Card(
-              child: ExpansionTile(
-                title: Text('${row['packageName']} × ${row['quantity']}'),
-                subtitle: Text("${row['providerName']} • $statusLabel"),
+        if (rows.isEmpty) {
+          return Center(
+            child: Padding(
+              padding: const EdgeInsets.all(AppSpacing.screen),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  ListTile(
-                    title: Text("${row['eventDate']} • ${row['eventTime']}"),
-                    subtitle: Text(
-                      'Estimated subtotal ${_money((row['subtotalInCentavos'] as num) / 100)}',
+                  Container(
+                    width: 48,
+                    height: 48,
+                    decoration: const BoxDecoration(
+                      color: AppColors.primarySubtle,
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.description_outlined,
+                      color: AppColors.primary,
                     ),
                   ),
-                  if (row['address'] is String &&
-                      (row['address'] as String).isNotEmpty)
-                    ListTile(
-                      title: const Text('Delivery address'),
-                      subtitle: Text(row['address'] as String),
+                  const SizedBox(height: AppSpacing.sm),
+                  Text(
+                    'No special requests yet',
+                    style: AppTypography.cardTitle.copyWith(
+                      fontWeight: FontWeight.w800,
                     ),
-                  if (offer is Map) ...[
-                    ListTile(
-                      title: const Text('Provider Price Offer'),
-                      subtitle: Text(
-                        'Package subtotal ${_money((offer['subtotalInCentavos'] as num) / 100)}\n'
-                        'Total offered ${_money((offer['totalInCentavos'] as num) / 100)}',
-                      ),
+                  ),
+                  const SizedBox(height: AppSpacing.xxs),
+                  Text(
+                    'Your submitted requests and price offers will appear here.',
+                    textAlign: TextAlign.center,
+                    style: AppTypography.bodySmall.copyWith(
+                      color: AppColors.secondaryTextAccessible,
                     ),
-                    if (offer['deliveryIncluded'] == true)
-                      const ListTile(
-                        title: Text('Delivery included'),
-                        subtitle: Text(
-                          'The provider will deliver your order to the specified event address. Delivery is already included in the quoted price.',
-                        ),
-                      )
-                    else
-                      const ListTile(
-                        subtitle: Text(
-                          'This earlier offer keeps its original quoted total.',
-                        ),
-                      ),
-                    if (offer['notes'] is String &&
-                        (offer['notes'] as String).isNotEmpty)
-                      ListTile(
-                        title: const Text('Provider notes'),
-                        subtitle: Text(offer['notes'] as String),
-                      ),
-                  ],
-                  if (status == 'quotation_sent' &&
-                      offer is Map &&
-                      offer['version'] is int) ...[
-                    if (offer['expiresAtMs'] is int &&
-                        row['dropOffEligible'] != false)
-                      FilledButton(
-                        onPressed: _saving
-                            ? null
-                            : () => _update(
-                                id,
-                                'accept',
-                                null,
-                                offer['version'] as int,
+                  ),
+                ],
+              ),
+            ),
+          );
+        }
+        return ListView.separated(
+          padding: const EdgeInsets.all(AppSpacing.screen),
+          itemCount: rows.length,
+          separatorBuilder: (_, _) => const SizedBox(height: AppSpacing.md),
+          itemBuilder: (context, index) {
+            final row = rows[index];
+            final status = specialRequestStatus(row['status'] as String);
+            final offer = row['priceOffer'];
+            final quantity = row['quantity'] as num? ?? 0;
+            return FeastaCard(
+              showBorder: true,
+              showShadow: false,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              '${row['packageName']}',
+                              style: AppTypography.cardTitle.copyWith(
+                                fontWeight: FontWeight.w800,
                               ),
-                        child: const Text('Accept Offer'),
-                      ),
-                    TextButton(
-                      onPressed: _saving
-                          ? null
-                          : () => _update(
-                              id,
-                              'declineOffer',
-                              null,
-                              offer['version'] as int,
                             ),
-                      child: const Text('Decline Offer'),
-                    ),
-                  ],
-                  if (bookingId is String)
-                    TextButton(
-                      onPressed: () => Navigator.of(context).push(
-                        MaterialPageRoute<void>(
-                          builder: (_) =>
-                              BookingDetailsScreen(bookingId: bookingId),
+                            const SizedBox(height: 2),
+                            Text(
+                              '${row['providerName']}',
+                              style: AppTypography.bodySmall.copyWith(
+                                color: AppColors.secondaryTextAccessible,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
-                      child: const Text('View Booking & Payment'),
+                      const SizedBox(width: AppSpacing.sm),
+                      FeastaStatusBadge(label: status.label, tone: status.tone),
+                    ],
+                  ),
+                  const SizedBox(height: AppSpacing.sm),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(AppSpacing.sm),
+                    decoration: BoxDecoration(
+                      color: AppColors.surfaceMuted.withValues(alpha: 0.55),
+                      borderRadius: BorderRadius.circular(AppRadius.medium),
                     ),
-                  ListTile(title: const Text('Reference'), subtitle: Text(id)),
-                  for (final field in [
-                    'requestClarificationMessage',
-                    'declineMessage',
-                  ])
-                    if (row[field] is String)
-                      ListTile(
-                        title: const Text('Provider message'),
-                        subtitle: Text(row[field] as String),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            const Icon(
+                              Icons.calendar_month_outlined,
+                              size: 16,
+                              color: AppColors.secondaryTextAccessible,
+                            ),
+                            const SizedBox(width: AppSpacing.xs),
+                            Expanded(child: Text('${row['eventDate']}')),
+                          ],
+                        ),
+                        const SizedBox(height: AppSpacing.xs),
+                        Row(
+                          children: [
+                            const Icon(
+                              Icons.inventory_2_outlined,
+                              size: 16,
+                              color: AppColors.secondaryTextAccessible,
+                            ),
+                            const SizedBox(width: AppSpacing.xs),
+                            Expanded(
+                              child: Text(
+                                '$quantity ${quantity == 1 ? 'package' : 'packages'}',
+                              ),
+                            ),
+                          ],
+                        ),
+                        if (offer is Map) ...[
+                          const SizedBox(height: AppSpacing.xs),
+                          Text(
+                            'Total offered ${specialRequestMoney((offer['totalInCentavos'] as num) / 100)}',
+                            style: AppTypography.label.copyWith(
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: AppSpacing.sm),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: OutlinedButton.icon(
+                      onPressed: () => _openRequest(row),
+                      icon: const Icon(Icons.visibility_outlined, size: 18),
+                      label: Text(
+                        row['status'] == 'quotation_sent'
+                            ? 'Review Offer'
+                            : 'View Request',
                       ),
-                  if (status == 'needs_clarification')
-                    TextButton(
-                      onPressed: _saving ? null : () => _clarify(id),
-                      child: const Text('Reply to provider'),
                     ),
-                  if ([
-                    'pending_review',
-                    'needs_clarification',
-                    'revision_requested',
-                  ].contains(status))
-                    TextButton(
-                      onPressed: _saving ? null : () => _update(id, 'cancel'),
-                      child: const Text('Cancel request'),
-                    ),
+                  ),
                 ],
               ),
             );
@@ -508,4 +1043,41 @@ class _SpecialRequestTrackerState extends State<SpecialRequestTracker> {
       },
     ),
   );
+}
+
+class _DetailRow extends StatelessWidget {
+  const _DetailRow({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: AppSpacing.xs),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: Text(
+              label,
+              style: AppTypography.bodySmall.copyWith(
+                color: AppColors.secondaryTextAccessible,
+              ),
+            ),
+          ),
+          const SizedBox(width: AppSpacing.sm),
+          Expanded(
+            child: Text(
+              value,
+              textAlign: TextAlign.right,
+              style: AppTypography.bodySmall.copyWith(
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
