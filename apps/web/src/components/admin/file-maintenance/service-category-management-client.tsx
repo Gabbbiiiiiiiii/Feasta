@@ -601,6 +601,7 @@ function ServiceCategoryManagementClient({
               />
             </FormField>
 
+            {false && (
             <div className="grid gap-3 rounded-xl border border-border bg-muted/30 p-4">
               <div>
                 <p className="font-semibold text-foreground">
@@ -686,6 +687,7 @@ function ServiceCategoryManagementClient({
                 </span>
               </label>
             </div>
+            )}
 
             <DialogFooter>
               <Button
