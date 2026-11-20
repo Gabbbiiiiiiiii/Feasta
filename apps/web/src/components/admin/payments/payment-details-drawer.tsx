@@ -165,6 +165,12 @@ function PaymentDetailsContent({
             {payment.formattedAmount}
           </p>
 
+          {payment.formattedCommissionAmount ? (
+            <p className="mt-1 text-sm font-semibold tabular-nums text-muted-foreground">
+              FEASTA commission {payment.formattedCommissionAmount}
+            </p>
+          ) : null}
+
           <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
             <span className="rounded-md bg-card px-2 py-0.5 font-semibold text-foreground ring-1 ring-border">
               {formatAdminPaymentPurpose(payment)}

@@ -515,17 +515,19 @@ function NotificationTypeIcon({
   }
 
   if (
-    normalized.includes("booking") ||
-    normalized.includes("request")
+    normalized.includes("payment") ||
+    normalized.includes("refund") ||
+    normalized.includes("fund")
   ) {
-    return <CalendarDays {...iconProps} />;
+    return <CircleDollarSign {...iconProps} />;
   }
 
   if (
-    normalized.includes("payment") ||
-    normalized.includes("refund")
+    normalized.includes("booking") ||
+    normalized.includes("cancellation") ||
+    normalized.includes("request")
   ) {
-    return <CircleDollarSign {...iconProps} />;
+    return <CalendarDays {...iconProps} />;
   }
 
   if (

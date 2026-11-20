@@ -249,7 +249,7 @@ String agreementMoney(int centavos) {
 String agreementTime(DateTime instant) {
   final m = instant.toUtc().add(const Duration(hours: 8));
   String two(int value) => value.toString().padLeft(2, '0');
-  return '${m.year}-${two(m.month)}-${two(m.day)} ${two(m.hour)}:${two(m.minute)} (Asia/Manila)';
+  return '${m.year}-${two(m.month)}-${two(m.day)} ${two(m.hour)}:${two(m.minute)}';
 }
 
 /// Immutable, transient disclosure context. Never a durable submission attempt.

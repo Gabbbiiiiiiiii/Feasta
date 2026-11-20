@@ -68,7 +68,7 @@ export function BookingPaymentAgreementReview({
     >
       <h3 className="text-lg font-extrabold tracking-tight text-foreground">Booking &amp; Payment Agreement</h3>
 
-      <p className="mt-1 text-sm leading-6 text-feasta-text-secondary">These terms are calculated by FEASTA from your current booking. All times are in Asia/Manila.</p>
+      <p className="mt-1 text-sm leading-6 text-feasta-text-secondary">These terms are calculated by FEASTA from your current booking.</p>
 
       {error && <p role="alert" className="mt-3 rounded-xl border border-destructive/20 bg-destructive-subtle p-3 text-sm text-destructive">{error}</p>}
 

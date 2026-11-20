@@ -1172,6 +1172,11 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // Admin mock commission withdrawals are server-managed demo cash-out records.
+    match /companyCommissionMockWithdrawals/{withdrawalId} {
+      allow read, write: if false;
+    }
+
     match /companyAdvanceRequests/{advanceRequestId} {
       allow read, write: if false;
     }

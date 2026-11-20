@@ -216,6 +216,7 @@ export function ProviderFinancePanel({
               finance.earningSummary.availableAmountInCentavos <= 0 ||
               working !== null
             }
+            className="disabled:bg-primary/55 disabled:text-primary-foreground disabled:opacity-100"
             onClick={() => setWithdrawOpen(true)}
           >
             Withdraw available earnings

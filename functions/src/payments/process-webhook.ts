@@ -42,6 +42,7 @@ import {
   applyCompanyFloatPaymentSideEffectsInTransaction,
 } from "../provider-finance/company-provider-advance.js";
 import {
+  COMPANY_COMMISSION_DOC_PATH,
   COMPANY_FLOAT_DOC_PATH,
   companyAdvanceRequestIdForProviderRequest,
   companyFloatCommissionLedgerId,
@@ -473,6 +474,13 @@ export async function processPayMongoWebhook(
               .doc(COMPANY_FLOAT_DOC_PATH.document)
           : null;
 
+      const companyCommissionReference =
+        nextStatus === "paid"
+          ? db
+              .collection(COMPANY_COMMISSION_DOC_PATH.collection)
+              .doc(COMPANY_COMMISSION_DOC_PATH.document)
+          : null;
+
       const companyFloatCommissionLedgerReference =
         nextStatus === "paid"
           ? db
@@ -483,6 +491,11 @@ export async function processPayMongoWebhook(
       const companyFloatSnapshot =
         companyFloatReference
           ? await transaction.get(companyFloatReference)
+          : null;
+
+      const companyCommissionSnapshot =
+        companyCommissionReference
+          ? await transaction.get(companyCommissionReference)
           : null;
 
       const companyFloatCommissionLedgerSnapshot =
@@ -994,11 +1007,13 @@ export async function processPayMongoWebhook(
 
           if (
             companyFloatSnapshot &&
+            companyCommissionSnapshot &&
             companyFloatCommissionLedgerSnapshot
           ) {
             applyCompanyFloatCommissionCreditInTransaction({
               transaction,
               floatSnap: companyFloatSnapshot,
+              commissionSnap: companyCommissionSnapshot,
               ledgerSnap: companyFloatCommissionLedgerSnapshot,
               paymentId: event.paymentId,
               providerRequestId,
@@ -1145,11 +1160,13 @@ export async function processPayMongoWebhook(
 
         if (
           companyFloatSnapshot &&
+          companyCommissionSnapshot &&
           companyFloatCommissionLedgerSnapshot
         ) {
           applyCompanyFloatPaymentSideEffectsInTransaction({
             transaction,
             floatSnap: companyFloatSnapshot,
+            commissionSnap: companyCommissionSnapshot,
             commissionLedgerSnap: companyFloatCommissionLedgerSnapshot,
             advanceSnap: companyAdvanceSnapshot,
             paymentId: event.paymentId,

@@ -7,7 +7,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 
-import {PackagePaymentTerms} from "@/components/shared/package-payment-terms";
+import {PackagePaymentTermsCardHint} from "@/components/shared/package-payment-terms";
 import {PriceDisplay} from "@/components/shared/price-display";
 import {
   CATERING_PACKAGE_SERVICE_TIERS,
@@ -289,7 +289,7 @@ export function PublicPackageCard({
                 unknownLabel={unknownPriceLabel}
                 className="mt-1"
               />
-              <div className="mt-2"><PackagePaymentTerms source={packageRecord} /></div>
+              <PackagePaymentTermsCardHint source={packageRecord} />
             </div>
 
             <span

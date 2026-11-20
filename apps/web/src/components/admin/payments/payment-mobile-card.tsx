@@ -56,6 +56,11 @@ function PaymentMobileCard({
           <p className="break-words text-2xl font-black tracking-tight tabular-nums text-primary">
             {payment.formattedAmount}
           </p>
+          {payment.formattedCommissionAmount ? (
+            <p className="mt-0.5 text-xs font-semibold tabular-nums text-muted-foreground">
+              Commission {payment.formattedCommissionAmount}
+            </p>
+          ) : null}
           {payment.refundedAmountFormatted ? (
             <p className="mt-0.5 text-xs font-semibold tabular-nums text-muted-foreground">
               Refunded {payment.refundedAmountFormatted}

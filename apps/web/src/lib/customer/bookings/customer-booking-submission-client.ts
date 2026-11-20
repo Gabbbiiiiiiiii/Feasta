@@ -416,7 +416,7 @@ function normalizeBookingSubmissionError(
     const expiry = date && Number.isFinite(date.getTime()) ? new Intl.DateTimeFormat("en-PH", {
       dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Manila",
     }).format(date) : null;
-    return Object.assign(new Error(`New bookings are restricted after three verified unpaid booking expirations within 30 days.${expiry ? ` Your restriction ends ${expiry} (Manila).` : " Contact support for the restriction end date."} Existing bookings, permitted payments, messages and support remain available.`),
+    return Object.assign(new Error(`New bookings are restricted after three verified unpaid booking expirations within 30 days.${expiry ? ` Your restriction ends ${expiry}.` : " Contact support for the restriction end date."} Existing bookings, permitted payments, messages and support remain available.`),
       {reason: agreementReason, expiresAt});
   }
 

@@ -1,13 +1,20 @@
 import {createHash} from "node:crypto";
 
 export const COMPANY_FLOAT_SCHEMA_VERSION = 1 as const;
+export const COMPANY_COMMISSION_SCHEMA_VERSION = 1 as const;
 export const COMPANY_PROVIDER_ADVANCE_SCHEMA_VERSION = 1 as const;
 export const COMPANY_ADVANCE_REQUEST_SCHEMA_VERSION = 1 as const;
 export const COMPANY_FLOAT_LEDGER_SCHEMA_VERSION = 1 as const;
+export const COMPANY_ADVANCE_MAX_ATTEMPTS = 3 as const;
 
 export const COMPANY_FLOAT_DOC_PATH = {
   collection: "companyFinance",
   document: "float",
+} as const;
+
+export const COMPANY_COMMISSION_DOC_PATH = {
+  collection: "companyFinance",
+  document: "commission",
 } as const;
 
 export const COMPANY_ADVANCE_REQUEST_STATUSES = [
@@ -34,6 +41,14 @@ export type CompanyFloatSnapshot = {
   currency: "PHP";
   availableBalanceInCentavos: number;
   outstandingAdvanceInCentavos: number;
+};
+
+export type CompanyCommissionSnapshot = {
+  schemaVersion: typeof COMPANY_COMMISSION_SCHEMA_VERSION;
+  currency: "PHP";
+  availableBalanceInCentavos: number;
+  transferredToFloatInCentavos: number;
+  withdrawnInCentavos: number;
 };
 
 export type CompanyAdvanceRequestRecord = {
@@ -102,12 +117,42 @@ export function companyFloatCommissionLedgerId(paymentId: string): string {
     .slice(0, 32)}`;
 }
 
+export function companyCommissionTransferLedgerId(
+  clientRequestId: string,
+): string {
+  const id = requireToken(clientRequestId, "Client request");
+  return `company_commission_to_float_${createHash("sha256")
+    .update(["company-commission-to-float", id, "v1"].join(":"))
+    .digest("hex")
+    .slice(0, 32)}`;
+}
+
+export function companyCommissionWithdrawalId(
+  clientRequestId: string,
+): string {
+  const id = requireToken(clientRequestId, "Client request");
+  return `company_commission_wd_${createHash("sha256")
+    .update(["company-commission-withdrawal", id, "v1"].join(":"))
+    .digest("hex")
+    .slice(0, 32)}`;
+}
+
 export function emptyCompanyFloat(): CompanyFloatSnapshot {
   return {
     schemaVersion: COMPANY_FLOAT_SCHEMA_VERSION,
     currency: "PHP",
     availableBalanceInCentavos: 0,
     outstandingAdvanceInCentavos: 0,
+  };
+}
+
+export function emptyCompanyCommission(): CompanyCommissionSnapshot {
+  return {
+    schemaVersion: COMPANY_COMMISSION_SCHEMA_VERSION,
+    currency: "PHP",
+    availableBalanceInCentavos: 0,
+    transferredToFloatInCentavos: 0,
+    withdrawnInCentavos: 0,
   };
 }
 
@@ -140,6 +185,39 @@ export function parseCompanyFloat(
   };
 }
 
+export function parseCompanyCommission(
+  value: Readonly<Record<string, unknown>> | null | undefined,
+): CompanyCommissionSnapshot {
+  if (!value) {
+    return emptyCompanyCommission();
+  }
+
+  if (value.schemaVersion !== COMPANY_COMMISSION_SCHEMA_VERSION) {
+    throw companyFloatInvalid("Company commission schema is invalid.");
+  }
+
+  if (value.currency !== "PHP") {
+    throw companyFloatInvalid("Company commission currency must be PHP.");
+  }
+
+  return {
+    schemaVersion: COMPANY_COMMISSION_SCHEMA_VERSION,
+    currency: "PHP",
+    availableBalanceInCentavos: nonNegativeCentavos(
+      value.availableBalanceInCentavos,
+      "Company commission available balance",
+    ),
+    transferredToFloatInCentavos: nonNegativeCentavos(
+      value.transferredToFloatInCentavos,
+      "Company commission transferred to float",
+    ),
+    withdrawnInCentavos: nonNegativeCentavos(
+      value.withdrawnInCentavos,
+      "Company commission withdrawn",
+    ),
+  };
+}
+
 export function planCompanyFloatFunding(input: {
   float: CompanyFloatSnapshot;
   amountInCentavos: number;
@@ -158,18 +236,23 @@ export function planCompanyFloatFunding(input: {
   };
 }
 
-export function planCompanyFloatCommissionCredit(input: {
-  float: CompanyFloatSnapshot;
+/**
+ * Accrues FEASTA commission into the separate company commission wallet.
+ * Commission is not auto-credited to company float; admin may later withdraw
+ * or transfer available commission into float.
+ */
+export function planCompanyCommissionCredit(input: {
+  commission: CompanyCommissionSnapshot;
   commissionInCentavos: number;
   alreadyCredited: boolean;
 }): {
-  float: CompanyFloatSnapshot;
+  commission: CompanyCommissionSnapshot;
   credited: boolean;
   amountInCentavos: number;
 } {
   if (input.alreadyCredited) {
     return {
-      float: input.float,
+      commission: input.commission,
       credited: false,
       amountInCentavos: 0,
     };
@@ -184,22 +267,151 @@ export function planCompanyFloatCommissionCredit(input: {
 
   if (input.commissionInCentavos === 0) {
     return {
-      float: input.float,
+      commission: input.commission,
       credited: false,
       amountInCentavos: 0,
     };
   }
 
   return {
-    float: {
-      ...input.float,
+    commission: {
+      ...input.commission,
       availableBalanceInCentavos: checkedAdd(
-        input.float.availableBalanceInCentavos,
+        input.commission.availableBalanceInCentavos,
         input.commissionInCentavos,
       ),
     },
     credited: true,
     amountInCentavos: input.commissionInCentavos,
+  };
+}
+
+export function planCompanyCommissionTransferToFloat(input: {
+  commission: CompanyCommissionSnapshot;
+  float: CompanyFloatSnapshot;
+  amountInCentavos: number;
+}): {
+  commission: CompanyCommissionSnapshot;
+  float: CompanyFloatSnapshot;
+  amountInCentavos: number;
+} {
+  const amountInCentavos = positiveCentavos(
+    input.amountInCentavos,
+    "Commission transfer amount",
+  );
+
+  if (amountInCentavos > input.commission.availableBalanceInCentavos) {
+    throw companyFloatInvalid(
+      "Transfer amount exceeds available commission.",
+    );
+  }
+
+  return {
+    amountInCentavos,
+    commission: {
+      ...input.commission,
+      availableBalanceInCentavos:
+        input.commission.availableBalanceInCentavos - amountInCentavos,
+      transferredToFloatInCentavos: checkedAdd(
+        input.commission.transferredToFloatInCentavos,
+        amountInCentavos,
+      ),
+    },
+    float: {
+      ...input.float,
+      availableBalanceInCentavos: checkedAdd(
+        input.float.availableBalanceInCentavos,
+        amountInCentavos,
+      ),
+    },
+  };
+}
+
+export function planCompanyCommissionWithdrawal(input: {
+  commission: CompanyCommissionSnapshot;
+  amountInCentavos: number;
+}): {
+  commission: CompanyCommissionSnapshot;
+  amountInCentavos: number;
+} {
+  const amountInCentavos = positiveCentavos(
+    input.amountInCentavos,
+    "Commission withdrawal amount",
+  );
+
+  if (amountInCentavos > input.commission.availableBalanceInCentavos) {
+    throw companyFloatInvalid(
+      "Withdrawal amount exceeds available commission.",
+    );
+  }
+
+  return {
+    amountInCentavos,
+    commission: {
+      ...input.commission,
+      availableBalanceInCentavos:
+        input.commission.availableBalanceInCentavos - amountInCentavos,
+      withdrawnInCentavos: checkedAdd(
+        input.commission.withdrawnInCentavos,
+        amountInCentavos,
+      ),
+    },
+  };
+}
+
+export function parseCompanyAdvanceAttemptCount(value: unknown): number {
+  if (!Number.isSafeInteger(value) || (value as number) < 1) {
+    return 0;
+  }
+  return value as number;
+}
+
+export function remainingCompanyAdvanceAttempts(attemptCount: number): number {
+  const used = Math.max(0, attemptCount);
+  return Math.max(0, COMPANY_ADVANCE_MAX_ATTEMPTS - used);
+}
+
+/**
+ * Next attempt number for a create/re-open. Rejected/cancelled requests may
+ * retry until COMPANY_ADVANCE_MAX_ATTEMPTS is exhausted.
+ */
+export function planCompanyAdvanceAttemptCount(input: {
+  existingAttemptCount: unknown;
+  existingRequestStatus: string | null;
+  requestExists: boolean;
+}): {
+  attemptCount: number;
+  remainingAfterRequest: number;
+} {
+  if (!input.requestExists) {
+    return {
+      attemptCount: 1,
+      remainingAfterRequest: COMPANY_ADVANCE_MAX_ATTEMPTS - 1,
+    };
+  }
+
+  const used = parseCompanyAdvanceAttemptCount(input.existingAttemptCount);
+  const priorAttempts = used > 0 ? used : 1;
+
+  if (
+    input.existingRequestStatus !== "rejected" &&
+    input.existingRequestStatus !== "cancelled"
+  ) {
+    throw companyFloatInvalid(
+      "An immediate funding request already exists for this booking.",
+    );
+  }
+
+  if (priorAttempts >= COMPANY_ADVANCE_MAX_ATTEMPTS) {
+    throw companyFloatInvalid(
+      `You have used all ${COMPANY_ADVANCE_MAX_ATTEMPTS} immediate funding requests for this booking.`,
+    );
+  }
+
+  const attemptCount = priorAttempts + 1;
+  return {
+    attemptCount,
+    remainingAfterRequest: COMPANY_ADVANCE_MAX_ATTEMPTS - attemptCount,
   };
 }
 
@@ -213,7 +425,12 @@ export function planCompanyAdvanceRequest(input: {
   settlementStatus: string | null;
   existingRequestStatus: string | null;
   existingAdvanceStatus: string | null;
-}): CompanyAdvanceRequestRecord {
+  existingAttemptCount?: unknown;
+  requestExists?: boolean;
+}): CompanyAdvanceRequestRecord & {
+  attemptCount: number;
+  remainingAfterRequest: number;
+} {
   if (
     input.settlementStatus !== "deposit_settled" &&
     input.settlementStatus !== "fully_settled"
@@ -244,6 +461,12 @@ export function planCompanyAdvanceRequest(input: {
     );
   }
 
+  const attemptPlan = planCompanyAdvanceAttemptCount({
+    existingAttemptCount: input.existingAttemptCount,
+    existingRequestStatus: input.existingRequestStatus,
+    requestExists: input.requestExists === true,
+  });
+
   const advanceRequestId = companyAdvanceRequestIdForProviderRequest(
     input.providerRequestId,
   );
@@ -258,6 +481,8 @@ export function planCompanyAdvanceRequest(input: {
     status: "pending",
     requestedByUid: requireToken(input.requestedByUid, "Requester"),
     providerNote: normalizeNote(input.providerNote),
+    attemptCount: attemptPlan.attemptCount,
+    remainingAfterRequest: attemptPlan.remainingAfterRequest,
   };
 }
 

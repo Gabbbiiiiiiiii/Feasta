@@ -59,6 +59,12 @@ void main() {
       expect(find.textContaining('1,000.01'), findsOneWidget);
       expect(find.textContaining('700.00'), findsOneWidget);
       expect(
+        find.textContaining(
+          'Submit at least 72 hours before the event to keep the deposit option.',
+        ),
+        findsOneWidget,
+      );
+      expect(
         find.text('The 72-hour deposit cutoff has passed for this event.'),
         findsOneWidget,
       );

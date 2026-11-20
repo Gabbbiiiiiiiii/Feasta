@@ -12,6 +12,8 @@ import type {AdminProviderPayoutBoard} from "@/lib/admin/payments/admin-payment-
 vi.mock("@/lib/admin/payments/admin-payment-client", () => ({
   releaseMockProviderDisbursement: vi.fn(),
   fundCompanyFloat: vi.fn(),
+  transferCompanyCommissionToFloat: vi.fn(),
+  requestMockCompanyCommissionWithdrawal: vi.fn(),
   approveCompanyAdvanceRequest: vi.fn(),
   rejectCompanyAdvanceRequest: vi.fn(),
 }));
@@ -25,7 +27,19 @@ const board: AdminProviderPayoutBoard = {
     currency: "PHP",
     mode: "mock",
   },
+  companyCommission: {
+    availableBalanceInCentavos: 150000,
+    transferredToFloatInCentavos: 0,
+    withdrawnInCentavos: 0,
+    formattedAvailableBalance: "₱1,500.00",
+    formattedTransferredToFloat: "₱0.00",
+    formattedWithdrawn: "₱0.00",
+    currency: "PHP",
+    mode: "mock",
+  },
+  commissionWithdrawals: [],
   advanceRequests: [],
+  rejectedAdvanceRequests: [],
   advanceHistory: [],
   readyToPay: [
     {
@@ -76,11 +90,83 @@ describe("admin provider payout board", () => {
     );
 
     expect(screen.getByRole("heading", {name: "Provider payouts"})).toBeVisible();
+    expect(screen.getByRole("heading", {name: "FEASTA commission"})).toBeVisible();
+    expect(screen.getByRole("button", {name: "Withdraw commission"})).toBeEnabled();
+    expect(screen.getByRole("button", {name: "Add to company float"})).toBeEnabled();
     expect(screen.getByRole("heading", {name: "Ready to pay"})).toBeVisible();
     expect(screen.getByRole("heading", {name: "Admin payout history"})).toBeVisible();
     expect(screen.getByText("₱900.00")).toBeVisible();
     expect(screen.getByText("₱500.00")).toBeVisible();
     expect(screen.getByText(/Reference: mock_wd_admin_1/u)).toBeVisible();
+  });
+
+  it("shows commission withdrawal history", () => {
+    render(
+      <ProviderPayoutBoard
+        board={{
+          ...board,
+          commissionWithdrawals: [
+            {
+              withdrawalId: "company_commission_wd_test_1",
+              amountInCentavos: 25000,
+              formattedAmount: "₱250.00",
+              destinationType: "gcash",
+              accountName: "FEASTA Admin",
+              destinationSummary: "09******21",
+              completedAt: "2026-11-20T02:00:00.000Z",
+              status: "succeeded",
+              mode: "mock",
+            },
+          ],
+        }}
+        loading={false}
+        releasingId={null}
+        onRefresh={vi.fn()}
+        onReleased={vi.fn()}
+        onReleaseStart={vi.fn()}
+        onReleaseEnd={vi.fn()}
+      />,
+    );
+
+    expect(
+      screen.getByRole("heading", {name: "Commission withdrawal history"}),
+    ).toBeVisible();
+    expect(screen.getByText("₱250.00")).toBeVisible();
+    expect(screen.getByText("company_commission_wd_test_1")).toBeVisible();
+    expect(screen.getByText("FEASTA Admin")).toBeVisible();
+  });
+
+  it("shows rejected advance requests in company advance history", () => {
+    render(
+      <ProviderPayoutBoard
+        board={{
+          ...board,
+          rejectedAdvanceRequests: [
+            {
+              advanceRequestId: "adv_req_rejected_1",
+              providerRequestId: "provider_request_rejected_1",
+              providerId: "provider_1",
+              providerName: "Bagong Provider",
+              providerNetAmountInCentavos: 88000,
+              formattedProviderNetAmount: "₱880.00",
+              rejectedAt: "2026-11-19T03:00:00.000Z",
+              status: "rejected",
+            },
+          ],
+        }}
+        loading={false}
+        releasingId={null}
+        onRefresh={vi.fn()}
+        onReleased={vi.fn()}
+        onReleaseStart={vi.fn()}
+        onReleaseEnd={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole("heading", {name: "Company advance history"})).toBeVisible();
+    expect(screen.getByText("₱880.00")).toBeVisible();
+    expect(screen.getByText("rejected")).toBeVisible();
+    expect(screen.getByText("provider_request_rejected_1")).toBeVisible();
   });
 
   it("blocks confirm until password and RELEASE are provided", async () => {

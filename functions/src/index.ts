@@ -230,6 +230,10 @@ export {
   rejectCompanyAdvanceRequest,
 } from "./provider-finance/company-provider-advance.js";
 export {
+  transferCompanyCommissionToFloat,
+  requestMockCompanyCommissionWithdrawal,
+} from "./provider-finance/company-commission.js";
+export {
   repairAmbiguousProviderPayoutAccount,
 } from "./provider-finance/repair-ambiguous-provider-payout-account.js";
 export {payMongoWebhook} from "./payments/paymongo-webhook.js";

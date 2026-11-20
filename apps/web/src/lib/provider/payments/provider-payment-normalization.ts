@@ -81,6 +81,16 @@ export function normalizeProviderPaymentRecord(input: {
     return null;
   }
 
+  const commissionAmountInCentavos = paymentCommissionCentavos(
+    payment,
+    paymentId,
+    amountInCentavos,
+  );
+  const providerNetAmountInCentavos =
+    commissionAmountInCentavos === null
+      ? null
+      : amountInCentavos - commissionAmountInCentavos;
+
   const normalizedPayment: ProviderPayment = {
     paymentId,
     providerRequestId,
@@ -99,6 +109,16 @@ export function normalizeProviderPaymentRecord(input: {
     amount: amountInCentavos / 100,
     amountInCentavos,
     formattedAmount: formatPhpCentavos(amountInCentavos),
+    commissionAmountInCentavos,
+    formattedCommissionAmount:
+      commissionAmountInCentavos === null
+        ? null
+        : formatPhpCentavos(commissionAmountInCentavos),
+    providerNetAmountInCentavos,
+    formattedProviderNetAmount:
+      providerNetAmountInCentavos === null
+        ? null
+        : formatPhpCentavos(providerNetAmountInCentavos),
     currency: "PHP",
     paymentType,
     paymentChoice: parseCustomerPaymentChoice(payment.paymentChoice),
@@ -175,6 +195,28 @@ function canonicalCentavos(value: unknown): number | null {
     Number.isSafeInteger(value) &&
     value > 0
     ? value
+    : null;
+}
+
+function paymentCommissionCentavos(
+  payment: Readonly<Record<string, unknown>>,
+  paymentId: string,
+  amountInCentavos: number,
+): number | null {
+  if (
+    payment.financialLedgerSchemaVersion !== 1 ||
+    payment.financialLedgerEntryId !== paymentId ||
+    payment.currency !== "PHP"
+  ) {
+    return null;
+  }
+
+  const commission = payment.commissionAccruedInCentavos;
+  return typeof commission === "number" &&
+    Number.isSafeInteger(commission) &&
+    commission >= 0 &&
+    commission <= amountInCentavos
+    ? commission
     : null;
 }
 

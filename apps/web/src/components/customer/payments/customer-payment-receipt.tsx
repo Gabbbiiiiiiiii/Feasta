@@ -201,6 +201,21 @@ export function CustomerPaymentReceiptView({
                     {receipt.amountPaidFormatted}
                   </td>
                 </tr>
+                {receipt.chargeBreakdown?.status === "available" ? (
+                  <tr className="border-t border-feasta-border-soft">
+                    <td className="px-4 py-3">
+                      <p>Service charge</p>
+                      <p className="mt-0.5 text-xs text-feasta-text-tertiary">
+                        Deducted from provider proceeds
+                      </p>
+                    </td>
+                    <td className="px-4 py-3 text-right font-semibold tabular-nums">
+                      {formatServiceVat(
+                        receipt.chargeBreakdown.platformChargeInCentavos,
+                      )}
+                    </td>
+                  </tr>
+                ) : null}
                 {hasRefund ? (
                   <tr className="border-t border-feasta-border-soft">
                     <td className="px-4 py-3">Refund recorded</td>
@@ -222,6 +237,11 @@ export function CustomerPaymentReceiptView({
               </tfoot>
             </table>
           </div>
+          {receipt.chargeBreakdown?.status === "available" ? (
+            <p className="mt-2 text-xs leading-5 text-feasta-text-tertiary">
+              {receipt.chargeBreakdown.notice}
+            </p>
+          ) : null}
           <p className="mt-2 flex items-start gap-2 text-xs leading-5 text-feasta-text-tertiary">
             <CalendarDays aria-hidden="true" className="mt-0.5 size-3.5 shrink-0" />
             This record covers the individual payment identified above, not all payments for the booking.

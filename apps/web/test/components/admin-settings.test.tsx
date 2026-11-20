@@ -102,7 +102,7 @@ describe("Admin platform settings", () => {
     ).toHaveValue("Ormoc City");
 
     expect(
-      screen.getByText("Asia/Manila"),
+      screen.getByText("Philippines"),
     ).toBeInTheDocument();
 
     expect(

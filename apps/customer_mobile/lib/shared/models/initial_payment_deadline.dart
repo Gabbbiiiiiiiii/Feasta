@@ -47,6 +47,6 @@ class InitialPaymentDeadline {
     final local = deadline.toUtc().add(const Duration(hours: 8));
     String two(int value) => value.toString().padLeft(2, '0');
     return '${local.year}-${two(local.month)}-${two(local.day)} '
-        '${two(local.hour)}:${two(local.minute)} PHT';
+        '${two(local.hour)}:${two(local.minute)}';
   }
 }

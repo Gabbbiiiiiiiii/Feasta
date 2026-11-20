@@ -91,7 +91,7 @@ class _BookingAgreementReviewScreenState
           ),
           const SizedBox(height: 8),
           const Text(
-            "FEASTA generates these terms for your current selections. All times are Asia/Manila. Each total applies to that provider's services.",
+            "FEASTA generates these terms for your current selections. Each total applies to that provider's services.",
           ),
           const SizedBox(height: 16),
           if (controller.status == AgreementReviewStatus.loading) ...[

@@ -59,10 +59,18 @@ describe("provider package modal and media", () => {
     render(<ProviderPackageCard item={{...record, paymentPolicy, depositPercentage: paymentPolicy === "full_payment" ? 100 : 50, balanceDueDaysBeforeEvent: null}} onEdit={vi.fn()} onPublish={vi.fn()} onArchive={vi.fn()} />);
     expect(screen.getByText(paymentPolicy === "full_payment" ? "Full payment" : "Deposit + balance")).toBeVisible();
     if (paymentPolicy === "deposit_then_balance") {
-      expect(screen.getByText("50% deposit + remaining balance")).toBeVisible();
-      expect(screen.getByText("Balance due 24 hours before event")).toBeVisible();
+      expect(screen.getByText("Deposit")).toBeVisible();
+      expect(screen.getByText("Balance due")).toBeVisible();
+      expect(screen.getByText("Short notice")).toBeVisible();
+      expect(screen.getByText("Pay 50% first, then the remaining balance")).toBeVisible();
+      expect(screen.getByText("Remaining balance is due 24 hours before the event")).toBeVisible();
+      expect(screen.getByText("Under 72 hours: full payment required")).toBeVisible();
       expect(screen.queryByText("Full payment")).not.toBeInTheDocument();
-    } else expect(screen.queryByText("Deposit + balance")).not.toBeInTheDocument();
+    } else {
+      expect(screen.queryByText("Deposit + balance")).not.toBeInTheDocument();
+      expect(screen.queryByText("Short notice")).not.toBeInTheDocument();
+      expect(screen.queryByText("Under 72 hours: full payment required")).not.toBeInTheDocument();
+    }
     expect(document.body).not.toHaveTextContent(/deposit \?|�/);
   });
 

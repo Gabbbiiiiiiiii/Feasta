@@ -51,6 +51,8 @@ const samplePayment: AdminPayment = {
   providerName: "Emerald Catering",
   amountInCentavos: 2000000,
   formattedAmount: "₱20,000.00",
+  commissionAmountInCentavos: 200000,
+  formattedCommissionAmount: "₱2,000.00",
   currency: "PHP",
   paymentType: "provider_down_payment",
   paymentChoice: "minimum",
@@ -98,7 +100,19 @@ const populatedBoard: AdminProviderPayoutBoard = {
     currency: "PHP",
     mode: "mock",
   },
+  companyCommission: {
+    availableBalanceInCentavos: 0,
+    transferredToFloatInCentavos: 0,
+    withdrawnInCentavos: 0,
+    formattedAvailableBalance: "₱0.00",
+    formattedTransferredToFloat: "₱0.00",
+    formattedWithdrawn: "₱0.00",
+    currency: "PHP",
+    mode: "mock",
+  },
+  commissionWithdrawals: [],
   advanceRequests: [],
+  rejectedAdvanceRequests: [],
   advanceHistory: [],
   readyToPay: [
     {

@@ -18,6 +18,7 @@ import {
 const ADMIN_RELEASE_CONFIRMATION_PHRASE = "RELEASE";
 const ADMIN_FUND_CONFIRMATION_PHRASE = "FUND";
 const ADMIN_ADVANCE_CONFIRMATION_PHRASE = "ADVANCE";
+const ADMIN_FLOAT_CONFIRMATION_PHRASE = "FLOAT";
 import type {
   AdminPayoutSetupRepairInput,
   AdminPayoutSetupRepairResult,
@@ -318,6 +319,151 @@ export async function fundCompanyFloat(input: {
     })).data;
   } catch (error: unknown) {
     throw mapCallableError(error, "Company float could not be funded.");
+  }
+}
+
+export async function transferCompanyCommissionToFloat(input: {
+  amountInCentavos: number;
+  clientRequestId: string;
+  password: string;
+  confirmationPhrase: string;
+}): Promise<{
+  amountInCentavos: number;
+  availableCommissionInCentavos: number;
+  availableFloatInCentavos: number;
+  outstandingAdvanceInCentavos: number;
+  currency: "PHP";
+  mode: "mock";
+}> {
+  await reauthenticateAdminPassword(input.password);
+
+  if (input.confirmationPhrase !== ADMIN_FLOAT_CONFIRMATION_PHRASE) {
+    throw new Error(
+      "Type FLOAT exactly to confirm transferring commission into company float.",
+    );
+  }
+
+  if (!Number.isSafeInteger(input.amountInCentavos) || input.amountInCentavos <= 0) {
+    throw new Error("Commission transfer amount is invalid.");
+  }
+
+  if (
+    typeof input.clientRequestId !== "string" ||
+    input.clientRequestId.length < 8 ||
+    input.clientRequestId.length > 80
+  ) {
+    throw new Error("Client request identity is invalid.");
+  }
+
+  initializeBrowserAppCheck();
+  const callable = httpsCallable<
+    {
+      amountInCentavos: number;
+      clientRequestId: string;
+      confirmationPhrase: string;
+    },
+    {
+      amountInCentavos: number;
+      availableCommissionInCentavos: number;
+      availableFloatInCentavos: number;
+      outstandingAdvanceInCentavos: number;
+      currency: "PHP";
+      mode: "mock";
+    }
+  >(functions, "transferCompanyCommissionToFloat", {timeout: 30_000});
+
+  try {
+    return (await callable({
+      amountInCentavos: input.amountInCentavos,
+      clientRequestId: input.clientRequestId,
+      confirmationPhrase: ADMIN_FLOAT_CONFIRMATION_PHRASE,
+    })).data;
+  } catch (error: unknown) {
+    throw mapCallableError(
+      error,
+      "Commission could not be transferred to company float.",
+    );
+  }
+}
+
+export async function requestMockCompanyCommissionWithdrawal(input: {
+  clientRequestId: string;
+  amountInCentavos: number;
+  destinationType: "gcash" | "bank";
+  accountName: string;
+  mobileNumber?: string;
+  bankName?: string;
+  accountNumber?: string;
+  password: string;
+}): Promise<{
+  withdrawalId: string;
+  amountInCentavos: number;
+  currency: "PHP";
+  status: "succeeded";
+  mode: "mock";
+  destination: {
+    type: "gcash" | "bank";
+    accountName: string;
+    mobileMasked: string | null;
+    bankName: string | null;
+    accountNumberMasked: string | null;
+  };
+  availableCommissionInCentavos: number;
+  completedAt: string | null;
+}> {
+  await reauthenticateAdminPassword(input.password);
+
+  if (!Number.isSafeInteger(input.amountInCentavos) || input.amountInCentavos <= 0) {
+    throw new Error("Commission withdrawal amount is invalid.");
+  }
+
+  initializeBrowserAppCheck();
+  const callable = httpsCallable<
+    {
+      clientRequestId: string;
+      amountInCentavos: number;
+      destinationType: "gcash" | "bank";
+      accountName: string;
+      mobileNumber?: string;
+      bankName?: string;
+      accountNumber?: string;
+    },
+    {
+      withdrawalId: string;
+      amountInCentavos: number;
+      currency: "PHP";
+      status: "succeeded";
+      mode: "mock";
+      destination: {
+        type: "gcash" | "bank";
+        accountName: string;
+        mobileMasked: string | null;
+        bankName: string | null;
+        accountNumberMasked: string | null;
+      };
+      availableCommissionInCentavos: number;
+      completedAt: string | null;
+    }
+  >(functions, "requestMockCompanyCommissionWithdrawal", {timeout: 30_000});
+
+  try {
+    return (await callable({
+      clientRequestId: input.clientRequestId,
+      amountInCentavos: input.amountInCentavos,
+      destinationType: input.destinationType,
+      accountName: input.accountName,
+      ...(input.destinationType === "gcash"
+        ? {mobileNumber: input.mobileNumber}
+        : {
+            bankName: input.bankName,
+            accountNumber: input.accountNumber,
+          }),
+    })).data;
+  } catch (error: unknown) {
+    throw mapCallableError(
+      error,
+      "The commission withdrawal could not be completed.",
+    );
   }
 }
 

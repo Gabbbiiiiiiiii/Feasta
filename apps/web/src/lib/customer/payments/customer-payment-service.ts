@@ -1,4 +1,5 @@
 import "server-only";
+import {customerPaymentChargeBreakdown} from "./customer-payment-charge-breakdown";
 import {customerServiceVat} from "./customer-service-vat";
 import {customerBookingCheckoutOptions} from "../bookings/customer-booking-checkout-options";
 
@@ -324,6 +325,12 @@ export async function getCustomerPaymentReceipt(
     refundedAmountInCentavos,
   );
 
+  const chargeBreakdown = customerPaymentChargeBreakdown(
+    payment,
+    paymentId,
+    amountPaidInCentavos,
+  );
+
   const services =
     returnServiceSummary(
       providerRequest.services,
@@ -334,6 +341,7 @@ export async function getCustomerPaymentReceipt(
       "payment_receipt",
 
     serviceVat,
+    chargeBreakdown,
 
     paymentId,
 
@@ -1026,6 +1034,17 @@ function mapPaymentDocument(
       ? amountInCentavos -
         refundedAmountInCentavos
       : 0;
+
+  const chargeBreakdown = customerPaymentChargeBreakdown(
+    data,
+    canonicalPaymentId,
+    amountInCentavos,
+  );
+  const platformChargeInCentavos =
+    chargeBreakdown.status === "available"
+      ? chargeBreakdown.platformChargeInCentavos
+      : null;
+
   return {
     id: document.id,
     paymentId: canonicalPaymentId,
@@ -1045,6 +1064,11 @@ function mapPaymentDocument(
     paymentType: normalizePaymentType(data.paymentType),
     gateway: normalizePaymentGateway(data.gateway),
     status,
+    platformChargeInCentavos,
+    formattedPlatformCharge:
+      platformChargeInCentavos === null
+        ? null
+        : formatCentavos(platformChargeInCentavos, currency),
     canStartCheckout:
       ownsRequest &&
       canonicalProviderRequestsValid &&

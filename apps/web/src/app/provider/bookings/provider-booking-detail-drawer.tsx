@@ -58,6 +58,16 @@ export function ProviderBookingDetailDrawer({
   const [advanceMessage, setAdvanceMessage] = useState<string | null>(null);
   const [advanceError, setAdvanceError] = useState<string | null>(null);
 
+  const advanceRejected =
+    !!booking && booking.companyAdvanceRequestStatus === "rejected";
+  const advanceAttemptsExhausted =
+    !!booking &&
+    booking.companyAdvanceRequestRemainingAttempts <= 0 &&
+    (booking.companyAdvanceRequestStatus === "rejected" ||
+      booking.companyAdvanceRequestStatus === "cancelled" ||
+      booking.companyAdvanceRequestAttemptCount >=
+        booking.companyAdvanceRequestMaxAttempts);
+
   const alreadyRequested =
     !!booking &&
     (booking.companyAdvanceRequestStatus === "pending" ||
@@ -74,18 +84,23 @@ export function ProviderBookingDetailDrawer({
       booking.payment?.status === "paid");
 
   const submitAdvanceRequest = async () => {
-    if (!booking || advancePending || alreadyRequested) {
+    if (
+      !booking ||
+      advancePending ||
+      alreadyRequested ||
+      advanceAttemptsExhausted
+    ) {
       return;
     }
     setAdvancePending(true);
     setAdvanceError(null);
     setAdvanceMessage(null);
     try {
-      await requestCompanyAdvance({
+      const result = await requestCompanyAdvance({
         providerRequestId: booking.providerRequestId,
       });
       setAdvanceMessage(
-        "Immediate funding request sent. FEASTA admin will review and release your net amount from company float.",
+        `Immediate funding request sent (attempt ${result.attemptCount} of ${result.maxAttempts}). FEASTA admin will review and release your net amount from company float.`,
       );
     } catch (error) {
       setAdvanceError(
@@ -243,10 +258,26 @@ export function ProviderBookingDetailDrawer({
                 earnings (after commission) from company float. This is separate
                 from the ordinary 3-day payout hold.
               </p>
+              {booking.companyAdvanceRequestAttemptCount > 0 ? (
+                <p className="text-sm text-muted-foreground" role="status">
+                  {`Attempts used: ${booking.companyAdvanceRequestAttemptCount} of ${booking.companyAdvanceRequestMaxAttempts}. Remaining: ${booking.companyAdvanceRequestRemainingAttempts}.`}
+                </p>
+              ) : (
+                <p className="text-sm text-muted-foreground" role="status">
+                  {`You can request immediate funding up to ${booking.companyAdvanceRequestMaxAttempts} times for this booking.`}
+                </p>
+              )}
+              {advanceRejected && !alreadyRequested && !advanceMessage ? (
+                <p className="text-sm text-destructive" role="status">
+                  {advanceAttemptsExhausted
+                    ? "FEASTA admin rejected your immediate funding request. You have no remaining requests for this booking."
+                    : `FEASTA admin rejected your immediate funding request. You have ${booking.companyAdvanceRequestRemainingAttempts} of ${booking.companyAdvanceRequestMaxAttempts} requests remaining.`}
+                </p>
+              ) : null}
               {alreadyRequested && !advanceMessage ? (
                 <p className="text-sm text-muted-foreground" role="status">
                   {booking.companyAdvanceRequestStatus === "pending"
-                    ? "Immediate funding already requested. Waiting for admin review."
+                    ? `Immediate funding already requested (attempt ${booking.companyAdvanceRequestAttemptCount} of ${booking.companyAdvanceRequestMaxAttempts}). Waiting for admin review.`
                     : booking.companyAdvanceStatus === "outstanding" ||
                         booking.companyAdvanceRequestStatus === "approved"
                       ? "Company advance already approved for this booking."
@@ -265,7 +296,12 @@ export function ProviderBookingDetailDrawer({
               ) : null}
               <Button
                 variant="secondary"
-                disabled={actionPending || advancePending || alreadyRequested}
+                disabled={
+                  actionPending ||
+                  advancePending ||
+                  alreadyRequested ||
+                  advanceAttemptsExhausted
+                }
                 onClick={() => {
                   void submitAdvanceRequest();
                 }}
@@ -274,7 +310,11 @@ export function ProviderBookingDetailDrawer({
                   ? "Requesting..."
                   : alreadyRequested
                     ? "Already requested"
-                    : "Request immediate fund"}
+                    : advanceAttemptsExhausted
+                      ? "No requests remaining"
+                      : advanceRejected
+                        ? "Request immediate fund again"
+                        : "Request immediate fund"}
               </Button>
             </DrawerSection>
           ) : null}

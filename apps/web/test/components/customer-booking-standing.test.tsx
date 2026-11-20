@@ -34,7 +34,7 @@ it("shows a restriction independently of rolling active count and formats exact 
   expect(screen.getByText(/Three qualifying unpaid booking strikes triggered a seven-day restriction/)).toBeVisible();
   expect(document.querySelector("time")).toHaveAttribute("datetime", "2026-11-21T03:12:34Z");
   expect(document.querySelector("time")).toHaveTextContent(/11:12:34/);
-  expect(screen.getByText(/Manila time/)).toBeVisible();
+  expect(screen.getByText(/Restriction ends/)).toBeVisible();
 });
 
 it("handles missing expiry without inventing an end date", async () => {

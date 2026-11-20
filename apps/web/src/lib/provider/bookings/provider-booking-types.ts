@@ -108,6 +108,9 @@ export type ProviderBooking = {
     | "rejected"
     | "cancelled"
     | null;
+  companyAdvanceRequestAttemptCount: number;
+  companyAdvanceRequestMaxAttempts: number;
+  companyAdvanceRequestRemainingAttempts: number;
   companyAdvanceStatus: "outstanding" | "repaid" | "cancelled" | null;
   currency: string;
   payment: ProviderBookingPayment | null;

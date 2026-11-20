@@ -26,19 +26,7 @@ describe("payment demonstration evidence", () => {
     if (scenario === "wrong_reference") data.evidence.reference_number = "pd-" + "b".repeat(40);
     expect(parsePaymentDemoEvidence(data)).toBeNull();
   });
-  it("distinguishes recorded simulator success from provider accounting", () => {
-    render(<PaymentFlowOverview evidence={parsePaymentDemoEvidence(receipt())} />);
-    expect(screen.getByText("PayMongo simulator transfer confirmed")).toBeVisible();
-    expect(screen.getByText(/no real money moved and no provider earnings were marked paid/)).toBeVisible();
-    expect(screen.getByText(/₱900.00/)).toBeVisible();
-  });
-  it("does not display a success claim when no receipt is available", () => {
-    render(<PaymentFlowOverview evidence={null} />);
-    expect(screen.getByText("Separate capstone test demonstration")).toBeVisible();
-    expect(screen.queryByText("PayMongo simulator transfer confirmed")).toBeNull();
-    expect(screen.getByText(/No confirmed test receipt is loaded/)).toBeVisible();
-  });
-  it("keeps all payment steps and omits the capstone panel when evidence is omitted", () => {
+  it("renders the settlement lifecycle without the capstone demo panel", () => {
     render(<PaymentFlowOverview />);
     expect(screen.getAllByRole("listitem").map((step) => step.firstElementChild?.textContent)).toEqual([
       "1. Customer payment",
@@ -46,5 +34,6 @@ describe("payment demonstration evidence", () => {
       "3. Provider transfer",
     ]);
     expect(screen.queryByText("Separate capstone test demonstration")).not.toBeInTheDocument();
+    expect(screen.queryByText("PayMongo simulator transfer confirmed")).not.toBeInTheDocument();
   });
 });

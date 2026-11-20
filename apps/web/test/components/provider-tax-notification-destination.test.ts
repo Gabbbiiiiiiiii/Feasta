@@ -28,4 +28,25 @@ describe("provider tax-profile notification routing", () => {
       type: "new_message", relatedCollection: "chatrooms", relatedId: "room_one",
     })).toBeNull();
   });
+  it("routes immediate fund requests to Admin payments", () => {
+    expect(resolveNotificationDestination("admin", {
+      type: "provider_immediate_fund_requested",
+      relatedCollection: "companyAdvanceRequests",
+      relatedId: "advance_req_one",
+    })).toBe("/admin/payments");
+  });
+  it("routes immediate fund rejections to Provider bookings", () => {
+    expect(resolveNotificationDestination("provider", {
+      type: "provider_immediate_fund_rejected",
+      relatedCollection: "providerRequests",
+      relatedId: "provider_request_one",
+    })).toBe("/provider/bookings");
+  });
+  it("routes customer cancellation requests to Admin bookings", () => {
+    expect(resolveNotificationDestination("admin", {
+      type: "customer_cancellation_requested",
+      relatedCollection: "providerRequests",
+      relatedId: "provider_request_one",
+    })).toBe("/admin/bookings");
+  });
 });

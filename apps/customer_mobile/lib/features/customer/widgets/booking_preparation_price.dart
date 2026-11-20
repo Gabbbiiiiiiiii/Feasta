@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../../core/helpers/booking_preparation.dart';
+import '../../../core/theme/app_colors.dart';
 import '../../../core/widgets/widgets.dart';
 import '../../../shared/models/feasta_models.dart';
 
@@ -105,40 +106,95 @@ class BookingPreparationPrice extends StatelessWidget {
           if (package.paymentPolicy == 'deposit_then_balance' ||
               package.paymentPolicy == 'full_payment') ...[
             const SizedBox(height: 12),
-            Text(
-              'Payment terms',
-              style: Theme.of(context).textTheme.titleSmall,
-            ),
-            const SizedBox(height: 6),
-            Text(
-              package.paymentPolicy == 'full_payment'
-                  ? 'Full payment'
-                  : 'Deposit + balance',
-            ),
-            if (package.paymentPolicy == 'full_payment')
-              const Text('100% due after booking acceptance')
-            else ...[
-              Text(
-                package.depositPercentage != null &&
-                        package.depositPercentage!.isFinite &&
-                        package.depositPercentage! >= 0 &&
-                        package.depositPercentage! <= 100
-                    ? '${package.depositPercentage!.toStringAsFixed(2).replaceFirst(RegExp(r"\.?0+$"), "")}% deposit + remaining balance'
-                    : 'Deposit + remaining balance',
-              ),
-              if (package.paymentTermsSchemaVersion == 2)
-                const Text('Balance due 24 hours before event')
-              else if (package.balanceDueHoursBeforeEvent != null &&
-                  package.balanceDueHoursBeforeEvent! > 0)
-                Text(
-                  'Balance due ${package.balanceDueHoursBeforeEvent} hours before event',
-                )
-              else if (package.balanceDueDaysBeforeEvent != null &&
-                  package.balanceDueDaysBeforeEvent! > 0)
-                Text(
-                  'Balance due ${package.balanceDueDaysBeforeEvent} days before event',
+            DecoratedBox(
+              decoration: BoxDecoration(
+                color: AppColors.secondary,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: AppColors.primary.withValues(alpha: 0.15),
                 ),
-            ],
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Payment terms',
+                      style: Theme.of(context).textTheme.titleSmall,
+                    ),
+                    const SizedBox(height: 8),
+                    DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: AppColors.surface,
+                        borderRadius: BorderRadius.circular(999),
+                        border: Border.all(color: AppColors.border),
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 4,
+                        ),
+                        child: Text(
+                          package.paymentPolicy == 'full_payment'
+                              ? 'Full payment'
+                              : 'Deposit + balance',
+                          style: Theme.of(context).textTheme.labelLarge
+                              ?.copyWith(
+                                color: AppColors.primaryStrong,
+                                fontWeight: FontWeight.w600,
+                              ),
+                        ),
+                      ),
+                    ),
+                    if (package.paymentPolicy == 'full_payment') ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        '100% due after booking acceptance',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: AppColors.secondaryText,
+                        ),
+                      ),
+                    ] else ...[
+                      _PaymentTermFact(
+                        label: 'Deposit',
+                        detail:
+                            package.depositPercentage != null &&
+                                package.depositPercentage!.isFinite &&
+                                package.depositPercentage! >= 0 &&
+                                package.depositPercentage! <= 100
+                            ? 'Pay ${package.depositPercentage!.toStringAsFixed(2).replaceFirst(RegExp(r"\.?0+$"), "")}% first, then the remaining balance'
+                            : 'Pay a deposit first, then the remaining balance',
+                      ),
+                      if (package.paymentTermsSchemaVersion == 2)
+                        const _PaymentTermFact(
+                          label: 'Balance due',
+                          detail:
+                              'Remaining balance is due 24 hours before the event',
+                        )
+                      else if (package.balanceDueHoursBeforeEvent != null &&
+                          package.balanceDueHoursBeforeEvent! > 0)
+                        _PaymentTermFact(
+                          label: 'Balance due',
+                          detail:
+                              'Remaining balance is due ${package.balanceDueHoursBeforeEvent} hours before the event',
+                        )
+                      else if (package.balanceDueDaysBeforeEvent != null &&
+                          package.balanceDueDaysBeforeEvent! > 0)
+                        _PaymentTermFact(
+                          label: 'Balance due',
+                          detail:
+                              'Remaining balance is due ${package.balanceDueDaysBeforeEvent} days before the event',
+                        ),
+                      const _PaymentTermFact(
+                        label: 'Short notice',
+                        detail: 'Under 72 hours: full payment required',
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
           ],
           const SizedBox(height: 8),
           const Text(
@@ -171,6 +227,38 @@ class _PriceRow extends StatelessWidget {
               alignment: Alignment.centerRight,
               child: Text(value, textAlign: TextAlign.end, softWrap: true),
             ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PaymentTermFact extends StatelessWidget {
+  const _PaymentTermFact({required this.label, required this.detail});
+
+  final String label;
+  final String detail;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context).textTheme;
+    return Padding(
+      padding: const EdgeInsets.only(top: 6),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: theme.labelLarge?.copyWith(
+              color: AppColors.mainText,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            detail,
+            style: theme.bodySmall?.copyWith(color: AppColors.secondaryText),
           ),
         ],
       ),

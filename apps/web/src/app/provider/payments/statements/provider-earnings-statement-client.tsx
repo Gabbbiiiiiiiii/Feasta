@@ -13,6 +13,9 @@ import Link from "next/link";
 import {
   Button,
 } from "@/components/ui/button";
+import {
+  InfoTooltip,
+} from "@/components/ui/info-tooltip";
 
 import type {
   ProviderEarningsStatement,
@@ -139,34 +142,19 @@ export function ProviderEarningsStatementClient({
               </p>
 
               <p className="mt-1 text-muted-foreground">
-                Statement period - Asia/Manila
+                Statement period
               </p>
             </div>
           </div>
         </header>
 
         <section
-          className="grid gap-3 border-b border-border bg-muted/30 px-5 py-5 sm:grid-cols-2 xl:grid-cols-4 sm:px-8"
+          className="grid gap-3 border-b border-border bg-muted/30 px-5 py-5 sm:grid-cols-2 xl:grid-cols-3 sm:px-8"
           aria-label="Provider earnings summary"
         >
           <AmountCard
-            label="Customer gross collected"
-            value={formatCentavos(
-              statement.totals
-                .customerGrossCollectedInCentavos,
-            )}
-          />
-
-          <AmountCard
-            label="FEASTA commission"
-            value={formatCentavos(
-              statement.totals
-                .commissionDeductedInCentavos,
-            )}
-          />
-
-          <AmountCard
             label="Original Provider earnings"
+            tooltip="Your provider share from successful customer payments this month, before refund reversals."
             value={formatCentavos(
               statement.totals
                 .originalProviderEarningInCentavos,
@@ -175,6 +163,7 @@ export function ProviderEarningsStatementClient({
 
           <AmountCard
             label="Reversed by refunds"
+            tooltip="Earnings taken back from your share because of completed refunds this month."
             value={formatCentavos(
               statement.totals
                 .providerEarningReversedInCentavos,
@@ -183,6 +172,7 @@ export function ProviderEarningsStatementClient({
 
           <AmountCard
             label="Net Provider earnings"
+            tooltip="What you keep after refund reversals: original provider earnings minus reversed amounts."
             value={formatCentavos(
               statement.totals
                 .netProviderEarningInCentavos,
@@ -192,6 +182,7 @@ export function ProviderEarningsStatementClient({
 
           <AmountCard
             label="Pending"
+            tooltip="Earnings still on hold and not yet ready for payout."
             value={formatCentavos(
               statement.totals
                 .pendingAmountInCentavos,
@@ -200,6 +191,7 @@ export function ProviderEarningsStatementClient({
 
           <AmountCard
             label="Available"
+            tooltip="Earnings that have cleared and are ready for settlement or payout processing."
             value={formatCentavos(
               statement.totals
                 .availableAmountInCentavos,
@@ -208,6 +200,7 @@ export function ProviderEarningsStatementClient({
 
           <AmountCard
             label="Confirmed settlement paid out"
+            tooltip="Amount already confirmed as paid out to you from settlements this month."
             value={formatCentavos(
               statement.totals
                 .settlementPaidOutInCentavos,
@@ -216,45 +209,43 @@ export function ProviderEarningsStatementClient({
           />
         </section>
 
-        <section className="grid gap-4 border-b border-border px-5 py-5 sm:px-8">
-          <div>
-            <h2 className="font-black">
-              Tax and deduction information
-            </h2>
+        {(statement.totals.providerVatComponentInCentavos > 0 ||
+          statement.totals.withholdingDeductedInCentavos > 0) ? (
+          <section className="grid gap-4 border-b border-border px-5 py-5 sm:px-8">
+            <div>
+              <h2 className="font-black">
+                Tax information
+              </h2>
 
-            <p className="mt-1 max-w-4xl text-sm leading-6 text-muted-foreground">
-              Provider VAT is an informational component already included in the Provider service gross.
-              FEASTA VAT on commission belongs to FEASTA&apos;s commission-side accounting and is not
-              another deduction from Provider earnings.
-            </p>
-          </div>
+              <p className="mt-1 max-w-4xl text-sm leading-6 text-muted-foreground">
+                Provider VAT is an informational component already included in your service earnings.
+                Withholding is deducted from your Provider earnings when applicable.
+              </p>
+            </div>
 
-          <dl className="grid gap-3 sm:grid-cols-3">
-            <StatementDetail
-              label="Provider VAT component"
-              value={formatCentavos(
-                statement.totals
-                  .providerVatComponentInCentavos,
-              )}
-            />
+            <dl className="grid gap-3 sm:grid-cols-2">
+              {statement.totals.providerVatComponentInCentavos > 0 ? (
+                <StatementDetail
+                  label="Provider VAT component"
+                  value={formatCentavos(
+                    statement.totals
+                      .providerVatComponentInCentavos,
+                  )}
+                />
+              ) : null}
 
-            <StatementDetail
-              label="FEASTA VAT on commission"
-              value={formatCentavos(
-                statement.totals
-                  .platformVatOnCommissionInCentavos,
-              )}
-            />
-
-            <StatementDetail
-              label="Withholding deducted"
-              value={formatCentavos(
-                statement.totals
-                  .withholdingDeductedInCentavos,
-              )}
-            />
-          </dl>
-        </section>
+              {statement.totals.withholdingDeductedInCentavos > 0 ? (
+                <StatementDetail
+                  label="Withholding deducted"
+                  value={formatCentavos(
+                    statement.totals
+                      .withholdingDeductedInCentavos,
+                  )}
+                />
+              ) : null}
+            </dl>
+          </section>
+        ) : null}
 
         {(statement.skippedMalformedCount > 0 ||
           statement.missingSettlementCount > 0) ? (
@@ -297,7 +288,7 @@ export function ProviderEarningsStatementClient({
             </div>
           ) : (
             <div className="overflow-x-auto rounded-xl border border-border">
-              <table className="w-full min-w-[1080px] text-sm">
+              <table className="w-full min-w-[860px] text-sm">
                 <thead className="border-b border-border bg-muted/40 text-left">
                   <tr>
                     <th className="px-3 py-3 font-semibold">
@@ -306,14 +297,6 @@ export function ProviderEarningsStatementClient({
 
                     <th className="px-3 py-3 font-semibold">
                       Status
-                    </th>
-
-                    <th className="px-3 py-3 font-semibold">
-                      Gross
-                    </th>
-
-                    <th className="px-3 py-3 font-semibold">
-                      Commission
                     </th>
 
                     <th className="px-3 py-3 font-semibold">
@@ -362,18 +345,6 @@ export function ProviderEarningsStatementClient({
                           <StatementStatus
                             value={row.status}
                           />
-                        </td>
-
-                        <td className="px-3 py-3">
-                          {formatCentavos(
-                            row.grossCollectedInCentavos,
-                          )}
-                        </td>
-
-                        <td className="px-3 py-3">
-                          {formatCentavos(
-                            row.commissionDeductedInCentavos,
-                          )}
                         </td>
 
                         <td className="px-3 py-3">
@@ -441,6 +412,7 @@ export function ProviderEarningsStatementClient({
 function AmountCard({
   label,
   value,
+  tooltip,
   strong = false,
 }: {
   label:
@@ -449,14 +421,20 @@ function AmountCard({
   value:
     string;
 
+  tooltip?:
+    string;
+
   strong?:
     boolean;
 }) {
   return (
-    <div className="rounded-xl border border-border bg-background p-4">
-      <p className="text-xs font-bold uppercase tracking-wide text-muted-foreground">
-        {label}
-      </p>
+    <div className="relative overflow-visible rounded-xl border border-border bg-background p-4">
+      <div className="relative flex min-w-0 items-center gap-1.5">
+        <p className="min-w-0 text-xs font-bold uppercase tracking-wide text-muted-foreground">
+          {label}
+        </p>
+        {tooltip ? <InfoTooltip label={label} text={tooltip} /> : null}
+      </div>
 
       <p
         className={
@@ -524,11 +502,8 @@ function downloadStatementCsv(
     "Provider Request ID",
     "Main Event ID",
     "Earning Status",
-    "Customer Gross Collected PHP",
-    "FEASTA Commission PHP",
     "Withholding PHP",
     "Provider VAT Component PHP",
-    "FEASTA VAT On Commission PHP",
     "Original Provider Earning PHP",
     "Provider Earning Reversed PHP",
     "Net Provider Earning PHP",
@@ -555,11 +530,8 @@ function downloadStatementCsv(
         row.providerRequestId,
         row.mainEventId,
         row.status,
-        decimalPhp(row.grossCollectedInCentavos),
-        decimalPhp(row.commissionDeductedInCentavos),
         decimalPhp(row.withholdingDeductedInCentavos),
         decimalPhp(row.providerVatComponentInCentavos),
-        decimalPhp(row.platformVatOnCommissionInCentavos),
         decimalPhp(row.earningAmountInCentavos),
         decimalPhp(row.reversedAmountInCentavos),
         decimalPhp(row.netEarningAmountInCentavos),
@@ -590,6 +562,9 @@ function downloadStatementCsv(
           ?.reconciliationRequired
           ? "Yes"
           : "No",
+        row.economicSource === "payment_default_reservation_compensation"
+          ? "Reservation compensation"
+          : "Service earnings",
       ],
     );
 

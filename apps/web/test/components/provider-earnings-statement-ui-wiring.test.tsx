@@ -92,12 +92,8 @@ it(
 );
 
 it(
-  "keeps Customer payment and Provider settlement truth distinguishable",
+  "shows Provider earnings and settlement truth without FEASTA commission fields",
   () => {
-    expect(client).toContain(
-      "Customer gross collected",
-    );
-
     expect(client).toContain(
       "Net Provider earnings",
     );
@@ -112,6 +108,26 @@ it(
 
     expect(client).toContain(
       "Confirmed Settlement Paid Out PHP",
+    );
+
+    expect(client).not.toContain(
+      "Customer gross collected",
+    );
+
+    expect(client).not.toContain(
+      "FEASTA commission",
+    );
+
+    expect(client).not.toContain(
+      "FEASTA VAT on commission",
+    );
+
+    expect(client).not.toContain(
+      "FEASTA Commission PHP",
+    );
+
+    expect(client).not.toContain(
+      "FEASTA VAT On Commission PHP",
     );
   },
 );

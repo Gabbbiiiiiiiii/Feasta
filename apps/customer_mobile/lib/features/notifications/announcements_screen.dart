@@ -104,7 +104,7 @@ class _AnnouncementsScreenState extends State<AnnouncementsScreen> {
                             ),
                             const SizedBox(height: 8),
                             Text(
-                              '${doc.data()['audience'] == 'everyone' ? 'Everyone' : 'Customers'} · ${announcementManilaDate(doc.data()['publishedAt'] as Timestamp)} (Manila)',
+                              '${doc.data()['audience'] == 'everyone' ? 'Everyone' : 'Customers'} · ${announcementManilaDate(doc.data()['publishedAt'] as Timestamp)}',
                             ),
                             const SizedBox(height: 12),
                             Text(doc.data()['content'] as String),

@@ -5,7 +5,6 @@ import {
   Wallet,
 } from "lucide-react";
 
-import type {PaymentDemoEvidence} from "@/lib/payments/payment-demo-evidence";
 import {cn} from "@/lib/utils";
 
 const FLOW_STAGES = [
@@ -39,10 +38,8 @@ const FLOW_STAGES = [
 ] as const;
 
 export function PaymentFlowOverview({
-  evidence,
   embedded = false,
 }: {
-  evidence?: PaymentDemoEvidence | null;
   embedded?: boolean;
 }) {
   return (
@@ -135,49 +132,6 @@ export function PaymentFlowOverview({
           },
         )}
       </ol>
-
-      {evidence !== undefined && (
-        <div className="mt-4 rounded-xl border border-primary/20 bg-primary-tint/45 p-4">
-          <p className="text-xs font-bold uppercase tracking-wide text-primary-strong">
-            Separate capstone test demonstration
-          </p>
-          <p className="mt-1 text-sm font-semibold">
-            {evidence
-              ? "PayMongo simulator transfer confirmed"
-              : "Gateway test results are recorded separately"}
-          </p>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {evidence
-              ? `${new Intl.NumberFormat("en-PH", {
-                  style: "currency",
-                  currency: "PHP",
-                }).format(evidence.amountInCentavos / 100)} in simulated funds. Confirmed in the saved test receipt; no real money moved and no provider earnings were marked paid.`
-              : "An isolated test transfer does not complete a provider payout or change the payment and earnings records below. No confirmed test receipt is loaded on this server."}
-          </p>
-          <p className="mt-2 text-xs leading-5 text-muted-foreground">
-            Provider-linked transfers require an eligible PayMongo platform
-            account and a verified provider link. The separate simulator test
-            does not establish that link.
-          </p>
-          {evidence ? (
-            <details className="mt-2 text-xs">
-              <summary className="cursor-pointer font-semibold text-primary-strong">
-                View test evidence
-              </summary>
-              <dl className="mt-2 grid gap-2 break-all">
-                <div>
-                  <dt className="font-bold">Gateway transfer ID</dt>
-                  <dd>{evidence.transferId}</dd>
-                </div>
-                <div>
-                  <dt className="font-bold">Gateway reference</dt>
-                  <dd>{evidence.gatewayReference}</dd>
-                </div>
-              </dl>
-            </details>
-          ) : null}
-        </div>
-      )}
     </section>
   );
 }

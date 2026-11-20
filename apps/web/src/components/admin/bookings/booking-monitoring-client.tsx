@@ -53,7 +53,6 @@ import type {AdminCancellationQueue} from "@/lib/admin/cancellations/admin-cance
 import {adminBookingNumber, adminBookingStatusLabels, adminBookingPaymentLabels, adminBookingStatusLabel, adminBookingPaymentLabel} from "@/lib/admin/bookings/admin-booking-labels";
 import {
   formatPhilippineDate,
-  todayPhilippineDateKey,
 } from "@/lib/dates/philippine-date";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
@@ -199,14 +198,11 @@ function BookingMonitoringClient({
   const [page, setPage] =
     useState(initialPage);
 
-  const [filters, setFilters] = useState<AdminBookingFilters>(() => {
-    const defaultDate = todayPhilippineDateKey();
-    return {
-      ...clearedFilters,
-      eventDateFrom: initialEventDateFrom ?? defaultDate,
-      eventDateTo: initialEventDateTo ?? defaultDate,
-    };
-  });
+  const [filters, setFilters] = useState<AdminBookingFilters>(() => ({
+    ...clearedFilters,
+    eventDateFrom: initialEventDateFrom ?? "",
+    eventDateTo: initialEventDateTo ?? "",
+  }));
 
   const [searchValue, setSearchValue] =
     useState("");

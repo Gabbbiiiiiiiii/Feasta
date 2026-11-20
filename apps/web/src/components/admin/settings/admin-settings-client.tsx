@@ -400,7 +400,7 @@ function AdminSettingsClient({
             <dl className="mt-4 divide-y divide-border text-sm">
               <SettingValue
                 label="Timezone"
-                value={savedSettings.timezone}
+                value={savedSettings.timezone === "Asia/Manila" ? "Philippines" : savedSettings.timezone}
               />
 
               <SettingValue

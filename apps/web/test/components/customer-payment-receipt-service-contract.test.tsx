@@ -158,7 +158,12 @@ describe(
           "";
 
         expect(dto).not.toMatch(
-          /commission|providerVat|platformVat|earning|settlement|payout|gatewayProcessingFee|gatewayFee/iu,
+          /providerVat|platformVat|earning|settlement|payout|gatewayProcessingFee|gatewayFee/iu,
+        );
+
+        expect(dto).toContain("chargeBreakdown");
+        expect(dto).not.toMatch(
+          /commissionAccrued|commissionEarned|commissionReversed/iu,
         );
 
         expect(dto).not.toMatch(

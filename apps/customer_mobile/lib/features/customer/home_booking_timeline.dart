@@ -7,6 +7,10 @@ import '../authentication/data/repositories/feasta_repository.dart';
 import 'booking_details_screen.dart';
 import 'booking_lifecycle_presentation.dart';
 import 'customer_booking_presentation.dart';
+import 'customer_bookings_screen.dart';
+
+/// Max upcoming-event cards shown on the home preview.
+const int homeUpcomingPreviewLimit = 3;
 
 /// Display only; the device clock never advances booking status.
 int homeBookingStage(String status) => switch (status) {
@@ -47,6 +51,10 @@ List<BookingModel> homeActiveBookings(
   return active;
 }
 
+/// First [homeUpcomingPreviewLimit] active bookings for the home strip.
+List<BookingModel> homeUpcomingPreview(List<BookingModel> bookings) =>
+    bookings.take(homeUpcomingPreviewLimit).toList();
+
 class HomeBookingTimeline extends StatefulWidget {
   const HomeBookingTimeline({required this.repository, super.key});
   final FeastaRepository repository;
@@ -76,6 +84,12 @@ class _HomeBookingTimelineState extends State<HomeBookingTimeline> {
     _bookings = widget.repository.customerActiveBookings();
   }
 
+  void _openAllBookings() {
+    Navigator.of(
+      context,
+    ).push(MaterialPageRoute(builder: (_) => const CustomerBookingsScreen()));
+  }
+
   @override
   Widget build(BuildContext context) => StreamBuilder<List<BookingModel>>(
     stream: _bookings,
@@ -88,13 +102,43 @@ class _HomeBookingTimelineState extends State<HomeBookingTimeline> {
       }
       final bookings = homeActiveBookings(snapshot.data ?? [], DateTime.now());
       if (bookings.isEmpty) return const SizedBox.shrink();
+      final preview = homeUpcomingPreview(bookings);
+      final textTheme = Theme.of(context).textTheme;
       return Padding(
         padding: const EdgeInsets.symmetric(horizontal: AppSpacing.screen),
         child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            for (final booking in bookings)
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                Expanded(
+                  child: Text(
+                    'Upcoming events',
+                    style: textTheme.titleMedium?.copyWith(
+                      color: AppColors.primaryStrong,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+                TextButton(
+                  onPressed: _openAllBookings,
+                  style: TextButton.styleFrom(
+                    foregroundColor: AppColors.primaryStrong,
+                    minimumSize: const Size(44, 44),
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                  ),
+                  child: const Text(
+                    'See all',
+                    style: TextStyle(fontWeight: FontWeight.w800),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: AppSpacing.xs),
+            for (final booking in preview)
               Padding(
-                padding: const EdgeInsets.only(bottom: AppSpacing.md),
+                padding: const EdgeInsets.only(bottom: AppSpacing.sm),
                 child: HomeBookingProgressCard(booking: booking),
               ),
           ],
@@ -109,182 +153,106 @@ class HomeBookingProgressCard extends StatelessWidget {
   final BookingModel booking;
   @override
   Widget build(BuildContext context) {
-    final stage = homeBookingStage(booking.status);
     final presentation = CustomerBookingPresentation(booking);
     final textTheme = Theme.of(context).textTheme;
-    const labels = ['Accepted', 'Confirmed', 'Preparation', 'Event day'];
+    final meta = [
+      if (booking.eventDate != null)
+        MaterialLocalizations.of(context).formatMediumDate(
+          booking.eventDate!.toUtc().add(const Duration(hours: 8)),
+        ),
+      if (booking.eventTime.isNotEmpty) booking.eventTime,
+      if (booking.eventLocation.isNotEmpty) booking.eventLocation,
+    ].join(' · ');
+
     return Card(
       color: AppColors.surface,
       margin: EdgeInsets.zero,
       elevation: 0,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(24),
+        borderRadius: BorderRadius.circular(16),
         side: const BorderSide(color: AppColors.borderStrong),
       ),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Icon(Icons.event_available_outlined,
-                    size: 18, color: AppColors.primary),
-                const SizedBox(width: 6),
-                Expanded(
-                  child: Text('Your upcoming event',
-                      style: textTheme.labelMedium?.copyWith(
-                        color: AppColors.primary,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: () => Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => BookingDetailsScreen(bookingId: booking.id),
+          ),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(
+            horizontal: AppSpacing.sm,
+            vertical: AppSpacing.sm,
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Padding(
+                padding: EdgeInsets.only(top: 2),
+                child: Icon(
+                  Icons.event_available_outlined,
+                  size: 18,
+                  color: AppColors.primary,
+                ),
+              ),
+              const SizedBox(width: AppSpacing.xs),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      booking.eventType.replaceAll('_', ' '),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: textTheme.titleSmall?.copyWith(
+                        color: AppColors.primaryStrong,
                         fontWeight: FontWeight.w700,
-                      )),
-                ),
-                const SizedBox(width: 8),
-                Flexible(
-                  child: Container(
-                    key: const ValueKey('booking-status-pill'),
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: presentation.background,
-                      borderRadius: BorderRadius.circular(24),
-                    ),
-                    child: Text(presentation.label,
-                        textAlign: TextAlign.center,
-                        style: textTheme.labelSmall?.copyWith(
-                          color: presentation.foreground,
-                          fontWeight: FontWeight.w700,
-                        )),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Text(
-              booking.eventType.replaceAll('_', ' '),
-              style: textTheme.headlineSmall?.copyWith(
-                color: AppColors.primaryStrong,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-            const SizedBox(height: 6),
-            if (booking.eventDate != null || booking.eventTime.isNotEmpty || booking.eventLocation.isNotEmpty)
-              Text(
-                [
-                  if (booking.eventDate != null)
-                    MaterialLocalizations.of(context).formatMediumDate(booking.eventDate!.toUtc().add(const Duration(hours: 8))),
-                  if (booking.eventTime.isNotEmpty) booking.eventTime,
-                  if (booking.eventLocation.isNotEmpty) booking.eventLocation,
-                ].join(' · '),
-                style: textTheme.bodySmall?.copyWith(color: AppColors.secondaryTextAccessible),
-              ),
-            if (booking.providerBusinessName.isNotEmpty)
-              Padding(
-                padding: const EdgeInsets.only(top: 4),
-                child: Text(booking.providerBusinessName,
-                    style: textTheme.bodySmall?.copyWith(color: AppColors.secondaryTextAccessible)),
-              ),
-            const SizedBox(height: 12),
-            const Divider(height: 1, color: AppColors.border),
-            const SizedBox(height: 12),
-            Text(
-              'Event journey',
-              style: textTheme.titleSmall?.copyWith(
-                color: AppColors.primary,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: 12),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                for (var i = 0; i < labels.length; i++)
-                  Expanded(
-                    child: Semantics(
-                      label:
-                          '${labels[i]}, ${i <= stage ? 'reached' : 'upcoming'}',
-                      excludeSemantics: true,
-                      child: Column(
-                        children: [
-                          Row(
-                            children: [
-                              Expanded(child: Container(height: 2, color: i == 0 ? Colors.transparent : i <= stage ? AppColors.primary : AppColors.borderStrong)),
-                              Container(
-                                width: 28,
-                                height: 28,
-                                decoration: BoxDecoration(
-                                  shape: BoxShape.circle,
-                                  color: i <= stage ? AppColors.primary : AppColors.surface,
-                                  border: Border.all(color: i <= stage ? AppColors.primary : AppColors.borderStrong, width: 2),
-                                ),
-                                child: i <= stage ? const Icon(Icons.check, size: 16, color: AppColors.primaryForeground) : null,
-                              ),
-                              Expanded(child: Container(height: 2, color: i == labels.length - 1 ? Colors.transparent : i < stage ? AppColors.primary : AppColors.borderStrong)),
-                            ],
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            labels[i],
-                            textAlign: TextAlign.center,
-                            style: textTheme.labelSmall?.copyWith(
-                              color: i <= stage ? AppColors.primary : AppColors.secondaryTextAccessible,
-                              fontWeight: i <= stage ? FontWeight.w700 : FontWeight.w400,
-                            ),
-                          ),
-                        ],
                       ),
                     ),
-                  ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: AppColors.primarySubtle,
-                borderRadius: BorderRadius.circular(16),
+                    if (meta.isNotEmpty) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        meta,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: textTheme.bodySmall?.copyWith(
+                          color: AppColors.secondaryTextAccessible,
+                        ),
+                      ),
+                    ],
+                    if (booking.providerBusinessName.isNotEmpty) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        booking.providerBusinessName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: textTheme.bodySmall?.copyWith(
+                          color: AppColors.secondaryTextAccessible,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
               ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('CURRENT REFUND-POLICY STAGE',
-                      style: textTheme.labelSmall?.copyWith(color: AppColors.secondaryTextAccessible)),
-                  const SizedBox(height: 4),
-                  // The mobile booking model has no current policy-stage
-                  // projection. A settlement refundPercentage is not a policy rate.
-                  Text('View booking policies',
-                      style: textTheme.titleSmall?.copyWith(color: AppColors.primary, fontWeight: FontWeight.w700)),
-                  const SizedBox(height: 4),
-                  Text('Review the available refund policy in your booking details.',
-                      style: textTheme.bodySmall?.copyWith(color: AppColors.secondaryTextAccessible)),
-                ],
-              ),
-            ),
-            const SizedBox(height: 12),
-            const Divider(height: 1, color: AppColors.border),
-            const SizedBox(height: 12),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Icon(Icons.info_outline, size: 16, color: AppColors.secondaryTextAccessible),
-                const SizedBox(width: 8),
-                Expanded(child: Text('Your event updates at a glance.',
-                    style: textTheme.bodySmall?.copyWith(color: AppColors.secondaryTextAccessible))),
-              ],
-            ),
-            const SizedBox(height: 12),
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton(
-                onPressed: () => Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (_) => BookingDetailsScreen(bookingId: booking.id),
+              const SizedBox(width: AppSpacing.xs),
+              Container(
+                key: const ValueKey('booking-status-pill'),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: presentation.background,
+                  borderRadius: BorderRadius.circular(24),
+                ),
+                child: Text(
+                  presentation.label,
+                  textAlign: TextAlign.center,
+                  style: textTheme.labelSmall?.copyWith(
+                    color: presentation.foreground,
+                    fontWeight: FontWeight.w700,
                   ),
                 ),
-                child: const Text('View booking details'),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

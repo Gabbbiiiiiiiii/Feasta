@@ -1,11 +1,16 @@
 "use client";
 
 import {
+  ChevronRight,
   Eye,
   FileClock,
 } from "lucide-react";
 
 import {useEffect, useMemo, useRef, useState} from "react";
+
+import {
+  PAYMENT_STATUSES,
+} from "@feasta/shared-types";
 
 import {
   CursorPagination,
@@ -33,13 +38,11 @@ import {
 import {ProviderFinancePanel} from "./provider-finance-panel";
 import {ProviderPaymentDetailDrawer} from "./provider-payment-detail-drawer";
 import {PaymentFlowOverview} from "@/components/shared/payment-flow-overview";
-import type {PaymentDemoEvidence} from "@/lib/payments/payment-demo-evidence";
 
 type ProviderPaymentsClientProps = {
   initialPage: ProviderPaymentPage;
   initialFilters: ProviderPaymentFilters;
   initialFinance?: ProviderFinanceOverview;
-  demoEvidence?: PaymentDemoEvidence | null;
 };
 
 const EMPTY_PROVIDER_FINANCE: ProviderFinanceOverview = {
@@ -84,19 +87,16 @@ const filterOptions: readonly {
   label: string;
 }[] = [
   {value: "all", label: "All"},
-  {value: "pending", label: "Pending"},
-  {value: "processing", label: "Processing"},
-  {value: "paid", label: "Paid"},
-  {value: "failed", label: "Failed"},
-  {value: "expired", label: "Expired"},
-  {value: "refunded", label: "Refunded"},
+  ...PAYMENT_STATUSES.map((status) => ({
+    value: status,
+    label: formatLabel(status),
+  })),
 ];
 
 export function ProviderPaymentsClient({
   initialPage,
   initialFilters,
   initialFinance = EMPTY_PROVIDER_FINANCE,
-  demoEvidence,
 }: ProviderPaymentsClientProps) {
 
   const [page, setPage] = useState(initialPage);
@@ -124,9 +124,21 @@ export function ProviderPaymentsClient({
       id: "amount",
       header: "Payment amount",
       cell: (payment) => (
-        <span className="font-semibold text-primary-strong">
-          {formatCentavos(payment.amountInCentavos)}
-        </span>
+        <div className="min-w-[8rem]">
+          <span className="block font-semibold tabular-nums text-primary-strong">
+            {formatCentavos(payment.amountInCentavos)}
+          </span>
+          {payment.formattedCommissionAmount ? (
+            <span className="mt-0.5 block text-xs tabular-nums text-muted-foreground">
+              Commission {payment.formattedCommissionAmount}
+            </span>
+          ) : null}
+          {payment.formattedProviderNetAmount ? (
+            <span className="mt-0.5 block text-xs font-semibold tabular-nums text-foreground">
+              Net {payment.formattedProviderNetAmount}
+            </span>
+          ) : null}
+        </div>
       ),
     },
     {
@@ -225,7 +237,19 @@ export function ProviderPaymentsClient({
         description="Track customer payments, manage your earnings, and check payout status."
       />
 
-      <PaymentFlowOverview evidence={demoEvidence ?? null} />
+      <details className="group rounded-xl border border-border/80 bg-secondary/50 transition-colors duration-fast open:bg-secondary/35">
+        <summary className="flex cursor-pointer list-none items-center gap-2 px-3.5 py-2.5 text-sm font-semibold text-muted-foreground hover:text-foreground sm:px-4 [&::-webkit-details-marker]:hidden">
+          <ChevronRight
+            aria-hidden="true"
+            className="size-4 shrink-0 text-primary transition-transform duration-fast group-open:rotate-90 motion-reduce:transition-none"
+          />
+          <span>How payments, earnings, and payouts work</span>
+        </summary>
+        <div className="px-3.5 pb-4 pt-1 sm:px-4">
+          <PaymentFlowOverview embedded />
+        </div>
+      </details>
+
       <ProviderFinancePanel
         initialFinance={initialFinance}
       />
@@ -396,6 +420,18 @@ function PaymentMobileCard({
           <dt className="text-muted-foreground">Activity</dt>
           <dd className="mt-1 font-medium">{formatDateTime(activityDate(payment))}</dd>
         </div>
+        {payment.formattedCommissionAmount ? (
+          <div>
+            <dt className="text-muted-foreground">FEASTA commission</dt>
+            <dd className="mt-1 font-medium">{payment.formattedCommissionAmount}</dd>
+          </div>
+        ) : null}
+        {payment.formattedProviderNetAmount ? (
+          <div>
+            <dt className="text-muted-foreground">Provider net</dt>
+            <dd className="mt-1 font-semibold">{payment.formattedProviderNetAmount}</dd>
+          </div>
+        ) : null}
       </dl>
       <Button
         variant="secondary"

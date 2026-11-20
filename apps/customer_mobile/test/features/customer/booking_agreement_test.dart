@@ -34,7 +34,7 @@ void main() {
       final a = BookingAgreement.fromJson(agreementFixture());
       expect(
         agreementTime(a.time('hardPaymentDeadlineAt')),
-        '2030-01-04 14:00 (Asia/Manila)',
+        '2030-01-04 14:00',
       );
     },
   );

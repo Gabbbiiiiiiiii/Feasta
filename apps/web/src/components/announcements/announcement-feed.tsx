@@ -66,7 +66,7 @@ export function AnnouncementFeed({role, compact = false, onAvailability, onNew}:
     <p className="text-sm text-muted-foreground">Updates for everyone and {role === "customer" ? "customers" : "providers"}. Separate from your personal notifications.</p>
     {loading ? <p role="status">Loading announcements…</p> : error ? <div role="alert"><p>Announcements could not be loaded. Please check your connection and sign-in.</p><Button variant="secondary" onClick={() => setRetry((value) => value + 1)}>Retry announcements</Button></div> : items.length === 0 ? <p>No published announcements for you right now.</p> : items.map((item) => <article key={item.id} className="rounded-xl border border-border p-4">
       <h3 className="font-bold">{item.title}</h3>
-      <p className="mt-1 text-xs text-muted-foreground">{item.audience === "everyone" ? "Everyone" : role === "customer" ? "Customers" : "Providers"} · {item.publishedAt.toLocaleString("en-PH", {timeZone: "Asia/Manila"})} (Manila)</p>
+      <p className="mt-1 text-xs text-muted-foreground">{item.audience === "everyone" ? "Everyone" : role === "customer" ? "Customers" : "Providers"} · {item.publishedAt.toLocaleString("en-PH", {timeZone: "Asia/Manila"})}</p>
       <p className="mt-3 whitespace-pre-wrap break-words text-sm">{item.content}</p>
     </article>)}
     {!loading && !error && more ? <Button variant="secondary" onClick={() => setCount((value) => value + 10)}>Show more announcements</Button> : null}

@@ -84,6 +84,8 @@ export type AdminPayment = {
 
   amountInCentavos: number;
   formattedAmount: string;
+  commissionAmountInCentavos: number | null;
+  formattedCommissionAmount: string | null;
   currency: string;
 
   paymentType: AdminPaymentType;
@@ -220,6 +222,29 @@ export type AdminCompanyFloatSummary = {
   mode: "mock";
 };
 
+export type AdminCompanyCommissionSummary = {
+  availableBalanceInCentavos: number;
+  transferredToFloatInCentavos: number;
+  withdrawnInCentavos: number;
+  formattedAvailableBalance: string;
+  formattedTransferredToFloat: string;
+  formattedWithdrawn: string;
+  currency: "PHP";
+  mode: "mock";
+};
+
+export type AdminCompanyCommissionWithdrawalItem = {
+  withdrawalId: string;
+  amountInCentavos: number;
+  formattedAmount: string;
+  destinationType: "gcash" | "bank";
+  accountName: string;
+  destinationSummary: string;
+  completedAt: string | null;
+  status: "succeeded";
+  mode: "mock";
+};
+
 export type AdminCompanyAdvanceRequestItem = {
   advanceRequestId: string;
   providerRequestId: string;
@@ -250,6 +275,17 @@ export type AdminCompanyAdvanceHistoryItem = {
   mode: "mock";
 };
 
+export type AdminCompanyAdvanceRejectedItem = {
+  advanceRequestId: string;
+  providerRequestId: string;
+  providerId: string;
+  providerName: string | null;
+  providerNetAmountInCentavos: number;
+  formattedProviderNetAmount: string;
+  rejectedAt: string | null;
+  status: "rejected";
+};
+
 export type AdminProviderPayoutHistoryItem = {
   providerDisbursementId: string;
   withdrawalId: string;
@@ -263,7 +299,10 @@ export type AdminProviderPayoutHistoryItem = {
 
 export type AdminProviderPayoutBoard = {
   companyFloat: AdminCompanyFloatSummary;
+  companyCommission: AdminCompanyCommissionSummary;
+  commissionWithdrawals: AdminCompanyCommissionWithdrawalItem[];
   advanceRequests: AdminCompanyAdvanceRequestItem[];
+  rejectedAdvanceRequests: AdminCompanyAdvanceRejectedItem[];
   advanceHistory: AdminCompanyAdvanceHistoryItem[];
   readyToPay: AdminReadyProviderPayoutItem[];
   history: AdminProviderPayoutHistoryItem[];

@@ -439,9 +439,12 @@ export async function getAdminProviderPayoutBoard(): Promise<
   const [
     readySnapshot,
     advanceRequestSnapshot,
+    rejectedAdvanceRequestSnapshot,
     advanceHistorySnapshot,
     historySnapshot,
+    commissionWithdrawalSnapshot,
     floatSnapshot,
+    commissionSnapshot,
   ] = await Promise.all([
     adminDb
       .collection("providerDisbursements")
@@ -454,6 +457,11 @@ export async function getAdminProviderPayoutBoard(): Promise<
       .limit(50)
       .get(),
     adminDb
+      .collection("companyAdvanceRequests")
+      .where("status", "==", "rejected")
+      .limit(50)
+      .get(),
+    adminDb
       .collection("companyProviderAdvances")
       .limit(50)
       .get(),
@@ -462,7 +470,12 @@ export async function getAdminProviderPayoutBoard(): Promise<
       .where("releaseChannel", "==", "admin_disbursement")
       .limit(50)
       .get(),
+    adminDb
+      .collection("companyCommissionMockWithdrawals")
+      .limit(50)
+      .get(),
     adminDb.collection("companyFinance").doc("float").get(),
+    adminDb.collection("companyFinance").doc("commission").get(),
   ]);
 
   const floatData = floatSnapshot.exists ? floatSnapshot.data() ?? {} : {};
@@ -478,6 +491,32 @@ export async function getAdminProviderPayoutBoard(): Promise<
       outstandingAdvanceInCentavos,
       "PHP",
     ),
+    currency: "PHP" as const,
+    mode: "mock" as const,
+  };
+
+  const commissionData = commissionSnapshot.exists
+    ? commissionSnapshot.data() ?? {}
+    : {};
+  const commissionAvailableInCentavos =
+    adminCentavos(commissionData.availableBalanceInCentavos) ?? 0;
+  const commissionTransferredInCentavos =
+    adminCentavos(commissionData.transferredToFloatInCentavos) ?? 0;
+  const commissionWithdrawnInCentavos =
+    adminCentavos(commissionData.withdrawnInCentavos) ?? 0;
+  const companyCommission = {
+    availableBalanceInCentavos: commissionAvailableInCentavos,
+    transferredToFloatInCentavos: commissionTransferredInCentavos,
+    withdrawnInCentavos: commissionWithdrawnInCentavos,
+    formattedAvailableBalance: formatCentavos(
+      commissionAvailableInCentavos,
+      "PHP",
+    ),
+    formattedTransferredToFloat: formatCentavos(
+      commissionTransferredInCentavos,
+      "PHP",
+    ),
+    formattedWithdrawn: formatCentavos(commissionWithdrawnInCentavos, "PHP"),
     currency: "PHP" as const,
     mode: "mock" as const,
   };
@@ -604,6 +643,55 @@ export async function getAdminProviderPayoutBoard(): Promise<
       }];
     });
 
+  const rejectedAdvanceRequestDocs =
+    rejectedAdvanceRequestSnapshot.docs.filter((document) => {
+      const data = document.data();
+      return (
+        data.schemaVersion === 1 &&
+        data.advanceRequestId === document.id &&
+        data.status === "rejected" &&
+        typeof data.providerId === "string" &&
+        typeof data.providerRequestId === "string"
+      );
+    });
+
+  const rejectedBookingSnapshots = await Promise.all(
+    rejectedAdvanceRequestDocs.map((document) =>
+      adminDb
+        .collection("providerRequests")
+        .doc(String(document.data().providerRequestId))
+        .get(),
+    ),
+  );
+
+  const rejectedAdvanceRequestBase =
+    rejectedAdvanceRequestDocs.flatMap((document, index) => {
+      const data = document.data();
+      const booking = rejectedBookingSnapshots[index]?.exists
+        ? rejectedBookingSnapshots[index].data() ?? {}
+        : {};
+
+      const amounts = resolveCompanyAdvanceAmounts(data, booking);
+      const providerNet = amounts.providerNetAmountInCentavos;
+
+      return [{
+        advanceRequestId: document.id,
+        providerRequestId: data.providerRequestId as string,
+        providerId: data.providerId as string,
+        providerName: null as string | null,
+        providerNetAmountInCentavos: providerNet,
+        formattedProviderNetAmount:
+          providerNet > 0
+            ? formatCentavos(providerNet, "PHP")
+            : "Amount unavailable",
+        rejectedAt:
+          isoDateValue(data.rejectedAt) ??
+          isoDateValue(data.updatedAt) ??
+          isoDateValue(data.createdAt),
+        status: "rejected" as const,
+      }];
+    });
+
   const advanceHistoryBase: AdminCompanyAdvanceHistoryItem[] =
     advanceHistorySnapshot.docs.flatMap((document) => {
       const data = document.data();
@@ -672,9 +760,64 @@ export async function getAdminProviderPayoutBoard(): Promise<
       }];
     });
 
+  const commissionWithdrawalsBase =
+    commissionWithdrawalSnapshot.docs.flatMap((document) => {
+      const data = document.data();
+      const amount = adminCentavos(data.amountInCentavos);
+      const destination =
+        data.destination &&
+        typeof data.destination === "object" &&
+        !Array.isArray(data.destination)
+          ? (data.destination as Record<string, unknown>)
+          : null;
+      const destinationType =
+        destination?.type === "gcash" || destination?.type === "bank"
+          ? destination.type
+          : null;
+      const accountName = nullableString(destination?.accountName);
+
+      if (
+        data.schemaVersion !== 1 ||
+        data.mode !== "mock" ||
+        data.status !== "succeeded" ||
+        data.currency !== "PHP" ||
+        data.withdrawalId !== document.id ||
+        amount === null ||
+        amount <= 0 ||
+        destinationType === null ||
+        accountName === null
+      ) {
+        return [];
+      }
+
+      const destinationSummary =
+        destinationType === "gcash"
+          ? nullableString(destination?.mobileMasked) ?? "GCash"
+          : [
+              nullableString(destination?.bankName),
+              nullableString(destination?.accountNumberMasked),
+            ]
+              .filter(Boolean)
+              .join(" · ") || "Bank transfer";
+
+      return [{
+        withdrawalId: document.id,
+        amountInCentavos: amount,
+        formattedAmount: formatCentavos(amount, "PHP"),
+        destinationType,
+        accountName,
+        destinationSummary,
+        completedAt:
+          isoDateValue(data.completedAt) ?? isoDateValue(data.createdAt),
+        status: "succeeded" as const,
+        mode: "mock" as const,
+      }];
+    });
+
   const providerIds = [...new Set([
     ...readyBase.map((item) => item.providerId),
     ...advanceRequestBase.map((item) => item.providerId),
+    ...rejectedAdvanceRequestBase.map((item) => item.providerId),
     ...advanceHistoryBase.map((item) => item.providerId),
     ...historyBase.map((item) => item.providerId),
   ])];
@@ -715,6 +858,17 @@ export async function getAdminProviderPayoutBoard(): Promise<
       return leftMillis - rightMillis;
     });
 
+  const rejectedAdvanceRequests = rejectedAdvanceRequestBase
+    .map((item) => ({
+      ...item,
+      providerName: providerNames.get(item.providerId) ?? null,
+    }))
+    .sort((left, right) => {
+      const leftMillis = new Date(left.rejectedAt ?? 0).getTime();
+      const rightMillis = new Date(right.rejectedAt ?? 0).getTime();
+      return rightMillis - leftMillis;
+    });
+
   const advanceHistory = advanceHistoryBase
     .map((item) => ({
       ...item,
@@ -737,7 +891,22 @@ export async function getAdminProviderPayoutBoard(): Promise<
       return rightMillis - leftMillis;
     });
 
-  return {companyFloat, advanceRequests, advanceHistory, readyToPay, history};
+  const commissionWithdrawals = commissionWithdrawalsBase.sort((left, right) => {
+    const leftMillis = new Date(left.completedAt ?? 0).getTime();
+    const rightMillis = new Date(right.completedAt ?? 0).getTime();
+    return rightMillis - leftMillis;
+  });
+
+  return {
+    companyFloat,
+    companyCommission,
+    commissionWithdrawals,
+    advanceRequests,
+    rejectedAdvanceRequests,
+    advanceHistory,
+    readyToPay,
+    history,
+  };
 }
 
 function mapAmbiguousPayoutSetupAttentionCandidate(
@@ -2898,6 +3067,61 @@ function emptyAdminProviderSettlement(
   };
 }
 
+function resolveCompanyAdvanceAmounts(
+  requestData: Record<string, unknown>,
+  booking: Record<string, unknown>,
+): {
+  grossAmountInCentavos: number;
+  commissionAmountInCentavos: number;
+  providerNetAmountInCentavos: number;
+} {
+  const storedGross = adminCentavos(requestData.grossAmountInCentavos);
+  const storedCommission = adminCentavos(requestData.commissionAmountInCentavos);
+  const storedNet = adminCentavos(requestData.providerNetAmountInCentavos);
+
+  const bookingGross =
+    adminCentavos(booking.grossSettledAmountInCentavos) ??
+    adminCentavos(
+      booking.financialSnapshot &&
+        typeof booking.financialSnapshot === "object" &&
+        !Array.isArray(booking.financialSnapshot)
+        ? (booking.financialSnapshot as {grossAmountInCentavos?: unknown})
+            .grossAmountInCentavos
+        : null,
+    ) ??
+    (typeof booking.amount === "number" && Number.isFinite(booking.amount)
+      ? Math.round(booking.amount * 100)
+      : null);
+
+  const bookingCommission =
+    adminCentavos(booking.commissionAccruedInCentavos) ??
+    adminCentavos(
+      booking.financialSnapshot &&
+        typeof booking.financialSnapshot === "object" &&
+        !Array.isArray(booking.financialSnapshot)
+        ? (booking.financialSnapshot as {
+            platformCommissionTotalInCentavos?: unknown;
+          }).platformCommissionTotalInCentavos
+        : null,
+    ) ??
+    0;
+
+  const gross = storedGross ?? bookingGross ?? 0;
+  const commission = storedCommission ?? bookingCommission;
+  const providerNet =
+    storedNet ??
+    (gross > 0 && commission >= 0 && commission <= gross
+      ? gross - commission
+      : 0);
+
+  return {
+    grossAmountInCentavos: gross > 0 ? gross : 0,
+    commissionAmountInCentavos:
+      commission >= 0 && (gross <= 0 || commission <= gross) ? commission : 0,
+    providerNetAmountInCentavos: providerNet > 0 ? providerNet : 0,
+  };
+}
+
 function adminCentavos(
   value: unknown,
 ): number | null {
@@ -3233,6 +3457,36 @@ function mapPaymentDocument(
       "Unknown provider",
     amountInCentavos,
     formattedAmount: formatCentavos(amountInCentavos, currency),
+    commissionAmountInCentavos: (() => {
+      if (
+        data.financialLedgerSchemaVersion !== 1 ||
+        data.financialLedgerEntryId !== document.id ||
+        currency !== "PHP"
+      ) {
+        return null;
+      }
+      const commission = adminCentavos(data.commissionAccruedInCentavos);
+      return commission !== null &&
+        commission >= 0 &&
+        commission <= amountInCentavos
+        ? commission
+        : null;
+    })(),
+    formattedCommissionAmount: (() => {
+      if (
+        data.financialLedgerSchemaVersion !== 1 ||
+        data.financialLedgerEntryId !== document.id ||
+        currency !== "PHP"
+      ) {
+        return null;
+      }
+      const commission = adminCentavos(data.commissionAccruedInCentavos);
+      return commission !== null &&
+        commission >= 0 &&
+        commission <= amountInCentavos
+        ? formatCentavos(commission, currency)
+        : null;
+    })(),
     currency,
     paymentType: paymentType(data.paymentType),
     paymentChoice: data.paymentChoice === "full" || data.paymentChoice === "minimum" || data.paymentChoice === "remaining_balance"

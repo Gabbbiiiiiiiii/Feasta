@@ -78,5 +78,5 @@ export function balanceDeadlineMessage(amountInCentavos: number, dueAt: Date): s
     timeZone: "Asia/Manila", year: "numeric", month: "long", day: "numeric",
     hour: "numeric", minute: "2-digit", hour12: true,
   }).format(dueAt);
-  return `Your remaining balance of ${amount} is due on ${deadline} (Asia/Manila).`;
+  return `Your remaining balance of ${amount} is due on ${deadline}.`;
 }

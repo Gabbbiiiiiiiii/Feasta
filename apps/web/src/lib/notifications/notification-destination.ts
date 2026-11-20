@@ -37,6 +37,26 @@ export function resolveNotificationDestination(
     return "/provider/special-requests";
   }
 
+  if (
+    role === "admin" &&
+    (type === "provider_immediate_fund_requested" ||
+      collection === "companyadvancerequests")
+  ) {
+    return "/admin/payments";
+  }
+
+  if (
+    role === "provider" &&
+    (type === "provider_immediate_fund_rejected" ||
+      type === "provider_immediate_fund_approved")
+  ) {
+    return "/provider/bookings";
+  }
+
+  if (role === "admin" && type === "customer_cancellation_requested") {
+    return "/admin/bookings";
+  }
+
   const knownCollections = [
     "chatrooms",
     "providerverifications",
@@ -46,6 +66,8 @@ export function resolveNotificationDestination(
     "bookings",
     "providerrequests",
     "bookingproviderrequests",
+    "companyadvancerequests",
+    "providerrequestcancellationrequests",
   ];
 
   if (

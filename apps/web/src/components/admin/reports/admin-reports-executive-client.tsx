@@ -260,7 +260,7 @@ export function AdminReportsExecutiveClient({
             Reporting period
           </h2>
           <p className="text-sm text-muted-foreground">
-            Calendar boundaries use Asia/Manila time. Custom reports are limited to 366 days.
+            Custom reports are limited to 366 days.
           </p>
         </div>
 

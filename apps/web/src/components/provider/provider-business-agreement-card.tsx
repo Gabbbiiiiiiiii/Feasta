@@ -50,7 +50,7 @@ export function ProviderBusinessAgreementCard({view}: {view: BusinessAgreementVi
       <dl className="my-5 grid gap-4 text-sm sm:grid-cols-3">
         <div><dt className="text-muted-foreground">Acceptance status</dt><dd className="mt-1 font-semibold">{view.unavailable ? "Unavailable" : view.accepted ? "Accepted" : "No acceptance recorded"}</dd></div>
         <div><dt className="text-muted-foreground">Accepted version</dt><dd className="mt-1 break-words font-semibold">{view.acceptedVersion || "Not available"}</dd></div>
-        <div><dt className="text-muted-foreground">Acceptance date</dt><dd className="mt-1 font-semibold">{view.acceptedAtLabel ? `${view.acceptedAtLabel} (Asia/Manila)` : "Not available"}</dd></div>
+        <div><dt className="text-muted-foreground">Acceptance date</dt><dd className="mt-1 font-semibold">{view.acceptedAtLabel ?? "Not available"}</dd></div>
       </dl>
       <Dialog>
         <div className="flex flex-wrap gap-3">
@@ -96,7 +96,7 @@ export function ProviderBusinessAgreementCard({view}: {view: BusinessAgreementVi
       {view.history?.length ? <div className="mt-6 border-t pt-4">
         <h3 className="font-semibold">Previous acceptance history</h3>
         <ul className="mt-3 space-y-3 text-sm">{view.history.map((entry, index) => <li key={index}>
-          <p>Version {entry.acceptedVersion || "Not available"} · {entry.acceptedAtLabel ? `${entry.acceptedAtLabel} (Asia/Manila)` : "Date not available"}</p>
+          <p>Version {entry.acceptedVersion || "Not available"} · {entry.acceptedAtLabel || "Date not available"}</p>
           {!entry.document ? <p className="text-muted-foreground">Acceptance recorded; historical agreement snapshot unavailable.</p> : <details>
             <summary>View historical accepted agreement</summary>
             <p>Version {entry.document.version} · Effective {entry.document.effectiveDate}</p>

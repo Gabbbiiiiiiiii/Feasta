@@ -64,7 +64,7 @@ export function formatInitialPaymentDeadline(value: string): string {
   const date = new Date(value);
   return `${dateFormatter.format(date)} · ${new Intl.DateTimeFormat("en-US", {
     hour: "numeric", minute: "2-digit", timeZone: "Asia/Manila",
-  }).format(date)} PHT`;
+  }).format(date)}`;
 }
 
 function formatBookingTimeRange(

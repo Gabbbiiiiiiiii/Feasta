@@ -66,19 +66,19 @@ void main() {
       'standard six hours',
       '2026-11-01T09:00:00+08:00',
       '2026-11-01T15:00:00+08:00',
-      '2026-11-01 15:00 PHT',
+      '2026-11-01 15:00',
     ),
     (
       'rush two hours',
       '2026-11-01T13:00:00+08:00',
       '2026-11-01T15:00:00+08:00',
-      '2026-11-01 15:00 PHT',
+      '2026-11-01 15:00',
     ),
     (
       'overnight next day',
       '2026-11-01T20:00:00+08:00',
       '2026-11-02T10:00:00+08:00',
-      '2026-11-02 10:00 PHT',
+      '2026-11-02 10:00',
     ),
   ]) {
     testWidgets('displays frozen server deadline: ${example.$1}', (
@@ -114,10 +114,7 @@ void main() {
       ..remove('initialPaymentDeadlinePolicyVersion')
       ..remove('initialPaymentDeadlineAt');
     final before = signature(data);
-    expect(
-      read(data).initialPaymentDeadline!.manilaLabel,
-      '2026-11-02 09:00 PHT',
-    );
+    expect(read(data).initialPaymentDeadline!.manilaLabel, '2026-11-02 09:00');
     expect(read(data).canStartCheckout, isTrue);
     expect(signature(data), before);
   });
@@ -189,7 +186,7 @@ void main() {
           expect(request.initialPaymentDeadline!.at, original.toDate().toUtc());
           expect(
             request.initialPaymentDeadline!.manilaLabel,
-            '2026-11-02 09:00 PHT',
+            '2026-11-02 09:00',
           );
           expect(request.canStartCheckout, isTrue);
           expect(signature(data), before);
@@ -207,7 +204,7 @@ void main() {
       );
       expect(
         read(past).initialPaymentDeadline!.manilaLabel,
-        '2000-01-01 15:00 PHT',
+        '2000-01-01 15:00',
       );
       expect(read(past).canStartCheckout, isFalse);
       final projectionSource = File(

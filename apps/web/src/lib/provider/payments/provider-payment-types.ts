@@ -38,6 +38,10 @@ export type ProviderPayment = {
   amount: number;
   amountInCentavos: number;
   formattedAmount: string;
+  commissionAmountInCentavos: number | null;
+  formattedCommissionAmount: string | null;
+  providerNetAmountInCentavos: number | null;
+  formattedProviderNetAmount: string | null;
   currency: "PHP";
   paymentType: PaymentType;
   paymentChoice?: CustomerPaymentChoice | null;

@@ -194,7 +194,7 @@ describe("accepted contract PDF downloads", () => {
       for (const paragraph of section.paragraphs) expect(text).toContain(paragraph);
     }
     expect(text).toContain(hasDate ? "January 1, 2025" : "Date and Time Accepted: Not available");
-    if (hasDate) expect(text).toContain("Asia/Manila");
+    expect(text).not.toContain("Asia/Manila");
     expect(downloads.published).not.toHaveBeenCalled();
     expect(database.write).not.toHaveBeenCalled();
     expect(JSON.stringify({provider, verification})).toBe(before);

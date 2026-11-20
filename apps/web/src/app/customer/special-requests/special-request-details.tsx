@@ -82,6 +82,13 @@ export function SpecialRequestDetails({requestId, inDialog = false, onStatusChan
     setRefundAccepted(false);
     setError("");
     try {
+      await auth.authStateReady();
+      if (!auth.currentUser) {
+        setSignedOut(true);
+        setRow(undefined);
+        return;
+      }
+      setSignedOut(false);
       initializeBrowserAppCheck();
       const result = await httpsCallable<{view: "customer"; id: string}, {requests: SpecialRequest[]}>(
         functions, "listSpecialRequests",
@@ -90,7 +97,16 @@ export function SpecialRequestDetails({requestId, inDialog = false, onStatusChan
       setClock(Date.now());
     } catch (failure) {
       setRow(undefined);
-      setError(failure instanceof Error ? failure.message : "Unable to open this request.");
+      const code =
+        typeof failure === "object" &&
+        failure !== null &&
+        "code" in failure &&
+        typeof (failure as {code?: unknown}).code === "string"
+          ? (failure as {code: string}).code.replace(/^functions\//u, "")
+          : null;
+      const message =
+        failure instanceof Error ? failure.message : "Unable to open this request.";
+      setError(code && code !== message ? `${message} (${code})` : message);
     } finally {
       setLoading(false);
     }
@@ -144,9 +160,18 @@ export function SpecialRequestDetails({requestId, inDialog = false, onStatusChan
     }
   }
 
-  if (loading) return <div className="p-6" role="status">Loading special requestâ€¦</div>;
+  if (loading) return <div className="p-6" role="status">Loading special request…</div>;
   if (signedOut) return <div className="p-6"><Link className="underline" href="/login">Sign in to view this request</Link></div>;
-  if (!row) return <div className="p-6" role="alert">{error || "Special request was not found."}</div>;
+  if (!row) {
+    return (
+      <div className="space-y-3 p-6" role="alert">
+        <p>{error || "Special request was not found."}</p>
+        <Button variant="secondary" size="compact" onClick={() => void load()}>
+          Try again
+        </Button>
+      </div>
+    );
+  }
 
   const remainingSeconds = expiresAtMs == null || clock == null ? null :
     Math.max(0, Math.ceil((expiresAtMs - clock) / 1000));
@@ -179,7 +204,7 @@ export function SpecialRequestDetails({requestId, inDialog = false, onStatusChan
           {[
             ["Provider", row.providerName], ["Package", row.packageName], ["Quantity", row.quantity],
             ["Event date", Number.isNaN(eventDate.getTime()) ? row.eventDate : dateFormat.format(eventDate)],
-            [row.serviceTier === "drop_off" ? "Drop-Off Time" : "Event time", [row.eventTime, row.eventEndTime].filter(Boolean).join(" â€“ ")],
+            [row.serviceTier === "drop_off" ? "Drop-Off Time" : "Event time", [row.eventTime, row.eventEndTime].filter(Boolean).join(" – ")],
             ["Delivery address", row.address],
           ].filter(([, value]) => value).map(([name, value]) => (
             <div key={name} className="flex justify-between gap-4">
@@ -197,7 +222,9 @@ export function SpecialRequestDetails({requestId, inDialog = false, onStatusChan
             </div>
           )}
           {pricing && pricing.providerFeeInCentavos !== null &&
-            <p className="text-sm text-muted-foreground">FEASTA service fee for the customer {amount(0)}. The provider pays the platform commission.</p>}
+            <p className="text-sm text-muted-foreground">
+              Service charge {amount(pricing.providerFeeInCentavos)} is deducted from provider proceeds. It is not an additional customer charge.
+            </p>}
           <div className="flex justify-between gap-3 border-t border-border pt-3 font-bold"><span>Total offered</span><span>{amount(row.priceOffer.totalInCentavos)}</span></div>
           {row.priceOffer.deliveryIncluded ? <aside className="rounded-lg bg-muted p-3 text-sm">
             <p className="font-semibold">Delivery included</p>
@@ -255,7 +282,7 @@ export function SpecialRequestDetails({requestId, inDialog = false, onStatusChan
                   <br /><br />
                   Your booking will only be confirmed after FEASTA verifies the required payment.
                 </>
-                : action === "declineOffer" ? "FEASTA will close the special request and notify the provider." : "Tell the provider what youâ€™d like them to change."}
+                : action === "declineOffer" ? "FEASTA will close the special request and notify the provider." : "Tell the provider what you'd like them to change."}
             </DialogDescription>
           </DialogHeader>
           <form className="space-y-4" onSubmit={event => {event.preventDefault(); void respond();}}>

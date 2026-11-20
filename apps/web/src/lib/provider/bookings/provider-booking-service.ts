@@ -408,6 +408,24 @@ function mapProviderBooking(
     request.companyAdvanceRequestStatus === "cancelled"
       ? request.companyAdvanceRequestStatus
       : null;
+  const advanceMaxAttempts =
+    typeof request.companyAdvanceRequestMaxAttempts === "number" &&
+    Number.isSafeInteger(request.companyAdvanceRequestMaxAttempts) &&
+    request.companyAdvanceRequestMaxAttempts > 0
+      ? request.companyAdvanceRequestMaxAttempts
+      : 3;
+  const advanceAttemptCount =
+    typeof request.companyAdvanceRequestAttemptCount === "number" &&
+    Number.isSafeInteger(request.companyAdvanceRequestAttemptCount) &&
+    request.companyAdvanceRequestAttemptCount > 0
+      ? request.companyAdvanceRequestAttemptCount
+      : advanceRequestStatus
+        ? 1
+        : 0;
+  const advanceRemainingAttempts = Math.max(
+    0,
+    advanceMaxAttempts - advanceAttemptCount,
+  );
   const advanceStatus =
     request.companyAdvanceStatus === "outstanding" ||
     request.companyAdvanceStatus === "repaid" ||
@@ -485,6 +503,9 @@ function mapProviderBooking(
     specialOffer: specialOfferBreakdown(request.acceptedSpecialOffer, Math.round(acceptedGross * 100), request.financialSnapshot),
     specialOfferVat: request.acceptedSpecialOffer ? customerBookingServiceVat(request) : undefined,
     companyAdvanceRequestStatus: advanceRequestStatus,
+    companyAdvanceRequestAttemptCount: advanceAttemptCount,
+    companyAdvanceRequestMaxAttempts: advanceMaxAttempts,
+    companyAdvanceRequestRemainingAttempts: advanceRemainingAttempts,
     companyAdvanceStatus: advanceStatus,
     remainingBalance: requestStatus === "cancelled" || payment?.status === "refunded" ? 0 :
       hasBookingSettlement(request) ? (projectBookingPayment(request) === null ? null : nonNegativeMoney(request.outstandingAmountInCentavos) / 100) : nonNegativeMoney(request.remainingBalance),

@@ -1,3 +1,4 @@
+import {createHash} from "node:crypto";
 import {assertNewCancellationBeforeEnd} from "./cancellation-deadline.js";
 import {Timestamp} from "firebase-admin/firestore";
 import {HttpsError, onCall} from "firebase-functions/v2/https";
@@ -40,6 +41,7 @@ import {
 import {
   readTrustedProviderRequestPaymentSetInTransaction,
 } from "../payments/provider-request-payment-reader.js";
+import {listActiveAdminUserIds} from "../shared/admin-recipients.js";
 import {writeAuditLogInTransaction} from "../shared/audit.js";
 import {requireAuth} from "../shared/auth.js";
 import {requireRole} from "../shared/authorization.js";
@@ -53,7 +55,10 @@ import {
   createIdempotencyKey,
   executeIdempotently,
 } from "../shared/idempotency.js";
-import {createNotificationInTransaction} from "../shared/notifications.js";
+import {
+  createNotificationInTransaction,
+  createNotificationWithIdInTransaction,
+} from "../shared/notifications.js";
 import {enforceCallableRateLimit} from "../shared/rate-limit.js";
 import {logSecurityEvent} from "../shared/security-events.js";
 import {serverTimestamp} from "../shared/timestamps.js";
@@ -231,6 +236,7 @@ async function submitCancellation(input: {
   const cancellationReference = db
     .collection("providerRequestCancellationRequests")
     .doc(cancellationRequestId);
+  const adminIds = await listActiveAdminUserIds();
 
   return db.runTransaction(async (transaction) => {
     const [
@@ -508,6 +514,31 @@ async function submitCancellation(input: {
       relatedCollection: "providerRequests",
       metadata: {cancellationRequestId, cancellationStatus: status},
     });
+    for (const adminId of adminIds) {
+      createNotificationWithIdInTransaction(
+        transaction,
+        customerCancellationAdminNotificationId(
+          cancellationRequestId,
+          adminId,
+        ),
+        {
+          userId: adminId,
+          title: "Customer cancellation request",
+          message:
+            "A customer requested cancellation of a provider booking.",
+          type: "customer_cancellation_requested",
+          relatedId: input.providerRequestId,
+          relatedCollection: "providerRequests",
+          metadata: {
+            cancellationRequestId,
+            providerRequestId: input.providerRequestId,
+            providerId,
+            mainEventId,
+            cancellationStatus: status,
+          },
+        },
+      );
+    }
     writeAuditLogInTransaction(transaction, {
       actorId: input.actorUid,
       actorRole: "customer",
@@ -636,6 +667,17 @@ function storedFrozenEligibility(
     currentStage,
     stageSequence: stageSequence as number,
   };
+}
+
+function customerCancellationAdminNotificationId(
+  cancellationRequestId: string,
+  adminId: string,
+): string {
+  const digest = createHash("sha256")
+    .update(`customer_cancellation_requested:${cancellationRequestId}:${adminId}`)
+    .digest("hex")
+    .slice(0, 40);
+  return `notif_${digest}`;
 }
 
 function cancellationNotAllowed(): HttpsError {

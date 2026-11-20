@@ -85,7 +85,7 @@ export function CustomerBookingStanding() {
           <h2 className="font-semibold text-foreground">{restricted ? "New bookings temporarily restricted" : finalWarning ? "Final booking warning" : "First booking warning"}</h2>
           {restricted ? <>
             <p>Three qualifying unpaid booking strikes triggered a seven-day restriction on new bookings.</p>
-            <p>{standing.restrictionExpiresAt ? <>Restriction ends <time dateTime={standing.restrictionExpiresAt}>{manilaDate(standing.restrictionExpiresAt)}</time> (Manila time).</> : "The restriction end time is unavailable. Contact support for help."}</p>
+            <p>{standing.restrictionExpiresAt ? <>Restriction ends <time dateTime={standing.restrictionExpiresAt}>{manilaDate(standing.restrictionExpiresAt)}</time>.</> : "The restriction end time is unavailable. Contact support for help."}</p>
           </> : <>
             <p>You have {standing.activeCount} of 3 active strikes in the rolling 30-day period. {finalWarning ? "One more qualifying strike triggers a seven-day restriction on new bookings." : "Three qualifying strikes trigger a seven-day restriction on new bookings."}</p>
             <p>Pay within the payment window shown on your booking, or use a permitted cancellation to avoid an unpaid booking strike.</p>

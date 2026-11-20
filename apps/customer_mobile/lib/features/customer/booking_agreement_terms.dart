@@ -55,7 +55,7 @@ class BookingAgreementTerms extends StatelessWidget {
             ),
           Text(
             a.depositEligible
-                ? 'Deposit eligibility is finalized on submission. Review again if the cutoff passes.'
+                ? 'Submit at least 72 hours before the event to keep the deposit option. Deposit eligibility is finalized on submission. Review again if the cutoff passes.'
                 : a.eligibilityReason == 'short_notice'
                 ? 'Full payment is required because the 72-hour deposit eligibility cutoff has passed.'
                 : "Full payment is required under this service's saved payment policy.",

@@ -105,9 +105,21 @@ export function ProviderPaymentDetailDrawer({
           <DrawerSection title="Payment">
             <DetailRow
               icon={<CreditCard className="size-4" />}
-              label="Amount"
+              label="Customer paid"
               value={formatCentavos(payment.amountInCentavos)}
             />
+            {payment.formattedCommissionAmount ? (
+              <DetailRow
+                label="FEASTA commission"
+                value={payment.formattedCommissionAmount}
+              />
+            ) : null}
+            {payment.formattedProviderNetAmount ? (
+              <DetailRow
+                label="Provider net after commission"
+                value={payment.formattedProviderNetAmount}
+              />
+            ) : null}
             <DetailRow label="Currency" value={payment.currency} />
             <DetailRow label="Payment type" value={formatPaymentPurpose(payment)} />
           </DrawerSection>

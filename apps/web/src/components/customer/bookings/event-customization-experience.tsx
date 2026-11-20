@@ -2620,7 +2620,7 @@ function discardAndLeave() {
                             <p className="text-sm font-extrabold text-foreground">{agreement.depositEligible ? "Deposit currently available" : "Full payment required"}</p>
                             <PriceDisplay amount={agreement.requiredUpfrontAmountInCentavos / 100} />
                             {agreement.depositEligible ? (
-                              <p className="text-xs leading-5 text-feasta-text-secondary">Remaining balance: {new Intl.NumberFormat("en-PH", {style: "currency", currency: "PHP"}).format(agreement.remainingBalanceInCentavos / 100)}. Eligibility is finalized on submission.</p>
+                              <p className="text-xs leading-5 text-feasta-text-secondary">Remaining balance: {new Intl.NumberFormat("en-PH", {style: "currency", currency: "PHP"}).format(agreement.remainingBalanceInCentavos / 100)}. Submit at least 72 hours before the event to keep the deposit option. Eligibility is finalized on submission.</p>
                             ) : agreement.eligibilityReason === "short_notice" ? (
                               <p className="text-xs leading-5 text-feasta-text-secondary">The 72-hour deposit cutoff has passed for this event.</p>
                             ) : null}

@@ -48,6 +48,10 @@ function payment(
     amount: 2500,
     amountInCentavos: 250000,
     formattedAmount: "PHP 2,500.00",
+    commissionAmountInCentavos: 25000,
+    formattedCommissionAmount: "PHP 250.00",
+    providerNetAmountInCentavos: 225000,
+    formattedProviderNetAmount: "PHP 2,250.00",
     currency: "PHP",
     paymentType: "provider_down_payment",
     status,
@@ -205,6 +209,15 @@ describe("provider booking payments workspace", () => {
 
   });
 
+  it("collapses the payment-flow explainer by default", () => {
+    renderWorkspace();
+
+    const explainerSummary = screen.getByText(
+      "How payments, earnings, and payouts work",
+    );
+    expect(explainerSummary.closest("details")).not.toHaveAttribute("open");
+  });
+
   it("shows all canonical filters and resets the opaque cursor when URL status changes", async () => {
     const user = userEvent.setup();
     renderWorkspace();
@@ -215,6 +228,7 @@ describe("provider booking payments workspace", () => {
       "Pending",
       "Processing",
       "Paid",
+      "Partially Refunded",
       "Failed",
       "Expired",
       "Refunded",

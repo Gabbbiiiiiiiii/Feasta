@@ -38,7 +38,7 @@ class BookingPaymentRequirement extends StatelessWidget {
               Text(FeastaPriceFormatter.format(agreement.upfront / 100)),
               if (agreement.depositEligible)
                 Text(
-                  'Remaining balance: ${FeastaPriceFormatter.format(agreement.remaining / 100)}. Eligibility is finalized on submission.',
+                  'Remaining balance: ${FeastaPriceFormatter.format(agreement.remaining / 100)}. Submit at least 72 hours before the event to keep the deposit option. Eligibility is finalized on submission.',
                 )
               else if (agreement.eligibilityReason == 'short_notice')
                 const Text(

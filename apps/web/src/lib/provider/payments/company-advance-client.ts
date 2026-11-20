@@ -13,6 +13,9 @@ export async function requestCompanyAdvance(input: {
   advanceRequestId: string;
   providerRequestId: string;
   status: "pending";
+  attemptCount: number;
+  remainingAttempts: number;
+  maxAttempts: number;
 }> {
   await auth.authStateReady();
   if (!auth.currentUser) {
@@ -33,6 +36,9 @@ export async function requestCompanyAdvance(input: {
       advanceRequestId: string;
       providerRequestId: string;
       status: "pending";
+      attemptCount: number;
+      remainingAttempts: number;
+      maxAttempts: number;
     }
   >(functions, "requestCompanyAdvance", {timeout: 30_000});
 

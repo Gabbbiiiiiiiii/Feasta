@@ -208,21 +208,25 @@ it(
       ),
     ).toBeVisible();
 
-    expect(
-      screen.getByLabelText(
-        "Provider earnings summary",
-      ),
-    ).toHaveTextContent(
-      "₱10,000.00",
+    const summary = screen.getByLabelText(
+      "Provider earnings summary",
     );
 
+    expect(summary).toHaveTextContent("₱9,000.00");
+    expect(summary).toHaveTextContent("₱8,000.00");
+    expect(summary).not.toHaveTextContent("Customer gross collected");
+    expect(summary).not.toHaveTextContent("FEASTA commission");
+    expect(screen.queryByText("FEASTA VAT on commission")).not.toBeInTheDocument();
     expect(
-      screen.getByLabelText(
-        "Provider earnings summary",
-      ),
-    ).toHaveTextContent(
-      "₱8,000.00",
-    );
+      screen.getByRole("button", {
+        name: "More information about Original Provider earnings",
+      }),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("button", {
+        name: "More information about Confirmed settlement paid out",
+      }),
+    ).toBeVisible();
   },
 );
 

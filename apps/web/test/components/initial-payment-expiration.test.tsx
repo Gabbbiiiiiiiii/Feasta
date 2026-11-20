@@ -30,8 +30,8 @@ describe("frozen customer initial payment deadlines", () => {
         status: "waiting_for_down_payment", lifecycle: undefined, initialPaymentDeadlineAt: deadline,
       })} />);
     }
-    expect(screen.getByText("Oct 25, 2026 · 2:00 PM PHT")).toBeVisible();
-    expect(screen.getByText("Oct 25, 2026 · 10:00 AM PHT")).toBeVisible();
+    expect(screen.getByText("Oct 25, 2026 · 2:00 PM")).toBeVisible();
+    expect(screen.getByText("Oct 25, 2026 · 10:00 AM")).toBeVisible();
     expect(screen.getAllByText("Initial payment deadline")).toHaveLength(2);
   });
   it("formats in Manila and never renews the frozen timestamp on reload", () => {
@@ -39,7 +39,7 @@ describe("frozen customer initial payment deadlines", () => {
     try {
       for (const zone of ["UTC", "America/Los_Angeles", "Asia/Tokyo"]) {
         process.env.TZ = zone;
-        expect(formatInitialPaymentDeadline(frozenEvidence.deadline)).toBe("Oct 25, 2026 · 2:00 PM PHT");
+        expect(formatInitialPaymentDeadline(frozenEvidence.deadline)).toBe("Oct 25, 2026 · 2:00 PM");
       }
       vi.spyOn(Date, "now").mockReturnValue(Date.parse("2027-01-01T00:00:00Z"));
       expect(projectInitialPaymentDeadline({...frozenEvidence})).toBe(frozenEvidence.deadline);

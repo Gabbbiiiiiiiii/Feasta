@@ -11,26 +11,54 @@ test("funding increases available company float balance", () => {
   assert.equal(next.availableBalanceInCentavos, 250_000);
 });
 
-test("commission credit is idempotent when already credited", () => {
-  const funded = domain.planCompanyFloatFunding({
-    float: domain.emptyCompanyFloat(),
-    amountInCentavos: 10_000,
-  });
-  const first = domain.planCompanyFloatCommissionCredit({
-    float: funded,
+test("commission credit accrues to commission wallet, not float", () => {
+  const first = domain.planCompanyCommissionCredit({
+    commission: domain.emptyCompanyCommission(),
     commissionInCentavos: 5_000,
     alreadyCredited: false,
   });
   assert.equal(first.credited, true);
-  assert.equal(first.float.availableBalanceInCentavos, 15_000);
+  assert.equal(first.commission.availableBalanceInCentavos, 5_000);
+  assert.equal(first.commission.transferredToFloatInCentavos, 0);
+  assert.equal(first.commission.withdrawnInCentavos, 0);
 
-  const second = domain.planCompanyFloatCommissionCredit({
-    float: first.float,
+  const second = domain.planCompanyCommissionCredit({
+    commission: first.commission,
     commissionInCentavos: 5_000,
     alreadyCredited: true,
   });
   assert.equal(second.credited, false);
-  assert.equal(second.float.availableBalanceInCentavos, 15_000);
+  assert.equal(second.commission.availableBalanceInCentavos, 5_000);
+});
+
+test("admin can transfer available commission into company float", () => {
+  const credited = domain.planCompanyCommissionCredit({
+    commission: domain.emptyCompanyCommission(),
+    commissionInCentavos: 8_000,
+    alreadyCredited: false,
+  });
+  const transferred = domain.planCompanyCommissionTransferToFloat({
+    commission: credited.commission,
+    float: domain.emptyCompanyFloat(),
+    amountInCentavos: 5_000,
+  });
+  assert.equal(transferred.commission.availableBalanceInCentavos, 3_000);
+  assert.equal(transferred.commission.transferredToFloatInCentavos, 5_000);
+  assert.equal(transferred.float.availableBalanceInCentavos, 5_000);
+});
+
+test("admin can withdraw available commission", () => {
+  const credited = domain.planCompanyCommissionCredit({
+    commission: domain.emptyCompanyCommission(),
+    commissionInCentavos: 8_000,
+    alreadyCredited: false,
+  });
+  const withdrawn = domain.planCompanyCommissionWithdrawal({
+    commission: credited.commission,
+    amountInCentavos: 3_000,
+  });
+  assert.equal(withdrawn.commission.availableBalanceInCentavos, 5_000);
+  assert.equal(withdrawn.commission.withdrawnInCentavos, 3_000);
 });
 
 test("provider can request advance after customer payment", () => {
@@ -46,6 +74,36 @@ test("provider can request advance after customer payment", () => {
     existingAdvanceStatus: null,
   });
   assert.equal(request.status, "pending");
+  assert.equal(request.attemptCount, 1);
+  assert.equal(request.remainingAfterRequest, 2);
+});
+
+test("immediate fund requests allow up to three attempts after rejection", () => {
+  const second = domain.planCompanyAdvanceAttemptCount({
+    existingAttemptCount: 1,
+    existingRequestStatus: "rejected",
+    requestExists: true,
+  });
+  assert.equal(second.attemptCount, 2);
+  assert.equal(second.remainingAfterRequest, 1);
+
+  const third = domain.planCompanyAdvanceAttemptCount({
+    existingAttemptCount: 2,
+    existingRequestStatus: "rejected",
+    requestExists: true,
+  });
+  assert.equal(third.attemptCount, 3);
+  assert.equal(third.remainingAfterRequest, 0);
+
+  assert.throws(
+    () =>
+      domain.planCompanyAdvanceAttemptCount({
+        existingAttemptCount: 3,
+        existingRequestStatus: "rejected",
+        requestExists: true,
+      }),
+    /all 3 immediate funding requests/u,
+  );
 });
 
 test("deposit advance approval stays outstanding and tracks float debt", () => {

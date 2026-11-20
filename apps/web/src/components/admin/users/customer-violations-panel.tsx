@@ -67,19 +67,19 @@ export function CustomerViolationsPanel({customerId}: {customerId: string}) {
             {[1, 2, 3].map(segment => <span key={segment} className={`h-2 flex-1 rounded-full ${segment <= history.activeCount ? "bg-primary" : "bg-muted"}`} />)}
           </div>
           <p className="text-xs text-muted-foreground">Rolling 30-day window</p>
-          <p className="mt-1 text-xs text-muted-foreground">{format(history.observationStart)} to {format(history.observationEnd)} (Manila)</p>
+          <p className="mt-1 text-xs text-muted-foreground">{format(history.observationStart)} to {format(history.observationEnd)}</p>
         </section>
         <section aria-label="New booking access" className="min-w-0 rounded-xl border border-border bg-muted/20 p-4">
           <h5 className="text-sm font-semibold text-muted-foreground">New booking access</h5>
           <p className={`mt-2 w-fit rounded-full px-2.5 py-1 text-sm font-semibold ${restricted ? "bg-red-100 text-red-700" : "bg-green-100 text-green-700"}`}>{restricted ? "Restricted" : "Allowed"}</p>
-          <p className="mt-3 text-sm">{restricted ? `Restricted until ${format(history.restrictionExpiresAt)} (Manila).` : "No active booking restriction."}</p>
+          <p className="mt-3 text-sm">{restricted ? `Restricted until ${format(history.restrictionExpiresAt)}.` : "No active booking restriction."}</p>
           <p className="mt-2 text-xs text-muted-foreground">Three strikes in 30 days trigger an automatic seven-day restriction on new bookings.</p>
         </section>
       </div>
       <p className="text-xs leading-relaxed text-muted-foreground">This booking-only policy is separate from Restrict account access. Existing bookings, permitted payments, messages and support remain available.</p>
       <div className="grid gap-1">
         <h5 className="font-bold">Violation History</h5>
-        <p className="text-xs text-muted-foreground">Newest recorded first. All dates are in Manila time. The payment deadline is when the violation occurred; recorded is when it was issued.</p>
+        <p className="text-xs text-muted-foreground">Newest recorded first. The payment deadline is when the violation occurred; recorded is when it was issued.</p>
         <p className="text-xs text-muted-foreground">Strikes used in a restriction stay in history and cannot trigger another restriction.</p>
       </div>
       <ul className="grid gap-3">
@@ -90,8 +90,8 @@ export function CustomerViolationsPanel({customerId}: {customerId: string}) {
           </div>
           <p className="break-all text-xs">Provider requests: {record.providerRequestIds.join(", ")}</p>
           <p>{record.reason === "no_attempt_original_deadline_elapsed" ? "Payment deadline passed without a payment attempt" : record.reason}</p>
-          <p>Payment deadline: {format(record.occurredAt)} · Recorded: {format(record.issuedAt)} (Manila)</p>
-          {record.restrictionStartedAt && <p>Restriction cycle: {format(record.restrictionStartedAt)} – {format(record.restrictionExpiresAt ?? null)} (Manila)</p>}
+          <p>Payment deadline: {format(record.occurredAt)} · Recorded: {format(record.issuedAt)}</p>
+          {record.restrictionStartedAt && <p>Restriction cycle: {format(record.restrictionStartedAt)} – {format(record.restrictionExpiresAt ?? null)}</p>}
           {record.reversedAt ? <p>Reversed {format(record.reversedAt)} by {record.reversedBy}. Private audit reason: {record.reversalReason}</p> :
             <form className="grid gap-2" onSubmit={e => {e.preventDefault(); void reverse(record.id);}}>
               <label htmlFor={`reversal-${record.id}`}>Private reversal reason</label>

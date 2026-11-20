@@ -1,3 +1,4 @@
+import {createHash} from "node:crypto";
 import {
   HttpsError,
   onCall,
@@ -8,16 +9,20 @@ import type {
   Transaction,
 } from "firebase-admin/firestore";
 
+import {listActiveAdminUserIds} from "../shared/admin-recipients.js";
 import {requireAuth} from "../shared/auth.js";
 import {requireRole} from "../shared/authorization.js";
 import {USER_ROLES} from "../shared/constants.js";
 import {appCheckCallableOptions} from "../shared/function-options.js";
 import {db} from "../shared/firestore.js";
+import {createNotificationWithIdInTransaction} from "../shared/notifications.js";
 import {enforceCallableRateLimit} from "../shared/rate-limit.js";
 import {requireRecentAuthentication} from "../shared/recent-auth.js";
 import {serverTimestamp} from "../shared/timestamps.js";
 
 import {
+  COMPANY_ADVANCE_MAX_ATTEMPTS,
+  COMPANY_COMMISSION_DOC_PATH,
   COMPANY_FLOAT_DOC_PATH,
   COMPANY_FLOAT_LEDGER_SCHEMA_VERSION,
   bookingPaymentIdsForEarnings,
@@ -25,15 +30,18 @@ import {
   companyAdvanceRequestIdForProviderRequest,
   companyFloatCommissionLedgerId,
   companyProviderAdvanceIdForRequest,
+  parseCompanyAdvanceAttemptCount,
+  parseCompanyCommission,
   parseCompanyFloat,
   computeProviderAdvanceAmounts,
   planCompanyAdvanceApproval,
   planCompanyAdvanceRepayment,
   planCompanyAdvanceRequest,
-  planCompanyFloatCommissionCredit,
+  planCompanyCommissionCredit,
   planCompanyFloatFunding,
   planProviderEarningAdvanceAvailability,
   providerRequestHasCustomerPayment,
+  remainingCompanyAdvanceAttempts,
 } from "./company-float-domain.js";
 import {
   releaseProviderSettlementAvailability,
@@ -61,6 +69,9 @@ export type RequestCompanyAdvanceResult = {
   advanceRequestId: string;
   providerRequestId: string;
   status: "pending";
+  attemptCount: number;
+  remainingAttempts: number;
+  maxAttempts: typeof COMPANY_ADVANCE_MAX_ATTEMPTS;
 };
 
 export type ApproveCompanyAdvanceRequestResult = {
@@ -209,6 +220,7 @@ export const requestCompanyAdvance = onCall(
       .doc(advanceRequestId);
     const advanceId = companyProviderAdvanceIdForRequest(advanceRequestId);
     const advanceRef = db.collection("companyProviderAdvances").doc(advanceId);
+    const adminIds = await listActiveAdminUserIds();
 
     const result = await db.runTransaction(async (transaction) => {
       const [requestSnap, advanceRequestSnap, advanceSnap] = await Promise.all([
@@ -246,6 +258,10 @@ export const requestCompanyAdvance = onCall(
         );
       }
 
+      const existingAdvanceRequest = advanceRequestSnap.exists
+        ? advanceRequestSnap.data() ?? {}
+        : null;
+
       let planned;
       try {
         planned = planCompanyAdvanceRequest({
@@ -260,13 +276,15 @@ export const requestCompanyAdvance = onCall(
               ? booking.settlementStatus
               : null,
           existingRequestStatus:
-            advanceRequestSnap.exists
-              ? String(advanceRequestSnap.data()?.status ?? null)
+            existingAdvanceRequest
+              ? String(existingAdvanceRequest.status ?? null)
               : null,
           existingAdvanceStatus:
             advanceSnap.exists
               ? String(advanceSnap.data()?.status ?? null)
               : null,
+          existingAttemptCount: existingAdvanceRequest?.attemptCount,
+          requestExists: advanceRequestSnap.exists,
         });
       } catch (error) {
         throw toFailedPrecondition(error, "Immediate funding could not be requested.");
@@ -279,14 +297,52 @@ export const requestCompanyAdvance = onCall(
         throw toFailedPrecondition(error, "Provider net advance amount is unavailable.");
       }
 
+      const notifyAdmins = (notificationRevision: number) => {
+        for (const adminId of adminIds) {
+          createNotificationWithIdInTransaction(
+            transaction,
+            companyAdvanceAdminNotificationId(
+              planned.advanceRequestId,
+              notificationRevision,
+              adminId,
+            ),
+            {
+              userId: adminId,
+              title: "Immediate fund request",
+              message:
+                `A provider requested immediate funding from company float (attempt ${planned.attemptCount} of ${COMPANY_ADVANCE_MAX_ATTEMPTS}).`,
+              type: "provider_immediate_fund_requested",
+              relatedCollection: "companyAdvanceRequests",
+              relatedId: planned.advanceRequestId,
+              metadata: {
+                providerRequestId,
+                providerId,
+                notificationRevision,
+                attemptCount: planned.attemptCount,
+                maxAttempts: COMPANY_ADVANCE_MAX_ATTEMPTS,
+              },
+            },
+          );
+        }
+      };
+
+      const {
+        remainingAfterRequest: _remainingAfterRequest,
+        ...plannedRecord
+      } = planned;
+
       if (advanceRequestSnap.exists) {
-        const existing = advanceRequestSnap.data() ?? {};
+        const existing = existingAdvanceRequest ?? {};
         if (existing.status === "rejected" || existing.status === "cancelled") {
           const timestamp = serverTimestamp();
+          const notificationRevision =
+            Number(existing.notificationRevision ?? 0) + 1;
           transaction.update(advanceRequestRef, {
-            ...planned,
+            ...plannedRecord,
             status: "pending",
             ...amounts,
+            attemptCount: planned.attemptCount,
+            notificationRevision,
             updatedAt: timestamp,
             requestedAt: timestamp,
             rejectedAt: null,
@@ -299,8 +355,11 @@ export const requestCompanyAdvance = onCall(
           transaction.update(requestRef, {
             companyAdvanceRequestId: planned.advanceRequestId,
             companyAdvanceRequestStatus: "pending",
+            companyAdvanceRequestAttemptCount: planned.attemptCount,
+            companyAdvanceRequestMaxAttempts: COMPANY_ADVANCE_MAX_ATTEMPTS,
             updatedAt: timestamp,
           });
+          notifyAdmins(notificationRevision);
           return planned;
         }
         throw new HttpsError(
@@ -310,9 +369,12 @@ export const requestCompanyAdvance = onCall(
       }
 
       const timestamp = serverTimestamp();
+      const notificationRevision = 1;
       transaction.create(advanceRequestRef, {
-        ...planned,
+        ...plannedRecord,
         ...amounts,
+        attemptCount: planned.attemptCount,
+        notificationRevision,
         createdAt: timestamp,
         updatedAt: timestamp,
         requestedAt: timestamp,
@@ -326,8 +388,11 @@ export const requestCompanyAdvance = onCall(
       transaction.update(requestRef, {
         companyAdvanceRequestId: planned.advanceRequestId,
         companyAdvanceRequestStatus: "pending",
+        companyAdvanceRequestAttemptCount: planned.attemptCount,
+        companyAdvanceRequestMaxAttempts: COMPANY_ADVANCE_MAX_ATTEMPTS,
         updatedAt: timestamp,
       });
+      notifyAdmins(notificationRevision);
       return planned;
     });
 
@@ -335,6 +400,9 @@ export const requestCompanyAdvance = onCall(
       advanceRequestId: result.advanceRequestId,
       providerRequestId: result.providerRequestId,
       status: "pending",
+      attemptCount: result.attemptCount,
+      remainingAttempts: result.remainingAfterRequest,
+      maxAttempts: COMPANY_ADVANCE_MAX_ATTEMPTS,
     };
   },
 );
@@ -371,23 +439,123 @@ export const rejectCompanyAdvanceRequest = onCall(
           "Only pending advance requests can be rejected.",
         );
       }
+
+      const providerRequestId = String(data.providerRequestId ?? "");
+      const providerId = String(data.providerId ?? "");
+      if (!/^[A-Za-z0-9_-]{1,220}$/u.test(providerRequestId)) {
+        throw new HttpsError(
+          "failed-precondition",
+          "Advance request booking linkage is invalid.",
+        );
+      }
+      if (!/^[A-Za-z0-9_-]{1,220}$/u.test(providerId)) {
+        throw new HttpsError(
+          "failed-precondition",
+          "Advance request provider linkage is invalid.",
+        );
+      }
+
+      const [providerSnap, bookingSnap] = await Promise.all([
+        transaction.get(db.collection("providers").doc(providerId)),
+        transaction.get(
+          db.collection("providerRequests").doc(providerRequestId),
+        ),
+      ]);
+      if (!providerSnap.exists) {
+        throw new HttpsError(
+          "failed-precondition",
+          "Provider profile is unavailable.",
+        );
+      }
+      if (!bookingSnap.exists) {
+        throw new HttpsError(
+          "failed-precondition",
+          "Advance request booking was not found.",
+        );
+      }
+      const ownerId = String(providerSnap.data()?.ownerId ?? "");
+      if (!/^[A-Za-z0-9_-]{1,220}$/u.test(ownerId)) {
+        throw new HttpsError(
+          "failed-precondition",
+          "Provider owner is unavailable for rejection notice.",
+        );
+      }
+
+      let amountFields: Record<string, number> = {};
+      try {
+        const amounts = computeProviderAdvanceAmounts(
+          bookingSnap.data() ?? {},
+        );
+        amountFields = {
+          grossAmountInCentavos: amounts.grossAmountInCentavos,
+          commissionAmountInCentavos: amounts.commissionAmountInCentavos,
+          providerNetAmountInCentavos: amounts.providerNetAmountInCentavos,
+        };
+      } catch {
+        // Keep rejection available even if historical booking amounts are incomplete.
+      }
+
+      const attemptCount = Math.max(
+        1,
+        parseCompanyAdvanceAttemptCount(data.attemptCount) ||
+          parseCompanyAdvanceAttemptCount(
+            bookingSnap.data()?.companyAdvanceRequestAttemptCount,
+          ) ||
+          1,
+      );
+      const remainingAttempts = remainingCompanyAdvanceAttempts(attemptCount);
+      const remainingMessage =
+        remainingAttempts > 0
+          ? `You have ${remainingAttempts} of ${COMPANY_ADVANCE_MAX_ATTEMPTS} immediate funding requests remaining for this booking.`
+          : `You have used all ${COMPANY_ADVANCE_MAX_ATTEMPTS} immediate funding requests for this booking.`;
+
       const timestamp = serverTimestamp();
+      const notificationRevision =
+        Number(data.notificationRevision ?? 0) + 1;
       transaction.update(ref, {
         status: "rejected",
         rejectedAt: timestamp,
         rejectedByAdminUid: actor.uid,
+        attemptCount,
+        notificationRevision,
         updatedAt: timestamp,
+        ...amountFields,
       });
-      const providerRequestId = String(data.providerRequestId ?? "");
-      if (/^[A-Za-z0-9_-]{1,220}$/u.test(providerRequestId)) {
-        transaction.update(
-          db.collection("providerRequests").doc(providerRequestId),
-          {
-            companyAdvanceRequestStatus: "rejected",
-            updatedAt: timestamp,
+      transaction.update(
+        db.collection("providerRequests").doc(providerRequestId),
+        {
+          companyAdvanceRequestStatus: "rejected",
+          companyAdvanceRequestAttemptCount: attemptCount,
+          companyAdvanceRequestMaxAttempts: COMPANY_ADVANCE_MAX_ATTEMPTS,
+          updatedAt: timestamp,
+        },
+      );
+      createNotificationWithIdInTransaction(
+        transaction,
+        companyAdvanceProviderRejectionNotificationId(
+          advanceRequestId,
+          notificationRevision,
+          ownerId,
+        ),
+        {
+          userId: ownerId,
+          title: "Immediate funding rejected",
+          message:
+            `FEASTA admin rejected your immediate funding request. ${remainingMessage}`,
+          type: "provider_immediate_fund_rejected",
+          relatedCollection: "providerRequests",
+          relatedId: providerRequestId,
+          metadata: {
+            advanceRequestId,
+            providerRequestId,
+            providerId,
+            notificationRevision,
+            attemptCount,
+            remainingAttempts,
+            maxAttempts: COMPANY_ADVANCE_MAX_ATTEMPTS,
           },
-        );
-      }
+        },
+      );
     });
 
     return {advanceRequestId, status: "rejected"};
@@ -681,10 +849,11 @@ export const approveCompanyAdvanceRequest = onCall(
   },
 );
 
-/** Plan + apply commission and optional advance repayment with preloaded snaps (reads already done). */
+/** Plan + apply commission wallet credit and optional advance repayment. */
 export function applyCompanyFloatPaymentSideEffectsInTransaction(input: {
   transaction: Transaction;
   floatSnap: DocumentSnapshot;
+  commissionSnap: DocumentSnapshot;
   commissionLedgerSnap: DocumentSnapshot;
   advanceSnap: DocumentSnapshot | null;
   paymentId: string;
@@ -697,23 +866,29 @@ export function applyCompanyFloatPaymentSideEffectsInTransaction(input: {
   let float = parseCompanyFloat(
     input.floatSnap.exists ? input.floatSnap.data() ?? {} : null,
   );
+  let commission = parseCompanyCommission(
+    input.commissionSnap.exists ? input.commissionSnap.data() ?? {} : null,
+  );
   const timestamp = serverTimestamp();
   const floatRef = floatReference();
+  const commissionRef = commissionReference();
   let floatTouched = false;
   let floatCreated = !input.floatSnap.exists;
+  let commissionTouched = false;
+  let commissionCreated = !input.commissionSnap.exists;
 
   if (
     Number.isSafeInteger(input.commissionInCentavos) &&
     input.commissionInCentavos > 0
   ) {
-    const planned = planCompanyFloatCommissionCredit({
-      float,
+    const planned = planCompanyCommissionCredit({
+      commission,
       commissionInCentavos: input.commissionInCentavos,
       alreadyCredited: input.commissionLedgerSnap.exists,
     });
     if (planned.credited) {
-      float = planned.float;
-      floatTouched = true;
+      commission = planned.commission;
+      commissionTouched = true;
       input.transaction.create(
         db
           .collection("companyFloatLedgerEntries")
@@ -722,6 +897,7 @@ export function applyCompanyFloatPaymentSideEffectsInTransaction(input: {
           schemaVersion: COMPANY_FLOAT_LEDGER_SCHEMA_VERSION,
           entryId: companyFloatCommissionLedgerId(input.paymentId),
           entryType: "commission_credit",
+          destination: "company_commission",
           paymentId: input.paymentId,
           providerRequestId: input.providerRequestId,
           providerId: input.providerId,
@@ -770,6 +946,23 @@ export function applyCompanyFloatPaymentSideEffectsInTransaction(input: {
     }
   }
 
+  if (commissionTouched) {
+    const commissionPayload = {
+      ...commission,
+      updatedAt: timestamp,
+      lastCommissionCreditAt: timestamp,
+      lastCommissionPaymentId: input.paymentId,
+    };
+    if (commissionCreated) {
+      input.transaction.create(commissionRef, {
+        ...commissionPayload,
+        createdAt: timestamp,
+      });
+    } else {
+      input.transaction.update(commissionRef, commissionPayload);
+    }
+  }
+
   if (!floatTouched) {
     return;
   }
@@ -777,8 +970,6 @@ export function applyCompanyFloatPaymentSideEffectsInTransaction(input: {
   const floatPayload = {
     ...float,
     updatedAt: timestamp,
-    lastCommissionCreditAt: timestamp,
-    lastCommissionPaymentId: input.paymentId,
   };
 
   if (floatCreated) {
@@ -795,6 +986,7 @@ export function applyCompanyFloatPaymentSideEffectsInTransaction(input: {
 export function applyCompanyFloatCommissionCreditInTransaction(input: {
   transaction: Transaction;
   floatSnap: DocumentSnapshot;
+  commissionSnap: DocumentSnapshot;
   ledgerSnap: DocumentSnapshot;
   paymentId: string;
   providerRequestId: string;
@@ -804,6 +996,7 @@ export function applyCompanyFloatCommissionCreditInTransaction(input: {
   applyCompanyFloatPaymentSideEffectsInTransaction({
     transaction: input.transaction,
     floatSnap: input.floatSnap,
+    commissionSnap: input.commissionSnap,
     commissionLedgerSnap: input.ledgerSnap,
     advanceSnap: null,
     paymentId: input.paymentId,
@@ -815,6 +1008,12 @@ export function applyCompanyFloatCommissionCreditInTransaction(input: {
       .collection("providerRequests")
       .doc(input.providerRequestId),
   });
+}
+
+function commissionReference(): DocumentReference {
+  return db
+    .collection(COMPANY_COMMISSION_DOC_PATH.collection)
+    .doc(COMPANY_COMMISSION_DOC_PATH.document);
 }
 
 export async function repayCompanyAdvanceForProviderRequestInTransaction(input: {
@@ -1093,6 +1292,44 @@ async function loadCompanyAdvanceEarningReleasePlans(input: {
   }
 
   return {releasedAmountInCentavos, releases};
+}
+
+function companyAdvanceAdminNotificationId(
+  advanceRequestId: string,
+  notificationRevision: number,
+  adminId: string,
+): string {
+  const digest = createHash("sha256")
+    .update(
+      JSON.stringify([
+        "provider_immediate_fund_requested",
+        advanceRequestId,
+        notificationRevision,
+        adminId,
+      ]),
+    )
+    .digest("hex")
+    .slice(0, 40);
+  return `cadv_${digest}`;
+}
+
+function companyAdvanceProviderRejectionNotificationId(
+  advanceRequestId: string,
+  notificationRevision: number,
+  ownerId: string,
+): string {
+  const digest = createHash("sha256")
+    .update(
+      JSON.stringify([
+        "provider_immediate_fund_rejected",
+        advanceRequestId,
+        notificationRevision,
+        ownerId,
+      ]),
+    )
+    .digest("hex")
+    .slice(0, 40);
+  return `cadv_rej_${digest}`;
 }
 
 function requireObject(

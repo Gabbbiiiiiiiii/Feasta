@@ -44,7 +44,7 @@ it("shows the complete saved overview, tiers, inclusions, themes and payment ter
     services.forEach((service) => expect(tier.getByText(service)).toBeVisible());
   }
   expect(details.queryByRole("region", {name: "Buffet Setup"})).not.toBeInTheDocument();
-  for (const value of ["Roast chicken", "Flowers", "Dining tables", "Coordination", "Garden party", "Green and white", "30% deposit + remaining balance", "Balance due 7 days before event"]) {
+  for (const value of ["Roast chicken", "Flowers", "Dining tables", "Coordination", "Garden party", "Green and white", "Deposit", "Balance due", "Short notice", "Pay 30% first, then the remaining balance", "Remaining balance is due 7 days before the event", "Under 72 hours: full payment required"]) {
     expect(details.getByText(value)).toBeVisible();
   }
   expect(dialog.querySelector("input,select,textarea,form")).toBeNull();
@@ -75,11 +75,16 @@ it("handles legacy empty fields without inventing tiers or payment policies", as
 });
 it.each([
   ["full_payment", null, "100% due after booking acceptance"],
-  ["deposit_then_balance", null, "Balance due 24 hours before event"],
-  ["deposit_then_balance", 1, "Balance due 24 hours before event"],
+  ["deposit_then_balance", null, "Remaining balance is due 24 hours before the event"],
+  ["deposit_then_balance", 1, "Remaining balance is due 24 hours before the event"],
 ] as const)("uses canonical payment terms for %s with deadline %s", async (paymentPolicy, balanceDueDaysBeforeEvent, expected) => {
   const {dialog} = await open({paymentPolicy, balanceDueDaysBeforeEvent, imageUrls: undefined});
   expect(within(dialog).getByText(expected)).toBeVisible();
   expect(within(dialog).getByRole("button", {name: `View ${item.name} cover`}).querySelector("img")).toHaveAttribute("src", item.imageUrl);
-  if (paymentPolicy === "full_payment") expect(within(dialog).queryByText(/Balance due/)).not.toBeInTheDocument();
+  if (paymentPolicy === "full_payment") {
+    expect(within(dialog).queryByText(/Remaining balance is due/)).not.toBeInTheDocument();
+    expect(within(dialog).queryByText("Under 72 hours: full payment required")).not.toBeInTheDocument();
+  } else {
+    expect(within(dialog).getByText("Under 72 hours: full payment required")).toBeVisible();
+  }
 });

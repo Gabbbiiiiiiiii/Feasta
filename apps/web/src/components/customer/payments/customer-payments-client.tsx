@@ -411,6 +411,12 @@ function PaymentCard({payment, disabled, onCheckout}: {
         </div>
         <dl className="grid min-w-0 gap-x-6 gap-y-2 text-sm sm:grid-cols-2 xl:grid-cols-4">
           <PaymentDetail label="Amount" value={payment.formattedAmount} strong />
+          {payment.formattedPlatformCharge ? (
+            <PaymentDetail
+              label="Service charge"
+              value={payment.formattedPlatformCharge}
+            />
+          ) : null}
           <PaymentDetail label="Booking" value={payment.bookingCode || payment.bookingId} />
           <PaymentDetail
             label="Payment type"

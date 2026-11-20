@@ -109,19 +109,18 @@ it.each(Object.entries(adminBookingPaymentLabels).filter(([value]) => !["partial
   },
 );
 
-it("defaults both event date filters to today and supports custom from/to ranges", async () => {
-  vi.useFakeTimers();
-  vi.setSystemTime(new Date("2026-10-06T02:00:00Z"));
+it("starts with no active event date filters and supports custom from/to ranges", async () => {
   show();
 
   const fromInput = screen.getByLabelText("Event date from");
   const toInput = screen.getByLabelText("Event date to");
-  expect(fromInput).toHaveValue("2026-10-06");
-  expect(toInput).toHaveValue("2026-10-06");
-  expect(screen.getByText(/Event date: October 6, 2026/)).toBeInTheDocument();
+  expect(fromInput).toHaveValue("");
+  expect(toInput).toHaveValue("");
+  expect(screen.queryByText(/Active filters:/)).not.toBeInTheDocument();
 
   await act(async () => {fireEvent.change(fromInput, {target: {value: "2026-10-10"}});});
-  expect(mocks.load).toHaveBeenLastCalledWith(expect.objectContaining({eventDateFrom: "2026-10-10", eventDateTo: "2026-10-10"}));
+  expect(mocks.load).toHaveBeenLastCalledWith(expect.objectContaining({eventDateFrom: "2026-10-10", eventDateTo: ""}));
+  expect(screen.getByText(/Event date: From October 10, 2026/)).toBeInTheDocument();
 
   await act(async () => {fireEvent.change(toInput, {target: {value: "2026-10-15"}});});
   expect(mocks.load).toHaveBeenLastCalledWith(expect.objectContaining({eventDateFrom: "2026-10-10", eventDateTo: "2026-10-15"}));

@@ -548,6 +548,11 @@ function PaymentMonitoringClient({
             <span className="whitespace-nowrap font-bold tabular-nums text-primary">
               {payment.formattedAmount}
             </span>
+            {payment.formattedCommissionAmount ? (
+              <p className="mt-0.5 whitespace-nowrap text-xs tabular-nums text-muted-foreground">
+                Commission {payment.formattedCommissionAmount}
+              </p>
+            ) : null}
             {payment.refundedAmountFormatted ? (
               <p className="mt-0.5 whitespace-nowrap text-xs tabular-nums text-muted-foreground">
                 Refunded {payment.refundedAmountFormatted}

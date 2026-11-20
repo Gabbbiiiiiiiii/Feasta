@@ -154,7 +154,7 @@ export function selectProviderAgreementPdf(input: {
       acceptance: {
         businessName: accepted.businessName.trim(),
         representativeName: accepted.representativeName.trim(),
-        acceptedAtLabel: acceptedAtLabel ? `${acceptedAtLabel} (Asia/Manila)` : "Not available",
+        acceptedAtLabel: acceptedAtLabel ?? "Not available",
         providerId: displayProviderId(accepted.providerId),
       },
     };

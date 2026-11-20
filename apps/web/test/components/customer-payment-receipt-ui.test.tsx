@@ -100,6 +100,32 @@ it("prints using the browser print workflow", () => {
   print.mockRestore();
 });
 
+it("shows service charge breakdown without changing the customer total", () => {
+  render(
+    <CustomerPaymentReceiptView
+      receipt={{
+        ...receipt,
+        chargeBreakdown: {
+          status: "available",
+          serviceAmountInCentavos: 500000,
+          platformChargeInCentavos: 50000,
+          notice:
+            "Service charge is deducted from provider proceeds. It is not an additional customer charge.",
+        },
+      }}
+    />,
+  );
+
+  const summary = screen.getByRole("table", {name: "Transaction summary"});
+  expect(summary).toHaveTextContent("Service charge");
+  expect(summary).toHaveTextContent("₱500.00");
+  expect(summary).not.toHaveTextContent("Customer service fee");
+  expect(summary).not.toHaveTextContent("FEASTA platform charge");
+  expect(
+    screen.getAllByText(/deducted from provider proceeds/i).length,
+  ).toBeGreaterThan(0);
+});
+
 it("displays payment-specific included VAT and its refund reversal", () => {
   render(
     <CustomerPaymentReceiptView

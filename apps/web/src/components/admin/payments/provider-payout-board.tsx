@@ -1,9 +1,15 @@
 "use client";
 
 import {Info, RefreshCw} from "lucide-react";
-import {useState} from "react";
+import {useMemo, useState} from "react";
 
+import {AdminCommissionWithdrawDialog} from "@/components/admin/payments/admin-commission-withdraw-dialog";
+import {
+  BOARD_TABLE_PAGE_SIZE,
+  paginateBoardRows,
+} from "@/components/admin/payments/board-table-pagination";
 import {formatPaymentDate} from "@/components/admin/payments/payment-formatters";
+import {CursorPagination} from "@/components/data/cursor-pagination";
 import {ConfirmationDialog} from "@/components/shared/confirmation-dialog";
 import {Badge} from "@/components/ui/badge";
 import {Button} from "@/components/ui/button";
@@ -13,6 +19,7 @@ import {
   fundCompanyFloat,
   rejectCompanyAdvanceRequest,
   releaseMockProviderDisbursement,
+  transferCompanyCommissionToFloat,
 } from "@/lib/admin/payments/admin-payment-client";
 import type {
   AdminCompanyAdvanceRequestItem,
@@ -25,6 +32,7 @@ import {cn} from "@/lib/utils";
 const RELEASE_CONFIRMATION_PHRASE = "RELEASE";
 const FUND_CONFIRMATION_PHRASE = "FUND";
 const ADVANCE_CONFIRMATION_PHRASE = "ADVANCE";
+const FLOAT_CONFIRMATION_PHRASE = "FLOAT";
 
 const phpCurrencyFormatter = new Intl.NumberFormat("en-PH", {
   style: "currency",
@@ -50,6 +58,7 @@ type ConfirmState =
   | {kind: "advance"; item: AdminCompanyAdvanceRequestItem}
   | {kind: "reject"; item: AdminCompanyAdvanceRequestItem}
   | {kind: "fund"}
+  | {kind: "transferCommission"}
   | null;
 
 function ProviderPayoutBoard({
@@ -68,16 +77,83 @@ function ProviderPayoutBoard({
   const [password, setPassword] = useState("");
   const [confirmationPhrase, setConfirmationPhrase] = useState("");
   const [fundAmountPesos, setFundAmountPesos] = useState("1000");
+  const [transferAmountPesos, setTransferAmountPesos] = useState("");
+  const [withdrawOpen, setWithdrawOpen] = useState(false);
+  const [pendingAdvancePage, setPendingAdvancePage] = useState(0);
+  const [advanceHistoryPage, setAdvanceHistoryPage] = useState(0);
+  const [readyToPayPage, setReadyToPayPage] = useState(0);
+  const [payoutHistoryPage, setPayoutHistoryPage] = useState(0);
+  const [commissionWithdrawalPage, setCommissionWithdrawalPage] = useState(0);
+
+  const rejectedAdvanceRequests = board.rejectedAdvanceRequests ?? [];
+  const commissionWithdrawals = board.commissionWithdrawals ?? [];
+
+  const advanceHistoryRows = useMemo(
+    () =>
+      [
+        ...board.advanceHistory.map((item) => ({
+          key: `advance_${item.advanceId}`,
+          providerName: item.providerName,
+          providerId: item.providerId,
+          providerRequestId: item.providerRequestId,
+          amount: item.formattedAmount,
+          decidedAt: item.issuedAt,
+          status: item.status,
+          tone:
+            item.status === "repaid"
+              ? ("success" as const)
+              : ("warning" as const),
+        })),
+        ...rejectedAdvanceRequests.map((item) => ({
+          key: `rejected_${item.advanceRequestId}`,
+          providerName: item.providerName,
+          providerId: item.providerId,
+          providerRequestId: item.providerRequestId,
+          amount: item.formattedProviderNetAmount,
+          decidedAt: item.rejectedAt,
+          status: item.status,
+          tone: "destructive" as const,
+        })),
+      ].sort((left, right) => {
+        const leftMillis = new Date(left.decidedAt ?? 0).getTime();
+        const rightMillis = new Date(right.decidedAt ?? 0).getTime();
+        return rightMillis - leftMillis;
+      }),
+    [board.advanceHistory, rejectedAdvanceRequests],
+  );
+
+  const pendingAdvancePagination = paginateBoardRows(
+    board.advanceRequests,
+    pendingAdvancePage,
+  );
+  const advanceHistoryPagination = paginateBoardRows(
+    advanceHistoryRows,
+    advanceHistoryPage,
+  );
+  const readyToPayPagination = paginateBoardRows(
+    board.readyToPay,
+    readyToPayPage,
+  );
+  const payoutHistoryPagination = paginateBoardRows(
+    board.history,
+    payoutHistoryPage,
+  );
+  const commissionWithdrawalPagination = paginateBoardRows(
+    commissionWithdrawals,
+    commissionWithdrawalPage,
+  );
 
   const busy = loading || releasingId !== null;
   const requiredPhrase =
     confirmState?.kind === "fund"
       ? FUND_CONFIRMATION_PHRASE
-      : confirmState?.kind === "advance"
-        ? ADVANCE_CONFIRMATION_PHRASE
-        : confirmState?.kind === "reject"
-          ? ""
-          : RELEASE_CONFIRMATION_PHRASE;
+      : confirmState?.kind === "transferCommission"
+        ? FLOAT_CONFIRMATION_PHRASE
+        : confirmState?.kind === "advance"
+          ? ADVANCE_CONFIRMATION_PHRASE
+          : confirmState?.kind === "reject"
+            ? ""
+            : RELEASE_CONFIRMATION_PHRASE;
 
   const canConfirm =
     confirmState !== null &&
@@ -85,7 +161,9 @@ function ProviderPayoutBoard({
     releasingId === null &&
     (confirmState.kind === "reject" ||
       confirmationPhrase === requiredPhrase) &&
-    (confirmState.kind !== "fund" || Number(fundAmountPesos) > 0);
+    (confirmState.kind !== "fund" || Number(fundAmountPesos) > 0) &&
+    (confirmState.kind !== "transferCommission" ||
+      Number(transferAmountPesos) > 0);
 
   const readyTotalInCentavos = board.readyToPay.reduce(
     (sum, item) => sum + item.amountInCentavos,
@@ -99,6 +177,13 @@ function ProviderPayoutBoard({
     setActionError(null);
     setPassword("");
     setConfirmationPhrase("");
+    if (state?.kind === "transferCommission") {
+      const availablePesos =
+        board.companyCommission.availableBalanceInCentavos / 100;
+      setTransferAmountPesos(
+        availablePesos > 0 ? availablePesos.toFixed(2) : "",
+      );
+    }
     setConfirmState(state);
   };
 
@@ -116,9 +201,11 @@ function ProviderPayoutBoard({
     const actionId =
       confirmState.kind === "fund"
         ? "company-float"
-        : confirmState.kind === "release"
-          ? confirmState.item.providerDisbursementId
-          : confirmState.item.advanceRequestId;
+        : confirmState.kind === "transferCommission"
+          ? "company-commission-transfer"
+          : confirmState.kind === "release"
+            ? confirmState.item.providerDisbursementId
+            : confirmState.item.advanceRequestId;
 
     onReleaseStart(actionId);
     setActionError(null);
@@ -131,6 +218,22 @@ function ProviderPayoutBoard({
         }
         await fundCompanyFloat({
           amountInCentavos: Math.round(pesos * 100),
+          password,
+          confirmationPhrase,
+        });
+      } else if (confirmState.kind === "transferCommission") {
+        const pesos = Number(transferAmountPesos);
+        if (!Number.isFinite(pesos) || pesos <= 0) {
+          throw new Error("Enter a valid transfer amount in pesos.");
+        }
+        await transferCompanyCommissionToFloat({
+          amountInCentavos: Math.round(pesos * 100),
+          clientRequestId:
+            typeof crypto !== "undefined" && "randomUUID" in crypto
+              ? crypto.randomUUID()
+              : `commission_float_${Date.now()}_${Math.random()
+                  .toString(36)
+                  .slice(2, 10)}`,
           password,
           confirmationPhrase,
         });
@@ -186,10 +289,10 @@ function ProviderPayoutBoard({
           </h2>
           <p className="mt-1 max-w-3xl text-sm leading-6 text-muted-foreground">
             Ordinary payouts stay on the completion + 3 banking-day policy.
-            Company float receives FEASTA commission from each successful
-            customer payment. Providers may request immediate funding; admin
-            chooses the amount from company float, and later booking proceeds
-            repay that float.
+            FEASTA commission accrues to a separate wallet; admin may withdraw
+            it or move it into company float for provider advances. Providers may
+            request immediate funding from float, and later booking proceeds repay
+            that float.
           </p>
         </div>
 
@@ -236,6 +339,161 @@ function ProviderPayoutBoard({
           </p>
         </div>
       ) : null}
+
+      <div className="grid gap-3 rounded-xl border border-border bg-secondary/30 p-4">
+        <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
+          <div>
+            <h3 className="text-base font-bold">FEASTA commission</h3>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Accrued from successful customer payments. Withdraw it, or add it
+              to company float for provider advances.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              type="button"
+              size="compact"
+              variant="secondary"
+              disabled={
+                busy ||
+                board.companyCommission.availableBalanceInCentavos <= 0
+              }
+              onClick={() => setWithdrawOpen(true)}
+            >
+              Withdraw commission
+            </Button>
+            <Button
+              type="button"
+              size="compact"
+              disabled={
+                busy ||
+                board.companyCommission.availableBalanceInCentavos <= 0
+              }
+              onClick={() => openConfirmDialog({kind: "transferCommission"})}
+            >
+              Add to company float
+            </Button>
+          </div>
+        </div>
+        <div className="grid gap-2 sm:grid-cols-3">
+          <p className="text-sm">
+            Available:{" "}
+            <strong className="tabular-nums">
+              {board.companyCommission.formattedAvailableBalance}
+            </strong>
+          </p>
+          <p className="text-sm">
+            Moved to float:{" "}
+            <strong className="tabular-nums">
+              {board.companyCommission.formattedTransferredToFloat}
+            </strong>
+          </p>
+          <p className="text-sm">
+            Withdrawn:{" "}
+            <strong className="tabular-nums">
+              {board.companyCommission.formattedWithdrawn}
+            </strong>
+          </p>
+        </div>
+      </div>
+
+      <div className="grid gap-3">
+        <div className="flex items-center gap-2">
+          <h3 className="text-base font-bold">Commission withdrawal history</h3>
+          <span className="rounded-pill bg-secondary px-2.5 py-0.5 text-xs font-bold tabular-nums text-muted-foreground">
+            {commissionWithdrawals.length}
+          </span>
+        </div>
+        {commissionWithdrawals.length === 0 ? (
+          <p
+            className="rounded-xl border border-dashed border-border bg-secondary/40 px-4 py-5 text-sm text-muted-foreground"
+            role="status"
+          >
+            No FEASTA commission withdrawals recorded yet.
+          </p>
+        ) : (
+          <div className="overflow-x-auto overscroll-x-contain rounded-xl border border-border bg-card">
+            <table className="w-full min-w-[36rem] border-collapse text-left text-sm">
+              <caption className="sr-only">
+                FEASTA commission withdrawal history
+              </caption>
+              <thead className="border-b border-border bg-secondary text-foreground">
+                <tr>
+                  <th scope="col" className="px-4 py-3 font-bold">
+                    Amount
+                  </th>
+                  <th scope="col" className="px-4 py-3 font-bold">
+                    Destination
+                  </th>
+                  <th scope="col" className="px-4 py-3 font-bold">
+                    Withdrawn
+                  </th>
+                  <th scope="col" className="px-4 py-3 font-bold">
+                    Status
+                  </th>
+                  <th scope="col" className="px-4 py-3 font-bold">
+                    Reference
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border/70">
+                {commissionWithdrawalPagination.pageRows.map((item) => (
+                  <tr key={item.withdrawalId} className="hover:bg-table-hover">
+                    <td className="whitespace-nowrap px-4 py-3.5 font-bold tabular-nums text-primary">
+                      {item.formattedAmount}
+                    </td>
+                    <td className="px-4 py-3.5 align-top">
+                      <p className="font-semibold">
+                        {item.destinationType === "gcash"
+                          ? "GCash"
+                          : "Bank transfer"}
+                      </p>
+                      <p className="mt-0.5 text-xs text-muted-foreground">
+                        {item.accountName}
+                      </p>
+                      <p className="mt-0.5 break-all text-xs text-muted-foreground">
+                        {item.destinationSummary}
+                      </p>
+                    </td>
+                    <td className="whitespace-nowrap px-4 py-3.5 text-muted-foreground">
+                      {item.completedAt
+                        ? formatPaymentDate(item.completedAt)
+                        : "—"}
+                    </td>
+                    <td className="whitespace-nowrap px-4 py-3.5">
+                      <Badge
+                        tone="success"
+                        shape="rounded"
+                        size="compact"
+                        className="border-success/25"
+                      >
+                        {item.status}
+                      </Badge>
+                    </td>
+                    <td className="break-all px-4 py-3.5 font-mono text-xs text-muted-foreground">
+                      {item.withdrawalId}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {commissionWithdrawals.length > BOARD_TABLE_PAGE_SIZE ? (
+              <div className="border-t border-border px-4 py-3">
+                <CursorPagination
+                  previousCursor={
+                    commissionWithdrawalPagination.previousCursor
+                  }
+                  nextCursor={commissionWithdrawalPagination.nextCursor}
+                  onPrevious={setCommissionWithdrawalPage}
+                  onNext={setCommissionWithdrawalPage}
+                  pageLabel={commissionWithdrawalPagination.pageLabel}
+                  loading={loading}
+                />
+              </div>
+            ) : null}
+          </div>
+        )}
+      </div>
 
       <div className="grid gap-3 rounded-xl border border-border bg-secondary/30 p-4">
         <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
@@ -313,7 +571,7 @@ function ProviderPayoutBoard({
                 </tr>
               </thead>
               <tbody className="divide-y divide-border/70">
-                {board.advanceRequests.map((item) => {
+                {pendingAdvancePagination.pageRows.map((item) => {
                   const isBusy = releasingId === item.advanceRequestId;
                   return (
                     <tr key={item.advanceRequestId} className="hover:bg-table-hover">
@@ -373,6 +631,18 @@ function ProviderPayoutBoard({
                 })}
               </tbody>
             </table>
+            {board.advanceRequests.length > BOARD_TABLE_PAGE_SIZE ? (
+              <div className="border-t border-border px-4 py-3">
+                <CursorPagination
+                  previousCursor={pendingAdvancePagination.previousCursor}
+                  nextCursor={pendingAdvancePagination.nextCursor}
+                  onPrevious={setPendingAdvancePage}
+                  onNext={setPendingAdvancePage}
+                  pageLabel={pendingAdvancePagination.pageLabel}
+                  loading={loading}
+                />
+              </div>
+            ) : null}
           </div>
         )}
       </div>
@@ -381,15 +651,15 @@ function ProviderPayoutBoard({
         <div className="flex items-center gap-2">
           <h3 className="text-base font-bold">Company advance history</h3>
           <span className="rounded-pill bg-secondary px-2.5 py-0.5 text-xs font-bold tabular-nums text-muted-foreground">
-            {board.advanceHistory.length}
+            {advanceHistoryRows.length}
           </span>
         </div>
-        {board.advanceHistory.length === 0 ? (
+        {advanceHistoryRows.length === 0 ? (
           <p
             className="rounded-xl border border-dashed border-border bg-secondary/40 px-4 py-5 text-sm text-muted-foreground"
             role="status"
           >
-            No company advances issued yet.
+            No company advances issued or rejected yet.
           </p>
         ) : (
           <div className="overflow-x-auto overscroll-x-contain rounded-xl border border-border bg-card">
@@ -399,13 +669,13 @@ function ProviderPayoutBoard({
                 <tr>
                   <th scope="col" className="px-4 py-3 font-bold">Provider</th>
                   <th scope="col" className="px-4 py-3 font-bold">Amount</th>
-                  <th scope="col" className="px-4 py-3 font-bold">Issued</th>
+                  <th scope="col" className="px-4 py-3 font-bold">Decided</th>
                   <th scope="col" className="px-4 py-3 font-bold">Status</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border/70">
-                {board.advanceHistory.map((item) => (
-                  <tr key={item.advanceId} className="hover:bg-table-hover">
+                {advanceHistoryPagination.pageRows.map((item) => (
+                  <tr key={item.key} className="hover:bg-table-hover">
                     <td className="px-4 py-3.5 align-top">
                       <p className="font-semibold">
                         {item.providerName ?? item.providerId}
@@ -415,14 +685,16 @@ function ProviderPayoutBoard({
                       </p>
                     </td>
                     <td className="whitespace-nowrap px-4 py-3.5 font-bold tabular-nums text-primary">
-                      {item.formattedAmount}
+                      {item.amount}
                     </td>
                     <td className="whitespace-nowrap px-4 py-3.5 text-muted-foreground">
-                      {item.issuedAt ? formatPaymentDate(item.issuedAt) : "—"}
+                      {item.decidedAt
+                        ? formatPaymentDate(item.decidedAt)
+                        : "—"}
                     </td>
                     <td className="whitespace-nowrap px-4 py-3.5">
                       <Badge
-                        tone={item.status === "repaid" ? "success" : "warning"}
+                        tone={item.tone}
                         shape="rounded"
                         size="compact"
                       >
@@ -433,6 +705,18 @@ function ProviderPayoutBoard({
                 ))}
               </tbody>
             </table>
+            {advanceHistoryRows.length > BOARD_TABLE_PAGE_SIZE ? (
+              <div className="border-t border-border px-4 py-3">
+                <CursorPagination
+                  previousCursor={advanceHistoryPagination.previousCursor}
+                  nextCursor={advanceHistoryPagination.nextCursor}
+                  onPrevious={setAdvanceHistoryPage}
+                  onNext={setAdvanceHistoryPage}
+                  pageLabel={advanceHistoryPagination.pageLabel}
+                  loading={loading}
+                />
+              </div>
+            ) : null}
           </div>
         )}
       </div>
@@ -485,7 +769,7 @@ function ProviderPayoutBoard({
                 </tr>
               </thead>
               <tbody className="divide-y divide-border/70">
-                {board.readyToPay.map((item) => {
+                {readyToPayPagination.pageRows.map((item) => {
                   const isReleasing =
                     releasingId === item.providerDisbursementId;
                   return (
@@ -551,6 +835,18 @@ function ProviderPayoutBoard({
                 })}
               </tbody>
             </table>
+            {board.readyToPay.length > BOARD_TABLE_PAGE_SIZE ? (
+              <div className="border-t border-border px-4 py-3">
+                <CursorPagination
+                  previousCursor={readyToPayPagination.previousCursor}
+                  nextCursor={readyToPayPagination.nextCursor}
+                  onPrevious={setReadyToPayPage}
+                  onNext={setReadyToPayPage}
+                  pageLabel={readyToPayPagination.pageLabel}
+                  loading={loading}
+                />
+              </div>
+            ) : null}
           </div>
         )}
       </div>
@@ -596,7 +892,7 @@ function ProviderPayoutBoard({
                 </tr>
               </thead>
               <tbody className="divide-y divide-border/70">
-                {board.history.map((item) => (
+                {payoutHistoryPagination.pageRows.map((item) => (
                   <tr
                     key={item.withdrawalId}
                     className="hover:bg-table-hover"
@@ -629,6 +925,18 @@ function ProviderPayoutBoard({
                 ))}
               </tbody>
             </table>
+            {board.history.length > BOARD_TABLE_PAGE_SIZE ? (
+              <div className="border-t border-border px-4 py-3">
+                <CursorPagination
+                  previousCursor={payoutHistoryPagination.previousCursor}
+                  nextCursor={payoutHistoryPagination.nextCursor}
+                  onPrevious={setPayoutHistoryPage}
+                  onNext={setPayoutHistoryPage}
+                  pageLabel={payoutHistoryPagination.pageLabel}
+                  loading={loading}
+                />
+              </div>
+            ) : null}
           </div>
         )}
       </div>
@@ -643,33 +951,39 @@ function ProviderPayoutBoard({
         title={
           confirmState?.kind === "fund"
             ? "Fund company float?"
-            : confirmState?.kind === "advance"
-              ? "Approve company advance?"
-              : confirmState?.kind === "reject"
-                ? "Reject advance request?"
-                : "Release mock provider payout?"
+            : confirmState?.kind === "transferCommission"
+              ? "Add commission to company float?"
+              : confirmState?.kind === "advance"
+                ? "Approve company advance?"
+                : confirmState?.kind === "reject"
+                  ? "Reject advance request?"
+                  : "Release mock provider payout?"
         }
         description={
           confirmState?.kind === "fund"
-            ? "This adds mock company working capital used for provider advances. Commission from customer payments also credits this float automatically. Re-enter your admin password and type FUND to continue."
-            : confirmState?.kind === "advance"
-              ? `Release ${confirmState.item.formattedProviderNetAmount} to ${confirmState.item.providerName ?? confirmState.item.providerId} from company float. FEASTA commission ${confirmState.item.formattedCommissionAmount} stays in company float. Type ADVANCE to continue.`
-              : confirmState?.kind === "reject"
-                ? `Reject the immediate-funding request from ${confirmState.item.providerName ?? confirmState.item.providerId}. Re-enter your admin password to continue.`
-              : confirmState?.kind === "release"
-                ? `This will mark ${confirmState.item.formattedAmount} as paid for ${confirmState.item.providerName ?? confirmState.item.providerId} using simulated payout settlement. Re-enter your admin password and type RELEASE to continue.`
-                : "Confirm admin finance action."
+            ? "This adds mock company working capital used for provider advances. Re-enter your admin password and type FUND to continue."
+            : confirmState?.kind === "transferCommission"
+              ? `Move available FEASTA commission into company float for provider advances. Available now: ${board.companyCommission.formattedAvailableBalance}. Re-enter your admin password and type FLOAT to continue.`
+              : confirmState?.kind === "advance"
+                ? `Release ${confirmState.item.formattedProviderNetAmount} to ${confirmState.item.providerName ?? confirmState.item.providerId} from company float. FEASTA commission ${confirmState.item.formattedCommissionAmount} stays in the commission wallet. Type ADVANCE to continue.`
+                : confirmState?.kind === "reject"
+                  ? `Reject the immediate-funding request from ${confirmState.item.providerName ?? confirmState.item.providerId}. Re-enter your admin password to continue.`
+                  : confirmState?.kind === "release"
+                    ? `This will mark ${confirmState.item.formattedAmount} as paid for ${confirmState.item.providerName ?? confirmState.item.providerId} using simulated payout settlement. Re-enter your admin password and type RELEASE to continue.`
+                    : "Confirm admin finance action."
         }
         confirmLabel={
           releasingId
             ? "Working..."
             : confirmState?.kind === "fund"
               ? "Fund company float"
-              : confirmState?.kind === "advance"
-                ? "Approve advance"
-                : confirmState?.kind === "reject"
-                  ? "Reject request"
-                : "Release mock payout"
+              : confirmState?.kind === "transferCommission"
+                ? "Add to company float"
+                : confirmState?.kind === "advance"
+                  ? "Approve advance"
+                  : confirmState?.kind === "reject"
+                    ? "Reject request"
+                    : "Release mock payout"
         }
         cancelLabel="Cancel"
         onConfirm={() => {
@@ -699,6 +1013,26 @@ function ProviderPayoutBoard({
               />
             </div>
           ) : null}
+          {confirmState?.kind === "transferCommission" ? (
+            <div className="grid gap-2">
+              <label
+                className="text-sm font-medium"
+                htmlFor="admin-commission-to-float-amount"
+              >
+                Amount (PHP)
+              </label>
+              <Input
+                id="admin-commission-to-float-amount"
+                type="number"
+                min="0.01"
+                step="0.01"
+                max={board.companyCommission.availableBalanceInCentavos / 100}
+                value={transferAmountPesos}
+                onChange={(event) => setTransferAmountPesos(event.target.value)}
+                disabled={releasingId !== null}
+              />
+            </div>
+          ) : null}
           {confirmState?.kind === "advance" ? (
             <div className="grid gap-2 rounded-xl border border-border bg-secondary/40 px-3.5 py-3 text-sm">
               <p>
@@ -717,7 +1051,7 @@ function ProviderPayoutBoard({
                 <span className="tabular-nums text-foreground">
                   {confirmState.item.formattedCommissionAmount || "₱0.00"}
                 </span>{" "}
-                (kept in company float)
+                (kept in commission wallet)
               </p>
             </div>
           ) : null}
@@ -766,6 +1100,15 @@ function ProviderPayoutBoard({
           ) : null}
         </div>
       </ConfirmationDialog>
+
+      <AdminCommissionWithdrawDialog
+        open={withdrawOpen}
+        availableAmountInCentavos={
+          board.companyCommission.availableBalanceInCentavos
+        }
+        onOpenChange={setWithdrawOpen}
+        onCompleted={onReleased}
+      />
     </section>
   );
 }

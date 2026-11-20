@@ -44,6 +44,9 @@ export type CustomerPayment = {
   netPaidInCentavos: number;
   formattedNetPaid: string;
 
+  platformChargeInCentavos: number | null;
+  formattedPlatformCharge: string | null;
+
   canViewReceipt: boolean;
 
   createdAt: string | null;
@@ -136,6 +139,9 @@ export type CustomerPaymentReceipt = {
 
   netPaidFormatted:
     string;
+
+  chargeBreakdown?:
+    import("./customer-payment-charge-breakdown").CustomerPaymentChargeBreakdown;
 
   paidAt:
     string | null;

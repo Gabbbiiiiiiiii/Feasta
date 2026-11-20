@@ -107,7 +107,7 @@ describe("customer booking dedicated detail page", () => {
     render(<CustomerBookingDetailPage result={result} />);
     const banner = screen.getByRole("region", {name: "Payment is required to continue with your booking."});
     if (count === 1) {
-      expect(within(banner).getByText("Oct 25, 2026 · 10:00 AM PHT")).toBeVisible();
+      expect(within(banner).getByText("Oct 25, 2026 · 10:00 AM")).toBeVisible();
     } else {
       expect(within(banner).getByText("Each booked service has its own payment deadline. Review the deadlines below.")).toBeVisible();
       expect(within(banner).queryByText("Initial payment deadline")).not.toBeInTheDocument();
