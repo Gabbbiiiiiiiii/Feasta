@@ -1098,7 +1098,7 @@ class _SearchFilterPanel extends StatelessWidget {
                       FeastaTextField(
                         label: 'Minimum budget',
                         controller: minBudgetController,
-                        hintText: 'â‚±0',
+                        hintText: '\u20B10',
                         keyboardType: const TextInputType.numberWithOptions(
                           decimal: true,
                         ),
@@ -1130,7 +1130,7 @@ class _SearchFilterPanel extends StatelessWidget {
                       child: FeastaTextField(
                         label: 'Min budget',
                         controller: minBudgetController,
-                        hintText: 'â‚±0',
+                        hintText: '\u20B10',
                         keyboardType: const TextInputType.numberWithOptions(
                           decimal: true,
                         ),

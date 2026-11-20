@@ -12,11 +12,11 @@ import '../authentication/application/customer_auth_scope.dart';
 import '../authentication/data/repositories/auth_repository.dart';
 import '../authentication/data/repositories/feasta_repository.dart';
 import '../notifications/notifications_screen.dart';
-import '../presentation/screens/role_selection_screen.dart';
 import '../presentation/widgets/customer_login_modal.dart';
 import 'account/presentation/customer_account_management_screen.dart';
 import 'customer_main_screen.dart';
 import 'phone_verification_screen.dart';
+import 'special_request_screen.dart';
 
 const Color _primary = AppColors.primary;
 const Color _textPrimary = AppColors.mainText;
@@ -141,17 +141,11 @@ class _CustomerAccountScreenState extends State<CustomerAccountScreen> {
     );
   }
 
-  void _openProviderSignup() {
+  void _openSpecialRequests() {
     Navigator.push(
       context,
-      MaterialPageRoute(builder: (_) => const RoleSelectionScreen()),
+      MaterialPageRoute(builder: (_) => const SpecialRequestTracker()),
     );
-  }
-
-  void _showComingSoon(String title) {
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text('$title is coming soon.')));
   }
 
   @override
@@ -237,6 +231,13 @@ class _CustomerAccountScreenState extends State<CustomerAccountScreen> {
                                   onTap: () => _openTab(2),
                                 ),
                                 _AccountMenuItem(
+                                  icon: Icons.assignment_outlined,
+                                  title: 'Special Requests',
+                                  subtitle:
+                                      'Track Drop-Off requests and price offers',
+                                  onTap: _openSpecialRequests,
+                                ),
+                                _AccountMenuItem(
                                   icon: Icons.favorite_border_rounded,
                                   title: 'Saved caterers',
                                   subtitle: 'Providers you want to revisit',
@@ -247,49 +248,6 @@ class _CustomerAccountScreenState extends State<CustomerAccountScreen> {
                                   title: 'Notifications',
                                   subtitle: 'Booking and account updates',
                                   onTap: _openNotifications,
-                                ),
-                              ],
-                            ),
-                            _AccountSection(
-                              title: 'Perks for you',
-                              children: [
-                                _AccountMenuItem(
-                                  icon: Icons.workspace_premium_outlined,
-                                  title: 'Feasta rewards',
-                                  onTap: () =>
-                                      _showComingSoon('Feasta rewards'),
-                                ),
-                                _AccountMenuItem(
-                                  icon: Icons.local_offer_outlined,
-                                  title: 'Vouchers',
-                                  onTap: () => _showComingSoon('Vouchers'),
-                                ),
-                                _AccountMenuItem(
-                                  icon: Icons.card_giftcard_outlined,
-                                  title: 'Invite friends',
-                                  onTap: () =>
-                                      _showComingSoon('Invite friends'),
-                                ),
-                              ],
-                            ),
-                            _AccountSection(
-                              title: 'General',
-                              children: [
-                                _AccountMenuItem(
-                                  icon: Icons.help_outline_rounded,
-                                  title: 'Help center',
-                                  onTap: () => _showComingSoon('Help center'),
-                                ),
-                                _AccountMenuItem(
-                                  icon: Icons.storefront_outlined,
-                                  title: 'Sell on Feasta',
-                                  onTap: _openProviderSignup,
-                                ),
-                                _AccountMenuItem(
-                                  icon: Icons.description_outlined,
-                                  title: 'Terms & policies',
-                                  onTap: () =>
-                                      _showComingSoon('Terms & policies'),
                                 ),
                               ],
                             ),

@@ -11,6 +11,7 @@ import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
 import '../../core/widgets/widgets.dart';
 import '../../shared/models/booking_refund_policy.dart';
+import '../../shared/models/customer_payment_request.dart';
 import '../../shared/models/feasta_models.dart';
 import '../../shared/models/provider_calendar_month.dart';
 import '../authentication/data/repositories/feasta_repository.dart';
@@ -468,7 +469,10 @@ class _SpecialRequestFormState extends State<SpecialRequestForm> {
 }
 
 class SpecialRequestTracker extends StatefulWidget {
-  const SpecialRequestTracker({super.key});
+  const SpecialRequestTracker({super.key, this.initialRequestId});
+
+  /// When set from a notification, open this request after the list loads.
+  final String? initialRequestId;
 
   @override
   State<SpecialRequestTracker> createState() => _SpecialRequestTrackerState();
@@ -477,6 +481,7 @@ class SpecialRequestTracker extends StatefulWidget {
 class _SpecialRequestTrackerState extends State<SpecialRequestTracker> {
   late Future<List<Map<String, dynamic>>> _requests = _fetch();
   bool _saving = false;
+  bool _openedInitial = false;
 
   Future<List<Map<String, dynamic>>> _fetch() async {
     final response = await _functions.httpsCallable('listSpecialRequests').call(
@@ -499,6 +504,33 @@ class _SpecialRequestTrackerState extends State<SpecialRequestTracker> {
   }
 
   void _refresh() => setState(() => _requests = _fetch());
+
+  void _maybeOpenInitial(List<Map<String, dynamic>> rows) {
+    final id = widget.initialRequestId?.trim();
+    if (_openedInitial || id == null || id.isEmpty) return;
+    _openedInitial = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) return;
+      Map<String, dynamic>? row;
+      for (final item in rows) {
+        if (item['id'] == id) {
+          row = item;
+          break;
+        }
+      }
+      row ??= await _fetchDetail(id);
+      if (!mounted) return;
+      if (row == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('This special request could not be found.'),
+          ),
+        );
+        return;
+      }
+      await _openRequest(row);
+    });
+  }
 
   Future<void> _update(
     String id,
@@ -766,6 +798,20 @@ class _SpecialRequestTrackerState extends State<SpecialRequestTracker> {
                         (offer['subtotalInCentavos'] as num) / 100,
                       ),
                     ),
+                    ..._specialOfferVatRows(Map<String, dynamic>.from(offer)),
+                    if (customerSpecialOfferProviderFeeInCentavos(
+                          Map<String, dynamic>.from(offer),
+                        )
+                        case final fee?)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: AppSpacing.xs),
+                        child: Text(
+                          'Service charge ${specialRequestMoney(fee / 100)} is deducted from provider proceeds. It is not an additional customer charge.',
+                          style: AppTypography.bodySmall.copyWith(
+                            color: AppColors.secondaryTextAccessible,
+                          ),
+                        ),
+                      ),
                     _DetailRow(
                       label: 'Total offered',
                       value: specialRequestMoney(
@@ -891,6 +937,7 @@ class _SpecialRequestTrackerState extends State<SpecialRequestTracker> {
           );
         }
         final rows = snapshot.data ?? [];
+        _maybeOpenInitial(rows);
         if (rows.isEmpty) {
           return Center(
             child: Padding(
@@ -1043,6 +1090,31 @@ class _SpecialRequestTrackerState extends State<SpecialRequestTracker> {
       },
     ),
   );
+}
+
+List<Widget> _specialOfferVatRows(Map<String, dynamic> offer) {
+  final vat = customerSpecialOfferVat(offer);
+  if (vat == null) {
+    return [
+      Padding(
+        padding: const EdgeInsets.only(bottom: AppSpacing.xs),
+        child: Text(
+          'This offer has no verified provider VAT breakdown. Your accepted total still applies.',
+          style: AppTypography.bodySmall.copyWith(
+            color: AppColors.secondaryTextAccessible,
+          ),
+        ),
+      ),
+    ];
+  }
+  return [
+    _DetailRow(
+      label: vat.taxType == 'vat_registered'
+          ? 'Included provider VAT'
+          : 'Provider VAT not applicable',
+      value: specialRequestMoney(vat.includedVatInCentavos / 100),
+    ),
+  ];
 }
 
 class _DetailRow extends StatelessWidget {

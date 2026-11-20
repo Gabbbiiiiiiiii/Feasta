@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'initial_payment_deadline.dart';
+import '../payments/booking_payment_projection.dart';
 import 'package:crypto/crypto.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
@@ -16,7 +17,7 @@ enum CustomerPaymentChoice {
   String get label {
     switch (this) {
       case CustomerPaymentChoice.minimum:
-        return 'Minimum payment';
+        return 'Deposit';
       case CustomerPaymentChoice.full:
         return 'Full payment';
       case CustomerPaymentChoice.remainingBalance:
@@ -106,6 +107,44 @@ CustomerBookingVat? customerBookingVatFromRequest(
   );
 }
 
+/// Display-only VAT projection for a special-request price offer.
+/// Uses the offer total and its frozen `pricing` snapshot, matching web.
+CustomerBookingVat? customerSpecialOfferVat(Map<String, dynamic> offer) {
+  final total = _centavos(offer['totalInCentavos']);
+  if (total == null || total <= 0) return null;
+  return customerBookingVatFromRequest({
+    'amount': total / 100,
+    'financialSnapshot': offer['pricing'],
+  });
+}
+
+/// Display-only provider commission from a special-request price offer.
+/// Null means the fee breakdown is unavailable or inconsistent.
+int? customerSpecialOfferProviderFeeInCentavos(Map<String, dynamic> offer) {
+  final total = _centavos(offer['totalInCentavos']);
+  final subtotal = _centavos(offer['subtotalInCentavos']);
+  final pricing = _map(offer['pricing']);
+  if (total == null ||
+      subtotal == null ||
+      pricing == null ||
+      subtotal <= 0 ||
+      subtotal > total) {
+    return null;
+  }
+
+  final fee = _centavos(pricing['platformCommissionTotalInCentavos']);
+  if (pricing['schemaVersion'] != 1 ||
+      pricing['currency'] != 'PHP' ||
+      pricing['grossAmountInCentavos'] != total ||
+      fee == null ||
+      fee < 0 ||
+      fee > total) {
+    return null;
+  }
+
+  return fee;
+}
+
 /// Explanation from the saved initial-payment eligibility, never device time.
 /// Only server-approved versions/reasons produce customer-facing wording.
 String? customerInitialPaymentExplanation(Map<String, dynamic> request) {
@@ -180,6 +219,11 @@ class CustomerProviderPaymentRequest {
     this.agreedPackagePriceInCentavos,
     this.agreedTotalInCentavos,
     this.providerFeeInCentavos,
+    this.commissionAccruedInCentavos,
+    this.paymentId,
+    this.initialPaymentId,
+    this.remainingBalancePaymentId,
+    this.paidAt,
     this.deliveryIncluded = false,
   });
 
@@ -203,9 +247,44 @@ class CustomerProviderPaymentRequest {
   final int? agreedPackagePriceInCentavos;
   final int? agreedTotalInCentavos;
   final int? providerFeeInCentavos;
+  final int? commissionAccruedInCentavos;
+  final String? paymentId;
+  final String? initialPaymentId;
+  final String? remainingBalancePaymentId;
+  final DateTime? paidAt;
   final bool deliveryIncluded;
 
   bool get canStartCheckout => checkoutOptions.isNotEmpty;
+
+  /// Customer-readable receipt entry when settlement or a payment id exists.
+  bool get canViewPaymentReceipt {
+    const receiptStatuses = {
+      'paid',
+      'partially_paid',
+      'partially_refunded',
+      'refunded',
+    };
+    if (!receiptStatuses.contains(paymentStatus)) {
+      return false;
+    }
+    return paymentReferenceIds.isNotEmpty ||
+        (grossSettledAmountInCentavos != null &&
+            grossSettledAmountInCentavos! > 0);
+  }
+
+  List<String> get paymentReferenceIds {
+    return <String?>[
+      paymentId,
+      initialPaymentId,
+      remainingBalancePaymentId,
+    ].whereType<String>().where((value) => value.trim().isNotEmpty).toSet().toList(
+      growable: false,
+    );
+  }
+
+  /// Prefer trusted ledger commission; fall back to frozen quote fee.
+  int? get serviceChargeInCentavos =>
+      commissionAccruedInCentavos ?? providerFeeInCentavos;
 
   factory CustomerProviderPaymentRequest.fromDoc(
     DocumentSnapshot<Map<String, dynamic>> document, {
@@ -247,7 +326,7 @@ class CustomerProviderPaymentRequest {
       providerBusinessName: _string(data['providerBusinessName']) ?? 'Provider',
       packageName: _string(data['packageName']) ?? 'Event service',
       status: _string(data['status']) ?? '',
-      paymentStatus: _string(data['paymentStatus']) ?? 'unpaid',
+      paymentStatus: resolveCustomerProviderPaymentStatus(data),
       settlementStatus: _string(data['settlementStatus']),
       grossSettledAmountInCentavos: _centavos(
         data['grossSettledAmountInCentavos'],
@@ -268,6 +347,11 @@ class CustomerProviderPaymentRequest {
       agreedPackagePriceInCentavos: hasQuote ? subtotal : null,
       agreedTotalInCentavos: hasQuote ? total : null,
       providerFeeInCentavos: hasFee ? commission : null,
+      commissionAccruedInCentavos: _centavos(data['commissionAccruedInCentavos']),
+      paymentId: _string(data['paymentId']),
+      initialPaymentId: _string(data['initialPaymentId']),
+      remainingBalancePaymentId: _string(data['remainingBalancePaymentId']),
+      paidAt: _timestampDate(data['paidAt']),
       deliveryIncluded: hasQuote && quote['deliveryIncluded'] == true,
       checkoutOptions: _checkoutOptions(
         data,

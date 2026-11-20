@@ -544,9 +544,9 @@ void main() {
         );
         await tester.pumpAndSettle();
         final label = switch (choice) {
-          CustomerPaymentChoice.minimum => 'Pay Minimum',
-          CustomerPaymentChoice.full => 'Pay Full ·',
-          CustomerPaymentChoice.remainingBalance => 'Pay Remaining Balance',
+          CustomerPaymentChoice.minimum => 'Pay deposit',
+          CustomerPaymentChoice.full => 'Pay full ·',
+          CustomerPaymentChoice.remainingBalance => 'Pay balance',
         };
         final button = find.textContaining(label);
         await tester.scrollUntilVisible(button, 250);
@@ -561,7 +561,7 @@ void main() {
           findsOneWidget,
         );
         expect(find.textContaining('RAW_FIREBASE'), findsNothing);
-        expect(find.textContaining('Pay Minimum'), findsNothing);
+        expect(find.textContaining('Pay deposit'), findsNothing);
         expect(find.textContaining('Pay in full'), findsOneWidget);
       },
     );

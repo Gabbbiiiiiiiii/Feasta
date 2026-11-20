@@ -10,6 +10,8 @@ import '../../shared/models/feasta_models.dart';
 import '../authentication/data/repositories/feasta_repository.dart';
 import 'booking_details_screen.dart';
 import 'customer_main_screen.dart';
+import 'customer_payment_receipt_screen.dart';
+import 'customer_payment_tax_breakdown.dart';
 import 'payment_required_screen.dart';
 
 class PaymentStatusScreen extends StatelessWidget {
@@ -217,9 +219,11 @@ class _PaymentDisplayState {
       );
     }
 
+    final settlementConfirmed =
+        paymentStatus == 'paid' || paymentStatus == 'partially_paid';
     final successfullySettled = switch (paymentChoice) {
       CustomerPaymentChoice.minimum =>
-        paymentStatus == 'paid' &&
+        settlementConfirmed &&
             (settlementStatus == 'deposit_settled' ||
                 settlementStatus == 'fully_settled'),
       CustomerPaymentChoice.full =>
@@ -235,7 +239,7 @@ class _PaymentDisplayState {
             ? 'Remaining balance paid'
             : 'Payment confirmed',
         description: paymentChoice == CustomerPaymentChoice.minimum
-            ? 'Your minimum payment was verified. '
+            ? 'Your deposit was verified. '
                   'The booking can remain active with a remaining balance.'
             : paymentChoice == CustomerPaymentChoice.remainingBalance
             ? 'The remaining provider balance was verified successfully.'
@@ -348,6 +352,10 @@ class _PaymentStatusContent extends StatelessWidget {
 
         const SizedBox(height: AppSpacing.md),
 
+        CustomerPaymentTaxBreakdown(request: request),
+
+        const SizedBox(height: AppSpacing.md),
+
         _PaymentConfirmationNotice(state: state),
 
         const SizedBox(height: AppSpacing.xl),
@@ -363,15 +371,33 @@ class _PaymentStatusContent extends StatelessWidget {
           const SizedBox(height: AppSpacing.sm),
         ],
 
-        if (state.isSuccess)
+        if (state.isSuccess) ...[
           FeastaPrimaryButton(
             label: 'View Booking',
             icon: const Icon(Icons.event_available_rounded),
             onPressed: () {
               _openBooking(context);
             },
-          )
-        else
+          ),
+          if (request.canViewPaymentReceipt) ...[
+            const SizedBox(height: AppSpacing.sm),
+            FeastaSecondaryButton(
+              label: 'View payment receipt',
+              icon: const Icon(Icons.receipt_long_outlined),
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute<void>(
+                    builder: (_) => CustomerPaymentReceiptScreen(
+                      bookingId: booking.id,
+                      providerRequestId: request.id,
+                    ),
+                  ),
+                );
+              },
+            ),
+          ],
+        ] else
           FeastaSecondaryButton(
             label: 'View Booking Details',
             icon: const Icon(Icons.receipt_long_outlined),
@@ -381,7 +407,6 @@ class _PaymentStatusContent extends StatelessWidget {
           ),
 
         const SizedBox(height: AppSpacing.sm),
-
         TextButton(
           onPressed: () {
             _openBookings(context);
@@ -633,7 +658,7 @@ class _PaymentConfirmationNotice extends StatelessWidget {
           Expanded(
             child: Text(
               state.isSuccess
-                  ? 'This status is based on FEASTAâ€™s trusted '
+                  ? "This status is based on FEASTA's trusted "
                         'provider-payment settlement state.'
                   : 'Do not rely only on the browser result. '
                         'FEASTA marks payment complete only after '
@@ -706,7 +731,7 @@ class _PaymentStatusLoading extends StatelessWidget {
 String _choiceLabel(CustomerPaymentChoice choice) {
   switch (choice) {
     case CustomerPaymentChoice.minimum:
-      return 'Minimum payment';
+      return 'Deposit';
 
     case CustomerPaymentChoice.full:
       return 'Full payment';
@@ -785,5 +810,5 @@ String _humanize(String value) {
 }
 
 String _pesoFromCentavos(int value) {
-  return 'â‚±${(value / 100).toStringAsFixed(2)}';
+  return '\u20B1${(value / 100).toStringAsFixed(2)}';
 }

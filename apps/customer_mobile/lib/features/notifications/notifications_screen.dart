@@ -8,9 +8,13 @@ import '../../core/widgets/widgets.dart';
 import '../../shared/models/feasta_models.dart';
 import '../authentication/data/repositories/feasta_repository.dart';
 import '../chat/chat_screen.dart';
-import 'announcements_screen.dart';
+import '../customer/account/presentation/customer_account_management_screen.dart';
 import '../customer/addon_payment_required_screen.dart';
 import '../customer/booking_details_screen.dart';
+import '../customer/customer_main_screen.dart';
+import '../customer/special_request_screen.dart';
+import 'announcements_screen.dart';
+import 'customer_notification_destination.dart';
 
 const Color _primary = AppColors.primary;
 const Color _textPrimary = AppColors.mainText;
@@ -119,13 +123,20 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                     child: Column(
                       children: [
                         ListTile(
-                          leading: const Icon(Icons.campaign_outlined, color: AppColors.primary),
+                          leading: const Icon(
+                            Icons.campaign_outlined,
+                            color: AppColors.primary,
+                          ),
                           title: const Text('Official announcements'),
-                          subtitle: const Text('FEASTA updates for everyone and customers'),
+                          subtitle: const Text(
+                            'FEASTA updates for everyone and customers',
+                          ),
                           trailing: const Icon(Icons.chevron_right),
-                          onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(
-                            builder: (_) => const AnnouncementsScreen(),
-                          )),
+                          onTap: () => Navigator.of(context).push(
+                            MaterialPageRoute<void>(
+                              builder: (_) => const AnnouncementsScreen(),
+                            ),
+                          ),
                         ),
                         _NotificationFilterBar(
                           showUnreadOnly: showUnreadOnly,
@@ -480,18 +491,14 @@ class _NotificationCardState extends State<NotificationCard> {
     return value;
   }
 
-  bool get hasDestination {
-    final collection = relatedCollection;
-    final id = relatedId;
+  CustomerNotificationDestination? get destination =>
+      resolveCustomerNotificationDestination(
+        type: type,
+        relatedCollection: relatedCollection,
+        relatedId: relatedId,
+      );
 
-    if (collection == null || id == null) {
-      return false;
-    }
-
-    return _isMainEventCollection(collection) ||
-        collection == FirestoreCollections.chatRooms ||
-        collection == FirestoreCollections.addonRequests;
-  }
+  bool get hasDestination => destination != null;
 
   Future<void> _markAsRead(BuildContext context) async {
     if (isRead) return;
@@ -781,40 +788,50 @@ class _NotificationCardState extends State<NotificationCard> {
 
       if (!context.mounted) return;
 
-      final collection = relatedCollection;
-      final id = relatedId;
-
-      if (collection == null || id == null) {
-        return;
-      }
-
-      if (_isMainEventCollection(collection)) {
-        await _openBookingNotification(
-          context,
-          bookingId: id,
-          preferredCollection: collection,
-        );
-
-        return;
-      }
-
-      if (collection == FirestoreCollections.chatRooms) {
-        await _openChatNotification(context, chatRoomId: id);
-
-        return;
-      }
-
-      if (collection == FirestoreCollections.addonRequests) {
-        await _openAddonNotification(context, addonRequestId: id);
-
-        return;
-      }
-
-      if (context.mounted) {
+      final target = destination;
+      if (target == null) {
         _showMessage(
           context,
           'This notification does not have a destination yet.',
         );
+        return;
+      }
+
+      switch (target.kind) {
+        case CustomerNotificationDestinationKind.specialRequest:
+          await Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              builder: (_) =>
+                  SpecialRequestTracker(initialRequestId: target.relatedId),
+            ),
+          );
+        case CustomerNotificationDestinationKind.chatRoom:
+          await _openChatNotification(context, chatRoomId: target.relatedId!);
+        case CustomerNotificationDestinationKind.bookingDetail:
+          await _openBookingNotification(
+            context,
+            bookingId: target.relatedId!,
+            preferredCollection: FirestoreCollections.mainEvents,
+          );
+        case CustomerNotificationDestinationKind.bookingsList:
+          await Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              builder: (_) => const CustomerMainScreen(initialIndex: 2),
+            ),
+          );
+        case CustomerNotificationDestinationKind.account:
+          await Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              builder: (_) => const CustomerAccountManagementScreen(),
+            ),
+          );
+        case CustomerNotificationDestinationKind.notifications:
+          return;
+        case CustomerNotificationDestinationKind.addonRequest:
+          await _openAddonNotification(
+            context,
+            addonRequestId: target.relatedId!,
+          );
       }
     } on FirebaseException {
       if (context.mounted) {

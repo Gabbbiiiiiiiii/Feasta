@@ -539,7 +539,7 @@ class _ProviderPaymentCard extends StatelessWidget {
             for (final option in request.checkoutOptions)
               if (option.choice == CustomerPaymentChoice.minimum)
                 _DetailRow(
-                  label: 'Remaining after minimum payment',
+                  label: 'Remaining after payment',
                   value: _peso((total - option.amountInCentavos) / 100),
                 ),
             if (request.remainingBalanceDueAt case final dueAt?)
@@ -549,8 +549,8 @@ class _ProviderPaymentCard extends StatelessWidget {
               ),
             if (request.providerFeeInCentavos case final fee?)
               Text(
-                'FEASTA service fee: ${_peso(fee / 100)} provider commission '
-                'based on the total payable and tiered caps. Customer charge ${_peso(0)}.',
+                'Service charge ${_peso(fee / 100)} is deducted from provider '
+                'proceeds. It is not an additional customer charge.',
               )
             else
               const Text('This booking has no recorded service fee breakdown.'),
@@ -602,6 +602,20 @@ class _ProviderPaymentCard extends StatelessWidget {
 
           if (request.checkoutOptions.isNotEmpty) ...[
             const SizedBox(height: AppSpacing.lg),
+            if (request.checkoutOptions.length > 1) ...[
+              const Text(
+                'Payment options',
+                style: TextStyle(fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(height: AppSpacing.xxs),
+              Text(
+                'Choose a deposit or pay the entire service price now.',
+                style: AppTypography.bodySmall.copyWith(
+                  color: AppColors.secondaryTextAccessible,
+                ),
+              ),
+              const SizedBox(height: AppSpacing.sm),
+            ],
 
             for (
               var index = 0;
@@ -681,13 +695,13 @@ class _PaymentOptionButton extends StatelessWidget {
 
     switch (option.choice) {
       case CustomerPaymentChoice.minimum:
-        return 'Pay Minimum';
+        return 'Pay deposit';
 
       case CustomerPaymentChoice.full:
-        return 'Pay Full';
+        return 'Pay full';
 
       case CustomerPaymentChoice.remainingBalance:
-        return 'Pay Remaining Balance';
+        return 'Pay balance';
     }
   }
 

@@ -72,4 +72,36 @@ void main() {
       isNull,
     );
   });
+
+  test('special offer VAT and service charge use frozen pricing evidence', () {
+    final offer = <String, dynamic>{
+      'subtotalInCentavos': 2000000,
+      'totalInCentavos': 2000000,
+      'deliveryIncluded': true,
+      'pricing': <String, dynamic>{
+        'schemaVersion': 1,
+        'currency': 'PHP',
+        'grossAmountInCentavos': 2000000,
+        'platformCommissionTotalInCentavos': 150000,
+        'providerTaxType': 'vat_registered',
+        'providerTaxVerificationStatus': 'verified',
+      },
+    };
+
+    final vat = customerSpecialOfferVat(offer);
+    expect(vat?.taxType, 'vat_registered');
+    expect(vat?.includedVatInCentavos, 214286);
+    expect(customerSpecialOfferProviderFeeInCentavos(offer), 150000);
+
+    expect(
+      customerSpecialOfferProviderFeeInCentavos({
+        ...offer,
+        'pricing': {
+          ...(offer['pricing'] as Map),
+          'grossAmountInCentavos': 1900000,
+        },
+      }),
+      isNull,
+    );
+  });
 }

@@ -1,19 +1,26 @@
 import '../../core/theme/app_colors.dart';
+import '../../core/theme/app_spacing.dart';
+import '../../core/theme/app_typography.dart';
+import '../../shared/models/customer_payment_request.dart';
+import '../authentication/data/repositories/feasta_repository.dart';
 import 'package:flutter/material.dart';
 
 import 'booking_details_screen.dart';
 import 'customer_main_screen.dart';
+import 'customer_payment_receipt_screen.dart';
 
 class PaymentSuccessScreen extends StatelessWidget {
   final String bookingId;
   final String providerName;
   final double amountPaid;
+  final String? providerRequestId;
 
   const PaymentSuccessScreen({
     super.key,
     required this.bookingId,
     required this.providerName,
     required this.amountPaid,
+    this.providerRequestId,
   });
 
   @override
@@ -61,7 +68,7 @@ class PaymentSuccessScreen extends StatelessWidget {
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      'â‚±${amountPaid.toStringAsFixed(0)}',
+                      '\u20B1${amountPaid.toStringAsFixed(0)}',
                       style: const TextStyle(
                         color: primary,
                         fontSize: 28,
@@ -89,6 +96,15 @@ class PaymentSuccessScreen extends StatelessWidget {
                   ],
                 ),
               ),
+              const SizedBox(height: AppSpacing.md),
+              Text(
+                'Your payment receipt, including VAT and service charge, '
+                'is available from Booking Details.',
+                textAlign: TextAlign.center,
+                style: AppTypography.bodySmall.copyWith(
+                  color: AppColors.secondaryTextAccessible,
+                ),
+              ),
               const SizedBox(height: 34),
               SizedBox(
                 width: double.infinity,
@@ -112,6 +128,11 @@ class PaymentSuccessScreen extends StatelessWidget {
                     style: TextStyle(fontWeight: FontWeight.w900),
                   ),
                 ),
+              ),
+              const SizedBox(height: 12),
+              _ReceiptAction(
+                bookingId: bookingId,
+                providerRequestId: providerRequestId,
               ),
               const SizedBox(height: 12),
               SizedBox(
@@ -138,5 +159,92 @@ class PaymentSuccessScreen extends StatelessWidget {
         ),
       ),
     );
+  }
+}
+
+class _ReceiptAction extends StatelessWidget {
+  const _ReceiptAction({
+    required this.bookingId,
+    required this.providerRequestId,
+  });
+
+  final String bookingId;
+  final String? providerRequestId;
+
+  @override
+  Widget build(BuildContext context) {
+    if (providerRequestId != null && providerRequestId!.trim().isNotEmpty) {
+      return SizedBox(
+        width: double.infinity,
+        height: 56,
+        child: OutlinedButton.icon(
+          onPressed: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute<void>(
+                builder: (_) => CustomerPaymentReceiptScreen(
+                  bookingId: bookingId,
+                  providerRequestId: providerRequestId!.trim(),
+                ),
+              ),
+            );
+          },
+          icon: const Icon(Icons.receipt_long_outlined),
+          label: const Text(
+            'View payment receipt',
+            style: TextStyle(fontWeight: FontWeight.w900),
+          ),
+        ),
+      );
+    }
+
+    return FutureBuilder<CustomerProviderPaymentRequest?>(
+      future: _loadReceiptRequest(),
+      builder: (context, snapshot) {
+        final request = snapshot.data;
+        if (request == null) {
+          return const SizedBox.shrink();
+        }
+
+        return SizedBox(
+          width: double.infinity,
+          height: 56,
+          child: OutlinedButton.icon(
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute<void>(
+                  builder: (_) => CustomerPaymentReceiptScreen(
+                    bookingId: bookingId,
+                    providerRequestId: request.id,
+                  ),
+                ),
+              );
+            },
+            icon: const Icon(Icons.receipt_long_outlined),
+            label: const Text(
+              'View payment receipt',
+              style: TextStyle(fontWeight: FontWeight.w900),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Future<CustomerProviderPaymentRequest?> _loadReceiptRequest() async {
+    final booking = await FeastaRepository().bookingById(bookingId).first;
+    if (booking == null) {
+      return null;
+    }
+    final requests = await FeastaRepository().customerPaymentRequests(
+      booking: booking,
+    );
+    for (final request in requests) {
+      if (request.canViewPaymentReceipt) {
+        return request;
+      }
+    }
+    return null;
   }
 }

@@ -337,17 +337,6 @@ class _CustomerAccountManagementScreenState
       );
   }
 
-  void _showUnavailable(String feature) {
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(
-        SnackBar(
-          behavior: SnackBarBehavior.floating,
-          content: Text('$feature is not enabled for this FEASTA account yet.'),
-        ),
-      );
-  }
-
   String? _resolveProfileImageUrl(UserModel user, CustomerModel customer) {
     if (_profileImageOverrideSet) {
       final override = _profileImageUrlOverride?.trim();
@@ -1183,21 +1172,6 @@ class _CustomerAccountManagementScreenState
                             ? 'Update your FEASTA password'
                             : 'Managed by your sign-in provider',
                         onTap: _changePassword,
-                      ),
-                      const Divider(height: 1, color: AppColors.border),
-                      _SecurityRow(
-                        icon: Icons.phonelink_lock_outlined,
-                        title: 'Two-factor authentication',
-                        subtitle: 'Add another layer of account security',
-                        onTap: () =>
-                            _showUnavailable('Two-factor authentication'),
-                      ),
-                      const Divider(height: 1, color: AppColors.border),
-                      _SecurityRow(
-                        icon: Icons.devices_outlined,
-                        title: 'Active sessions',
-                        subtitle: 'Review devices signed in to your account',
-                        onTap: () => _showUnavailable('Active sessions'),
                       ),
                       const Divider(height: 1, color: AppColors.border),
                       _SecurityRow(

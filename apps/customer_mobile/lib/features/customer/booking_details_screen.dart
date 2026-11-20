@@ -11,6 +11,7 @@ import '../../core/theme/app_typography.dart';
 import '../../core/widgets/widgets.dart';
 import '../../shared/models/customer_payment_request.dart';
 import '../../shared/models/feasta_models.dart';
+import '../../shared/payments/booking_payment_projection.dart';
 import '../../shared/widgets/loading_skeleton.dart';
 import '../authentication/data/repositories/feasta_repository.dart';
 import '../chat/chat_screen.dart';
@@ -23,6 +24,8 @@ import 'review_screen.dart';
 import 'booking_complaint_action.dart';
 import 'independent_booking_display.dart';
 import 'customer_cancellation_dialog.dart';
+import 'customer_payment_receipt_screen.dart';
+import 'customer_payment_tax_breakdown.dart';
 
 class BookingDetailsScreen extends StatelessWidget {
   const BookingDetailsScreen({
@@ -813,10 +816,63 @@ class EventDetailsCard extends StatelessWidget {
   }
 }
 
-class PaymentDetailsCard extends StatelessWidget {
+class PaymentDetailsCard extends StatefulWidget {
   const PaymentDetailsCard({required this.booking, super.key});
 
   final BookingModel booking;
+
+  @override
+  State<PaymentDetailsCard> createState() => _PaymentDetailsCardState();
+}
+
+class _PaymentDetailsCardState extends State<PaymentDetailsCard> {
+  late Future<List<CustomerProviderPaymentRequest>> _paymentRequests;
+
+  BookingModel get booking => widget.booking;
+
+  @override
+  void initState() {
+    super.initState();
+    _paymentRequests = _loadPaymentRequests();
+  }
+
+  @override
+  void didUpdateWidget(covariant PaymentDetailsCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+
+    if (oldWidget.booking.id != booking.id ||
+        oldWidget.booking.status != booking.status ||
+        oldWidget.booking.paymentStatus != booking.paymentStatus ||
+        oldWidget.booking.updatedAt != booking.updatedAt) {
+      _paymentRequests = _loadPaymentRequests();
+    }
+  }
+
+  Future<List<CustomerProviderPaymentRequest>> _loadPaymentRequests() {
+    if (booking.providerRequestIds.isEmpty) {
+      return Future.value(const <CustomerProviderPaymentRequest>[]);
+    }
+
+    return FeastaRepository().customerPaymentRequests(booking: booking);
+  }
+
+  String _statusFromSnapshot(
+    AsyncSnapshot<List<CustomerProviderPaymentRequest>> snapshot,
+  ) {
+    if (snapshot.hasError) {
+      return booking.paymentStatus;
+    }
+
+    final requests = snapshot.data;
+    if (requests == null) {
+      return booking.paymentStatus;
+    }
+
+    return aggregateCustomerPaymentStatus(
+      bookingPaymentStatus: booking.paymentStatus,
+      providerPaymentStatuses: requests.map((request) => request.paymentStatus),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -908,19 +964,68 @@ class PaymentDetailsCard extends StatelessWidget {
 
           const SizedBox(height: AppSpacing.md),
 
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  'Payment status',
-                  style: AppTypography.bodySmall.copyWith(
-                    color: AppColors.secondaryTextAccessible,
+          FutureBuilder<List<CustomerProviderPaymentRequest>>(
+            future: _paymentRequests,
+            builder: (context, snapshot) {
+              final requests =
+                  snapshot.data ?? const <CustomerProviderPaymentRequest>[];
+              CustomerProviderPaymentRequest? receiptRequest;
+              for (final request in requests) {
+                if (request.canViewPaymentReceipt) {
+                  receiptRequest = request;
+                  break;
+                }
+              }
+
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          'Payment status',
+                          style: AppTypography.bodySmall.copyWith(
+                            color: AppColors.secondaryTextAccessible,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: AppSpacing.md),
+                      _PaymentStatusBadge(status: _statusFromSnapshot(snapshot)),
+                    ],
                   ),
-                ),
-              ),
-              const SizedBox(width: AppSpacing.md),
-              _PaymentStatusBadge(status: booking.paymentStatus),
-            ],
+                  if (snapshot.hasData && requests.isNotEmpty) ...[
+                    const SizedBox(height: AppSpacing.md),
+                    for (var index = 0; index < requests.length; index++) ...[
+                      CustomerPaymentTaxBreakdown(
+                        request: requests[index],
+                        compact: true,
+                      ),
+                      if (index < requests.length - 1)
+                        const SizedBox(height: AppSpacing.sm),
+                    ],
+                  ],
+                  if (receiptRequest != null) ...[
+                    const SizedBox(height: AppSpacing.md),
+                    FeastaSecondaryButton(
+                      label: 'View payment receipt',
+                      icon: const Icon(Icons.receipt_long_outlined),
+                      onPressed: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute<void>(
+                            builder: (_) => CustomerPaymentReceiptScreen(
+                              bookingId: booking.id,
+                              providerRequestId: receiptRequest!.id,
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ],
+                ],
+              );
+            },
           ),
         ],
       ),
@@ -1883,6 +1988,9 @@ class _PaymentStatusBadge extends StatelessWidget {
 
   String get label {
     switch (status) {
+      case 'unpaid':
+        return 'Unpaid';
+
       case 'pending':
         return 'Pending';
 
@@ -1909,6 +2017,9 @@ class _PaymentStatusBadge extends StatelessWidget {
 
       case 'refunded':
         return 'Refunded';
+
+      case 'unavailable':
+        return 'Unavailable';
 
       default:
         return status;

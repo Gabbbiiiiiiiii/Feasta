@@ -112,13 +112,13 @@ void main() {
         'lib/features/customer/payment_required_screen.dart',
       ).readAsStringSync();
 
-      expect(source, contains("'Pay Minimum'"));
+      expect(source, contains("'Pay deposit'"));
 
-      expect(source, contains("'Pay Full'"));
+      expect(source, contains("'Pay full'"));
 
-      expect(source, contains("'Pay Full Payment'"));
+      expect(source, contains("'Pay in full'"));
 
-      expect(source, contains("'Pay Remaining Balance'"));
+      expect(source, contains("'Pay balance'"));
 
       expect(source, contains('PaymentStatusScreen('));
 

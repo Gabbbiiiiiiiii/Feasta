@@ -72,7 +72,7 @@ class RecoveryOffersScreen extends StatelessWidget {
 
                     _DetailRow(
                       label: 'Estimated Price',
-                      value: 'â‚±${offer.estimatedPrice.toStringAsFixed(0)}',
+                      value: '\u20B1${offer.estimatedPrice.toStringAsFixed(0)}',
                       valueColor: primary,
                     ),
                     _DetailRow(label: 'Offer Status', value: offer.status),
@@ -228,7 +228,7 @@ class RecoveryOffersScreen extends StatelessWidget {
                         ),
                         const SizedBox(height: 12),
                         Text(
-                          'Estimated Price: â‚±${offer.estimatedPrice.toStringAsFixed(0)}',
+                          'Estimated Price: \u20B1${offer.estimatedPrice.toStringAsFixed(0)}',
                           style: const TextStyle(
                             color: primary,
                             fontSize: 18,
@@ -437,7 +437,7 @@ class _ProviderProfileCard extends StatelessWidget {
 
           if (minPrice > 0 || maxPrice > 0)
             Text(
-              'Price Range: â‚±${minPrice.toStringAsFixed(0)} - â‚±${maxPrice.toStringAsFixed(0)}',
+              'Price Range: \u20B1${minPrice.toStringAsFixed(0)} - \u20B1${maxPrice.toStringAsFixed(0)}',
               style: const TextStyle(
                 color: primary,
                 fontWeight: FontWeight.w900,

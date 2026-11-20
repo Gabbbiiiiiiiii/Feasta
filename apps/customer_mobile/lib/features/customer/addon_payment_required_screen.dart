@@ -86,7 +86,7 @@ class _AddonPaymentRequiredScreenState
                 ),
                 _RowItem(
                   label: 'Amount',
-                  value: 'â‚±${widget.addonRequest.price.toStringAsFixed(0)}',
+                  value: '\u20B1${widget.addonRequest.price.toStringAsFixed(0)}',
                   isBold: true,
                   valueColor: primary,
                 ),
