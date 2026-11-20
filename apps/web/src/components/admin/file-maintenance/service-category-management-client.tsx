@@ -1,0 +1,946 @@
+"use client";
+
+import {assertServiceCategoryUnused} from "@/lib/admin/file-maintenance/service-category-usage-actions";
+import {
+  Pencil,
+  Plus,
+  Power,
+  PowerOff,
+  Trash2,
+} from "lucide-react";
+import {
+  useMemo,
+  useState,
+  useTransition,
+  type Dispatch,
+  type FormEvent,
+  type SetStateAction,
+} from "react";
+
+import {DataTable, type DataTableColumn} from "@/components/data/data-table";
+import {FilterToolbar} from "@/components/data/filter-toolbar";
+import {feastaToast} from "@/components/feedback/toast";
+import {FormField} from "@/components/forms/form-field";
+import {PageHeading} from "@/components/layout/page-heading";
+import {ConfirmationDialog} from "@/components/shared/confirmation-dialog";
+import {Badge} from "@/components/ui/badge";
+import {Button} from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {Input} from "@/components/ui/input";
+import {Select} from "@/components/ui/select";
+import {
+  createAdminServiceCategory,
+  deleteAdminServiceCategory,
+  discontinueAdminServiceCategory,
+  reactivateAdminServiceCategory,
+  updateAdminServiceCategory,
+} from "@/lib/admin/file-maintenance/admin-service-category-client";
+import {providerCapacityCapabilities} from "@feasta/shared-types";
+
+import type {
+  AdminServiceCategory,
+  AdminServiceCategoryServiceType,
+  AdminServiceCategoryStatus,
+} from "@/lib/admin/file-maintenance/admin-service-category-types";
+import {
+  FileMaintenanceRecordActions,
+  type FileMaintenanceLifecycleAction,
+} from "@/components/admin/file-maintenance/file-maintenance-record-actions";
+
+type Props = {
+  categories: AdminServiceCategory[];
+  setCategories: Dispatch<
+    SetStateAction<AdminServiceCategory[]>
+  >;
+  embedded?: boolean;
+};
+
+type StatusFilter =
+  "all" | AdminServiceCategoryStatus;
+
+type EditorDraft = {
+  name: string;
+  serviceType: AdminServiceCategoryServiceType;
+  requiresGuestCapacity: boolean;
+  usesStaffCapacity: boolean;
+  usesEquipmentCapacity: boolean;
+};
+
+const EMPTY_DRAFT: EditorDraft = {
+  name: "",
+  serviceType: "addon",
+  requiresGuestCapacity: false,
+  usesStaffCapacity: false,
+  usesEquipmentCapacity: false,
+};
+
+function ServiceCategoryManagementClient({
+  categories,
+  setCategories,
+  embedded = false,
+}: Props) {
+  const [searchValue, setSearchValue] =
+    useState("");
+  const [search, setSearch] =
+    useState("");
+  const [status, setStatus] =
+    useState<StatusFilter>("all");
+
+  const [editorOpen, setEditorOpen] =
+    useState(false);
+  const [editing, setEditing] =
+    useState<AdminServiceCategory | null>(null);
+  const [draft, setDraft] =
+    useState<EditorDraft>(EMPTY_DRAFT);
+  const [formError, setFormError] =
+    useState<string>();
+
+  const [confirmCategory, setConfirmCategory] =
+    useState<AdminServiceCategory | null>(null);
+  const [confirmAction, setConfirmAction] =
+    useState<CategoryAction | null>(null);
+
+  const [isPending, startTransition] =
+    useTransition();
+
+  const filtered = useMemo(() => {
+    const query = search.trim().toLowerCase();
+
+    return categories
+      .filter((category) => {
+        if (
+          status !== "all" &&
+          category.status !== status
+        ) {
+          return false;
+        }
+
+        if (!query) {
+          return true;
+        }
+
+        return [
+          category.name,
+          category.code,
+        ].some((value) =>
+          value.toLowerCase().includes(query),
+        );
+      })
+      .sort((left, right) =>
+        left.name.localeCompare(
+          right.name,
+          undefined,
+          {sensitivity: "base"},
+        ),
+      );
+  }, [
+    categories,
+    search,
+    status,
+  ]);
+
+  const activeFilters = [
+    ...(status !== "all"
+      ? [`Status: ${statusLabel(status)}`]
+      : []),
+  ];
+
+  const columns =
+    useMemo<
+      DataTableColumn<AdminServiceCategory>[]
+    >(
+      () => [
+        {
+          id: "name",
+          header: "Service category",
+          cell: (category) => (
+            <div className="min-w-0">
+              <p className="break-words font-bold">
+                {category.name}
+              </p>
+            </div>
+          ),
+        },
+        {
+          id: "status",
+          header: "Status",
+          cell: (category) => (
+            <Badge
+              tone={
+                category.status === "active"
+                  ? "success"
+                  : "warning"
+              }
+            >
+              {statusLabel(category.status)}
+            </Badge>
+          ),
+        },
+      ],
+      [],
+    );
+
+  const openCreate = () => {
+    setEditing(null);
+    setDraft(EMPTY_DRAFT);
+    setFormError(undefined);
+    setEditorOpen(true);
+  };
+
+  const openEdit = (
+    category: AdminServiceCategory,
+  ) => {
+    const legacyCapabilities =
+      providerCapacityCapabilities([
+        category.code,
+      ]);
+    const capacityCapabilities =
+      category.capacityCapabilities ??
+      legacyCapabilities;
+
+    setEditing(category);
+    setDraft({
+      name: category.name,
+      serviceType: category.serviceType,
+      requiresGuestCapacity:
+        capacityCapabilities.requiresGuestCapacity,
+      usesStaffCapacity:
+        capacityCapabilities.usesStaffCapacity,
+      usesEquipmentCapacity:
+        capacityCapabilities.usesEquipmentCapacity,
+    });
+    setFormError(undefined);
+    setEditorOpen(true);
+  };
+
+  const saveEditor = (
+    event: FormEvent<HTMLFormElement>,
+  ) => {
+    event.preventDefault();
+
+    const name =
+      draft.name.trim().replace(/\s+/g, " ");
+
+    if (name.length < 2 || name.length > 100) {
+      setFormError(
+        "Enter a service category name between 2 and 100 characters.",
+      );
+      return;
+    }
+
+    setFormError(undefined);
+
+    startTransition(async () => {
+      try {
+        if (editing) {
+          await updateAdminServiceCategory({
+            code: editing.code,
+            name,
+            serviceType: draft.serviceType,
+            capacityCapabilities: {
+              requiresGuestCapacity:
+                draft.requiresGuestCapacity,
+              usesStaffCapacity:
+                draft.usesStaffCapacity,
+              usesEquipmentCapacity:
+                draft.usesEquipmentCapacity,
+            },
+          });
+
+          setCategories((current) =>
+            current.map((category) =>
+              category.code === editing.code
+
+                ? {
+
+                    ...category,
+
+                    name,
+
+                    serviceType:
+
+                      draft.serviceType,
+
+                    capacityCapabilities: {
+
+                      requiresGuestCapacity:
+
+                        draft.requiresGuestCapacity,
+
+                      usesStaffCapacity:
+
+                        draft.usesStaffCapacity,
+
+                      usesEquipmentCapacity:
+
+                        draft.usesEquipmentCapacity,
+
+                    },
+
+                    sortName:
+
+                      name.toLowerCase(),
+
+                  }
+                : category,
+            ),
+          );
+
+          feastaToast.success(
+            "Service category updated.",
+          );
+        } else {
+          const code =
+            normalizeServiceCategoryCode(name);
+
+          if (!code) {
+            setFormError(
+              "Enter a name that can generate a valid service category code.",
+            );
+            return;
+          }
+
+          const result =
+            await createAdminServiceCategory({
+              code,
+              name,
+              serviceType: draft.serviceType,
+              capacityCapabilities: {
+                requiresGuestCapacity:
+                  draft.requiresGuestCapacity,
+                usesStaffCapacity:
+                  draft.usesStaffCapacity,
+                usesEquipmentCapacity:
+                  draft.usesEquipmentCapacity,
+              },
+            });
+
+          const created =
+            result.category ?? {
+              code,
+              name,
+              serviceType:
+                draft.serviceType,
+              capacityCapabilities: {
+                requiresGuestCapacity:
+                  draft.requiresGuestCapacity,
+                usesStaffCapacity:
+                  draft.usesStaffCapacity,
+                usesEquipmentCapacity:
+                  draft.usesEquipmentCapacity,
+              },
+              status: "active" as const,
+              sortName:
+                name.toLowerCase(),
+            };
+
+          setCategories((current) => [
+            ...current,
+            created,
+          ]);
+
+          feastaToast.success(
+            "Service category added.",
+          );
+        }
+
+        setEditorOpen(false);
+        setEditing(null);
+        setDraft(EMPTY_DRAFT);
+      } catch (error: unknown) {
+        setFormError(errorMessage(error));
+      }
+    });
+  };
+
+  const runConfirmedAction = async () => {
+    if (!confirmCategory || !confirmAction) {
+      return;
+    }
+
+    const category = confirmCategory;
+
+    try {
+      if (confirmAction === "discontinue" || confirmAction === "delete") {
+        await assertServiceCategoryUnused(category.code);
+      }
+      if (confirmAction === "discontinue") {
+        await discontinueAdminServiceCategory(
+          category.code,
+        );
+
+        setCategories((current) =>
+          current.map((item) =>
+            item.code === category.code
+              ? {
+                  ...item,
+                  status:
+                    "discontinued" as const,
+                }
+              : item,
+          ),
+        );
+
+        feastaToast.success(
+          "Service category deactivated.",
+        );
+      } else if (
+        confirmAction === "reactivate"
+      ) {
+        await reactivateAdminServiceCategory(
+          category.code,
+        );
+
+        setCategories((current) =>
+          current.map((item) =>
+            item.code === category.code
+              ? {
+                  ...item,
+                  status: "active" as const,
+                }
+              : item,
+          ),
+        );
+
+        feastaToast.success(
+          "Service category activated.",
+        );
+      } else {
+        await deleteAdminServiceCategory(
+          category.code,
+        );
+
+        setCategories((current) =>
+          current.filter(
+            (item) =>
+              item.code !== category.code,
+          ),
+        );
+
+        feastaToast.success(
+          "Service category deleted.",
+        );
+      }
+
+      setConfirmCategory(null);
+      setConfirmAction(null);
+    } catch (error: unknown) {
+      feastaToast.error(errorMessage(error));
+    }
+  };
+
+  return (
+    <div className="grid min-w-0 gap-6">
+      {embedded ? (
+        <div className="flex min-w-0 flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+          <div className="min-w-0">
+            <h2 className="text-2xl font-black tracking-tight">
+              Service categories
+            </h2>
+            <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
+              Manage the service categories providers can select across FEASTA. Inactive categories remain available for existing records but cannot be newly selected.
+            </p>
+          </div>
+          <Button onClick={openCreate}>
+            <Plus
+              aria-hidden="true"
+              className="size-5"
+            />
+            Add Service Category
+          </Button>
+        </div>
+      ) : (
+        <PageHeading
+          eyebrow="File Maintenance"
+          title="Service Categories"
+          description="Manage the service categories providers can select across FEASTA. Inactive categories remain available for existing records but cannot be newly selected."
+          actions={
+            <Button onClick={openCreate}>
+              <Plus
+                aria-hidden="true"
+                className="size-5"
+              />
+              Add Service Category
+            </Button>
+          }
+        />
+      )}
+
+      <FilterToolbar
+        searchValue={searchValue}
+        onSearchChange={setSearchValue}
+        onSearchSubmit={setSearch}
+        onClearSearch={() => {
+          setSearchValue("");
+          setSearch("");
+        }}
+        onClearFilters={() => {
+          setSearchValue("");
+          setSearch("");
+          setStatus("all");
+        }}
+        searchLabel="Search service categories"
+        searchPlaceholder="Search name or code"
+        searchHint={`${filtered.length} of ${categories.length} categories shown`}
+        activeFilters={activeFilters}
+        filterControls={
+          <FormField label="Status">
+            <Select
+              value={status}
+              onChange={(event) =>
+                setStatus(
+                  event.currentTarget
+                    .value as StatusFilter,
+                )
+              }
+            >
+              <option value="all">
+                All statuses
+              </option>
+              <option value="active">
+                Active
+              </option>
+              <option value="discontinued">
+                Inactive
+              </option>
+            </Select>
+          </FormField>
+        }
+      />
+
+      <DataTable
+        columns={columns}
+        rows={filtered}
+        getRowId={(category) =>
+          category.code
+        }
+        caption="Service categories"
+        emptyTitle="No service categories found"
+        emptyDescription="No service categories match the current filters."
+        rowActions={(category) => (
+          <FileMaintenanceRecordActions
+            status={category.status}
+            disabled={isPending}
+            onEdit={() => openEdit(category)}
+            onAction={(action) => {
+              setConfirmCategory(category);
+              setConfirmAction(action);
+            }}
+          />
+        )}
+        renderMobileRow={(category) => (
+          <CategoryMobileCard
+            category={category}
+            disabled={isPending}
+            onEdit={() =>
+              openEdit(category)
+            }
+            onAction={(action) => {
+              setConfirmCategory(category);
+              setConfirmAction(action);
+            }}
+          />
+        )}
+      />
+
+      <Dialog
+        open={editorOpen}
+        onOpenChange={(open) => {
+          if (!isPending) {
+            setEditorOpen(open);
+          }
+        }}
+      >
+        <DialogContent
+          className="w-[calc(100vw-2rem)] max-w-xl"
+          showCloseButton={!isPending}
+        >
+          <DialogHeader>
+            <DialogTitle>
+              {editing
+                ? "Edit service category"
+                : "Add service category"}
+            </DialogTitle>
+            <DialogDescription>
+              {editing
+                ? "Update the display name and capacity requirements. The category code remains unchanged."
+                : "Create a service category providers can select during setup and service management."}
+            </DialogDescription>
+          </DialogHeader>
+
+          <form
+            className="grid gap-5"
+            onSubmit={saveEditor}
+          >
+            <FormField
+              label="Category name"
+              required
+              error={formError}
+              disabled={isPending}
+
+            >
+              <Input
+                value={draft.name}
+                maxLength={100}
+                autoFocus
+                onChange={(event) => {
+                  const value = event.currentTarget.value;
+
+                  setDraft((current) => ({
+                    ...current,
+                    name: value,
+                  }));
+                }}
+              />
+            </FormField>
+
+            {false && (
+            <div className="grid gap-3 rounded-xl border border-border bg-muted/30 p-4">
+              <div>
+                <p className="font-semibold text-foreground">
+                  Capacity requirements
+                </p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Choose which capacity limits apply to this service.
+                </p>
+              </div>
+
+              <label className="flex items-start gap-3">
+                <input
+                  type="checkbox"
+                  className="mt-1 size-4"
+                  checked={draft.requiresGuestCapacity}
+                  disabled={isPending}
+                  onChange={(event) => {
+                    const checked = event.currentTarget.checked;
+
+                    setDraft((current) => ({
+                      ...current,
+                      requiresGuestCapacity: checked,
+                    }));
+                  }}
+                />
+                <span>
+                  <span className="block font-medium text-foreground">
+                    Guest capacity
+                  </span>
+                  <span className="block text-sm text-muted-foreground">
+                    Ask providers for minimum and maximum guest limits.
+                  </span>
+                </span>
+              </label>
+
+              <label className="flex items-start gap-3">
+                <input
+                  type="checkbox"
+                  className="mt-1 size-4"
+                  checked={draft.usesStaffCapacity}
+                  disabled={isPending}
+                  onChange={(event) => {
+                    const checked = event.currentTarget.checked;
+
+                    setDraft((current) => ({
+                      ...current,
+                      usesStaffCapacity: checked,
+                    }));
+                  }}
+                />
+                <span>
+                  <span className="block font-medium text-foreground">
+                    Staff / team capacity
+                  </span>
+                  <span className="block text-sm text-muted-foreground">
+                    Ask providers for their available staff or team size.
+                  </span>
+                </span>
+              </label>
+
+              <label className="flex items-start gap-3">
+                <input
+                  type="checkbox"
+                  className="mt-1 size-4"
+                  checked={draft.usesEquipmentCapacity}
+                  disabled={isPending}
+                  onChange={(event) => {
+                    const checked = event.currentTarget.checked;
+
+                    setDraft((current) => ({
+                      ...current,
+                      usesEquipmentCapacity: checked,
+                    }));
+                  }}
+                />
+                <span>
+                  <span className="block font-medium text-foreground">
+                    Equipment / resource capacity
+                  </span>
+                  <span className="block text-sm text-muted-foreground">
+                    Ask providers for available equipment or resources.
+                  </span>
+                </span>
+              </label>
+            </div>
+            )}
+
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="secondary"
+                disabled={isPending}
+                onClick={() =>
+                  setEditorOpen(false)
+                }
+              >
+                Cancel
+              </Button>
+
+              <Button
+                type="submit"
+                loading={isPending}
+                loadingLabel="Saving"
+              >
+                {editing
+                  ? "Save Changes"
+                  : "Add Category"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      <ConfirmationDialog
+        open={
+          confirmCategory !== null &&
+          confirmAction !== null
+        }
+        onOpenChange={(open) => {
+          if (!open) {
+            setConfirmCategory(null);
+            setConfirmAction(null);
+          }
+        }}
+        title={confirmationTitle(
+          confirmAction,
+        )}
+        description={confirmationDescription(
+          confirmCategory,
+          confirmAction,
+        )}
+        confirmLabel={confirmationLabel(
+          confirmAction,
+        )}
+        destructive={
+          confirmAction === "discontinue" ||
+          confirmAction === "delete"
+        }
+        onConfirm={runConfirmedAction}
+      />
+    </div>
+  );
+}
+
+type CategoryAction =
+  FileMaintenanceLifecycleAction;
+
+type CategoryActionProps = {
+  category: AdminServiceCategory;
+  disabled: boolean;
+  onEdit: () => void;
+  onAction: (
+    action: CategoryAction,
+  ) => void;
+};
+
+
+
+function CategoryMobileCard({
+  category,
+  disabled,
+  onEdit,
+  onAction,
+}: CategoryActionProps) {
+  return (
+    <article className="grid gap-4 rounded-card border border-border bg-card p-4 shadow-card">
+      <div className="flex min-w-0 items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h2 className="break-words font-bold">
+            {category.name}
+          </h2>
+        </div>
+
+        <Badge
+          tone={
+            category.status === "active"
+              ? "success"
+              : "warning"
+          }
+        >
+          {statusLabel(category.status)}
+        </Badge>
+      </div>
+
+      <div className="grid gap-2 sm:grid-cols-2">
+        <Button
+          variant="secondary"
+          size="compact"
+          disabled={disabled}
+          onClick={onEdit}
+        >
+          <Pencil
+            aria-hidden="true"
+            className="size-4"
+          />
+          Edit
+        </Button>
+
+        {category.status === "active" ? (
+          <Button
+            variant="secondary"
+            size="compact"
+            disabled={disabled}
+            onClick={() =>
+              onAction("discontinue")
+            }
+          >
+            <PowerOff
+              aria-hidden="true"
+              className="size-4"
+            />
+            Deactivate
+          </Button>
+        ) : (
+          <>
+            <Button
+              variant="secondary"
+              size="compact"
+              disabled={disabled}
+              onClick={() =>
+                onAction("reactivate")
+              }
+            >
+              <Power
+                aria-hidden="true"
+                className="size-4"
+              />
+              Activate
+            </Button>
+
+            <Button
+              variant="destructive"
+              size="compact"
+              disabled={disabled}
+              onClick={() =>
+                onAction("delete")
+              }
+            >
+              <Trash2
+                aria-hidden="true"
+                className="size-4"
+              />
+              Delete
+            </Button>
+          </>
+        )}
+      </div>
+    </article>
+  );
+}
+
+function normalizeServiceCategoryCode(
+  value: string,
+): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replaceAll(/[^a-z0-9]+/gu, "_")
+    .replaceAll(/^_+|_+$/gu, "");
+}
+
+function statusLabel(
+  value: AdminServiceCategoryStatus,
+): string {
+  return value === "active"
+    ? "Active"
+    : "Inactive";
+}
+
+function confirmationTitle(
+  action:
+    | CategoryAction
+    | null,
+): string {
+  switch (action) {
+    case "discontinue":
+      return "Deactivate service category?";
+    case "reactivate":
+      return "Activate service category?";
+    case "delete":
+      return "Delete service category?";
+    default:
+      return "Confirm service category change";
+  }
+}
+
+function confirmationLabel(
+  action:
+    | CategoryAction
+    | null,
+): string {
+  switch (action) {
+    case "discontinue":
+      return "Deactivate";
+    case "reactivate":
+      return "Activate";
+    case "delete":
+      return "Delete";
+    default:
+      return "Confirm";
+  }
+}
+
+function confirmationDescription(
+  category: AdminServiceCategory | null,
+  action: CategoryAction | null,
+): string {
+  if (!category) {
+    return "Confirm this service category change.";
+  }
+
+  switch (action) {
+    case "discontinue":
+      return `${category.name} will no longer be available for new provider selections or category changes. Existing records will remain unchanged.`;
+
+    case "reactivate":
+      return `${category.name} will become available for new provider selections again.`;
+
+    case "delete":
+      return `${category.name} will be permanently deleted. Deletion is allowed only when the category is inactive and no current providers or services use it.`;
+
+    default:
+      return "Confirm this service category change.";
+  }
+}
+
+function errorMessage(
+  error: unknown,
+): string {
+  if (
+    error instanceof Error &&
+    error.message.trim()
+  ) {
+    return error.message;
+  }
+
+  return "The service category change could not be completed.";
+}
+
+export {
+  ServiceCategoryManagementClient,
+};

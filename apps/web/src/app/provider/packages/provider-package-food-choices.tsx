@@ -1,0 +1,266 @@
+"use client";
+import {ProviderPackageIntegerInput, isPackageIntegerEdit} from "./provider-package-integer-input";
+import {usePackageConfirmation} from "./use-package-confirmation";
+
+import {useRef, useState} from "react";
+import type {FoodChoiceGroupV2} from "@feasta/shared-types/provider-package-v2";
+import {Button} from "@/components/ui/button";
+import {Input} from "@/components/ui/input";
+import {Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle} from "@/components/ui/dialog";
+import {parseFoodChoiceGroupsV2} from "@/lib/provider/food-choice-groups-v2";
+
+import {Select} from "@/components/ui/select";
+import {loadDishLibrary} from "./dish-library-actions";
+import {ProviderDishLibrary} from "./provider-dish-library";
+
+type Draft = {group: FoodChoiceGroupV2; minimum: string; maximum: string; minimumError?: string; maximumError?: string};
+const key = (text: string) => text.trim().replace(/\s+/gu, " ").normalize("NFKC").toLocaleLowerCase("en-PH");
+
+export function ProviderPackageFoodChoices({value, onChange, disabled = false}: {
+  value: FoodChoiceGroupV2[];
+  onChange: (groups: FoodChoiceGroupV2[]) => void;
+  disabled?: boolean;
+}) {
+  const {confirm, confirmationDialog} = usePackageConfirmation();
+  const [draft, setDraft] = useState<Draft | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const original = useRef("");
+  const opener = useRef<HTMLButtonElement | null>(null);
+  const addButton = useRef<HTMLButtonElement>(null);
+  const errorRef = useRef<HTMLParagraphElement>(null);
+  const otherGroups = value.filter((group) => group.id !== draft?.group.id);
+
+  function open(button: HTMLButtonElement, group?: FoodChoiceGroupV2) {
+    const next = {group: group ? {...group, options: group.options.map((option) => ({...option}))} :
+      {id: crypto.randomUUID(), title: "", selectionCount: 1,
+        options: []},
+      minimum: String(group?.selectionCount ?? 1), maximum: String(group?.selectionCount ?? 1)};
+    opener.current = button;
+    original.current = JSON.stringify(next);
+    setError(null);
+    setDraft(next);
+  }
+  async function close() {
+    if (draft && JSON.stringify(draft) !== original.current && !await confirm({message: "Discard unsaved food choice group changes?", confirmLabel: "Discard Changes"})) return;
+    setDraft(null);
+    setError(null);
+  }
+  function updateDraft(next: Draft) {
+    setDraft(next);
+    setError(null);
+  }
+  const selectionError = draft?.minimumError || draft?.maximumError || (draft && (!draft.minimum || !draft.maximum ||
+    !isPackageIntegerEdit(draft.minimum, 10) || !isPackageIntegerEdit(draft.maximum, 10))
+    ? "Selection limits must be whole numbers from 1 to 10."
+    : draft && Number(draft.minimum) > Number(draft.maximum)
+      ? "Minimum selections must be no greater than maximum selections."
+      : draft && draft.minimum !== draft.maximum
+        ? "V2 requires an exact selection count. Minimum and maximum selections must match." : null);
+  function save() {
+    if (!draft || disabled || selectionError) return;
+    const {group, minimum, maximum} = draft;
+    const min = Number(minimum), max = Number(maximum);
+    let message: string | null = null;
+    if (!group.title.trim() || group.options.some((option) => !option.name.trim())) message = "Enter a group name and a name for every food option.";
+    else if (!Number.isSafeInteger(min) || !Number.isSafeInteger(max) || min < 1 || max < min || max > 10) message = "Selection limits must be whole numbers from 1 to 10.";
+    else if (max > group.options.length) message = `Add at least ${max} food options for this selection count.`;
+    else if (min !== max) message = "V2 requires an exact selection count. Minimum and maximum selections must match.";
+    else if (otherGroups.some((row) => key(row.title) === key(group.title))) message = "A choice group with this name already exists.";
+    else if (new Set(group.options.map((option) => key(option.name))).size !== group.options.length) message = "Food options must be unique within this group.";
+    const saved = {...group, selectionCount: min};
+    const next = value.some((row) => row.id === group.id) ? value.map((row) => row.id === group.id ? saved : row) : [...value, saved];
+    if (!message) {
+      try {parseFoodChoiceGroupsV2(next);} catch {message = "Use at least 2 food options per group and at most 10 groups. Names must meet V2 length and character limits.";}
+    }
+    if (message) {
+      setError(message);
+      requestAnimationFrame(() => errorRef.current?.focus());
+      return;
+    }
+    onChange(next);
+    setDraft(null);
+    setError(null);
+  }
+  return (
+    <section aria-label="Customer-selectable food groups" className="space-y-4 rounded-xl border p-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div><h4 className="font-bold">Customer-selectable food groups</h4>
+          <p className="text-sm text-muted-foreground">Example: Main dish — offer 3 dishes, customer chooses exactly 1. Separate from dishes already included.</p></div>
+        <Button ref={addButton} type="button" variant="secondary" disabled={disabled || value.length >= 10}
+          onClick={(event) => open(event.currentTarget)}>Add choice group</Button>
+      </div>
+      <p className="text-xs text-muted-foreground">Private draft only — customer booking cannot use these choices yet. Add any dishes you want to offer in each group. Up to 10 groups.</p>
+      {value.map((group, index) => <div key={group.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-muted/20 p-3">
+        <div className="min-w-0 flex-1"><h5 className="break-words text-sm font-semibold">{group.title || `Choice group ${index + 1}`}</h5>
+          <p className="text-sm text-muted-foreground">Choose exactly {group.selectionCount} from {group.options.length} food options</p>
+          <details className="text-sm">
+            <summary className="cursor-pointer">View food options</summary>
+            <p className="break-words">{group.options.map((option) => option.name || "Unnamed option").join(", ")}</p>
+          </details></div>
+        <div className="flex gap-2">
+          <Button type="button" variant="secondary" disabled={disabled} aria-label={`Edit choice group ${index + 1}`} onClick={(event) => open(event.currentTarget, group)}>Edit</Button>
+          <Button type="button" variant="ghost" disabled={disabled} aria-label={`Remove choice group ${index + 1}`} onClick={() => onChange(value.filter((row) => row.id !== group.id))}>Remove</Button>
+        </div>
+      </div>)}
+      <Dialog open={draft !== null} onOpenChange={(isOpen) => {if (!isOpen) close();}}>
+        <DialogContent onInteractOutside={(event) => event.preventDefault()} className="z-[70] flex max-h-[calc(100dvh-2rem)] min-w-0 max-w-xl flex-col gap-0 overflow-hidden p-0" overlayClassName="z-[60]"
+          onEscapeKeyDown={(event) => event.stopPropagation()}
+          onCloseAutoFocus={(event) => {event.preventDefault(); (opener.current?.isConnected ? opener.current : addButton.current)?.focus();}}>
+          <DialogHeader className="shrink-0 border-b p-6 pr-14"><DialogTitle>{value.some((group) => group.id === draft?.group.id) ? "Edit Food Choice Group" : "Add Food Choice Group"}</DialogTitle>
+            <DialogDescription>Set the food options customers can choose. V2 requires minimum and maximum selections to match.</DialogDescription></DialogHeader>
+          {draft ? <>
+            <div className="min-h-0 space-y-4 overflow-y-auto p-6">
+              <label className="grid gap-2 text-sm font-medium">Group Name
+                <Input autoFocus required maxLength={80} disabled={disabled || draft.group.options.some((option) => option.name.trim())} value={draft.group.title} placeholder="e.g., Main dish" onChange={(event) => updateDraft({...draft, group: {...draft.group, title: event.target.value}})} /></label>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <label className="grid gap-2 text-sm font-medium">Minimum Selections<ProviderPackageIntegerInput label="Minimum Selections" maximum={10} disabled={disabled} value={draft.minimum} onChange={(minimum, minimumError) => updateDraft({...draft, minimum, minimumError})} /></label>
+                <label className="grid gap-2 text-sm font-medium">Maximum Selections<ProviderPackageIntegerInput label="Maximum Selections" maximum={10} disabled={disabled} value={draft.maximum} onChange={(maximum, maximumError) => updateDraft({...draft, maximum, maximumError})} /></label>
+              </div>
+              {selectionError ? <p role="alert" className="text-sm text-destructive">{selectionError}</p> : null}
+              <p className="text-xs text-muted-foreground">Use a Parent Group from your Dish List as the group name to select matching dishes. Remove the selected dishes before changing the group name.</p>
+              <ProviderDishLibrary disabled={disabled || !draft.group.title.trim()}
+                parentGroup={draft.group.title}
+                destination={draft.group.title.trim() ? `Choice group · ${draft.group.title.trim()}` : "Customer choice group"}
+                onAdd={(dishes) => {
+                const options = draft.group.options.filter((option) => option.name.trim());
+                const names = new Set(options.map((option) => key(option.name)));
+                for (const dish of dishes) {
+                  if (names.has(key(dish.name))) continue;
+                  options.push({id: crypto.randomUUID(), name: dish.name});
+                  names.add(key(dish.name));
+                }
+                updateDraft({...draft, group: {...draft.group, options}});
+                return undefined;
+              }} />
+              <fieldset className="space-y-3"><legend className="text-sm font-semibold">Food Options</legend>
+                {draft.group.options.map((option, index) => <div className="flex items-center justify-between gap-2" key={option.id}>
+                  <span>{option.name}</span>
+                  <Button type="button" variant="secondary" disabled={disabled} aria-label={`Remove food option ${index + 1}`}
+                    onClick={() => updateDraft({...draft, group: {...draft.group, options: draft.group.options.filter((row) => row.id !== option.id)}})}>Remove</Button>
+                </div>)}
+              </fieldset>
+              {error ? <p ref={errorRef} tabIndex={-1} role="alert" className="text-sm text-destructive">{error}</p> : null}
+            </div>
+            <DialogFooter className="shrink-0 border-t p-4"><Button type="button" variant="secondary" onClick={close}>Cancel</Button><Button type="button" disabled={disabled || Boolean(selectionError)} onClick={save}>Save choice group</Button></DialogFooter>
+          </> : null}
+        </DialogContent>
+      </Dialog>
+      {confirmationDialog}
+    </section>
+  );
+}
+
+
+export function ProviderPackageParentGroupRules({value, onChange, disabled = false}: {
+  value: FoodChoiceGroupV2[];
+  onChange: (groups: FoodChoiceGroupV2[]) => void;
+  disabled?: boolean;
+}) {
+  const [groups, setGroups] = useState<Map<string, FoodChoiceGroupV2["options"]> | null>(null);
+  const [editing, setEditing] = useState<FoodChoiceGroupV2 | null>(null);
+  const [selected, setSelected] = useState("");
+  const [count, setCount] = useState("1");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const options = groups?.get(selected) ?? [];
+
+  async function open(group: FoodChoiceGroupV2 | null) {
+    setEditing(group);
+    setSelected(group?.title ?? "");
+    setCount(String(group?.selectionCount ?? 1));
+    setError("");
+    setGroups(null);
+    setLoading(true);
+    try {
+      const library = await loadDishLibrary();
+      const next = new Map<string, FoodChoiceGroupV2["options"]>();
+      const labels = new Map<string, string>();
+      const nameCounts = new Map<string, number>();
+      for (const dish of library.dishes) {
+        if (!dish.parentGroup?.trim()) continue;
+        const nameKey = JSON.stringify([key(dish.parentGroup), key(dish.name)]);
+        nameCounts.set(nameKey, (nameCounts.get(nameKey) ?? 0) + 1);
+      }
+      for (const dish of library.dishes) {
+        const parent = dish.parentGroup?.trim();
+        if (!parent) continue;
+        const title = labels.get(key(parent)) ?? parent;
+        labels.set(key(parent), title);
+        const items = next.get(title) ?? [];
+        const nameKey = JSON.stringify([key(title), key(dish.name)]);
+        const suffix = ` (${dish.category})`;
+        const name = (nameCounts.get(nameKey) ?? 0) > 1
+          ? dish.name.slice(0, Math.max(0, 120 - suffix.length)) + suffix.slice(0, 120)
+          : dish.name;
+        items.push({id: dish.id, name});
+        next.set(title, items);
+      }
+      setSelected(group ? labels.get(key(group.title)) ?? "" : "");
+      setGroups(next);
+    } catch {
+      setError("Could not load the Dish List. Try reopening the rule.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function save() {
+    const selectionCount = Number(count);
+    if (!selected || !isPackageIntegerEdit(count, 10) || selectionCount < 1 ||
+        selectionCount > options.length) {
+      setError("Choose a Parent Group and enter a quantity it can fill.");
+      return;
+    }
+    const rule = {id: editing?.id ?? crypto.randomUUID(), title: selected, selectionCount, options};
+    const next = editing ? value.map((group) => group.id === editing.id ? rule : group) : [...value, rule];
+    try {
+      onChange(parseFoodChoiceGroupsV2(next));
+      setGroups(null);
+    } catch {
+      setError("Choose a different Parent Group, or check that its name is at most 80 characters.");
+    }
+  }
+
+  return <section aria-label="Parent Group rules" className="space-y-4 rounded-xl border p-4">
+    <div className="flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <h4 className="font-bold">Parent Group rules</h4>
+        <p className="text-sm text-muted-foreground">Set how many dishes customers choose from each group. Options come from your Dish List.</p>
+      </div>
+      <Button type="button" variant="secondary" disabled={disabled || loading || value.length >= 10}
+        onClick={() => void open(null)}>Add Parent Group rule</Button>
+    </div>
+    {value.map((group) => <div key={group.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border p-3">
+      <div>
+        <h5 className="font-semibold">{group.title}</h5>
+        <p className="text-sm text-muted-foreground">Choose {group.selectionCount} from {group.options.length} dishes</p>
+      </div>
+      <div className="flex gap-2">
+        <Button type="button" variant="secondary" disabled={disabled || loading} onClick={() => void open(group)}>Edit rule</Button>
+        <Button type="button" variant="ghost" disabled={disabled || loading}
+          onClick={() => {onChange(value.filter((item) => item.id !== group.id)); setGroups(null);}}>Remove rule</Button>
+      </div>
+    </div>)}
+    {loading ? <p role="status">Loading Dish List…</p> : null}
+    {groups && <div className="grid gap-3 rounded-lg border p-3">
+      <label className="grid gap-1 text-sm">Parent Group
+        <Select value={selected} disabled={disabled} onChange={(event) => {setSelected(event.target.value); setError("");}}>
+          <option value="">Select a Parent Group</option>
+          {[...groups.keys()].map((group) => <option key={group} value={group}
+            disabled={value.some((item) => item.id !== editing?.id && key(item.title) === key(group))}>{group}</option>)}
+        </Select>
+      </label>
+      {!groups.size && <p className="text-sm">Add dishes to an assigned category in your Dish List first.</p>}
+      <label className="grid gap-1 text-sm">Number of dishes to choose
+        <Input type="number" min={1} max={10} value={count} disabled={disabled} onChange={(event) => setCount(event.target.value)} />
+      </label>
+      <p className="text-sm">{options.length} eligible dishes</p>
+      {selected && Number(count) > options.length && <p className="text-sm text-destructive">This group does not have enough dishes for that quantity.</p>}
+      <div className="flex gap-2">
+        <Button type="button" disabled={disabled || !selected || Number(count) > options.length} onClick={save}>Save rule</Button>
+        <Button type="button" variant="ghost" onClick={() => {setGroups(null); setError("");}}>Cancel</Button>
+      </div>
+    </div>}
+    {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
+  </section>;
+}

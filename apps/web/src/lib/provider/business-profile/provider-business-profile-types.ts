@@ -1,0 +1,49 @@
+import type {
+  ProviderBusinessRegistrationType,
+  ProviderEventType,
+  ProviderServiceType,
+  ServiceCategoryCode,
+} from "@feasta/shared-types";
+
+export type ProviderBusinessMedia = {
+  url: string;
+  publicId: string;
+};
+
+export type ProviderBusinessProfile = {
+  providerId: string;
+  businessName: string;
+  businessEmail: string;
+  businessPhone: string;
+  description: string;
+  address: string;
+  city: string;
+  province: string;
+  providerServiceType: ProviderServiceType;
+  primaryServiceCategory: ServiceCategoryCode | null;
+  serviceCategories: readonly ServiceCategoryCode[];
+  serviceAreas: readonly string[];
+  eventTypesSupported: readonly ProviderEventType[];
+  maxServiceDistanceKm: number | null;
+  logo: ProviderBusinessMedia | null;
+  coverImage: ProviderBusinessMedia | null;
+  businessRegistrationType: ProviderBusinessRegistrationType | null;
+  updatedAt: string | null;
+};
+
+export type UpdateProviderBusinessProfileInput = {
+  businessPhone?: string;
+  description?: string;
+  address?: string;
+  city?: string;
+  province?: string;
+  logo?: ProviderBusinessMedia | null;
+  coverImage?: ProviderBusinessMedia | null;
+  businessRegistrationType?: ProviderBusinessRegistrationType;
+};
+
+export type UpdateProviderBusinessProfileResult = {
+  providerId: string;
+  updated: boolean;
+  updatedFields: readonly string[];
+};
