@@ -217,6 +217,9 @@ export {
 } from "./provider-availability/check-marketplace-provider-availability.js";
 export {createPaymentSession} from "./payments/create-payment-session.js";
 export {
+  completeSandboxMockCheckout,
+} from "./payments/sandbox-mock-checkout.js";
+export {
   refreshProviderPayoutAccount,
   saveProviderPayoutActivationProfile,
   startProviderPayoutOnboarding,

@@ -19,6 +19,11 @@ import {
   providerPaymentObligationForChoice,
   type CustomerPaymentChoice,
 } from "./payment-obligation.js";
+import {
+  isSandboxMockPaymentMode,
+  isValidSandboxCheckoutUrl,
+  SANDBOX_CHECKOUT_ID_PREFIX,
+} from "./payment-gateway-mode.js";
 
 const PAYMENT_COMPATIBLE_MAIN_EVENT_STATUSES =
   new Set<MainEventStatus>([
@@ -696,6 +701,15 @@ export function validStoredCheckoutReason(
     !checkoutUrl
   ) {
     return "checkout_session_missing";
+  }
+
+  if (
+    isSandboxMockPaymentMode() &&
+    checkoutId.startsWith(SANDBOX_CHECKOUT_ID_PREFIX)
+  ) {
+    return isValidSandboxCheckoutUrl(checkoutUrl)
+      ? null
+      : "checkout_url_invalid";
   }
 
   try {

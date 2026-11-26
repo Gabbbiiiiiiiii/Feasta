@@ -18,6 +18,7 @@ export type SecurityEventAction =
   | "configuration_failure"
   | "idempotency_replay"
   | "payment_webhook"
+  | "sandbox_mock_checkout_completed"
   | "phone_verification_synchronized"
   | "provider_phone_verification_prepared"
   | "customer_phone_verification_prepared"

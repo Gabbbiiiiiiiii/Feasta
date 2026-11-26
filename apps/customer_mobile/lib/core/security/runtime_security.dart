@@ -32,13 +32,22 @@ class RuntimeSecurity {
     }
   }
 
+  static const sandboxCheckoutHost = 'feasta-web.vercel.app';
+  static const sandboxCheckoutPath = '/customer/payments/sandbox-checkout';
+
   static Uri requireTrustedPayMongoCheckout(String value) {
     final uri = Uri.tryParse(value);
     final host = uri?.host.toLowerCase() ?? '';
+    final isPayMongoHost =
+        host == 'paymongo.com' || host.endsWith('.paymongo.com');
+    final sandboxPaymentId = uri?.queryParameters['paymentId'] ?? '';
+    final isTrustedSandboxCheckout = host == sandboxCheckoutHost &&
+        uri?.path == sandboxCheckoutPath &&
+        RegExp(r'^[A-Za-z0-9_-]{8,160}$').hasMatch(sandboxPaymentId);
     if (uri == null ||
         uri.scheme != 'https' ||
         uri.userInfo.isNotEmpty ||
-        !(host == 'paymongo.com' || host.endsWith('.paymongo.com'))) {
+        (!isPayMongoHost && !isTrustedSandboxCheckout)) {
       throw const FormatException('The checkout URL is not trusted.');
     }
     return uri;

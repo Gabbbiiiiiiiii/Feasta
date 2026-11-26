@@ -78,6 +78,12 @@ import {
   type PayMongoFailureCertainty,
 } from "./paymongo-client.js";
 import {
+  isSandboxMockPaymentMode,
+} from "./payment-gateway-mode.js";
+import {
+  createSandboxMockCheckout,
+} from "./sandbox-mock-checkout.js";
+import {
   legacyActiveCancellationRequestId,
 } from "../cancellations/refund-cancellation-domain.js";
 import {
@@ -180,7 +186,9 @@ export const createPaymentSession = onCall(
       paymentChoice,
       clientKey,
       secretKey:
-        payMongoSecretKey.value(),
+        isSandboxMockPaymentMode()
+          ? "sk_sandbox_mock"
+          : payMongoSecretKey.value(),
       successUrl: trustedRedirectUrl(
         "PAYMENT_SUCCESS_URL",
       ),
@@ -212,7 +220,9 @@ export async function createPaymentSessionForCustomer(
 
   const createCheckout =
     input.createCheckout ??
-    createPayMongoCheckout;
+    (isSandboxMockPaymentMode()
+      ? createSandboxMockCheckout
+      : createPayMongoCheckout);
 
   const requestHash =
     createIdempotencyKey({

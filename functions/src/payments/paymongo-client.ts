@@ -1,6 +1,10 @@
+import {createHash} from "node:crypto";
 import {
   logSecurityEvent,
 } from "../shared/security-events.js";
+import {
+  isSandboxMockPaymentMode,
+} from "./payment-gateway-mode.js";
 
 type CheckoutSession = {
   id: string;
@@ -204,6 +208,12 @@ export async function retrievePayMongoRefund(
   if (!/^[A-Za-z0-9_-]{3,160}$/u.test(refundId)) {
     throw new PayMongoRequestError("PayMongo refund ID is invalid.", "not_sent");
   }
+  if (isSandboxMockPaymentMode() && refundId.startsWith("ref_sandbox_")) {
+    throw new PayMongoRequestError(
+      "Sandbox mock refund does not require external PayMongo retrieval.",
+      "not_sent",
+    );
+  }
   const refund = parsePayMongoRefundResource(await payMongoRequest(
     secretKey, `/v1/refunds/${refundId}`, {method: "GET"},
   ));
@@ -230,6 +240,22 @@ export async function createPayMongoRefund(
         "PayMongo refund amount is below the supported minimum.",
         "not_sent",
       );
+    }
+
+    if (isSandboxMockPaymentMode()) {
+      const digest = createHash("sha256")
+        .update(
+          `sandbox_refund:${input.idempotencyKey}:${input.gatewayPaymentId}:${input.amountInCentavos}`,
+        )
+        .digest("hex");
+      return {
+        id: `ref_sandbox_${digest.slice(0, 24)}`,
+        amountInCentavos: input.amountInCentavos,
+        currency: "PHP",
+        gatewayPaymentId: input.gatewayPaymentId,
+        status: "succeeded",
+        metadata: {...(input.metadata ?? {})},
+      };
     }
 
     const response = await payMongoRequest(
@@ -330,7 +356,8 @@ async function payMongoRequest(
   path: string,
   init: RequestInit,
 ): Promise<unknown> {
-  if (!secretKey.startsWith("sk_")) {
+  const trimmedSecretKey = secretKey.trim();
+  if (!trimmedSecretKey.startsWith("sk_")) {
     logSecurityEvent({
       action: "configuration_failure",
       outcome: "failed",
@@ -346,7 +373,7 @@ async function payMongoRequest(
   }
 
   const authorization = Buffer.from(
-    `${secretKey}:`,
+    `${trimmedSecretKey}:`,
   ).toString("base64");
 
   let response: Response;
@@ -378,6 +405,14 @@ async function payMongoRequest(
   }
 
   if (!response.ok) {
+    if (response.status === 401 || response.status === 403) {
+      logSecurityEvent({
+        action: "configuration_failure",
+        outcome: "failed",
+        targetId: "paymongo",
+        reasonCode: `paymongo_auth_http_${response.status}`,
+      });
+    }
     /*
      * Do not log or return PayMongo's
      * response payload because it can

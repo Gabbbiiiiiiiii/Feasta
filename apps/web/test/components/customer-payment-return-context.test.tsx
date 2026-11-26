@@ -114,4 +114,33 @@ describe("customer payment return context", () => {
 
     expect(readCustomerPaymentReturnContext()).toBeNull();
   });
+
+  it("navigates same-origin for trusted FEASTA sandbox checkout URLs and rejects other FEASTA paths", () => {
+    const assignSpy = vi.fn();
+    Object.defineProperty(window, "location", {
+      value: {...window.location, assign: assignSpy},
+      writable: true,
+    });
+
+    redirectToCustomerPaymentCheckout({
+      paymentId: lookup.paymentId,
+      providerRequestId: "request_context_12345678",
+      bookingId: "booking_context_12345678",
+      checkoutUrl: `https://feasta-web.vercel.app/customer/payments/sandbox-checkout?paymentId=${lookup.paymentId}&attemptId=attempt_12345678`,
+      created: true,
+    });
+
+    expect(assignSpy).toHaveBeenCalledWith(
+      `/customer/payments/sandbox-checkout?paymentId=${lookup.paymentId}&attemptId=attempt_12345678`,
+    );
+    expect(readCustomerPaymentReturnContext()).toEqual(lookup);
+
+    expect(() => redirectToCustomerPaymentCheckout({
+      paymentId: lookup.paymentId,
+      providerRequestId: "request_context_12345678",
+      bookingId: "booking_context_12345678",
+      checkoutUrl: `https://feasta-web.vercel.app/customer/bookings?paymentId=${lookup.paymentId}`,
+      created: true,
+    })).toThrow("The payment checkout URL is invalid.");
+  });
 });

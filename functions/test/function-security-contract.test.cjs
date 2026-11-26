@@ -635,6 +635,7 @@ test("all source exports remain in the reviewed inventory", () => {
   "getCustomerProviderCalendarAvailability",
   "getProviderAvailabilityOccasions",
   "completeProviderBooking",
+  "completeSandboxMockCheckout",
   "createAgreementTemplate",
   "createAgreementVersion",
   "createBusinessDocumentType",
