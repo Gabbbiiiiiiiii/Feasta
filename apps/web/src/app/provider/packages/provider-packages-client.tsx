@@ -1,4 +1,6 @@
 "use client";
+
+import {loadAllProviderPackageCustomOccasions, loadPrivatePackageOccasions} from "./private-package-occasion-actions";
 import {usePackageConfirmation} from "./use-package-confirmation";
 import {onAuthStateChanged} from "firebase/auth";
 import {auth, initializeBrowserFirebase} from "@/lib/firebase/client";
@@ -91,6 +93,7 @@ export function ProviderPackagesClient({
     packages,
     setPackages,
   ] = useState<ProviderPackage[]>([]);
+  const [customOccasionsByPackage, setCustomOccasionsByPackage] = useState<Record<string, string[]>>({});
 
   const [
     loading,
@@ -220,10 +223,9 @@ export function ProviderPackagesClient({
   }
   const saveBusy = useRef(false);
   const packageEditor = useRef<ProviderPackageEditor>(null);
-  const canSaveOnClose = !editingPackage && packageEditorProgressEnabled;
 
-  function closePackageEditor() {
-    if (!editingPackage && !resumeProgress) clearLocalPackageDraft();
+  function closePackageEditor(clearLocal = true) {
+    if (clearLocal && !editingPackage && !resumeProgress) clearLocalPackageDraft();
     setDiscardOpen(false);
     setCreateOpen(false);
     setResumeProgress(null);
@@ -267,12 +269,13 @@ export function ProviderPackagesClient({
       setError(null);
 
       try {
-        const result =
-          await listProviderPackages(
-            providerId,
-          );
+        const [result, customOccasions] = await Promise.all([
+          listProviderPackages(providerId),
+          loadAllProviderPackageCustomOccasions().catch(() => ({} as Record<string, string[]>)),
+        ]);
 
         setPackages(result);
+        setCustomOccasionsByPackage(customOccasions);
       } catch (caught) {
         console.error(
           "[FEASTA provider packages]",
@@ -292,16 +295,17 @@ export function ProviderPackagesClient({
 
     const loadInitialPackages = async () => {
         try {
-        const result =
-            await listProviderPackages(
-            providerId,
-            );
+        const [result, customOccasions] = await Promise.all([
+            listProviderPackages(providerId),
+            loadAllProviderPackageCustomOccasions().catch(() => ({} as Record<string, string[]>)),
+        ]);
 
         if (cancelled) {
             return;
         }
 
         setPackages(result);
+        setCustomOccasionsByPackage(customOccasions);
         setError(null);
         } catch (caught) {
         if (cancelled) {
@@ -446,18 +450,19 @@ export function ProviderPackagesClient({
         onEscapeKeyDown={(event) => event.preventDefault()}
         onInteractOutside={(event) => event.preventDefault()}>
         <DialogHeader className="shrink-0 border-b border-border px-5 py-4 pr-16 sm:pl-6">
-          <DialogTitle>{editingPackage ? "Edit package" : "Create package"}</DialogTitle>
-          <DialogDescription>{editingPackage ? "Update your draft package. Changes take effect when you save." : packageEditorProgressEnabled ? "Use Save Draft & Exit to finish later. You can resume from Saved package progress." : "Save a draft to review before publishing. Closing asks you to confirm discarding unsaved changes."}</DialogDescription>
+          <DialogTitle>{editingPackage?.status === "published" ? "Edit published package" : editingPackage ? "Edit package" : "Create package"}</DialogTitle>
+          <DialogDescription>{editingPackage?.status === "published" ? "Update your published package. Saving applies changes to new bookings while existing bookings keep their original details." : editingPackage ? "Update your draft package, then save as a draft or publish when ready." : packageEditorProgressEnabled ? "Use Save Draft & Exit to finish later. You can resume from Saved package progress." : "Review your details, then save as a draft or publish your package. Closing asks you to confirm discarding unsaved changes."}</DialogDescription>
         </DialogHeader>
         <ProviderPackageForm
           editorRef={packageEditor}
+          loadPrivateOccasions={loadPrivatePackageOccasions}
           localDraftKey={!editingPackage && !resumeProgress ? localDraftKey : undefined}
           localProgress={!editingPackage && !resumeProgress ? localProgress : null}
           key={editingPackage?.id ?? resumeProgress?.editorDraftId ?? "create"}
           initialPackage={editingPackage ?? undefined}
           initialEditorProgress={resumeProgress}
           onProgressSaved={() => { void refreshSavedProgress(); }}
-          onProgressExit={closePackageEditor}
+          onProgressExit={() => closePackageEditor(packageEditorProgressEnabled)}
           dialogLayout
           providerServiceType={providerServiceType}
           serviceCategories={serviceCategories}
@@ -469,32 +474,38 @@ export function ProviderPackagesClient({
           paymentPolicyBounds={paymentPolicyBounds}
           onSubmittingChange={(busy) => { saveBusy.current = busy; setFormBusy(busy); }}
           onCancel={requestEditorClose}
-          onSaved={async () => { await loadPackages(); if (packageEditorProgressEnabled) await refreshSavedProgress(); closePackageEditor(); }}
+          onSaved={async () => { await loadPackages(); if (packageEditorProgressEnabled) await refreshSavedProgress(); closePackageEditor(true); }}
         />
-        <ConfirmationDialog open={discardOpen} onOpenChange={(open) => {
-          if (!saveBusy.current) setDiscardOpen(open);
-        }} title={canSaveOnClose ? "Save this package as a draft?" : "Discard package changes?"}
-          description={canSaveOnClose ? "Save your progress and finish this package later." : "Your unsaved package details, pricing, dishes, themes, and images will be lost if you close this editor."}
-          confirmLabel={canSaveOnClose ? "Save Draft & Exit" : "Discard changes"}
+        <ConfirmationDialog
+          open={discardOpen}
+          onOpenChange={(open) => {
+            if (!saveBusy.current) setDiscardOpen(open);
+          }}
+          title="Discard package changes?"
+          description={editingPackage?.status === "published" ? "Your unsaved changes to this published package will be lost if you close this editor." : "Your unsaved package details, pricing, dishes, themes, and images will be lost if you close this editor."}
+          confirmLabel={editingPackage?.status === "published" ? "Save changes and exit" : "Save as draft and exit"}
           cancelLabel="Keep editing"
-          destructive={!canSaveOnClose}
-          loading={formBusy} confirmDisabled={formBusy} loadingLabel={canSaveOnClose ? "Saving draft…" : "Discarding…"} stopEscapePropagation
+          destructive={false}
+          discardDestructive
+          loading={formBusy}
+          confirmDisabled={formBusy}
+          loadingLabel={editingPackage?.status === "published" ? "Saving changes…" : "Saving draft…"}
+          stopEscapePropagation
           stackedActions
-          onDiscard={canSaveOnClose ? closePackageEditor : undefined}
-          contentClassName="z-[70] max-w-md" overlayClassName="z-[60] backdrop-blur-sm"
+          onDiscard={() => closePackageEditor(true)}
+          contentClassName="z-[70] max-w-md"
+          overlayClassName="z-[60] backdrop-blur-sm"
           onCloseAutoFocus={(event) => {
             event.preventDefault();
             const target = discardOpener.current;
             (target?.isConnected ? target : packageOpener.current?.isConnected ? packageOpener.current : newPackageButton.current)?.focus();
-          }} onConfirm={() => {
+          }}
+          onConfirm={() => {
             if (saveBusy.current) return;
-            if (!canSaveOnClose) {
-              closePackageEditor();
-              return;
-            }
             setDiscardOpen(false);
             return packageEditor.current?.saveDraftAndExit();
-          }} />
+          }}
+        />
       </DialogContent>
 
       {packageEditorProgressEnabled ? <section aria-label="Saved package progress" className="grid gap-3 rounded-xl border border-border bg-card p-4">
@@ -655,6 +666,7 @@ export function ProviderPackagesClient({
         <section aria-label="Provider package results">
           {filteredPackages.length ? <div className="grid grid-cols-1 items-start gap-3 xl:grid-cols-2">
             {visiblePackages.map((item) => <ProviderPackageCard key={item.id} item={item}
+              customOccasionLabels={customOccasionsByPackage[item.id]}
               onRecovered={loadPackages}
               serviceCategoryLabel={packageCategoryOptions.find((category) => category.code === item.serviceCategoryCode)?.name}
               onEdit={(event) => { packageOpener.current = event.currentTarget; setResumeProgress(null); setEditingPackage(item); setCreateOpen(true); }}

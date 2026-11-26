@@ -1,24 +1,23 @@
 "use client";
 
 import {
-  ArrowLeft,
   AlertTriangle,
+  ArrowLeft,
   CheckCircle2,
   FileText,
   Info,
-  PackageOpen,
+  Lock,
   Pencil,
   Plus,
-  RotateCcw,
 } from "lucide-react";
 import Link from "next/link";
 import {useRouter} from "next/navigation";
-import {useMemo, useState} from "react";
+import {useState} from "react";
 
 import {
-  REFUND_ELIGIBILITY_STAGES,
+  DEFAULT_ADMIN_CANCELLATION_CUTOFF_HOURS,
+  formatCancellationCutoffDuration,
   REFUND_POLICY_TERMS_MAX_LENGTH,
-  type RefundEligibilityStage,
 } from "@feasta/shared-types";
 
 import {FormField} from "@/components/forms/form-field";
@@ -31,41 +30,17 @@ import {Input} from "@/components/ui/input";
 import {Textarea} from "@/components/ui/textarea";
 import {
   publishProviderRefundPolicy,
-  setPackageRefundPolicyOverride,
   type RefundPolicyDraftPayload,
 } from "@/lib/provider/refund-policy/provider-refund-policy-client";
 import type {
-  ProviderPackageRefundPolicyDto,
   ProviderRefundPolicyDto,
   ProviderRefundPolicyPageDto,
 } from "@/lib/provider/refund-policy/provider-refund-policy-types";
 import {
   formatBasisPoints,
-  validateRefundPolicy,
-  type RefundPercentValues,
+  validateUnifiedRefundPolicy,
 } from "@/lib/provider/refund-policy/provider-refund-policy-validation";
-
-const stagePresentation: Record<RefundEligibilityStage, {
-  title: string;
-  description: string;
-}> = {
-  preparation_not_started: {
-    title: "Preparation Not Started",
-    description: "Before your team starts preparing for the event.",
-  },
-  preparation_started: {
-    title: "Preparation Started",
-    description: "After preparation, procurement, or event setup has started.",
-  },
-  service_started: {
-    title: "Service Started",
-    description: "Once the actual event service has begun.",
-  },
-};
-
-type EditorTarget =
-  | {kind: "provider"; policy: ProviderRefundPolicyDto | null}
-  | {kind: "package"; package: ProviderPackageRefundPolicyDto};
+import {ProviderCancellationCutoffSection} from "./provider-cancellation-cutoff-section";
 
 type Feedback = {tone: "success" | "error"; message: string} | null;
 
@@ -73,30 +48,16 @@ export function ProviderRefundPolicyClient({data}: {
   data: ProviderRefundPolicyPageDto;
 }) {
   const router = useRouter();
-  const [editor, setEditor] = useState<EditorTarget | null>(null);
-  const [removePackage, setRemovePackage] =
-    useState<ProviderPackageRefundPolicyDto | null>(null);
-  const [removing, setRemoving] = useState(false);
+  const [editorOpen, setEditorOpen] = useState(false);
   const [feedback, setFeedback] = useState<Feedback>(null);
 
-  async function handleRemoveOverride() {
-    if (!removePackage || removing) return;
-    setRemoving(true);
-    setFeedback(null);
-    try {
-      await setPackageRefundPolicyOverride(removePackage.packageId, null);
-      setRemovePackage(null);
-      setFeedback({
-        tone: "success",
-        message: "Package override removed. This package now uses your Provider default policy.",
-      });
-      router.refresh();
-    } catch (caught) {
-      setFeedback({tone: "error", message: refundPolicyErrorMessage(caught, true)});
-    } finally {
-      setRemoving(false);
-    }
-  }
+  const effectiveCutoffHours =
+    data.providerCancellationPolicy?.mode === "provider_custom" &&
+    data.providerCancellationPolicy.cutoffHoursBeforeEvent !== null
+      ? data.providerCancellationPolicy.cutoffHoursBeforeEvent
+      : data.adminDefaultCancellationPolicy?.defaultCutoffHoursBeforeEvent ??
+        DEFAULT_ADMIN_CANCELLATION_CUTOFF_HOURS;
+  const cutoffDuration = formatCancellationCutoffDuration(effectiveCutoffHours);
 
   return (
     <div className="grid min-w-0 gap-6">
@@ -110,8 +71,8 @@ export function ProviderRefundPolicyClient({data}: {
       </div>
       <PageHeading
         eyebrow="Provider management"
-        title="Refund Policy"
-        description="Choose how much customers receive if a booking is cancelled."
+        title="Cancellation & Refund Policy"
+        description="Set one cancellation cutoff and refund policy for all your future bookings."
       />
 
       {feedback ? (
@@ -129,14 +90,23 @@ export function ProviderRefundPolicyClient({data}: {
         </div>
       ) : null}
 
-      <section aria-labelledby="provider-default-policy" className="grid gap-4">
+      <ProviderCancellationCutoffSection
+        adminDefault={data.adminDefaultCancellationPolicy}
+        providerPolicy={data.providerCancellationPolicy}
+        onSaved={(message) => {
+          setFeedback({tone: "success", message});
+          router.refresh();
+        }}
+      />
+
+      <section aria-labelledby="provider-refund-policy" className="grid gap-4">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <h2 id="provider-default-policy" className="text-2xl font-black tracking-tight">
-              Default Refund Policy
+            <h2 id="provider-refund-policy" className="text-2xl font-black tracking-tight">
+              Refund Policy
             </h2>
             <p className="mt-1 text-muted-foreground">
-              Used for future bookings unless a package has its own refund policy.
+              Applies to all future bookings across your packages and services.
             </p>
           </div>
         </div>
@@ -144,13 +114,14 @@ export function ProviderRefundPolicyClient({data}: {
         {data.providerPolicy ? (
           <PolicyCard
             policy={data.providerPolicy}
+            cutoffDuration={cutoffDuration}
             action={
               <Button
                 variant="secondary"
                 size="compact"
                 onClick={() => {
                   setFeedback(null);
-                  setEditor({kind: "provider", policy: data.providerPolicy});
+                  setEditorOpen(true);
                 }}
               >
                 <Pencil aria-hidden="true" className="size-4" />
@@ -161,15 +132,15 @@ export function ProviderRefundPolicyClient({data}: {
         ) : (
           <div className="rounded-xl border border-dashed border-input bg-card p-6 sm:p-8">
             <FileText aria-hidden="true" className="size-9 text-primary" />
-            <h3 className="mt-4 text-xl font-bold">Create your Provider default policy</h3>
+            <h3 className="mt-4 text-xl font-bold">Set up your Refund Policy</h3>
             <p className="mt-2 max-w-2xl text-muted-foreground">
-              A Provider default policy is required before refund-policy-backed bookings can be enforced. Define all three stages to make the outcome clear for Customers.
+              A Refund Policy is required before refund-policy-backed bookings can be enforced. Choose how much customers receive if they cancel before your cancellation cutoff ({cutoffDuration} before event).
             </p>
             <Button
               className="mt-5"
               onClick={() => {
                 setFeedback(null);
-                setEditor({kind: "provider", policy: null});
+                setEditorOpen(true);
               }}
             >
               <Plus aria-hidden="true" className="size-5" />
@@ -179,74 +150,31 @@ export function ProviderRefundPolicyClient({data}: {
         )}
       </section>
 
-      {editor ? (
+      {editorOpen ? (
         <Dialog
           open
           onOpenChange={(open) => {
-            if (!open) setEditor(null);
+            if (!open) setEditorOpen(false);
           }}
         >
-          <DialogContent aria-labelledby="policy-editor-heading" className="max-w-4xl overflow-y-hidden p-0">
+          <DialogContent aria-labelledby="policy-editor-heading" className="max-w-3xl overflow-y-hidden p-0">
             <div className="min-h-0 max-h-[min(90vh,48rem)] overflow-y-auto">
               <PolicyEditor
-              key={editorKey(editor)}
-              target={editor}
-              providerPolicy={data.providerPolicy}
-              onCancel={() => setEditor(null)}
-              onPublished={(message) => {
-                setEditor(null);
-                setFeedback({tone: "success", message});
-                router.refresh();
-              }}
+                key={`provider-${data.providerPolicy?.version ?? "new"}-${effectiveCutoffHours}`}
+                policy={data.providerPolicy}
+                effectiveCutoffHours={effectiveCutoffHours}
+                cutoffDuration={cutoffDuration}
+                onCancel={() => setEditorOpen(false)}
+                onPublished={(message) => {
+                  setEditorOpen(false);
+                  setFeedback({tone: "success", message});
+                  router.refresh();
+                }}
               />
             </div>
           </DialogContent>
         </Dialog>
       ) : null}
-
-      <section aria-labelledby="package-overrides" className="grid gap-4">
-        <div>
-          <h2 id="package-overrides" className="text-2xl font-black tracking-tight">
-            Package Refund Policies
-          </h2>
-          <p className="mt-1 max-w-3xl text-muted-foreground">
-            You can set a separate refund policy for a package. It replaces the default policy for future bookings of that package.
-          </p>
-        </div>
-
-        {data.packages.length === 0 ? (
-          <div className="rounded-xl border border-dashed border-input bg-card p-6 text-center sm:p-8">
-            <PackageOpen aria-hidden="true" className="mx-auto size-9 text-muted-foreground" />
-            <h3 className="mt-3 text-lg font-bold">No packages to configure</h3>
-            <p className="mt-1 text-muted-foreground">
-              Package refund policy options will appear here after you create a package.
-            </p>
-          </div>
-        ) : (
-          <div className="grid gap-4">
-            {data.packages.length === 100 ? (
-              <p className="rounded-lg border border-info bg-info-subtle p-3 text-sm">
-                Showing your 100 most recently created packages.
-              </p>
-            ) : null}
-            {data.packages.map((item) => (
-              <PackagePolicyCard
-                key={item.packageId}
-                item={item}
-                providerPolicyExists={data.providerPolicy !== null}
-                onEdit={() => {
-                  setFeedback(null);
-                  setEditor({kind: "package", package: item});
-                }}
-                onRemove={() => {
-                  setFeedback(null);
-                  setRemovePackage(item);
-                }}
-              />
-            ))}
-          </div>
-        )}
-      </section>
 
       <section aria-labelledby="important-refund-information" className="rounded-xl border border-info bg-info-subtle p-5 sm:p-6">
         <div className="flex items-start gap-3">
@@ -256,60 +184,50 @@ export function ProviderRefundPolicyClient({data}: {
               Good to Know
             </h2>
             <p className="mt-2 text-sm leading-6">
-              Changes apply to future bookings only. Existing bookings keep their agreed refund policy. Extra notes do not change the percentages.
+              Changes apply to future bookings across all your packages and services. Existing bookings always keep their agreed cancellation cutoff and refund policy. Additional notes do not change the refund percentage.
             </p>
           </div>
         </div>
       </section>
-
-      <ConfirmationDialog
-        open={removePackage !== null}
-        onOpenChange={(open) => {
-          if (!open) setRemovePackage(null);
-        }}
-        title="Remove package override?"
-        description="This package will use your current Provider default refund policy for future bookings. Existing bookings keep the policy they already agreed to."
-        cancelLabel="Keep Override"
-        confirmLabel="Remove Override"
-        loadingLabel="Removing override"
-        loading={removing}
-        destructive
-        onConfirm={handleRemoveOverride}
-      />
     </div>
   );
 }
 
-function PolicyEditor({target, providerPolicy, onCancel, onPublished}: {
-  target: EditorTarget;
-  providerPolicy: ProviderRefundPolicyDto | null;
+function PolicyEditor({
+  policy,
+  effectiveCutoffHours,
+  cutoffDuration,
+  onCancel,
+  onPublished,
+}: {
+  policy: ProviderRefundPolicyDto | null;
+  effectiveCutoffHours: number;
+  cutoffDuration: string;
   onCancel: () => void;
   onPublished: (message: string) => void;
-
 }) {
-  const sourcePolicy = target.kind === "provider"
-    ? target.policy
-    : target.package.override ?? providerPolicy;
-  const [values, setValues] = useState<RefundPercentValues>(() =>
-    percentValues(sourcePolicy));
-  const [terms, setTerms] = useState(sourcePolicy?.terms ?? "");
-  const [errors, setErrors] = useState<ReturnType<typeof validateRefundPolicy>["errors"]>({});
+  const [beforeCutoffPercent, setBeforeCutoffPercent] = useState(() =>
+    beforeCutoffPercentValue(policy));
+  const [terms, setTerms] = useState(policy?.terms ?? "");
+  const [errors, setErrors] = useState<
+    ReturnType<typeof validateUnifiedRefundPolicy>["errors"]
+  >({});
   const [draft, setDraft] = useState<RefundPolicyDraftPayload | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const isPackage = target.kind === "package";
-  const editing = isPackage ? target.package.override !== null : target.policy !== null;
+  const editing = policy !== null;
 
-  const preview = useMemo(() => REFUND_ELIGIBILITY_STAGES.map((stage) => ({
-    stage,
-    display: values[stage].trim() || "—",
-  })), [values]);
+  const previewPercent = beforeCutoffPercent.trim() || "—";
 
   function preparePublish(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setSaveError(null);
-    const result = validateRefundPolicy(values, terms);
+    const result = validateUnifiedRefundPolicy({
+      beforeCutoffPercent,
+      terms,
+      effectiveCutoffHoursBeforeEvent: effectiveCutoffHours,
+    });
     setErrors(result.errors);
     if (!result.draft) return;
     setDraft(result.draft);
@@ -320,88 +238,85 @@ function PolicyEditor({target, providerPolicy, onCancel, onPublished}: {
     if (!draft || submitting) return;
     setSubmitting(true);
     try {
-      if (target.kind === "provider") {
-        await publishProviderRefundPolicy(draft);
-        onPublished("Refund policy published.");
-      } else {
-        await setPackageRefundPolicyOverride(target.package.packageId, draft);
-        onPublished("Package refund policy updated.");
-      }
+      await publishProviderRefundPolicy(draft);
+      onPublished("Refund policy published.");
       setConfirmOpen(false);
     } catch (caught) {
       setConfirmOpen(false);
-      setSaveError(refundPolicyErrorMessage(caught, target.kind === "package"));
+      setSaveError(refundPolicyErrorMessage(caught));
     } finally {
       setSubmitting(false);
     }
   }
 
-  const submitLabel = isPackage
-    ? editing ? "Publish Updated Override" : "Publish Override"
-    : editing ? "Publish Updated Policy" : "Publish Policy";
+  const submitLabel = editing ? "Publish Updated Policy" : "Publish Policy";
 
   return (
     <section className="min-w-0 p-5 sm:p-6">
       <form onSubmit={preparePublish} noValidate className="grid min-w-0 gap-6">
         <div>
           <p className="text-sm font-bold uppercase tracking-widest text-primary-strong">
-            {isPackage ? "Package policy" : "Provider default"}
+            Provider refund policy
           </p>
           <DialogTitle asChild>
             <h2 id="policy-editor-heading" className="mt-1 pr-10 text-2xl font-black tracking-tight">
-            {isPackage
-              ? `${editing ? "Edit" : "Create"} Override: ${target.package.name}`
-              : `${editing ? "Edit" : "Create"} Refund Policy`}
+              {editing ? "Edit Refund Policy" : "Create Refund Policy"}
             </h2>
           </DialogTitle>
           <DialogDescription className="mt-2 text-sm">
-            {isPackage
-              ? "Set a separate refund policy for this package."
-              : "Set the refund percentage for each stage."}
+            Set the refund percentage customers receive if they cancel before your cancellation cutoff ({cutoffDuration} before event start).
           </DialogDescription>
-          {isPackage && !target.package.override && providerPolicy ? (
-            <p className="mt-2 text-sm text-muted-foreground">
-              Values are prefilled from your current Provider default for convenience. Publishing saves all three rules as a complete, independent package override.
-            </p>
-          ) : null}
         </div>
 
         <fieldset className="grid gap-4">
-          <legend className="text-lg font-bold">Customer refund percentages</legend>
-          <div className="grid gap-4 lg:grid-cols-3">
-            {REFUND_ELIGIBILITY_STAGES.map((stage) => (
-              <FormField
-                key={stage}
-                id={`refund-percent-${stage}`}
-                label={stagePresentation[stage].title}
-                description={stagePresentation[stage].description}
-                error={errors[stage]}
-                required
-              >
-                <div className="relative">
-                  <Input
-                    type="text"
-                    inputMode="decimal"
-                    autoComplete="off"
-                    value={values[stage]}
-                    onChange={(event) => {
-                      setValues((current) => ({...current, [stage]: event.target.value}));
-                      setErrors((current) => ({...current, [stage]: undefined}));
-                    }}
-                    className="pr-14"
-                  />
-                  <span aria-hidden="true" className="pointer-events-none absolute inset-y-0 right-4 flex items-center font-bold text-muted-foreground">%</span>
-                  <span className="sr-only">Enter a percentage from zero to one hundred.</span>
+          <legend className="text-lg font-bold">Customer refund rule</legend>
+          <div className="grid gap-4 md:grid-cols-2">
+            <FormField
+              id="refund-percent-before-cutoff"
+              label="Before Cancellation Cutoff"
+              description={`Cancelled more than ${cutoffDuration} before event start (0% to 100%).`}
+              error={errors.beforeCutoffPercent}
+              required
+            >
+              <div className="relative">
+                <Input
+                  type="text"
+                  inputMode="decimal"
+                  autoComplete="off"
+                  value={beforeCutoffPercent}
+                  onChange={(event) => {
+                    setBeforeCutoffPercent(event.target.value);
+                    setErrors((current) => ({...current, beforeCutoffPercent: undefined}));
+                  }}
+                  className="pr-14"
+                />
+                <span aria-hidden="true" className="pointer-events-none absolute inset-y-0 right-4 flex items-center font-bold text-muted-foreground">%</span>
+                <span className="sr-only">Enter a percentage from zero to one hundred.</span>
+              </div>
+            </FormField>
+
+            <div className="flex flex-col justify-between rounded-xl border border-border bg-muted/60 p-4">
+              <div>
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-sm font-bold text-foreground">After Cancellation Cutoff</p>
+                  <span className="inline-flex items-center gap-1 rounded-full bg-card px-2.5 py-0.5 text-xs font-semibold text-muted-foreground">
+                    <Lock aria-hidden="true" className="size-3" />
+                    Locked
+                  </span>
                 </div>
-              </FormField>
-            ))}
+                <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                  Within {cutoffDuration} of event start. New cancellation requests are closed once your cutoff passes.
+                </p>
+              </div>
+              <p className="mt-3 text-xl font-black text-foreground">0% · Cancellation closed</p>
+            </div>
           </div>
         </fieldset>
 
         <FormField
           id="refund-policy-terms"
           label="Additional notes (optional)"
-          description="Add details customers should know. These notes do not change the refund percentages."
+          description="Add details customers should know. These notes do not change the refund percentage."
           error={errors.terms}
         >
           <Textarea
@@ -419,19 +334,19 @@ function PolicyEditor({target, providerPolicy, onCancel, onPublished}: {
 
         <div className="rounded-xl bg-muted p-4 sm:p-5">
           <h3 className="font-bold">Refund preview</h3>
-          <dl className="mt-3 grid gap-3 sm:grid-cols-3">
-            {preview.map(({stage, display}) => (
-              <div key={stage} className="rounded-lg bg-card p-3">
-                <dt className="text-sm text-muted-foreground">
-                  If {stage === "preparation_not_started"
-                    ? "preparation has not started"
-                    : stage === "preparation_started"
-                      ? "preparation has started"
-                      : "service has started"}:
-                </dt>
-                <dd className="mt-1 font-bold">Customer refund: {display}%</dd>
-              </div>
-            ))}
+          <dl className="mt-3 grid gap-3 sm:grid-cols-2">
+            <div className="rounded-lg bg-card p-3">
+              <dt className="text-sm text-muted-foreground">
+                Before cutoff (more than {cutoffDuration} before event):
+              </dt>
+              <dd className="mt-1 font-bold">Customer refund: {previewPercent}%</dd>
+            </div>
+            <div className="rounded-lg bg-card p-3">
+              <dt className="text-sm text-muted-foreground">
+                After cutoff (within {cutoffDuration} of event):
+              </dt>
+              <dd className="mt-1 font-bold">Cancellation closed · 0% refund</dd>
+            </div>
           </dl>
           <p className="mt-3 text-xs text-muted-foreground">
             This is a preview. FEASTA calculates refunds using the published policy.
@@ -458,8 +373,8 @@ function PolicyEditor({target, providerPolicy, onCancel, onPublished}: {
       <ConfirmationDialog
         open={confirmOpen}
         onOpenChange={setConfirmOpen}
-        title={isPackage ? "Publish package refund policy?" : "Publish refund policy?"}
-        description="This creates a new policy version for future bookings. Existing bookings keep their original agreed policy."
+        title="Publish refund policy?"
+        description="This creates a new policy version for future bookings across all your packages and services. Existing bookings keep their original agreed policy."
         cancelLabel="Cancel"
         confirmLabel={submitLabel}
         loadingLabel="Publishing policy"
@@ -470,10 +385,18 @@ function PolicyEditor({target, providerPolicy, onCancel, onPublished}: {
   );
 }
 
-function PolicyCard({policy, action}: {
+function PolicyCard({
+  policy,
+  cutoffDuration,
+  action,
+}: {
   policy: ProviderRefundPolicyDto;
+  cutoffDuration: string;
   action?: React.ReactNode;
 }) {
+  const beforeRule = policy.rules.find((rule) => rule.stage === "preparation_not_started");
+  const beforeBps = beforeRule?.refundBasisPoints ?? 0;
+
   return (
     <div className="rounded-xl border border-border bg-card p-5 shadow-sm sm:p-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
@@ -484,7 +407,39 @@ function PolicyCard({policy, action}: {
         </div>
         {action}
       </div>
-      <PolicyRules policy={policy} />
+
+      <dl className="mt-5 grid gap-3 sm:grid-cols-2">
+        <div className="min-w-0 rounded-lg border border-primary/20 bg-primary-tint/40 p-4">
+          <dt className="text-sm font-bold text-foreground">
+            Before Cancellation Cutoff
+          </dt>
+          <dd className="mt-1 text-xs text-muted-foreground">
+            Cancelled more than {cutoffDuration} before event start
+          </dd>
+          <dd className="mt-2 text-2xl font-black text-primary-strong">
+            {formatBasisPoints(beforeBps)}%
+          </dd>
+          <dd className="mt-1 text-xs font-semibold text-muted-foreground">
+            {beforeBps === 0 ? "Non-refundable" : "Refundable to customer"}
+          </dd>
+        </div>
+
+        <div className="min-w-0 rounded-lg border border-border bg-muted p-4">
+          <dt className="text-sm font-bold text-foreground">
+            After Cancellation Cutoff
+          </dt>
+          <dd className="mt-1 text-xs text-muted-foreground">
+            Within {cutoffDuration} of event start
+          </dd>
+          <dd className="mt-2 text-2xl font-black text-foreground">
+            0%
+          </dd>
+          <dd className="mt-1 text-xs font-semibold text-muted-foreground">
+            Cancellation closed
+          </dd>
+        </div>
+      </dl>
+
       <div className="mt-5 border-t border-border pt-4">
         <h3 className="text-sm font-bold">Additional Policy Terms</h3>
         <p className="mt-1 whitespace-pre-wrap break-words text-sm text-muted-foreground">
@@ -495,103 +450,10 @@ function PolicyCard({policy, action}: {
   );
 }
 
-function PackagePolicyCard({item, providerPolicyExists, onEdit, onRemove}: {
-  item: ProviderPackageRefundPolicyDto;
-  providerPolicyExists: boolean;
-  onEdit: () => void;
-  onRemove: () => void;
-}) {
-  const editable = item.status !== "archived" && providerPolicyExists;
-  return (
-    <article className="min-w-0 rounded-xl border border-border bg-card p-5 shadow-sm sm:p-6">
-      <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            <h3 className="break-words text-lg font-bold">{item.name}</h3>
-            <StatusBadge status={item.status} />
-          </div>
-          <p className="mt-2 font-semibold">
-            {item.override ? "Package Override" : "Uses Provider Default"}
-          </p>
-          {!providerPolicyExists ? (
-            <p className="mt-1 text-sm text-warning">
-              Create your Provider default policy before managing package overrides.
-            </p>
-          ) : item.status === "archived" ? (
-            <p className="mt-1 text-sm text-muted-foreground">Archived package policies cannot be changed.</p>
-          ) : null}
-        </div>
-        <div className="flex flex-col gap-2 sm:flex-row">
-          <Button
-            variant="secondary"
-            size="compact"
-            disabled={!editable}
-            aria-label={`${item.override ? "Edit" : "Create"} refund policy override for ${item.name}`}
-            onClick={onEdit}
-          >
-            {item.override ? <Pencil aria-hidden="true" className="size-4" /> : <Plus aria-hidden="true" className="size-4" />}
-            {item.override ? "Edit Override" : "Create Override"}
-          </Button>
-          {item.override ? (
-            <Button
-              variant="ghost"
-              size="compact"
-              disabled={!editable}
-              aria-label={`Remove refund policy override for ${item.name}`}
-              onClick={onRemove}
-            >
-              <RotateCcw aria-hidden="true" className="size-4" />
-              Remove Override
-            </Button>
-          ) : null}
-        </div>
-      </div>
-      {item.override ? (
-        <>
-          <PolicyRules policy={item.override} />
-          <p className="mt-4 text-sm text-muted-foreground">
-            Version {item.override.version} · Updated {formatEffectiveAt(item.override.effectiveAt)}
-          </p>
-        </>
-      ) : null}
-    </article>
-  );
-}
-
-function PolicyRules({policy}: {policy: ProviderRefundPolicyDto}) {
-  return (
-    <dl className="mt-5 grid gap-3 sm:grid-cols-3">
-      {policy.rules.map((rule) => (
-        <div key={rule.stage} className="min-w-0 rounded-lg bg-muted p-4">
-          <dt className="text-sm font-semibold text-muted-foreground">
-            {stagePresentation[rule.stage].title}
-          </dt>
-          <dd className="mt-1 text-2xl font-black">
-            {formatBasisPoints(rule.refundBasisPoints)}%
-          </dd>
-        </div>
-      ))}
-    </dl>
-  );
-}
-
-function percentValues(policy: ProviderRefundPolicyDto | null): RefundPercentValues {
-  const defaults: RefundPercentValues = {
-    preparation_not_started: "100",
-    preparation_started: "50",
-    service_started: "0",
-  };
-  if (!policy) return defaults;
-  for (const rule of policy.rules) {
-    defaults[rule.stage] = formatBasisPoints(rule.refundBasisPoints);
-  }
-  return defaults;
-}
-
-function editorKey(editor: EditorTarget): string {
-  return editor.kind === "provider"
-    ? `provider-${editor.policy?.version ?? "new"}`
-    : `package-${editor.package.packageId}-${editor.package.override?.version ?? "new"}`;
+function beforeCutoffPercentValue(policy: ProviderRefundPolicyDto | null): string {
+  const beforeRule = policy?.rules.find((rule) => rule.stage === "preparation_not_started");
+  if (!beforeRule) return "100";
+  return formatBasisPoints(beforeRule.refundBasisPoints);
 }
 
 function formatEffectiveAt(value: string): string {

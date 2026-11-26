@@ -137,3 +137,63 @@ test("draft packages are not refreshed", () => {
   });
   assert.deepEqual(result, []);
 });
+
+test("skipUnavailablePackages refreshes fits-all and unaffected specific packages while skipping deactivated specific packages", () => {
+  const afterDeactivation = authority({
+    catalog: catalog([
+      {id: "birthday"},
+      {id: "wedding"},
+    ]),
+    catalogRevision: 25,
+    skipUnavailablePackages: true,
+  });
+  const result = plan({
+    packageRows: [
+      {
+        id: "pkg_all",
+        data: publishedV2({
+          occasionScope: "all",
+          occasionIds: [],
+          occasionMatchIds: ["birthday", "wedding", "baby_shower"],
+          occasionCatalogRevision: 24,
+        }),
+      },
+      {
+        id: "pkg_birthday",
+        data: publishedV2({
+          occasionScope: "specific",
+          occasionIds: ["birthday"],
+          eventType: "birthday",
+          occasionMatchIds: ["birthday"],
+          occasionCatalogRevision: 24,
+        }),
+      },
+      {
+        id: "pkg_deactivated_only",
+        data: publishedV2({
+          occasionScope: "specific",
+          occasionIds: ["baby_shower"],
+          eventType: "baby_shower",
+          occasionMatchIds: ["baby_shower"],
+          occasionCatalogRevision: 24,
+        }),
+      },
+    ],
+    ...afterDeactivation,
+  });
+  assert.deepEqual(result.map((item) => item.packageId), ["pkg_all", "pkg_birthday"]);
+  assert.deepEqual(result[0].patch.occasionMatchIds, ["birthday", "wedding"]);
+  assert.equal(result[0].patch.occasionCatalogRevision, 25);
+  assert.deepEqual(result[1].patch.occasionMatchIds, ["birthday"]);
+  assert.equal(result[1].patch.occasionCatalogRevision, 25);
+});
+
+test("skipUnavailablePackages still fails closed on malformed V2 contracts", () => {
+  assert.throws(() => plan({
+    packageRows: [{
+      id: "bad",
+      data: publishedV2({occasionIds: "not-an-array"}),
+    }],
+    ...authority({skipUnavailablePackages: true}),
+  }), /PACKAGE_DISCOVERY_REFRESH_REQUIRED/);
+});

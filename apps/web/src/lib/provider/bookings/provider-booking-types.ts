@@ -99,9 +99,11 @@ export type ProviderBooking = {
   specialOfferVat?: import("@/lib/customer/bookings/customer-booking-service-vat").CustomerBookingServiceVat;
   paymentAmount: number | null;
   remainingBalance: number | null;
-  /** Provider share after FEASTA commission. */
+  /** Provider share (100% of service subtotal on customer-paid bookings; after commission on legacy bookings). */
   providerNetAmount: number;
   commissionAmount: number;
+  isCustomerPaidFee?: boolean;
+  isDirectProviderSplit?: boolean;
   companyAdvanceRequestStatus:
     | "pending"
     | "approved"
@@ -126,6 +128,7 @@ export type ProviderBooking = {
   rejectionReason: string | null;
   cancellationReason: string | null;
   cancellationActor: string | null;
+  cancellationCutoff?: import("../cancellation-cutoff-view").BookingCancellationCutoffView | null;
   refundEligibility: ProviderRefundEligibilityView;
   timelineCount: number | null;
 };

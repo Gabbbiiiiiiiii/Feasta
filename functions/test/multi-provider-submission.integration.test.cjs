@@ -102,15 +102,22 @@ for (const count of [2, 3, 4]) test(`positive: ${count} providers create one can
   const event = f.records[`mainEvents/${result.mainEventId}`];
   assert.equal(event.customerId, identity.customerId);
   assert.equal(event.status, "pending_provider_approval");
-  assert.equal(event.estimatedEventTotal, count * 15000);
+  assert.equal(event.estimatedEventTotal, count * 15030);
   assert.deepEqual(event.providerRequestIds, result.providerRequestIds);
   for (const id of result.providerRequestIds) {
     const request = f.records[`providerRequests/${id}`];
     assert.equal(request.mainEventId, result.mainEventId);
     assert.equal(request.customerId, identity.customerId);
     assert.equal(request.status, "pending"); assert.equal(request.paymentStatus, "unpaid");
-    assert.equal(request.amount, 15000);
-    assert.equal(request.bookingPaymentAgreement.grossAmountInCentavos, 1500000);
+    assert.equal(request.amount, 15030);
+    assert.equal(request.serviceSubtotalInCentavos, 1500000);
+    assert.equal(request.platformFeeInCentavos, 3000);
+    assert.equal(request.platformCommissionRateBps, 20);
+    assert.equal(request.platformCommissionModel, "customer_paid_flat_v1");
+    assert.equal(request.bookingPaymentAgreement.grossAmountInCentavos, 1503000);
+    assert.equal(request.bookingPaymentAgreement.serviceSubtotalInCentavos, 1500000);
+    assert.equal(request.bookingPaymentAgreement.platformFeeInCentavos, 3000);
+    assert.equal(request.bookingPaymentAgreement.platformCommissionRateBps, 20);
     assert.equal(request.packagePaymentTerms.paymentPolicy, "full_payment");
     assert.equal(request.confirmedAt, null); assert.equal(request.paymentId, null);
     assert.ok(f.reads.includes(`providers/${request.providerId}`));
@@ -180,7 +187,10 @@ test("independent package acceptance, rejection aggregation and tamper protectio
     }
     const financial = buildProviderRequestFinancialSnapshot({providerId: request.providerId,
       providerOwnerId: f.records['providers/' + request.providerId].ownerId, providerRequest: request, platformSettings: null, providerTaxProfile: null});
-    assert.equal(financial.grossAmountInCentavos, 1500000);
+    assert.equal(financial.serviceSubtotalInCentavos, 1500000);
+    assert.equal(financial.platformCommissionTotalInCentavos, 3000);
+    assert.equal(financial.grossAmountInCentavos, 1503000);
+    assert.equal(financial.platformCommissionModel, 'customer_paid_flat_v1');
   }
   for (const document of requests.slice(0,2)) {
     const plan = providerAcceptancePlan({mainEventId: result.mainEventId, mainEvent: event,
@@ -208,11 +218,11 @@ test("each package retains its distinct price, revision and payment authority", 
   const result = await submit(f.firestore, identity, f.input);
   const event = f.records['mainEvents/' + result.mainEventId];
   const requests = result.providerRequestIds.map(id => f.records['providerRequests/' + id]);
-  assert.deepEqual(requests.map(r => r.amount), [15000, 23000]);
+  assert.deepEqual(requests.map(r => r.amount), [15030, 23046]);
   assert.deepEqual(requests.map(r => r.packageRevision), [3, 4]);
-  assert.equal(event.estimatedEventTotal, 38000);
-  assert.equal(event.totalAmount, 38000);
-  assert.equal(event.downPaymentAmount, 38000);
+  assert.equal(event.estimatedEventTotal, 38076);
+  assert.equal(event.totalAmount, 38076);
+  assert.equal(event.downPaymentAmount, 38076);
   assert.equal(event.marketplaceAddOnsTotal, 0);
   for (const request of requests) validate({authorized: {providerId: request.providerId,
     requestData: request}, mainEventData: event, now: new Date()});
@@ -231,7 +241,7 @@ test("independent packages can use distinct authoritative payment terms", async 
   const result = await submit(f.firestore, identity, f.input);
   const event = f.records['mainEvents/' + result.mainEventId];
   const requests = result.providerRequestIds.map(id => f.records['providerRequests/' + id]);
-  assert.deepEqual(requests.map(r => r.downPaymentAmount), [15000, 7500]);
+  assert.deepEqual(requests.map(r => r.downPaymentAmount), [15030, 7515]);
   for (const request of requests) validate({authorized: {providerId: request.providerId,
     requestData: request}, mainEventData: event, now: new Date()});
 });

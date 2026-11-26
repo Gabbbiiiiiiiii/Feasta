@@ -10,6 +10,8 @@ import {db} from "../shared/firestore.js";
 import {appCheckCallableOptions} from "../shared/function-options.js";
 import {enforceCallableRateLimit} from "../shared/rate-limit.js";
 import {authorizeProviderForPackageManagement} from "./package-domain.js";
+import {planTransactionalV2DiscoveryRefresh,
+  type DiscoveryRefreshPlanItem} from "./occasion-package-discovery-refresh.js";
 import {parseOccasionReview, parseOccasionSuggestion} from "./occasion-suggestion-v2-validation.js";
 import {normalizeSuggestionName, decideSuggestionSubmission} from
   "./provider-occasion-suggestion-v2-domain.js";
@@ -196,6 +198,7 @@ export const reviewOccasionSuggestion = onCall(appCheckCallableOptions, async (r
     let targetActive: boolean | null = null;
     let catalogAfter = catalogBefore;
     let newTarget: Data | null = null;
+    let refreshPlan: DiscoveryRefreshPlanItem[] = [];
     const now = Timestamp.now();
     if (input.decision === "approve_new") {
       const n = input.newOccasion;
@@ -224,6 +227,20 @@ export const reviewOccasionSuggestion = onCall(appCheckCallableOptions, async (r
       if (!Number.isSafeInteger(catalogAfter)) fail("CONFIG_UNAVAILABLE");
       newTarget = {...n, normalizedName: normalizeSuggestionName(n.label), active: false,
         moderationState: "approved", revision: 1, createdBy: uid, createdAt: now, updatedAt: now};
+      try {
+        refreshPlan = await planTransactionalV2DiscoveryRefresh(tx, db, {
+          nextCatalogRevision: catalogAfter,
+          preloadedOccasions: all.map((d) => ({...d.data(), id: d.id})),
+          skipUnavailablePackages: true,
+        });
+      } catch (error) {
+        if (error instanceof Error &&
+            (error.message === "PACKAGE_DISCOVERY_REFRESH_REQUIRED" ||
+             error.message === "PACKAGE_INVENTORY_TOO_LARGE")) {
+          fail(error.message);
+        }
+        throw error;
+      }
     } else if (input.decision !== "reject") {
       targetId = input.targetOccasionId;
       const target = (await tx.get(db.collection("occasions").doc(targetId))).data();
@@ -272,6 +289,13 @@ export const reviewOccasionSuggestion = onCall(appCheckCallableOptions, async (r
             createdAt: now, updatedAt: now});
       }
       tx.update(catalog, {revision: catalogAfter, updatedAt: now});
+      for (const entry of refreshPlan) {
+        if (!entry.changed) continue;
+        tx.update(db.collection("packages").doc(entry.packageId), {
+          ...entry.patch,
+          updatedAt: now,
+        });
+      }
     }
     tx.update(ref, {status, resolvedOccasionId: targetId, revision: nextRevision,
       reviewedBy: uid, reviewedAt: now, reviewReason: input.reason, updatedAt: now});

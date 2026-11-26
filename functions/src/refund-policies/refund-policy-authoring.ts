@@ -38,7 +38,14 @@ import {
   requireString,
 } from "../shared/validation.js";
 import {
+  CANCELLATION_POLICY_SETTINGS_DOC_ID,
+  parseStoredAdminCancellationPolicy,
+  parseStoredProviderCancellationPolicy,
+  resolveEffectiveCancellationPolicy,
+} from "../cancellations/cancellation-policy-domain.js";
+import {
   buildNextRefundPolicy,
+  buildUnifiedCutoffRefundRules,
   effectiveRefundPolicyKey,
   parseRefundPolicyDraft,
   parseStoredRefundPolicy,
@@ -243,12 +250,16 @@ async function publishProviderPolicy(
   const userReference = db
     .collection("users")
     .doc(input.actorUid);
+  const adminCancellationReference = db
+    .collection("appSettings")
+    .doc(CANCELLATION_POLICY_SETTINGS_DOC_ID);
 
   return db.runTransaction(
     async (transaction) => {
-      const userSnapshot =
-        await transaction.get(
+      const [userSnapshot, adminCancellationSnapshot] =
+        await transaction.getAll(
           userReference,
+          adminCancellationReference,
         );
 
       const providerId =
@@ -280,6 +291,32 @@ async function publishProviderPolicy(
           "Provider refund policy",
         );
 
+      const adminCancellationPolicy =
+        parseStoredAdminCancellationPolicy(
+          adminCancellationSnapshot.exists
+            ? adminCancellationSnapshot.data()
+            : null,
+        );
+      const providerCancellationPolicy =
+        parseStoredProviderCancellationPolicy(
+          provider.providerData.cancellationPolicy,
+        );
+      const effectiveCancellation =
+        resolveEffectiveCancellationPolicy(
+          providerCancellationPolicy,
+          adminCancellationPolicy,
+        );
+
+      const unifiedDraft: RefundPolicyDraft = {
+        rules: buildUnifiedCutoffRefundRules({
+          beforeCutoffBasisPoints:
+            input.draft.rules[0].refundBasisPoints,
+          effectiveCutoffHoursBeforeEvent:
+            effectiveCancellation.cutoffHoursBeforeEvent,
+        }),
+        terms: input.draft.terms,
+      };
+
       const timestamp =
         serverTimestamp();
 
@@ -288,7 +325,7 @@ async function publishProviderPolicy(
           currentPolicyVersion:
             currentPolicy
               ?.policyVersion ?? null,
-          draft: input.draft,
+          draft: unifiedDraft,
           effectiveAt: timestamp,
         });
 

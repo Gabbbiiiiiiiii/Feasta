@@ -1,7 +1,19 @@
+import {dropOffOrderLimit} from "@feasta/shared-types/provider-package-v2";
 import {convertSpecialOfferToBooking} from "./convert-special-offer.js";
 import {refundPolicyDisclosures} from "./booking-refund-policy.js";
+import {
+  CANCELLATION_POLICY_SETTINGS_DOC_ID,
+  parseStoredAdminCancellationPolicy,
+  parseStoredProviderCancellationPolicy,
+  resolveEffectiveCancellationPolicy,
+} from "../cancellations/cancellation-policy-domain.js";
 import {loadSpecialOfferRefundPolicies} from "./special-offer-refund-policy.js";
 import {buildProviderRequestFinancialSnapshot} from "../provider-requests/provider-request-financial-snapshot.js";
+import {
+  computeCustomerPaidPlatformFeeInCentavos,
+  PLATFORM_COMMISSION_MODEL_CUSTOMER_PAID_FLAT_V1,
+  resolvePlatformCommissionRateBps,
+} from "../payments/platform-commission-policy.js";
 import {Timestamp} from "firebase-admin/firestore";
 import {AVAILABILITY_COUNTED_REQUEST_STATUSES, manilaDateFromKey, validateProviderAvailability} from "../provider-availability/validate-provider-availability.js";
 import {createHash} from "node:crypto";
@@ -110,6 +122,10 @@ export const submitSpecialRequest = onCall(appCheckCallableOptions, async reques
       await requireCustomerPackageV2(tx, catalogPackage, "discovery");
     }
     await requireActiveServiceCategoryInTransaction(tx, catalogPackage.serviceCategoryCode, "catering");
+    const limit = dropOffOrderLimit(catalogPackage.pricingModel, catalogPackage.maxDropOffOrderQuantity);
+    if (typeof quantity === "number" && quantity > limit) {
+      throw new HttpsError("invalid-argument", `The maximum for this package is ${limit} per order.`);
+    }
     const unitAmountInCentavos = dropOffSpecialRequestUnitPrice(catalogPackage, provider.providerServiceType);
     const subtotalInCentavos = unitAmountInCentavos === null ? null :
       specialRequestPackageSubtotal(unitAmountInCentavos, quantity);
@@ -174,16 +190,39 @@ export const listSpecialRequests = onCall(appCheckCallableOptions, async request
       const details = publicRequest(id, row);
       if (details.status !== "quotation_sent" ||
           !isDropOffSpecialRequest(row)) return {requests: [details]};
-      const [provider, catalogPackage] = await Promise.all([
+      const [provider, catalogPackage, cancellationPolicyDoc] = await Promise.all([
         tx.get(db.collection("providers").doc(row.providerId)),
         tx.get(db.collection("packages").doc(row.packageId)),
+        tx.get(db.collection("appSettings").doc(CANCELLATION_POLICY_SETTINGS_DOC_ID)),
       ]);
       try {
+        const providerData = provider.data() ?? {};
         const policies = await loadSpecialOfferRefundPolicies(tx, {
-          providerId: row.providerId, providerName: row.providerName, providerData: provider.data() ?? {},
+          providerId: row.providerId, providerName: row.providerName, providerData,
           packageRecord: {packageId: row.packageId, data: catalogPackage.data() ?? {}},
         });
-        return {requests: [{...details, refundPolicies: refundPolicyDisclosures(policies)}]};
+        const adminCancellationPolicy = parseStoredAdminCancellationPolicy(
+          cancellationPolicyDoc.exists ? cancellationPolicyDoc.data() : null,
+        );
+        const effectiveCancellation = resolveEffectiveCancellationPolicy(
+          parseStoredProviderCancellationPolicy(providerData.cancellationPolicy),
+          adminCancellationPolicy,
+        );
+        return {
+          requests: [
+            {
+              ...details,
+              refundPolicies: refundPolicyDisclosures(policies).map((disclosure) => ({
+                ...disclosure,
+                cancellationCutoff: {
+                  sourceKind: effectiveCancellation.sourceKind,
+                  cutoffHoursBeforeEvent: effectiveCancellation.cutoffHoursBeforeEvent,
+                  guidanceNote: effectiveCancellation.guidanceNote,
+                },
+              })),
+            },
+          ],
+        };
       } catch (error) {
         if (!(error instanceof HttpsError) || error.code !== "failed-precondition") throw error;
         return {requests: [{...details, refundPolicyError: error.message}]};
@@ -307,11 +346,23 @@ export const updateSpecialRequest = onCall(appCheckCallableOptions, async reques
         tx.get(db.doc("appSettings/platform")),
         tx.get(db.collection("providerTaxProfiles").doc(row.providerId)),
       ]);
+      const platformSettings = platformDoc.data() ?? null;
+      const platformCommissionRateBps = resolvePlatformCommissionRateBps(platformSettings);
+      const platformFee = computeCustomerPaidPlatformFeeInCentavos(subtotal, platformCommissionRateBps);
+      const total = subtotal + platformFee;
       const pricing = buildProviderRequestFinancialSnapshot({
         providerId: row.providerId,
         providerOwnerId: provider.ownerId,
-        providerRequest: {amount: subtotal / 100, downPaymentAmount: subtotal / 100, remainingBalance: 0},
-        platformSettings: platformDoc.data() ?? null,
+        providerRequest: {
+          amount: total / 100,
+          downPaymentAmount: total / 100,
+          remainingBalance: 0,
+          serviceSubtotalInCentavos: subtotal,
+          platformFeeInCentavos: platformFee,
+          platformCommissionRateBps,
+          platformCommissionModel: PLATFORM_COMMISSION_MODEL_CUSTOMER_PAID_FLAT_V1,
+        },
+        platformSettings,
         providerTaxProfile: taxDoc.data() ?? null,
       });
       holds[id] = {date: row.eventDate, expiresAtMs};
@@ -322,8 +373,10 @@ export const updateSpecialRequest = onCall(appCheckCallableOptions, async reques
         unitAmountInCentavos: row.unitAmountInCentavos,
         quantity: row.quantity,
         subtotalInCentavos: subtotal,
+        platformFeeInCentavos: platformFee,
+        platformCommissionRateBps,
         deliveryIncluded: true,
-        totalInCentavos: subtotal,
+        totalInCentavos: total,
         pricing,
         notes: message,
       };

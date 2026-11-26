@@ -1,3 +1,5 @@
+import {parseArrangedPaymentOffer} from "../provider-requests/arranged-payment-offer.js";
+
 /** Immutable new-booking contract. Legacy v1/v2 contracts never pass this parser. */
 export const BOOKING_POLICY_SCHEMA_VERSION = 3;
 export const PAYMENT_DEFAULT_RATES = Object.freeze({
@@ -81,6 +83,13 @@ export function frozenBookingPolicyTimingV3(request: Readonly<Record<string, unk
     return result;
   };
   const expected = bookingPolicyTimingV3(stored(request.eventStartAt));
+  const arrangement = parseArrangedPaymentOffer(request.arrangedPaymentOffer);
+  if (arrangement?.status === "accepted") {
+    const arrangedDue = arrangement.balanceDueAt.toDate();
+    if (arrangedDue > expected.remainingBalanceDueAt) throw new Error("Arranged balance exceeds the standard deadline.");
+    expected.remainingBalanceDueAt = arrangedDue;
+    expected.hardPaymentDeadlineAt = new Date(arrangedDue.getTime() + 24 * HOUR_MS);
+  }
   for (const key of ["depositEligibilityCutoffAt", "remainingBalanceDueAt", "hardPaymentDeadlineAt",
     "preparationStartsAt"] as const) {
     if (stored(request[key]).getTime() !== expected[key].getTime()) {

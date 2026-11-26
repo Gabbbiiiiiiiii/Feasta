@@ -192,11 +192,11 @@ test(
 );
 
 test(
-  "draft updates preserve server-owned private lifecycle state",
+  "draft and published updates enforce lifecycle authorization and visibility invariants",
   () => {
     assert.ok(
       updatePackage.includes(
-        "assertDraftPackage",
+        "assertEditablePackage",
       ),
     );
 
@@ -213,6 +213,22 @@ test(
           projection,
         ),
         `draft update must preserve ${projection}`,
+      );
+    }
+
+    for (const control of [
+      "assertLegacyPackagePublication",
+      "assertPackagePublishable",
+      "isProviderPubliclyEligible",
+      "requireMaintenanceOpen",
+      'status: "published"',
+      "isActive: true",
+      "isPublished: true",
+      "providerPubliclyVisible: true",
+    ]) {
+      assert.ok(
+        updatePackage.includes(control),
+        `published update must enforce ${control}`,
       );
     }
   },

@@ -6,10 +6,17 @@ import {
   AgreementTemplateManagement,
   BusinessDocumentManagement,
 } from "@/components/admin/file-maintenance/document-catalog-management-client";
+import {CancellationPolicyManagementClient} from "@/components/admin/file-maintenance/cancellation-policy-management-client";
 import {ServiceCategoryManagementClient} from "@/components/admin/file-maintenance/service-category-management-client";
 import {OccasionManagementClient} from "@/components/admin/file-maintenance/occasion-management-client";
 import {PageHeading} from "@/components/layout/page-heading";
 import {Button} from "@/components/ui/button";
+import {
+  DEFAULT_ADMIN_CANCELLATION_CUTOFF_HOURS,
+  DEFAULT_ADMIN_CANCELLATION_MAX_HOURS,
+  DEFAULT_ADMIN_CANCELLATION_MIN_HOURS,
+  type AdminDefaultCancellationPolicyDto,
+} from "@feasta/shared-types";
 import type {
   AdminAgreementTemplate,
   AdminBusinessDocumentType,
@@ -22,7 +29,18 @@ const SECTIONS = [
   {id: "agreements", label: "Agreements"},
   {id: "business-documents", label: "Business documents"},
   {id: "occasions", label: "Event Types / Occasions"},
+  {id: "cancellation-policy", label: "Cancellation Policy"},
 ] as const;
+
+const FALLBACK_CANCELLATION_POLICY: AdminDefaultCancellationPolicyDto = {
+  policyVersion: 1,
+  defaultCutoffHoursBeforeEvent: DEFAULT_ADMIN_CANCELLATION_CUTOFF_HOURS,
+  minCutoffHoursBeforeEvent: DEFAULT_ADMIN_CANCELLATION_MIN_HOURS,
+  maxCutoffHoursBeforeEvent: DEFAULT_ADMIN_CANCELLATION_MAX_HOURS,
+  guidanceNote: null,
+  updatedAt: null,
+  isSeededFallback: true,
+};
 
 type SectionId = (typeof SECTIONS)[number]["id"];
 
@@ -31,11 +49,13 @@ export function FileMaintenanceClient({
   initialAgreements,
   initialAgreementTypes = [],
   initialBusinessDocuments,
+  initialCancellationPolicy = FALLBACK_CANCELLATION_POLICY,
 }: {
   initialCategories: AdminServiceCategory[];
   initialAgreements: AdminAgreementTemplate[];
   initialAgreementTypes?: AgreementTypeRecord[];
   initialBusinessDocuments: AdminBusinessDocumentType[];
+  initialCancellationPolicy?: AdminDefaultCancellationPolicyDto;
 }) {
   const [section, setSection] =
   useState<SectionId>("service-categories");
@@ -49,7 +69,7 @@ export function FileMaintenanceClient({
       <PageHeading
         eyebrow="Administration"
         title="File Maintenance"
-        description="Manage service categories, occasions, agreements, and required business documents."
+        description="Manage service categories, occasions, agreements, business documents, and default cancellation policy."
       />
       <div
         className="flex min-w-0 gap-2 overflow-x-auto pb-1"
@@ -105,6 +125,9 @@ export function FileMaintenanceClient({
           />
         ) : null}
         {section === "occasions" ? <OccasionManagementClient categories={categories} onDirtyChange={setOccasionDirty} /> : null}
+        {section === "cancellation-policy" ? (
+          <CancellationPolicyManagementClient initialPolicy={initialCancellationPolicy} />
+        ) : null}
       </div>
     </div>
   );

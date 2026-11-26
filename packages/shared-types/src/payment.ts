@@ -61,27 +61,78 @@ export const MAX_BALANCE_DUE_DAYS_BEFORE_EVENT =
  * authority for new financial snapshots.
  */
 export const DEFAULT_PLATFORM_COMMISSION_RATE_BPS =
-  200;
+  20;
 
 export const DEFAULT_PLATFORM_VAT_RATE_BPS =
   1_200;
 
 /**
- * Provider-friendly tiered capped commission model.
+ * Dynamic flat customer-paid FEASTA service fee model (no cap).
  *
- * Configurable base rate (default 2%) with dynamic
- * caps so high-value bookings are not charged a
- * large uncapped percentage.
+ * Customer pays serviceSubtotal + applyBasisPoints(serviceSubtotal, rateBps).
+ * Provider receives 100% of serviceSubtotal.
+ */
+export const PLATFORM_COMMISSION_MODEL_CUSTOMER_PAID_FLAT_V1 =
+  "customer_paid_flat_v1" as const;
+
+/**
+ * Legacy provider-deducted tiered capped commission model.
+ * Retained for historical booking snapshots and ledger reads.
  */
 export const PLATFORM_COMMISSION_MODEL_TIERED_CAPPED_2PCT_V1 =
   "tiered_capped_2pct_v1" as const;
 
 export type PlatformCommissionModel =
-  typeof PLATFORM_COMMISSION_MODEL_TIERED_CAPPED_2PCT_V1;
+  | typeof PLATFORM_COMMISSION_MODEL_CUSTOMER_PAID_FLAT_V1
+  | typeof PLATFORM_COMMISSION_MODEL_TIERED_CAPPED_2PCT_V1;
 
 export const DEFAULT_PLATFORM_COMMISSION_MODEL:
   PlatformCommissionModel =
-  PLATFORM_COMMISSION_MODEL_TIERED_CAPPED_2PCT_V1;
+  PLATFORM_COMMISSION_MODEL_CUSTOMER_PAID_FLAT_V1;
+
+/**
+ * Direct-to-provider instant split settlement routing.
+ *
+ * Customer pays once via PayMongo (service subtotal + FEASTA service fee).
+ * On payment.paid, 100% of the service subtotal settles immediately to the
+ * provider (0-day hold, no Admin custody) and FEASTA retains only its fee.
+ */
+export const PAYMENT_SETTLEMENT_ROUTING_DIRECT_SPLIT_V1 =
+  "direct_provider_split_v1" as const;
+
+/**
+ * Legacy platform-escrow settlement routing (3-banking-day post-event hold
+ * and Admin/Platform payout release). Preserved for historical bookings.
+ */
+export const PAYMENT_SETTLEMENT_ROUTING_PLATFORM_ESCROW_V1 =
+  "platform_escrow_v1" as const;
+
+export type PaymentSettlementRoutingMode =
+  | typeof PAYMENT_SETTLEMENT_ROUTING_DIRECT_SPLIT_V1
+  | typeof PAYMENT_SETTLEMENT_ROUTING_PLATFORM_ESCROW_V1;
+
+export const DEFAULT_PAYMENT_SETTLEMENT_ROUTING:
+  PaymentSettlementRoutingMode =
+  PAYMENT_SETTLEMENT_ROUTING_DIRECT_SPLIT_V1;
+
+export function parsePaymentSettlementRoutingMode(
+  value: unknown,
+): PaymentSettlementRoutingMode | null {
+  if (
+    value === PAYMENT_SETTLEMENT_ROUTING_DIRECT_SPLIT_V1 ||
+    value === PAYMENT_SETTLEMENT_ROUTING_PLATFORM_ESCROW_V1
+  ) {
+    return value;
+  }
+
+  return null;
+}
+
+export function isDirectProviderSplitRouting(
+  value: unknown,
+): value is typeof PAYMENT_SETTLEMENT_ROUTING_DIRECT_SPLIT_V1 {
+  return value === PAYMENT_SETTLEMENT_ROUTING_DIRECT_SPLIT_V1;
+}
 
 /** ₱25,000 — end of pure 2% band (inclusive). */
 export const TIERED_COMMISSION_PURE_RATE_MAX_CENTAVOS =
@@ -506,13 +557,43 @@ export function allocateCumulativeFixedTotal(
   );
 }
 
+export function isCustomerPaidCommissionModel(
+  model: unknown,
+): model is typeof PLATFORM_COMMISSION_MODEL_CUSTOMER_PAID_FLAT_V1 {
+  return model === PLATFORM_COMMISSION_MODEL_CUSTOMER_PAID_FLAT_V1;
+}
+
+/**
+ * Dynamic uncapped customer-paid FEASTA service fee on the provider's
+ * service subtotal (in integer centavos), using half-up rounding.
+ */
+export function computeCustomerPaidPlatformFeeInCentavos(
+  serviceSubtotalInCentavos: unknown,
+  rateBps: number = DEFAULT_PLATFORM_COMMISSION_RATE_BPS,
+): number | null {
+  if (
+    !isNonNegativeSafeInteger(serviceSubtotalInCentavos) ||
+    !Number.isSafeInteger(rateBps) ||
+    rateBps <= 0 ||
+    rateBps > BASIS_POINTS_SCALE
+  ) {
+    return null;
+  }
+
+  return applyBasisPoints(serviceSubtotalInCentavos, rateBps);
+}
+
 export function parsePlatformCommissionModel(
   value: unknown,
 ): PlatformCommissionModel | null {
-  return value ===
-    PLATFORM_COMMISSION_MODEL_TIERED_CAPPED_2PCT_V1
-    ? PLATFORM_COMMISSION_MODEL_TIERED_CAPPED_2PCT_V1
-    : null;
+  if (
+    value === PLATFORM_COMMISSION_MODEL_CUSTOMER_PAID_FLAT_V1 ||
+    value === PLATFORM_COMMISSION_MODEL_TIERED_CAPPED_2PCT_V1
+  ) {
+    return value;
+  }
+
+  return null;
 }
 
 function isBasisPointRate(

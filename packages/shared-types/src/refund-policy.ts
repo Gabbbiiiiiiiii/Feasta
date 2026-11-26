@@ -1,3 +1,5 @@
+import type {CancellationCutoffDisclosure} from "./cancellation-policy.js";
+
 export const REFUND_POLICY_SCHEMA_VERSION = 1 as const;
 
 export const REFUND_ELIGIBILITY_STAGES = [
@@ -64,6 +66,7 @@ export type EffectiveRefundPolicyDisclosure = {
   policyVersion: number;
   rules: readonly RefundPolicyRule[];
   terms: string | null;
+  cancellationCutoff?: CancellationCutoffDisclosure;
 };
 
 export type RefundPolicySnapshot<

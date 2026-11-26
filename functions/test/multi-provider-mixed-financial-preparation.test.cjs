@@ -57,6 +57,13 @@ compiled.require = function(specifier) {
     };
   }
 
+  if (specifier === "../payments/platform-commission-policy.js") {
+    return require(path.resolve(
+      __dirname,
+      "../lib/payments/platform-commission-policy.js",
+    ));
+  }
+
   return originalRequire(specifier);
 };
 

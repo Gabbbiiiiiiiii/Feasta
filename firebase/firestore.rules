@@ -691,6 +691,7 @@ service cloud.firestore {
             'canonicalRatingTotal',
             'canonicalRatingDistribution',
             'refundPolicy',
+            'cancellationPolicy',
             'walkInReservedDates',
             'walkInReservedCounts',
             'specialOfferHolds',
@@ -1572,6 +1573,7 @@ service cloud.firestore {
       allow create, update: if isAdmin() &&
           settingId != 'platform' &&
           settingId != 'refundPolicyBookingAgreement' &&
+          settingId != 'cancellationPolicy' &&
           settingId != 'cancellationRefundRollout' &&
             settingId != 'initialPaymentExpirationPhaseA' &&
           settingId != 'customerBookingSearch';

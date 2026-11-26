@@ -386,22 +386,49 @@ ProviderLocationCoordinates? _providerCoordinates(dynamic value) {
 
 class PackageModel {
   String get priceUnitLabel => pricingModel == 'per_pax' ? 'Per guest' : pricingModel == 'per_bundle' ? 'Fixed bundle' : 'Package price';
-  String get occasionDisplayLabel => occasionScope == 'all' ? 'Fits All' :
-    sharedContractVersion == 2 ? occasionMatchIds.join(', ') : eventType;
+  String get occasionDisplayLabel {
+    if (occasionScope == 'all') return 'Fits All';
+    final ids = sharedContractVersion == 2
+        ? occasionMatchIds
+        : (eventType.isNotEmpty ? [eventType] : const <String>[]);
+    if (customOccasionLabels.isEmpty || !ids.contains('other')) {
+      return ids.join(', ');
+    }
+    final labels = <String>[];
+    final seen = <String>{};
+    void add(String label) {
+      final key = label.trim().toLowerCase();
+      if (key.isEmpty || !seen.add(key)) return;
+      labels.add(label.trim());
+    }
+    for (final id in ids) {
+      if (id == 'other') {
+        for (final label in customOccasionLabels) {
+          add(label);
+        }
+      } else {
+        add(id);
+      }
+    }
+    return labels.join(', ');
+  }
 
   final int? sharedContractVersion;
   final int? revision;
   final String? offerStructure;
   final String? paymentPolicy;
+  final bool? fullPaymentAllowed;
   final int? paymentTermsSchemaVersion;
   final double? depositPercentage;
   final int? balanceDueDaysBeforeEvent;
   final int? balanceDueHoursBeforeEvent;
   final List<String> imageUrls;
   final String? pricingModel;
+  final int? maxDropOffOrderQuantity;
   final String? serviceCategoryCode;
   final String? occasionScope;
   final List<String> occasionMatchIds;
+  final List<String> customOccasionLabels;
   final List<String> equipmentInclusions;
   final List<FoodChoiceGroupV2> foodChoiceGroups;
   final String id;
@@ -436,15 +463,18 @@ class PackageModel {
     this.revision,
     this.offerStructure,
     this.paymentPolicy,
+    this.fullPaymentAllowed,
     this.paymentTermsSchemaVersion,
     this.depositPercentage,
     this.balanceDueDaysBeforeEvent,
     this.balanceDueHoursBeforeEvent,
     this.imageUrls = const [],
     this.pricingModel,
+    this.maxDropOffOrderQuantity,
     this.serviceCategoryCode,
     this.occasionScope,
     this.occasionMatchIds = const [],
+    this.customOccasionLabels = const [],
     this.equipmentInclusions = const [],
     this.foodChoiceGroups = const [],
     required this.id,
@@ -489,6 +519,8 @@ class PackageModel {
           ? data['offerStructure'] as String : null,
       paymentPolicy: ['full_payment', 'deposit_then_balance'].contains(data['paymentPolicy'])
           ? data['paymentPolicy'] as String : null,
+      fullPaymentAllowed: data['paymentPolicy'] == 'deposit_then_balance' && data['fullPaymentAllowed'] is bool
+          ? data['fullPaymentAllowed'] as bool : null,
       paymentTermsSchemaVersion: data['paymentTermsSchemaVersion'] == 2 ? 2 : null,
       depositPercentage: data['depositPercentage'] is num
           ? (data['depositPercentage'] as num).toDouble() : null,
@@ -497,9 +529,13 @@ class PackageModel {
       balanceDueHoursBeforeEvent: data['balanceDueHoursBeforeEvent'] as int?,
       imageUrls: List.unmodifiable(imageUrls.isNotEmpty ? imageUrls : [if (image.isNotEmpty) image]),
       serviceCategoryCode: data['serviceCategoryCode'] is String ? data['serviceCategoryCode'] as String : null,
+      maxDropOffOrderQuantity: data['maxDropOffOrderQuantity'] is int
+          ? data['maxDropOffOrderQuantity'] as int
+          : null,
       pricingModel: ['per_pax', 'per_bundle'].contains(data['pricingModel'])
           ? data['pricingModel'] as String : null, occasionScope: data['occasionScope'] as String?,
       occasionMatchIds: stringListFromValue(data['occasionMatchIds']),
+      customOccasionLabels: stringListFromValue(data['customOccasionLabels']),
       equipmentInclusions: stringListFromValue(data['equipmentInclusions']),
       id: id,
       providerId: data['providerId'] ?? '',

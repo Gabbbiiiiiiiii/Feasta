@@ -3,7 +3,7 @@ import {isCurrentCustomerPackageV2, isV2PaymentPolicyValid,
 import {isDeepStrictEqual} from "node:util";
 import type {Transaction} from "firebase-admin/firestore";
 import {HttpsError, onCall} from "firebase-functions/v2/https";
-import type {GlobalOccasion} from "@feasta/shared-types/provider-package-v2";
+import {parsePrivatePackageOccasions, type GlobalOccasion} from "@feasta/shared-types/provider-package-v2";
 import {db} from "../shared/firestore.js";
 import {isProviderPubliclyEligible} from "../shared/constants.js";
 import {appCheckCallableOptions} from "../shared/function-options.js";
@@ -15,11 +15,11 @@ import {projectPublicOccasionV2} from "./provider-package-v2-public-occasion-con
 import {parseV2DraftWrite} from "./provider-package-drafts-v2.js";
 import {exact, documentId, positiveRevision} from "./v2-validation.js";
 const fields = ["name", "description", "serviceCategoryCode", "price", "serviceOptions",
-  "themeOptions", "paymentPolicy", "depositPercentage", "minimumGuests", "maximumGuests",
+  "themeOptions", "paymentPolicy", "fullPaymentAllowed", "depositPercentage", "minimumGuests", "maximumGuests",
   "imageUrl", "imageUrls", "foodInclusions", "decorInclusions", "furnitureInclusions",
   "serviceInclusions", "occasionSchemaVersion", "occasionScope", "occasionIds",
   "offerSchemaVersion",
-  "sharedContractVersion", "offerStructure", "packageStyle", "pricingModel", "equipmentInclusions", "foodChoiceGroups"];
+  "sharedContractVersion", "offerStructure", "packageStyle", "pricingModel", "equipmentInclusions", "foodChoiceGroups", "maxDropOffOrderQuantity"];
 function unavailable(): never {
   throw new HttpsError("failed-precondition", "This package is unavailable or changed. Reload it.",
     {reason: "PACKAGE_V2_UNAVAILABLE"});
@@ -100,7 +100,23 @@ export const getCustomerPackageV2 = onCall({...appCheckCallableOptions, timeoutS
     return db.runTransaction(async tx => {
       const snapshot = await tx.get(db.doc("packages/" + id));
       if (!snapshot.exists) unavailable();
-      return {packageId: id,
-        package: await requireCustomerPackageV2(tx, snapshot.data()!, "discovery")};
+      const verified = await requireCustomerPackageV2(tx, snapshot.data()!, "discovery");
+      let customOccasionLabels: string[] = [];
+      if (verified.occasionScope === "specific" && verified.occasionMatchIds.includes("other")) {
+        const customSnap = await tx.get(
+          db.collection("providers").doc(verified.providerId).collection("packagePrivateOccasions").doc(id),
+        );
+        const rawLabels = customSnap.exists ? customSnap.get("labels") : null;
+        if (Array.isArray(rawLabels) && rawLabels.length > 0) {
+          try { customOccasionLabels = parsePrivatePackageOccasions(rawLabels); }
+          catch { customOccasionLabels = []; }
+        }
+      }
+      return {
+        packageId: id,
+        package: customOccasionLabels.length > 0
+          ? {...verified, customOccasionLabels}
+          : verified,
+      };
     });
   });

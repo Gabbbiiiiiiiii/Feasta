@@ -9,6 +9,7 @@ import {Input} from "@/components/ui/input";
 import {Select} from "@/components/ui/select";
 import {categoryKey, categoryNameError} from "@/lib/provider/package-food-inclusions";
 import {loadDishLibrary, saveDishLibrary, type LibraryDish} from "./dish-library-actions";
+import {usePackageConfirmation} from "./use-package-confirmation";
 
 type Library = Awaited<ReturnType<typeof loadDishLibrary>>;
 type Props = {
@@ -18,6 +19,7 @@ type Props = {
   destination?: string;
   limitLabel?: string;
   parentGroup?: string;
+  includeUngrouped?: boolean;
 };
 
 function categoryRows(library: Library, includeEmpty: boolean) {
@@ -40,7 +42,7 @@ export function ProviderDishLibrary({initialLibrary, ...props}: Props) {
   return initialLibrary ? <DishList initialLibrary={initialLibrary} /> : <DishPicker {...props} />;
 }
 
-function DishPicker({onAdd, disabled, destination = "Food product", limitLabel, parentGroup}: Props) {
+function DishPicker({onAdd, disabled, destination = "Food product", limitLabel, parentGroup, includeUngrouped}: Props) {
   const [library, setLibrary] = useState<Library | null>(null);
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState("");
@@ -85,9 +87,12 @@ function DishPicker({onAdd, disabled, destination = "Food product", limitLabel, 
     setError("");
     try {
       const loaded = await loadDishLibrary();
-      setLibrary({...loaded, dishes: loaded.dishes.filter((dish) =>
-        dish.parentGroup?.trim() && (parentGroup === undefined ||
-          categoryKey(dish.parentGroup) === categoryKey(parentGroup))) });
+      const dishes = loaded.dishes.filter((dish) => {
+        const group = dish.parentGroup?.trim();
+        if (!group) return includeUngrouped && parentGroup === undefined;
+        return parentGroup === undefined || categoryKey(group) === categoryKey(parentGroup);
+      });
+      setLibrary({...loaded, dishes});
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "The Dish Library could not be loaded.");
     } finally {
@@ -99,7 +104,7 @@ function DishPicker({onAdd, disabled, destination = "Food product", limitLabel, 
     if (isOpen) void open(); else if (!loading) close();
   }}>
     <DialogTrigger asChild>
-      <Button type="button" variant="secondary" disabled={disabled}>Choose from Dish List</Button>
+      <Button type="button" variant="secondary" size="compact" className="h-9 min-h-9 min-w-0 px-3.5 py-1.5 text-sm" disabled={disabled}>Choose from Dish List</Button>
     </DialogTrigger>
     {!library && error && <p role="alert" className="text-sm text-destructive">{error}</p>}
     <DialogContent className="z-[90] grid max-h-[90dvh] min-w-0 max-w-2xl gap-2 overflow-y-auto p-4 sm:p-5" overlayClassName="z-[80]"
@@ -123,7 +128,7 @@ function DishPicker({onAdd, disabled, destination = "Food product", limitLabel, 
           onClick={() => {setFilter(name); setReview(false);}}>{name}</Button>)}
       </div>
       <div className="max-h-64 space-y-2 overflow-y-auto overscroll-contain">
-        {!library.dishes.length && <p className="text-sm">{parentGroup === undefined ? "No dishes with a Parent Group yet." : "No dishes match this Parent Group."} <Link className="underline"
+        {!library.dishes.length && <p className="text-sm">{parentGroup !== undefined ? "No dishes match this Parent Group." : includeUngrouped ? "No dishes in your Dish List yet." : "No dishes with a Parent Group yet."} <Link className="underline"
           href="/provider/packages/dishes" target="_blank" rel="noopener noreferrer">Open Dish List</Link></p>}
         {library.dishes.length > 0 && !matches.length && <p className="text-sm text-muted-foreground">
           {review ? "No dishes selected." : "No matching dishes."}
@@ -134,7 +139,7 @@ function DishPicker({onAdd, disabled, destination = "Food product", limitLabel, 
           const groupChecked = groupDishes.every((dish) => selected.has(dish.id));
           return <section key={group} className="space-y-1.5">
             <div className="flex flex-wrap items-center justify-between gap-2 px-1 py-1">
-              <h5 className="text-xs font-semibold uppercase text-muted-foreground">{group || "Assign parent group"}</h5>
+              <h5 className="text-xs font-semibold uppercase text-muted-foreground">{group || "Categories"}</h5>
               {group && <label className="inline-flex items-center gap-1.5 text-xs">
                 <input type="checkbox" className="accent-primary" checked={groupChecked} disabled={disabled}
                   aria-label={`${groupChecked ? "Clear" : "Select all"} ${group}`}
@@ -191,6 +196,7 @@ function DishPicker({onAdd, disabled, destination = "Food product", limitLabel, 
 const MINIMUM_DISH_PAGE_SIZE = 10;
 
 function DishList({initialLibrary}: {initialLibrary: Library}) {
+  const {confirm, confirmationDialog} = usePackageConfirmation();
   const [library, setLibrary] = useState(initialLibrary);
   const [draft, setDraft] = useState<LibraryDish | null>(null);
   const [categoryDraft, setCategoryDraft] = useState<{original: string; name: string; parentGroup: string; newGroup?: string} | null>(null);
@@ -209,8 +215,8 @@ function DishList({initialLibrary}: {initialLibrary: Library}) {
 
   const groupOptions = [...new Map([...groups, ...(library.groupNames === undefined ? ["Main Dish", "Side Dish", "Dessert"] : [])].reverse().map((group) => [categoryKey(group), group])).values()];
   const [notice, setNotice] = useState("");
-  const activeGroup = groupFilter === "unassigned" || groups.some((group) => `group:${group}` === groupFilter) ? groupFilter : "";
-  const groupRows = rows.filter((row) => !activeGroup || (row.group ? `group:${row.group}` : "unassigned") === activeGroup);
+  const activeGroup = groups.some((group) => `group:${group}` === groupFilter) ? groupFilter : "";
+  const groupRows = rows.filter((row) => !activeGroup || `group:${row.group}` === activeGroup);
   const activeCategory = groupRows.some((row) => row.name === categoryFilter) ? categoryFilter : "";
   function filterGroup(value: string) {
     setGroupFilter(value);
@@ -229,7 +235,7 @@ function DishList({initialLibrary}: {initialLibrary: Library}) {
     .flatMap((group) => visible.filter((row) => row.group === group));
   const totalDishes = orderedRows.reduce((total, row) => total + row.dishes.length, 0);
   const showPagination = totalDishes > MINIMUM_DISH_PAGE_SIZE;
-  const filterName = activeCategory || (activeGroup === "unassigned" ? "Unassigned" : activeGroup.slice("group:".length));
+  const filterName = activeCategory || activeGroup.slice("group:".length);
   const dishCount = `${totalDishes} ${totalDishes === 1 ? "dish" : "dishes"}`;
   const filterContext = filterName ? ` in ${filterName}` : "";
   const pageCount = Math.max(1, Math.ceil(totalDishes / pageSize));
@@ -265,35 +271,8 @@ function DishList({initialLibrary}: {initialLibrary: Library}) {
     }
   }
 
-  const [assignmentGroup, setAssignmentGroup] = useState("");
-
-  const [newAssignmentGroup, setNewAssignmentGroup] = useState<string | null>(null);
-
-  function assignDishCategory() {
-    if (!draft?.category || draft.parentGroup || busy) return;
-    const creating = newAssignmentGroup !== null;
-    const group = creating ? newAssignmentGroup.trim() : assignmentGroup;
-    if (creating) {
-      const invalid = categoryNameError(group);
-      if (invalid || groupOptions.some((item) => categoryKey(item) === categoryKey(group))) {
-        setError(invalid ?? "That parent group already exists. Select it from the list.");
-        return;
-      }
-    } else if (!groupOptions.includes(group)) return;
-    const key = categoryKey(draft.category);
-    const dishes = library.dishes.map((dish) =>
-      categoryKey(dish.category) === key ? {...dish, parentGroup: group} : dish);
-    const categories = library.categories.some((category) => categoryKey(category) === key)
-      ? library.categories : [...library.categories, draft.category];
-    void save(dishes, categories, () => {
-      setDraft((current) => current && {...current, parentGroup: group});
-      setAssignmentGroup("");
-      setNewAssignmentGroup(null);
-    }, {...library.parentGroups, [key]: group}, creating ? [...groupOptions, group] : undefined);
-  }
-
   function saveDish(addAnother: boolean) {
-    if (!draft || busy || !draft.name.trim() || !draft.category || !draft.parentGroup?.trim()) return;
+    if (!draft || busy || !draft.name.trim() || !draft.category) return;
     const dishes = library.dishes.filter((dish) => dish.id !== draft.id);
     void save([...dishes, draft], library.categories, () => {
       setDraft(addAnother ? {...draft, id: crypto.randomUUID(), name: ""} : null);
@@ -367,6 +346,7 @@ function DishList({initialLibrary}: {initialLibrary: Library}) {
 
   const editingDish = draft && library.dishes.some((dish) => dish.id === draft.id);
   return <section aria-label="Dish Library" className="space-y-5">
+    {confirmationDialog}
     <header className="space-y-3">
       <Link href="/provider/packages" className="inline-flex items-center gap-2 text-sm font-semibold text-primary-strong hover:underline">
         <ArrowLeft size={16} aria-hidden="true" /> Back to packages
@@ -374,7 +354,7 @@ function DishList({initialLibrary}: {initialLibrary: Library}) {
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div><h1 className="text-2xl font-bold">Dish List</h1>
           <p className="text-sm text-muted-foreground">Manage the dishes, categories, and parent groups available for your packages.</p></div>
-          <Button type="button" disabled={busy} onClick={() => {setAssignmentGroup(""); setNewAssignmentGroup(null); setDraft({id: crypto.randomUUID(), name: "", category: ""});}}>
+          <Button type="button" disabled={busy} onClick={() => setDraft({id: crypto.randomUUID(), name: "", category: ""})}>
             <Plus size={16} aria-hidden="true" /> Add dish
           </Button>
       </div>
@@ -485,46 +465,23 @@ function DishList({initialLibrary}: {initialLibrary: Library}) {
           <label className="block">Category Name<Select value={draft.category} disabled={busy} onChange={(event) => {
             const category = event.target.value;
             const next = rows.find((row) => row.name === category)?.group ?? "";
-            setAssignmentGroup("");
-            setNewAssignmentGroup(null);
             setError("");
             setDraft({...draft, category, parentGroup: next});
           }}>
             <option value="" disabled>Select a category</option>
             {rows.map(({name}) => <option key={name} value={name}>{name}</option>)}
           </Select></label>
-          {draft.category && (draft.parentGroup ? (
+          {draft.category && draft.parentGroup ? (
             <p className="text-sm text-muted-foreground">Parent Group: {draft.parentGroup}</p>
-          ) : (
-            <div className="grid gap-2 rounded-lg border border-border p-3">
-              {newAssignmentGroup !== null ? (
-                <label className="grid gap-1 text-sm font-medium">New Parent Group name
-                  <Input autoFocus maxLength={120} value={newAssignmentGroup} disabled={busy}
-                    onChange={(event) => {setNewAssignmentGroup(event.target.value); setError("");}} />
-                </label>
-              ) : groupOptions.length > 0 ? <label className="grid gap-1 text-sm font-medium">Parent Group
-                <Select value={assignmentGroup} disabled={busy} onChange={(event) => setAssignmentGroup(event.target.value)}>
-                  <option value="">Select a Parent Group</option>
-                  {groupOptions.map((group) => <option key={group} value={group}>{group}</option>)}
-                </Select>
-              </label> : null}
-              <Button type="button" variant="link" className="w-fit px-0" disabled={busy}
-                onClick={() => {setNewAssignmentGroup(newAssignmentGroup === null ? "" : null); setError("");}}>
-                {newAssignmentGroup === null ? "Add parent group" : "Use an existing group"}
-              </Button>
-              <p className="text-sm text-muted-foreground">This assigns the entire category and all its dishes to the selected group.</p>
-              <Button type="button" variant="secondary" className="w-fit" disabled={busy || !(newAssignmentGroup === null ? assignmentGroup : newAssignmentGroup.trim())}
-                onClick={assignDishCategory}>{newAssignmentGroup === null ? "Assign to category" : "Create group & assign category"}</Button>
-            </div>
-          ))}
+          ) : null}
           {!rows.length && <p className="text-sm text-muted-foreground">Create a category from the Dish List before adding a dish.</p>}
           <label className="block">Dish Name<Input key={draft.id} autoFocus value={draft.name} maxLength={120} disabled={busy}
             onChange={(event) => setDraft({...draft, name: event.target.value})} /></label>
     {error && !categoryDraft && <p role="alert" className="text-sm text-destructive">{error}</p>}
           <DialogFooter className="flex-wrap gap-2">
-            <Button type="button" disabled={busy || !draft.name.trim() || !draft.category || !draft.parentGroup?.trim()}
+            <Button type="button" disabled={busy || !draft.name.trim() || !draft.category}
               onClick={() => saveDish(false)}>Save dish</Button>
-            {!editingDish && <Button type="button" variant="secondary" disabled={busy || !draft.name.trim() || !draft.category || !draft.parentGroup?.trim()}
+            {!editingDish && <Button type="button" variant="secondary" disabled={busy || !draft.name.trim() || !draft.category}
               onClick={() => saveDish(true)}>Save &amp; Add Another</Button>}
             <Button type="button" variant="ghost" disabled={busy} onClick={() => {setDraft(null); setError("");}}>Cancel</Button>
           </DialogFooter>
@@ -539,65 +496,92 @@ function DishList({initialLibrary}: {initialLibrary: Library}) {
           <DialogTitle>{categoryDraft?.original ? "Edit category" : "Add category"}</DialogTitle>
           <DialogDescription>Categories organize dishes in your Dish List.</DialogDescription>
         </DialogHeader>
-        {categoryDraft && <form className="space-y-4" onSubmit={(event) => {
-          event.preventDefault();
-          if (busy || !categoryDraft.name.trim()) return;
-          const name = categoryDraft.name.trim();
-          const creatingGroup = categoryDraft.newGroup !== undefined;
-          const parentGroup = categoryDraft.newGroup?.trim() ?? categoryDraft.parentGroup;
-          if (!parentGroup) return;
-          if (creatingGroup) {
-            const invalidGroup = categoryNameError(parentGroup);
-            if (invalidGroup || groupOptions.some((group) => categoryKey(group) === categoryKey(parentGroup))) {
-              setError(invalidGroup ?? "That parent group already exists. Select it from the list.");
+        {categoryDraft && (() => {
+          const isEditingCategory = Boolean(categoryDraft.original);
+          const selectedParentGroup = categoryDraft.newGroup?.trim() ?? categoryDraft.parentGroup;
+          const canSubmitCategory = Boolean(categoryDraft.name.trim()) && (
+            !isEditingCategory ||
+            categoryDraft.newGroup === undefined ||
+            Boolean(categoryDraft.newGroup.trim())
+          );
+          return <form className="space-y-4" onSubmit={(event) => {
+            event.preventDefault();
+            if (busy || !categoryDraft.name.trim()) return;
+            const name = categoryDraft.name.trim();
+            const creatingGroup = isEditingCategory && categoryDraft.newGroup !== undefined;
+            const parentGroup = isEditingCategory ? selectedParentGroup : "";
+            if (creatingGroup) {
+              if (!parentGroup) return;
+              const invalidGroup = categoryNameError(parentGroup);
+              if (invalidGroup || groupOptions.some((group) => categoryKey(group) === categoryKey(parentGroup))) {
+                setError(invalidGroup ?? "That parent group already exists. Select it from the list.");
+                return;
+              }
+            }
+            const matches = (category: string) => categoryKey(category) === categoryKey(categoryDraft.original);
+            const invalid = categoryNameError(name);
+            if (invalid || rows.some((row) => !matches(row.name) && categoryKey(row.name) === categoryKey(name))) {
+              setError(invalid ?? "That category already exists.");
               return;
             }
-          }
-          const matches = (category: string) => categoryKey(category) === categoryKey(categoryDraft.original);
-          const invalid = categoryNameError(name);
-          if (invalid || rows.some((row) => !matches(row.name) && categoryKey(row.name) === categoryKey(name))) {
-            setError(invalid ?? "That category already exists.");
-            return;
-          }
-          const parentGroups = {...library.parentGroups};
-          delete parentGroups[categoryKey(categoryDraft.original)];
-          const count = library.dishes.filter((dish) => matches(dish.category)).length;
-          void save(library.dishes.map((dish) => matches(dish.category) ? {...dish, category: name, parentGroup} : dish),
-            [...library.categories.filter((category) => !matches(category)), name], () => {
-              setCategoryDraft(null);
-              setSearch("");
-              filterGroup("");
-              setDraft((current) => current && (!categoryDraft.original || matches(current.category)) ? {...current, category: name, parentGroup} : current);
-              setNotice(count ? `${count} ${count === 1 ? "dish" : "dishes"} assigned to ${parentGroup}.` : `Category assigned to ${parentGroup}.`);
-            }, {...parentGroups, [categoryKey(name)]: parentGroup}, creatingGroup ? [...groupOptions, parentGroup] : undefined);
-        }}>
-          <label className="block">Category name<Input autoFocus maxLength={120} value={categoryDraft.name} disabled={busy}
-            onChange={(event) => setCategoryDraft({...categoryDraft, name: event.target.value})} /></label>
-          {categoryDraft.newGroup !== undefined ? (
-            <label className="block">New Parent Group name
-              <Input required maxLength={120} disabled={busy} value={categoryDraft.newGroup}
-                onChange={(event) => {setCategoryDraft({...categoryDraft, newGroup: event.target.value}); setError("");}} />
-            </label>
-          ) : groupOptions.length > 0 ? (
-          <label className="block">Parent Group
-            <Select required disabled={busy} value={categoryDraft.parentGroup}
-              onChange={(event) => setCategoryDraft({...categoryDraft, parentGroup: event.target.value})}>
-              <option value="" disabled>Select a parent group</option>
-              {groupOptions.map((group) => <option key={group} value={group}>{group}</option>)}
-            </Select>
-          </label>
-          ) : null}
-          <Button type="button" variant="link" className="px-0" disabled={busy} onClick={() => {
-            setCategoryDraft({...categoryDraft, newGroup: categoryDraft.newGroup === undefined ? "" : undefined});
-            setError("");
-          }}>{categoryDraft.newGroup === undefined ? "Add parent group" : "Use an existing group"}</Button>
-          {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
-          <DialogFooter>
-            <Button type="button" variant="secondary" disabled={busy}
-              onClick={() => {setCategoryDraft(null); setError("");}}>Cancel category</Button>
-            <Button type="submit" loading={busy} disabled={!categoryDraft.name.trim() || !(categoryDraft.newGroup?.trim() ?? categoryDraft.parentGroup)}>Save category</Button>
-          </DialogFooter>
-        </form>}
+            const parentGroups = {...library.parentGroups};
+            if (isEditingCategory) delete parentGroups[categoryKey(categoryDraft.original)];
+            if (parentGroup) parentGroups[categoryKey(name)] = parentGroup;
+            const count = isEditingCategory ? library.dishes.filter((dish) => matches(dish.category)).length : 0;
+            void save(
+              isEditingCategory
+                ? library.dishes.map((dish) => matches(dish.category) ? {...dish, category: name, ...(parentGroup ? {parentGroup} : {})} : dish)
+                : library.dishes,
+              [...library.categories.filter((category) => !isEditingCategory || !matches(category)), name],
+              () => {
+                setCategoryDraft(null);
+                setSearch("");
+                filterGroup("");
+                setDraft((current) => current && (!categoryDraft.original || matches(current.category)) ? {...current, category: name, parentGroup} : current);
+                setNotice(
+                  !isEditingCategory
+                    ? `Category "${name}" added. Assign a Parent Group in Manage parent groups anytime.`
+                    : parentGroup
+                      ? (count ? `${count} ${count === 1 ? "dish" : "dishes"} assigned to ${parentGroup}.` : `Category assigned to ${parentGroup}.`)
+                      : `Category "${name}" updated.`,
+                );
+              },
+              parentGroups,
+              creatingGroup ? [...groupOptions, parentGroup] : undefined,
+            );
+          }}>
+            <label className="block">Category name<Input autoFocus maxLength={120} value={categoryDraft.name} disabled={busy}
+              onChange={(event) => setCategoryDraft({...categoryDraft, name: event.target.value})} /></label>
+            {isEditingCategory ? (
+              <>
+                {categoryDraft.newGroup !== undefined ? (
+                  <label className="block">New Parent Group name
+                    <Input required maxLength={120} disabled={busy} value={categoryDraft.newGroup}
+                      onChange={(event) => {setCategoryDraft({...categoryDraft, newGroup: event.target.value}); setError("");}} />
+                  </label>
+                ) : groupOptions.length > 0 ? (
+                  <label className="block">Parent Group
+                    <Select disabled={busy} value={categoryDraft.parentGroup}
+                      onChange={(event) => setCategoryDraft({...categoryDraft, parentGroup: event.target.value})}>
+                      <option value="" disabled>Select a parent group</option>
+                      {groupOptions.map((group) => <option key={group} value={group}>{group}</option>)}
+                    </Select>
+                  </label>
+                ) : null}
+                <Button type="button" variant="link" className="px-0" disabled={busy} onClick={() => {
+                  setCategoryDraft({...categoryDraft, newGroup: categoryDraft.newGroup === undefined ? "" : undefined});
+                  setError("");
+                }}>{categoryDraft.newGroup === undefined ? "Add parent group" : "Use an existing group"}</Button>
+              </>
+            ) : null}
+            {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
+            <DialogFooter>
+              <Button type="button" variant="secondary" disabled={busy}
+                onClick={() => {setCategoryDraft(null); setError("");}}>Cancel category</Button>
+              <Button type="submit" loading={busy} disabled={!canSubmitCategory}>Save category</Button>
+            </DialogFooter>
+          </form>;
+        })()}
       </DialogContent>
     </Dialog>
     {notice && !groupsOpen && !draft && !categoryDraft && <p role="status" className="text-sm text-primary-strong">{notice}</p>}
@@ -611,13 +595,12 @@ function DishList({initialLibrary}: {initialLibrary: Library}) {
         </div>
         <Select aria-label="Parent Group filter" className="h-10 min-w-0 rounded-lg text-sm" value={activeGroup}
           onChange={(event) => filterGroup(event.target.value)}>
-          <option value="">All Parent Groups</option>
+          <option value="" hidden>All Parent Groups</option>
           {groups.map((group) => <option key={group} value={`group:${group}`}>{group}</option>)}
-          {rows.some((row) => !row.group) && <option value="unassigned">Unassigned</option>}
         </Select>
         <Select aria-label="Category filter" className="h-10 min-w-0 rounded-lg text-sm" value={activeCategory}
           onChange={(event) => {setCategoryFilter(event.target.value); setPage(1);}}>
-          <option value="">All Categories</option>
+          <option value="" hidden>All Categories</option>
           {groupRows.map((row) => <option key={row.name} value={row.name}>{row.name}</option>)}
         </Select>
           <Button type="button" variant="secondary" size="compact" className="h-10 whitespace-nowrap rounded-full border-primary-strong px-3 text-sm" disabled={busy || Boolean(categoryDraft)}
@@ -626,6 +609,11 @@ function DishList({initialLibrary}: {initialLibrary: Library}) {
             setError(""); setGroupsOpen(true);
           }}>Manage parent groups</Button>
       </div>
+      {(activeGroup || activeCategory) && (
+        <Button type="button" variant="ghost" size="compact" onClick={() => filterGroup("")}>
+          Clear group and category filters
+        </Button>
+      )}
       {!visible.length && <p className="py-6 text-center text-sm text-muted-foreground">
         {rows.length ? "No dishes or categories match your search." : "No saved dishes yet."}
       </p>}
@@ -640,14 +628,22 @@ function DishList({initialLibrary}: {initialLibrary: Library}) {
               <Button type="button" variant="ghost" size="icon" disabled={busy || Boolean(categoryDraft)}
                 aria-label={`Edit category ${name}`} onClick={() => setCategoryDraft({original: name, name, parentGroup: group})}><Pencil size={16} aria-hidden="true" /></Button>
               <Button type="button" variant="ghost" size="icon" disabled={busy} className="text-destructive"
-                aria-label={`Delete category ${name}`} onClick={() => {
-                  if (!window.confirm(`Delete ${name} and all its dishes from your Dish List?`)) return;
+                aria-label={`Delete category ${name}`} onClick={() => void (async () => {
+                  const confirmed = await confirm({
+                    message: count
+                      ? `Delete ${name} and its ${count} ${count === 1 ? "dish" : "dishes"} from your Dish List?`
+                      : `Delete ${name} from your Dish List?`,
+                    supportingText: "This removes the category from your Dish List. Packages that already saved these dishes keep their own copy.",
+                    confirmLabel: "Delete category",
+                    destructive: true,
+                  });
+                  if (!confirmed) return;
                   const matches = (category: string) => categoryKey(category) === categoryKey(name);
-                  void save(library.dishes.filter((dish) => !matches(dish.category)), library.categories.filter((category) => !matches(category)), () => {
+                  await save(library.dishes.filter((dish) => !matches(dish.category)), library.categories.filter((category) => !matches(category)), () => {
                     setDraft((current) => current && matches(current.category) ? null : current);
                     setCategoryDraft((current) => current && matches(current.original) ? null : current);
                   });
-                }}><Trash2 size={16} aria-hidden="true" /></Button>
+                })()}><Trash2 size={16} aria-hidden="true" /></Button>
             </div>
           </div>
           {!dishes.length && <p className="border-t px-3 py-3 text-sm text-muted-foreground">No dishes in this category yet.</p>}
@@ -655,13 +651,18 @@ function DishList({initialLibrary}: {initialLibrary: Library}) {
             <span className="min-w-0 break-words text-sm">{dish.name}</span>
             <div className="flex gap-2">
               <Button type="button" variant="ghost" size="compact" disabled={busy} aria-label={`Edit ${dish.name}`}
-                onClick={() => {setAssignmentGroup(""); setNewAssignmentGroup(null); setDraft({...dish, category: name, parentGroup: group});}}><Pencil size={14} aria-hidden="true" /> Edit</Button>
-              <Button type="button" variant="ghost" className="text-destructive" size="compact" disabled={busy} aria-label={`Delete ${dish.name}`} onClick={() => {
-                if (window.confirm(`Delete ${dish.name} from your Dish List?`)) {
-                  void save(library.dishes.filter((row) => row.id !== dish.id), library.categories,
-                    () => setDraft((current) => current?.id === dish.id ? null : current));
-                }
-              }}><Trash2 size={14} aria-hidden="true" /> Delete</Button>
+                onClick={() => setDraft({...dish, category: name, parentGroup: group})}><Pencil size={14} aria-hidden="true" /> Edit</Button>
+              <Button type="button" variant="ghost" className="text-destructive" size="compact" disabled={busy} aria-label={`Delete ${dish.name}`} onClick={() => void (async () => {
+                const confirmed = await confirm({
+                  message: `Delete ${dish.name} from your Dish List?`,
+                  supportingText: "This removes the dish from your Dish List. Existing packages keep their own saved dishes.",
+                  confirmLabel: "Delete dish",
+                  destructive: true,
+                });
+                if (!confirmed) return;
+                await save(library.dishes.filter((row) => row.id !== dish.id), library.categories,
+                  () => setDraft((current) => current?.id === dish.id ? null : current));
+              })()}><Trash2 size={14} aria-hidden="true" /> Delete</Button>
             </div>
           </div>)}
         </section>)}

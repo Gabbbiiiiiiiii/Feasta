@@ -70,3 +70,19 @@ it.each(['fixed','customizable'] as const)('sends supported %s V2 writes with th
  await api.createV2PackageDraft(input);
  expect(mocks.call).toHaveBeenCalledWith('createProviderPackageV2',input);
 });
+
+it("validates published status responses on published V2 updates and preserves expected status on retry", async () => {
+  let api = await import("@/lib/provider/provider-package-v2-client");
+  const request = {...data as object, packageId: "pkg", expectedRevision: 4} as never;
+  const publishedResult = {...result, status: "published", packageRevision: 5};
+  mocks.call.mockRejectedValueOnce({code: "functions/unavailable"});
+  await expect(api.updateV2PackageDraft(request, "published")).rejects.toBeTruthy();
+  expect(api.hasPendingV2Draft()).toBe(true);
+  vi.resetModules();
+  api = await import("@/lib/provider/provider-package-v2-client");
+  mocks.call.mockResolvedValueOnce({data: publishedResult});
+  const retried = await api.retryPendingV2Draft();
+  expect(retried).toEqual(publishedResult);
+  expect(mocks.call).toHaveBeenLastCalledWith("updateProviderPackageV2", request);
+  expect(api.hasPendingV2Draft()).toBe(false);
+});

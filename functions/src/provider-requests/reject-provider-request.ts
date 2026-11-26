@@ -1,5 +1,6 @@
 import {
   FieldValue,
+  Timestamp,
 } from "firebase-admin/firestore";
 import {
   HttpsError,
@@ -54,6 +55,9 @@ import {
 import {
   calculateMainEventRequestSummary,
 } from "./recalculate-main-event-status.js";
+import {
+  parseArrangedPaymentOffer,
+} from "./arranged-payment-offer.js";
 
 export const rejectProviderRequest = onCall(
   {
@@ -254,6 +258,24 @@ export const rejectProviderRequest = onCall(
               ],
             );
 
+          let withdrawnOfferUpdate: Record<string, unknown> = {};
+          try {
+            const savedOffer = parseArrangedPaymentOffer(
+              requestData.arrangedPaymentOffer,
+            );
+            if (savedOffer?.status === "offered") {
+              withdrawnOfferUpdate = {
+                arrangedPaymentOffer: {
+                  ...savedOffer,
+                  status: "withdrawn",
+                  respondedAt: Timestamp.fromDate(new Date()),
+                },
+              };
+            }
+          } catch {
+            // Do not block rejecting a pending request if historical offer metadata is malformed.
+          }
+
           transaction.update(
             providerRequestReference,
             {
@@ -269,6 +291,8 @@ export const rejectProviderRequest = onCall(
 
               replacementStatus:
                 "required",
+
+              ...withdrawnOfferUpdate,
 
               updatedAt:
                 serverTimestamp(),

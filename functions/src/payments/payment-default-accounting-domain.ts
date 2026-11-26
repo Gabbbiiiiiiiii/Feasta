@@ -1,4 +1,5 @@
 import {paymentDefaultAllocation} from "../bookings/booking-policy-v3.js";
+import {isDirectProviderSplitRouting} from "./platform-commission-policy.js";
 
 type Data = Readonly<Record<string, unknown>>;
 
@@ -49,16 +50,29 @@ export function paymentDefaultAccountingPlan(input: {
   const reversed = integer(earning.reversedAmountInCentavos);
   const target = allocation.providerReservationCompAmountInCentavos;
   const proportionalProviderReversed = integer(input.proportionalProviderEarningReversedInCentavos ?? reversed);
-  if (pending + available + paid + reversed !== earningAmount || paid !== 0 ||
+  const directSplit = isDirectProviderSplitRouting(earning.settlementRoutingMode);
+  if (directSplit) {
+    if (pending !== 0 || available !== 0 || paid + reversed !== earningAmount ||
+      earningAmount < target || reversed > earningAmount - target) {
+      throw new Error("Payment-default Provider payout requires reconciliation.");
+    }
+  } else if (pending + available + paid + reversed !== earningAmount || paid !== 0 ||
     earning.status === "paid" || earningAmount < target || reversed > earningAmount - target) {
     throw new Error("Payment-default Provider payout requires reconciliation.");
   }
-  // Compensation becomes available when trusted refund completion finalizes the default.
-  const earningUpdate = {pendingAmountInCentavos: 0, availableAmountInCentavos: target,
-    paidAmountInCentavos: paid, reversedAmountInCentavos: earningAmount - target,
-    netEarningAmountInCentavos: target, status: target === 0 ? "reversed" : "available",
-    economicSource: "payment_default_reservation_compensation", paymentDefaultAllocation: allocation,
-    lastReversalFinancialLedgerEntryId: input.ledgerEntryId, updatedAt: input.timestamp};
+  // Compensation becomes available (or remains direct-paid for direct split) when trusted refund completion finalizes the default.
+  const earningUpdate = directSplit
+    ? {pendingAmountInCentavos: 0, availableAmountInCentavos: 0,
+        paidAmountInCentavos: target, reversedAmountInCentavos: earningAmount - target,
+        providerRefundClawbackInCentavos: earningAmount - target,
+        netEarningAmountInCentavos: target, status: target === 0 ? "reversed" : "paid",
+        economicSource: "payment_default_reservation_compensation", paymentDefaultAllocation: allocation,
+        lastReversalFinancialLedgerEntryId: input.ledgerEntryId, updatedAt: input.timestamp}
+    : {pendingAmountInCentavos: 0, availableAmountInCentavos: target,
+        paidAmountInCentavos: paid, reversedAmountInCentavos: earningAmount - target,
+        netEarningAmountInCentavos: target, status: target === 0 ? "reversed" : "available",
+        economicSource: "payment_default_reservation_compensation", paymentDefaultAllocation: allocation,
+        lastReversalFinancialLedgerEntryId: input.ledgerEntryId, updatedAt: input.timestamp};
   const paymentUpdate = {commissionReversedInCentavos: accruedCommission,
     providerEarningReversedInCentavos: earningAmount - target, providerEarningNetAmountInCentavos: target,
     providerEarningStatus: earningUpdate.status, paymentDefaultAccountingSchemaVersion: 1,

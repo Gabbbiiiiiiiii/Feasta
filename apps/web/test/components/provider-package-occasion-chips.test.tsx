@@ -5,7 +5,7 @@ import {ProviderPackageForm} from "@/app/provider/packages/provider-package-form
 import {createProviderPackage, updateProviderPackage, type ProviderPackage} from "@/lib/provider/provider-package-client";
 import {uploadProviderServiceImage} from "@/lib/provider/provider-media-client";
 
-vi.mock("@/lib/provider/provider-package-client", () => ({createProviderPackage: vi.fn(), updateProviderPackage: vi.fn()}));
+vi.mock("@/lib/provider/provider-package-client", () => ({createProviderPackage: vi.fn(), updateProviderPackage: vi.fn(), publishProviderPackage: vi.fn()}));
 vi.mock("@/lib/provider/provider-media-client", () => ({uploadProviderServiceImage: vi.fn()}));
 const occasionCatalog = {options: [{id: "birthday", label: "Birthday", categoryCodes: ["food_catering", "catering_service"]}, {id: "wedding", label: "Wedding", categoryCodes: ["food_catering", "catering_service"]}], catalogRevision: 4, eligibilityModel: "global_v1" as const, maxSpecificOccasions: 5};
 const props = {occasionCatalog, packageCategoryOptions: [{code: "food_catering", name: "Catering"}], eventTypesSupported: ["birthday", "wedding"], minGuestsPerEvent: 10, maxGuestsPerEvent: 100, onSaved: vi.fn(), onCancel: vi.fn()};
@@ -36,7 +36,6 @@ describe("package occasion chips", () => {
     expect(screen.getByRole("button", {name: "Add selected occasion"})).toBeDisabled();
     fireEvent.change(screen.getByLabelText(/Package name/), {target: {value: "New catering"}});
     fireEvent.change(screen.getByLabelText(/Description/), {target: {value: "Complete catering package"}});
-    fireEvent.change(screen.getByLabelText(/Package structure/), {target: {value: "fixed"}});
     next();
     expect(screen.getByRole("alert")).toHaveTextContent("Add one occasion supported by your business");
     fireEvent.change(selector(), {target: {value: "wedding"}});
@@ -121,7 +120,7 @@ describe("package occasion chips", () => {
     fireEvent.change(selector(), {target: {value: "unknown"}});
     fireEvent.keyDown(selector(), {key: "Enter"});
     expect(screen.queryByRole("button", {name: "Remove Unknown occasion"})).not.toBeInTheDocument();
-    expect(screen.getByRole("button", {name: "Request an Occasion"})).toBeVisible();
+    expect(screen.queryByRole("button", {name: "Request an Occasion"})).not.toBeInTheDocument();
     expect(screen.getByRole("checkbox", {name: "Fits All Occasions"})).toBeVisible();
     expect(screen.queryByRole("dialog", {name: "Request an occasion"})).not.toBeInTheDocument();
     expect(within(selector()).queryByRole("option", {name: /Fits All/})).not.toBeInTheDocument();
@@ -143,17 +142,17 @@ describe("package occasion chips", () => {
   it("guards final submission and media upload with multiple chips, then saves only the remaining scalar", async () => {
     const {container} = render(<ProviderPackageForm {...props} initialPackage={existing} />);
     for (let i = 0; i < 4; i++) next();
-    expect(screen.getByRole("button", {name: "Save changes"})).toBeEnabled();
+    expect(screen.getByRole("button", {name: "Save as Draft"})).toBeEnabled();
     // Exercise the submit guard independently of Step 1 navigation and disabled buttons.
     fireEvent.change(screen.getByLabelText(/Suitable occasions/), {target: {value: "birthday"}});
     fireEvent.click(screen.getByLabelText("Add selected occasion"));
-    expect(screen.getByRole("button", {name: "Save changes"})).toBeDisabled();
+    expect(screen.getByRole("button", {name: "Save as Draft"})).toBeDisabled();
     fireEvent.submit(container.querySelector("form")!);
     expect(createProviderPackage).not.toHaveBeenCalled();
     expect(updateProviderPackage).not.toHaveBeenCalled();
     expect(uploadProviderServiceImage).not.toHaveBeenCalled();
     fireEvent.click(screen.getByLabelText("Remove Wedding occasion"));
-    fireEvent.click(screen.getByRole("button", {name: "Save changes"}));
+    fireEvent.click(screen.getByRole("button", {name: "Save as Draft"}));
     await waitFor(() => expect(updateProviderPackage).toHaveBeenCalledTimes(1));
     const [id, payload] = vi.mocked(updateProviderPackage).mock.calls[0];
     expect(id).toBe(existing.id);
@@ -166,7 +165,7 @@ describe("package occasion chips", () => {
     const {container, rerender} = render(<ProviderPackageForm {...props} initialPackage={existing} />);
     for (let i = 0; i < 4; i++) next();
     rerender(<ProviderPackageForm {...props} occasionCatalog={{...occasionCatalog, options: occasionCatalog.options.filter((option) => option.id === "birthday")}} initialPackage={existing} />);
-    expect(screen.getByRole("button", {name: "Save changes"})).toBeDisabled();
+    expect(screen.getByRole("button", {name: "Save as Draft"})).toBeDisabled();
     fireEvent.submit(container.querySelector("form")!);
     expect(updateProviderPackage).not.toHaveBeenCalled();
   });
@@ -183,8 +182,8 @@ it.each(["per_pax", "per_bundle"] as const)("reopens and edits a %s draft withou
   expect(screen.getByLabelText(/Drop-Off Catering price/)).toHaveValue("100.25");
   expect(screen.getByLabelText(/Buffet Setup price/)).toHaveValue("225.75");
   for (let index = 0; index < 3; index++) next();
-  expect(screen.getByRole("note")).toHaveTextContent("Saving keeps this package as a private draft.");
-  fireEvent.click(screen.getByRole("button", {name: "Save changes"}));
+  expect(screen.getByRole("note")).toHaveTextContent("Save as Draft to keep this package private");
+  fireEvent.click(screen.getByRole("button", {name: "Save as Draft"}));
   await waitFor(() => expect(updateProviderPackage).toHaveBeenCalledOnce());
   expect(updateProviderPackage).toHaveBeenCalledWith(existing.id, expect.objectContaining({
     name: "Updated catering draft", pricingModel, eventType: "wedding", price: 100.25,
@@ -202,7 +201,7 @@ it("makes Fits All exclusive, preserves it across steps, and blocks upload and s
   expect(screen.queryByRole("button", {name: "Remove Wedding occasion"})).not.toBeInTheDocument();
   expect(screen.queryByRole("button", {name: "Remove Birthday occasion"})).not.toBeInTheDocument();
   for (let i = 0; i < 4; i++) next();
-  expect(screen.getByRole("button", {name: "Save changes"})).toBeDisabled();
+  expect(screen.getByRole("button", {name: "Save as Draft"})).toBeDisabled();
   fireEvent.submit(container.querySelector("form")!);
   expect(updateProviderPackage).not.toHaveBeenCalled();
   expect(uploadProviderServiceImage).not.toHaveBeenCalled();
@@ -222,7 +221,7 @@ it("saves an unchanged legacy scope without canonical V2 configuration and retai
   expect(screen.getByRole("checkbox", {name: "Fits All Occasions"})).toBeDisabled();
   fireEvent.change(screen.getByLabelText(/Package name/), {target: {value: "Updated legacy draft"}});
   for (let i = 0; i < 4; i++) next();
-  fireEvent.click(screen.getByRole("button", {name: "Save changes"}));
+  fireEvent.click(screen.getByRole("button", {name: "Save as Draft"}));
   await waitFor(() => expect(updateProviderPackage).toHaveBeenCalledOnce());
   const payload = vi.mocked(updateProviderPackage).mock.calls[0][1];
   expect(payload).toMatchObject({eventType: "wedding", serviceCategoryCode: "food_catering", name: "Updated legacy draft"});
@@ -267,12 +266,8 @@ it("requires canonical configuration after removing the retained occasion or cha
   expect(updateProviderPackage).not.toHaveBeenCalled();
 });
 
-it("does not submit a request through the unverified integration", async () => {
-  const user = userEvent.setup();
+it("keeps the saved occasion editable without a request link", () => {
   render(<ProviderPackageForm {...props} initialPackage={existing} />);
-  await user.click(screen.getByRole("button", {name: "Request an Occasion"}));
-  expect(screen.getByRole("dialog", {name: "Request an occasion"})).toHaveTextContent("unavailable until backend integration is verified");
-  expect(screen.queryByRole("button", {name: "Submit Request"})).not.toBeInTheDocument();
-  await user.keyboard("{Escape}");
+  expect(screen.queryByRole("button", {name: "Request an Occasion"})).not.toBeInTheDocument();
   expect(screen.getByRole("button", {name: "Remove Wedding occasion"})).toBeVisible();
 });

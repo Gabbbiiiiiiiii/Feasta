@@ -1,5 +1,6 @@
 import 'booking_lifecycle_presentation.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/constants/status_constants.dart';
@@ -997,6 +998,12 @@ class _PaymentDetailsCardState extends State<PaymentDetailsCard> {
                   if (snapshot.hasData && requests.isNotEmpty) ...[
                     const SizedBox(height: AppSpacing.md),
                     for (var index = 0; index < requests.length; index++) ...[
+                      if (requests[index].arrangedPayment != null)
+                        _ArrangedPaymentCard(
+                          key: ValueKey(requests[index].arrangedPayment!.id),
+                          request: requests[index],
+                          reload: () => setState(() => _paymentRequests = _loadPaymentRequests()),
+                        ),
                       CustomerPaymentTaxBreakdown(
                         request: requests[index],
                         compact: true,
@@ -1028,6 +1035,128 @@ class _PaymentDetailsCardState extends State<PaymentDetailsCard> {
             },
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _ArrangedPaymentCard extends StatefulWidget {
+  const _ArrangedPaymentCard({super.key, required this.request, required this.reload});
+  final CustomerProviderPaymentRequest request;
+  final VoidCallback reload;
+
+  @override
+  State<_ArrangedPaymentCard> createState() => _ArrangedPaymentCardState();
+}
+
+class _ArrangedPaymentCardState extends State<_ArrangedPaymentCard> {
+  bool _busy = false;
+  String? _error;
+
+  Future<void> _respond(CustomerArrangedPayment offer, bool accept) async {
+    if (_busy) return;
+    setState(() { _busy = true; _error = null; });
+    try {
+      await FirebaseFunctions.instanceFor(region: 'asia-southeast1')
+          .httpsCallable('acceptProviderRequest').call({
+        'providerRequestId': widget.request.id,
+        'offerId': offer.id,
+        'action': accept ? 'acceptArrangement' : 'declineArrangement',
+      });
+      if (mounted) widget.reload();
+    } on FirebaseFunctionsException catch (error) {
+      if (mounted) setState(() => _error = error.message ?? 'Could not respond to the offer.');
+    } catch (_) {
+      if (mounted) setState(() => _error = 'Could not respond to the offer.');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  String _formatCentavos(int centavos) {
+    final pesos = centavos ~/ 100;
+    final rem = (centavos % 100).toString().padLeft(2, '0');
+    final digits = pesos.toString();
+    final buffer = StringBuffer();
+    for (var i = 0; i < digits.length; i++) {
+      if (i > 0 && (digits.length - i) % 3 == 0) buffer.write(',');
+      buffer.write(digits[i]);
+    }
+    return '₱$buffer.$rem';
+  }
+
+  String _formatManilaDateTime(DateTime value) {
+    const months = [
+      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+    ];
+    final manila = value.toUtc().add(const Duration(hours: 8));
+    final hour12 = manila.hour % 12 == 0 ? 12 : manila.hour % 12;
+    final minute = manila.minute.toString().padLeft(2, '0');
+    final meridiem = manila.hour < 12 ? 'AM' : 'PM';
+    return '${months[manila.month - 1]} ${manila.day}, ${manila.year} $hour12:$minute $meridiem';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final offer = widget.request.arrangedPayment!;
+    final pending = offer.status == 'offered' && widget.request.status == 'pending' &&
+        DateTime.now().isBefore(offer.initialDue);
+    if (!pending && offer.status != 'accepted') return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+      child: FeastaCard(
+        padding: const EdgeInsets.all(AppSpacing.md),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              pending ? 'Arranged payment offer' : 'Arranged payment accepted',
+              style: AppTypography.cardTitle,
+            ),
+            const SizedBox(height: AppSpacing.xs),
+            Text(
+              'First payment: ${_formatCentavos(offer.upfront)} by ${_formatManilaDateTime(offer.initialDue)} (Manila time)',
+              style: AppTypography.bodySmall,
+            ),
+            const SizedBox(height: AppSpacing.xs),
+            Text(
+              'Remaining balance: ${_formatCentavos(offer.balance)} by ${_formatManilaDateTime(offer.balanceDue)} (Manila time)',
+              style: AppTypography.bodySmall,
+            ),
+            if (pending) ...[
+              const SizedBox(height: AppSpacing.sm),
+              Text(
+                'Accepting locks in these payment terms so you can pay through FEASTA. Your booking is confirmed once the first payment clears.',
+                style: AppTypography.bodySmall.copyWith(
+                  color: AppColors.secondaryTextAccessible,
+                ),
+              ),
+              const SizedBox(height: AppSpacing.sm),
+              Wrap(
+                spacing: AppSpacing.sm,
+                runSpacing: AppSpacing.xs,
+                children: [
+                  TextButton(
+                    onPressed: _busy ? null : () => _respond(offer, false),
+                    child: const Text('Decline offer'),
+                  ),
+                  FilledButton(
+                    onPressed: _busy ? null : () => _respond(offer, true),
+                    child: Text(_busy ? 'Saving…' : 'Accept payment terms'),
+                  ),
+                ],
+              ),
+            ],
+            if (_error != null) ...[
+              const SizedBox(height: AppSpacing.xs),
+              Text(
+                _error!,
+                style: AppTypography.bodySmall.copyWith(color: AppColors.error),
+              ),
+            ],
+          ],
+        ),
       ),
     );
   }

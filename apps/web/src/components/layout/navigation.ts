@@ -1,6 +1,7 @@
 import {
   Bell,
   Building2,
+  CalendarClock,
   CalendarDays,
   ChartNoAxesCombined,
   CircleUserRound,
@@ -159,8 +160,15 @@ const providerBusinessNavigation: readonly NavigationItem[] = [
     section: "My Business",
     label: "Payments",
     href: "/provider/payments",
-    activeRouteAliases: ["/provider/refund-policy", "/provider/tax-profile"],
+    activeRouteAliases: ["/provider/tax-profile"],
     icon: WalletCards,
+  },
+  {
+    kind: "link",
+    section: "My Business",
+    label: "Cancellation & Refund",
+    href: "/provider/refund-policy",
+    icon: CalendarClock,
   },
   {
     kind: "link",

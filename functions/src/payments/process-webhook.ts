@@ -80,6 +80,10 @@ import {
   settlementIdForEarning,
 } from "../provider-finance/provider-settlement-domain.js";
 import {
+  isDirectProviderSplitRouting,
+  parsePaymentSettlementRoutingMode,
+} from "./platform-commission-policy.js";
+import {
   depositReceivedNotification,
   customerNotificationMessageForPaymentLifecycle,
   customerNotificationTitleForPaymentLifecycle,
@@ -761,6 +765,21 @@ export async function processPayMongoWebhook(
             })
           : null;
 
+      const financialSnapshotRecord =
+        providerRequest.financialSnapshot &&
+        typeof providerRequest.financialSnapshot === "object" &&
+        !Array.isArray(providerRequest.financialSnapshot)
+          ? (providerRequest.financialSnapshot as Record<string, unknown>)
+          : null;
+
+      const settlementRoutingMode =
+        parsePaymentSettlementRoutingMode(
+          financialSnapshotRecord?.settlementRoutingMode,
+        );
+
+      const directProviderSplit =
+        isDirectProviderSplitRouting(settlementRoutingMode);
+
       const providerEarningPlan =
         financialLedgerPlan
           ? buildSuccessfulPaymentProviderEarningPlan({
@@ -779,6 +798,8 @@ export async function processPayMongoWebhook(
               financialLedgerRecord:
                 financialLedgerPlan
                   .ledgerRecord,
+
+              settlementRoutingMode,
 
               timestamp,
             })
@@ -1163,23 +1184,43 @@ export async function processPayMongoWebhook(
           companyCommissionSnapshot &&
           companyFloatCommissionLedgerSnapshot
         ) {
-          applyCompanyFloatPaymentSideEffectsInTransaction({
-            transaction,
-            floatSnap: companyFloatSnapshot,
-            commissionSnap: companyCommissionSnapshot,
-            commissionLedgerSnap: companyFloatCommissionLedgerSnapshot,
-            advanceSnap: companyAdvanceSnapshot,
-            paymentId: event.paymentId,
-            providerRequestId,
-            providerId,
-            commissionInCentavos:
-              financialLedgerPlan.ledgerRecord
-                .commissionAccruedInCentavos as number,
-            repayAmountInCentavos: Number(
-              providerEarningPlan?.earningRecord.earningAmountInCentavos ?? 0,
-            ),
-            providerRequestRef: providerRequestReference,
-          });
+          if (directProviderSplit) {
+            /*
+             * Direct-to-provider instant split routes 100% of the service
+             * subtotal directly to the provider and credits only FEASTA's
+             * service fee to companyCommission (no Company Float side effects).
+             */
+            applyCompanyFloatCommissionCreditInTransaction({
+              transaction,
+              floatSnap: companyFloatSnapshot,
+              commissionSnap: companyCommissionSnapshot,
+              ledgerSnap: companyFloatCommissionLedgerSnapshot,
+              paymentId: event.paymentId,
+              providerRequestId,
+              providerId,
+              commissionInCentavos:
+                financialLedgerPlan.ledgerRecord
+                  .commissionAccruedInCentavos as number,
+            });
+          } else {
+            applyCompanyFloatPaymentSideEffectsInTransaction({
+              transaction,
+              floatSnap: companyFloatSnapshot,
+              commissionSnap: companyCommissionSnapshot,
+              commissionLedgerSnap: companyFloatCommissionLedgerSnapshot,
+              advanceSnap: companyAdvanceSnapshot,
+              paymentId: event.paymentId,
+              providerRequestId,
+              providerId,
+              commissionInCentavos:
+                financialLedgerPlan.ledgerRecord
+                  .commissionAccruedInCentavos as number,
+              repayAmountInCentavos: Number(
+                providerEarningPlan?.earningRecord.earningAmountInCentavos ?? 0,
+              ),
+              providerRequestRef: providerRequestReference,
+            });
+          }
         }
       }
 
@@ -1393,6 +1434,9 @@ export async function processPayMongoWebhook(
             providerNotificationMessageForPaymentLifecycle(
               nextStatus,
               lifecyclePaymentChoice,
+              {
+                directProviderSplit,
+              },
             ),
 
           type: "payment",

@@ -1,5 +1,6 @@
 import {lifecycleEvidence} from "@/lib/presentation/booking-lifecycle";
 import "server-only";
+import {parseBookingCancellationCutoffView} from "../cancellation-cutoff-view";
 import {customerBookingServiceVat, specialOfferBreakdown} from "@/lib/customer/bookings/customer-booking-service-vat";
 import {bookingView, bookingMatchesView, bookingMatchesSecondary, bookingPaymentAttention, bookingScheduledStart, manilaDay} from "./provider-booking-projection";
 
@@ -16,6 +17,7 @@ import {
 } from "firebase-admin/firestore";
 
 import {
+  isDirectProviderSplitRouting,
   MAIN_EVENT_STATUSES,
   PAYMENT_STATUSES,
   PROVIDER_REQUEST_STATUSES,
@@ -500,6 +502,11 @@ function mapProviderBooking(
     paymentAmount: payment?.amount ?? null,
     providerNetAmount: netMoney.providerNetPesos,
     commissionAmount: netMoney.commissionPesos,
+    isCustomerPaidFee: netMoney.isCustomerPaid,
+    isDirectProviderSplit:
+      isDirectProviderSplitRouting(
+        recordValue(request.financialSnapshot)?.settlementRoutingMode,
+      ) || netMoney.isCustomerPaid,
     specialOffer: specialOfferBreakdown(request.acceptedSpecialOffer, Math.round(acceptedGross * 100), request.financialSnapshot),
     specialOfferVat: request.acceptedSpecialOffer ? customerBookingServiceVat(request) : undefined,
     companyAdvanceRequestStatus: advanceRequestStatus,
@@ -524,6 +531,7 @@ function mapProviderBooking(
     ),
     cancellationReason: optionalText(request.cancellationReason, 500),
     cancellationActor: optionalText(request.cancellationActor, 80),
+    cancellationCutoff: parseBookingCancellationCutoffView(request.cancellationPolicySnapshot),
     refundEligibility: {...mapRefundEligibility(request, requestStatus, payment),
       reconciliationLocked: mapRefundEligibility(request, requestStatus, payment).reconciliationLocked || lifecycleEvidence(mainEvent).reconciliation,
       activeCancellationLocked: mapRefundEligibility(request, requestStatus, payment).activeCancellationLocked || lifecycleEvidence(mainEvent).cancellation,

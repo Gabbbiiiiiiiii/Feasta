@@ -20,16 +20,16 @@ test("refund policy route is protected by the approved Provider server loader", 
   assert.match(serviceSource, /requireApprovedProvider/u);
 });
 
-test("refund policy data is loaded as one provider read and one owned-package query", () => {
+test("refund policy data is loaded as one provider read and one platform default read", () => {
   assert.match(serviceSource, /Promise\.all/u);
-  assert.match(serviceSource, /\.where\("providerId", "==", providerId\)/u);
-  assert.match(serviceSource, /\.limit\(MAX_REFUND_POLICY_PACKAGES\)/u);
+  assert.match(serviceSource, /adminDb\.collection\("providers"\)\.doc\(providerId\)\.get\(\)/u);
+  assert.match(serviceSource, /getAdminDefaultCancellationPolicy/u);
   assert.doesNotMatch(serviceSource, /ownerId:/u);
 });
 
 test("browser mutations use only trusted callables and safe input fields", () => {
   assert.match(clientSource, /publishProviderRefundPolicy/u);
-  assert.match(clientSource, /setPackageRefundPolicyOverride/u);
+  assert.match(clientSource, /saveProviderCancellationPolicy/u);
   assert.doesNotMatch(clientSource, /setDoc|updateDoc|addDoc|collection\(db/u);
   assert.doesNotMatch(
     clientSource,

@@ -101,13 +101,13 @@ test("catering and mixed bookings disclose the same canonical catering timing an
   }
   assert.deepEqual(mixedCatering.paymentDefaultAllocation, {
     schemaVersion: 1,
-    paidDepositInCentavos: 750000,
+    paidDepositInCentavos: 751500,
     customerRefundRateBps: 7000,
     providerReservationCompRateBps: 2000,
     feastaCancellationFeeRateBps: 1000,
-    customerDefaultRefundAmountInCentavos: 525000,
-    providerReservationCompAmountInCentavos: 150000,
-    feastaCancellationFeeAmountInCentavos: 75000,
+    customerDefaultRefundAmountInCentavos: 526050,
+    providerReservationCompAmountInCentavos: 150300,
+    feastaCancellationFeeAmountInCentavos: 75150,
   });
   assert.equal(media.eventStartAt, mixedCatering.eventStartAt);
   assert.equal(media.preparationStartsAt, mixedCatering.preparationStartsAt);
@@ -121,12 +121,12 @@ test('mixed atomic submission preserves independent finances, real acceptance an
  const event=f.records['mainEvents/'+result.mainEventId];
  const requests=result.providerRequestIds.map(id=>f.records['providerRequests/'+id]);
  assert.equal(bookings(f).length,3); assert.equal(event.packageAssignmentVersion,2);
- assert.equal(event.providerAssignments.length,2); assert.equal(event.totalAmount,27000);
- assert.equal(event.cateringSubtotal,15000); assert.equal(event.marketplaceAddOnsTotal,12000);
- assert.deepEqual(requests.map(r=>r.downPaymentAmount),[7500,12000]);
- assert.deepEqual(requests.map(r=>r.remainingBalance),[7500,0]);
+ assert.equal(event.providerAssignments.length,2); assert.equal(event.totalAmount,27054);
+ assert.equal(event.cateringSubtotal,15030); assert.equal(event.marketplaceAddOnsTotal,12024);
+ assert.deepEqual(requests.map(r=>r.downPaymentAmount),[7515,12024]);
+ assert.deepEqual(requests.map(r=>r.remainingBalance),[7515,0]);
  assert.deepEqual(requests.map(r=>r.initialPaymentEligibility.depositEligible),[true,false]);
- assert.equal(event.downPaymentAmount,19500);
+ assert.equal(event.downPaymentAmount,19539);
  for(const r of requests){
   assert.equal(r.providerRequestId,createHash('sha256').update(result.mainEventId+':'+r.type+':'+r.providerId).digest('hex').slice(0,40));
   validate({authorized:{providerId:r.providerId,requestData:r},mainEventData:event,now:new Date()});
@@ -164,17 +164,20 @@ test('standalone photography package supports review, booking and replay', async
   f.input.submission.selections.shift();
   const review = await f.disclose();
   assert.equal(review.agreements.length, 1);
-  assert.equal(review.agreements[0].grossAmountInCentavos, 1200000);
+  assert.equal(review.agreements[0].grossAmountInCentavos, 1202400);
+  assert.equal(review.agreements[0].serviceSubtotalInCentavos, 1200000);
+  assert.equal(review.agreements[0].platformFeeInCentavos, 2400);
+  assert.equal(review.agreements[0].platformCommissionRateBps, 20);
   assert.equal(bookings(f).length, 0);
 
   const result = await submit(f.firestore, identity, f.input);
   const event = f.records['mainEvents/' + result.mainEventId];
   assert.equal(event.cateringSubtotal, 0);
-  assert.equal(event.totalAmount, 12000);
+  assert.equal(event.totalAmount, 12024);
   assert.equal(result.providerRequestIds.length, 1);
   const request = f.records['providerRequests/' + result.providerRequestIds[0]];
   assert.equal(request.assignmentKind, 'independent_marketplace_service');
-  assert.equal(request.downPaymentAmount, 12000);
+  assert.equal(request.downPaymentAmount, 12024);
   assert.equal(request.remainingBalance, 0);
   assert.equal((await submit(f.firestore, identity, f.input)).created, false);
 });

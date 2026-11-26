@@ -55,6 +55,7 @@ export type CancellationRefundPreview = {
 };
 
 export type CustomerCancellationReasonCode =
+  | "CANCELLATION_CUTOFF_PASSED"
   | "EVENT_ENDED"
   | "SCHEDULE_RECONCILIATION_REQUIRED"
   | "ALLOWED"
@@ -67,6 +68,8 @@ export type CustomerCancellationReasonCode =
 
 export type CustomerCancellationOptions = {
   eligibilityExpiresInMs?: number | null;
+  cancellationCutoffAt?: string | null;
+  cancellationCutoffHours?: number | null;
   providerRequestId: string;
   providerRequestStatus?: ProviderRequestStatus;
   cancellationAllowed: boolean;

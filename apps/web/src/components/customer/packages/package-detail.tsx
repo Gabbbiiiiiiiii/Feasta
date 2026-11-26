@@ -1,3 +1,4 @@
+import {dropOffOrderLimit} from "@feasta/shared-types/provider-package-v2";
 import {DetailFact, packageGuestRange, packageRequestClassName, PackageBackLink, PackageHero, PackageInclusions, PackageProvider} from "./package-detail-sections";
 import {VisualStyleImageCarousel} from "@/components/customer/packages/visual-style-image-carousel";
 import {
@@ -20,6 +21,7 @@ import {
 import type {
   PublicPackageDetail,
 } from "@/lib/customer/discovery/marketplace-types";
+import {formatPackageOccasionLabels} from "@/lib/customer/discovery/package-occasion-labels";
 import {
   humanizeProviderValue,
 } from "@/lib/customer/providers/provider-catalog";
@@ -128,7 +130,8 @@ export function PackageDetail({
                 className="size-4 transition-transform duration-normal group-hover:translate-x-0.5 motion-reduce:transform-none"
               />
             </CustomerAuthLink>
-            {specialRequestPrice != null && specialRequestPrice > 0 && <SpecialRequestForm packageId={packageRecord.id} providerId={provider.id} price={specialRequestPrice} />}
+            {specialRequestPrice != null && specialRequestPrice > 0 && <SpecialRequestForm packageId={packageRecord.id} providerId={provider.id} price={specialRequestPrice}
+              maxQuantity={dropOffOrderLimit(packageRecord.pricingModel, packageRecord.maxDropOffOrderQuantity)} />}
 
             <p className="mt-3 text-xs leading-5 text-feasta-text-secondary">
               Requesting does not confirm a booking or charge you. The provider
@@ -150,9 +153,11 @@ export function PackageDetail({
                 />
               }
               label="Event type"
-              value={humanizeProviderValue(
-                packageRecord.eventType,
-              )}
+              value={formatPackageOccasionLabels(
+                packageRecord,
+                humanizeProviderValue,
+                {allLabel: "Fits All Occasions"},
+              ).join(", ")}
             />
           ) : null}
 

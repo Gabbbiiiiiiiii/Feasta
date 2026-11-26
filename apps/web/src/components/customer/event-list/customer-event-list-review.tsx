@@ -34,6 +34,7 @@ import {
 } from "react";
 
 import {PhilippineDateInput} from "@/components/forms/philippine-date-input";
+import {PreBookingCancellationCutoffNotice} from "@/components/customer/bookings/cancellation-cutoff-notice";
 import {
   Dialog,
   DialogContent,
@@ -143,7 +144,11 @@ type RefundPolicyStatus =
   | "ready"
   | "error";
 
-function CustomerEventListReviewSession() {
+function CustomerEventListReviewSession({
+  platformCommissionRateBps,
+}: {
+  platformCommissionRateBps?: number;
+}) {
   const localList = useCustomerEventList();
   const cloudList = useCustomerEventListCloudAsync();
   const cloudProjections = useMemo(() =>
@@ -1897,6 +1902,8 @@ function CustomerEventListReviewSession() {
             notice={
               refundPolicyNotice
             }
+            eventDate={schedule?.eventDate}
+            eventTime={schedule?.eventTime}
             acknowledgedPolicyKeys={
               acknowledgedPolicyKeys
             }
@@ -1913,25 +1920,66 @@ function CustomerEventListReviewSession() {
         ) : null}
 
         <section className="rounded-[24px] border border-feasta-border-soft bg-white p-5 shadow-[0_8px_28px_rgb(0_75_59/0.04)] sm:p-6">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-            <div>
-              <p className="text-xs font-extrabold uppercase tracking-[0.09em] text-feasta-text-tertiary">
-                Estimated event total
-              </p>
-
-              <p className="mt-2 text-xs leading-5 text-feasta-text-secondary">
-                Displayed prices are reviewed again before the final booking request is created.
-              </p>
-            </div>
-
-            <p className="shrink-0 text-2xl font-extrabold text-foreground">
-              {allPricesKnown
-                ? money.format(
+          {(() => {
+            const estimatedServiceFee =
+              allPricesKnown && estimatedTotal > 0
+                ? customerFeastaCommissionEstimatePesos(
                     estimatedTotal,
+                    platformCommissionRateBps,
                   )
-                : estimatedTotal > 0 ? `Partial estimate: ${money.format(estimatedTotal)}` : "Estimate unavailable"}
-            </p>
-          </div>
+                : null;
+            const estimatedTotalWithFee =
+              estimatedServiceFee !== null
+                ? Math.round((estimatedTotal + estimatedServiceFee) * 100) / 100
+                : estimatedTotal;
+            return (
+              <div className="grid gap-3">
+                {estimatedServiceFee !== null ? (
+                  <dl className="grid gap-1.5 border-b border-feasta-border-soft pb-3 text-sm">
+                    <div className="flex items-center justify-between gap-4">
+                      <dt className="text-feasta-text-secondary">
+                        Service subtotal
+                      </dt>
+                      <dd className="font-semibold text-foreground">
+                        {money.format(estimatedTotal)}
+                      </dd>
+                    </div>
+                    <div className="flex items-center justify-between gap-4">
+                      <dt className="text-feasta-text-secondary">
+                        Estimated FEASTA service fee (
+                        {formatPlatformCommissionRatePercent(
+                          platformCommissionRateBps,
+                        )}
+                        )
+                      </dt>
+                      <dd className="font-semibold text-foreground">
+                        +{money.format(estimatedServiceFee)}
+                      </dd>
+                    </div>
+                  </dl>
+                ) : null}
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+                  <div>
+                    <p className="text-xs font-extrabold uppercase tracking-[0.09em] text-feasta-text-tertiary">
+                      Estimated event total
+                    </p>
+
+                    <p className="mt-2 text-xs leading-5 text-feasta-text-secondary">
+                      Displayed prices are reviewed again before the final booking request is created.
+                    </p>
+                  </div>
+
+                  <p className="shrink-0 text-2xl font-extrabold text-foreground">
+                    {allPricesKnown
+                      ? money.format(
+                          estimatedTotalWithFee,
+                        )
+                      : estimatedTotal > 0 ? `Partial estimate: ${money.format(estimatedTotal)}` : "Estimate unavailable"}
+                  </p>
+                </div>
+              </div>
+            );
+          })()}
 
           {mixedBookingTypes ? (
             <p
@@ -2675,6 +2723,8 @@ function RefundPolicySection({
   result,
   error,
   notice,
+  eventDate,
+  eventTime,
   acknowledgedPolicyKeys,
   onAcknowledgementChange,
   onRetry,
@@ -2685,6 +2735,8 @@ function RefundPolicySection({
   error:
     RefundPolicyDisclosureError | null;
   notice: string | null;
+  eventDate?: string | null;
+  eventTime?: string | null;
   acknowledgedPolicyKeys:
     Readonly<
       Record<string, string>
@@ -2778,6 +2830,14 @@ function RefundPolicySection({
                     {policy.providerName}
                   </h3>
 
+                  {policy.cancellationCutoff ? (
+                    <PreBookingCancellationCutoffNotice
+                      cutoff={policy.cancellationCutoff}
+                      eventDate={eventDate}
+                      eventTime={eventTime}
+                    />
+                  ) : null}
+
                   {policy.terms ? (
                     <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-feasta-text-secondary">
                       {policy.terms}
@@ -2785,29 +2845,32 @@ function RefundPolicySection({
                   ) : null}
 
                   <div className="mt-3 grid gap-2">
-                    {policy.rules.map(
-                      (rule) => (
-                        <div
-                          key={
-                            rule.stage
-                          }
-                          className="flex items-center justify-between gap-4 rounded-xl border border-feasta-border-soft bg-white px-3 py-2 text-sm"
-                        >
-                          <span className="font-semibold text-feasta-text-secondary">
-                            {humanizeStage(
-                              rule.stage,
-                            )}
-                          </span>
+                    <div className="flex items-center justify-between gap-4 rounded-xl border border-primary/20 bg-white px-3 py-2 text-sm">
+                      <span className="font-semibold text-feasta-text-secondary">
+                        Before cancellation cutoff
+                      </span>
 
-                          <span className="font-extrabold text-foreground">
-                            {formatRefundPercentage(
-                              rule.refundBasisPoints,
-                            )}{" "}
-                            refund
-                          </span>
-                        </div>
-                      ),
-                    )}
+                      <span className="font-extrabold text-foreground">
+                        {formatRefundPercentage(
+                          policy.rules.find(
+                            (rule) =>
+                              rule.stage ===
+                              "preparation_not_started",
+                          )?.refundBasisPoints ?? 0,
+                        )}{" "}
+                        refund
+                      </span>
+                    </div>
+
+                    <div className="flex items-center justify-between gap-4 rounded-xl border border-feasta-border-soft bg-white px-3 py-2 text-sm">
+                      <span className="font-semibold text-feasta-text-secondary">
+                        After cancellation cutoff
+                      </span>
+
+                      <span className="font-extrabold text-foreground">
+                        0% refund · Cancellation closed
+                      </span>
+                    </div>
                   </div>
 
                   <label className="mt-4 flex cursor-pointer items-start gap-3 rounded-[14px] border border-primary/15 bg-secondary p-4">
@@ -3077,28 +3140,6 @@ function getSubmissionClientRequestId(
   return clientRequestId;
 }
 
-function humanizeStage(
-  value: string,
-): string {
-  const normalized =
-    value
-      .replace(
-        /_/gu,
-        " ",
-      )
-      .trim();
-
-  if (!normalized) {
-    return "Policy stage";
-  }
-
-  return (
-    normalized.charAt(0)
-      .toUpperCase() +
-    normalized.slice(1)
-  );
-}
-
 function formatRefundPercentage(
   basisPoints: number,
 ): string {
@@ -3113,12 +3154,25 @@ function formatRefundPercentage(
 }
 
 import {getCustomerBookingPaymentAgreements, type BookingAgreementDisclosure} from "@/lib/customer/bookings/customer-booking-agreement";
+import {
+  customerFeastaCommissionEstimatePesos,
+  formatPlatformCommissionRatePercent,
+} from "@/lib/customer/bookings/customer-feasta-commission-estimate";
 import {BookingPaymentAgreementReview} from "@/components/customer/bookings/booking-payment-agreement-review";
 
 // Reset editable and pending UI state when the authenticated session changes.
-export function CustomerEventListReview() {
+export function CustomerEventListReview({
+  platformCommissionRateBps,
+}: {
+  platformCommissionRateBps?: number;
+} = {}) {
   const session = useCustomerEventListSession();
-  return <CustomerEventListReviewSession key={session.generation} />;
+  return (
+    <CustomerEventListReviewSession
+      key={session.generation}
+      platformCommissionRateBps={platformCommissionRateBps}
+    />
+  );
 }
 
 function SavedReviewDetails({value}: {value: unknown}) {

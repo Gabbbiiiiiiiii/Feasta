@@ -14,6 +14,7 @@ import {
   cateringPackageServiceTierLabel,
 } from "@/lib/catering/catering-service-tier";
 import type {PublicPackage} from "@/lib/customer/discovery/marketplace-types";
+import {formatPackageOccasionLabels} from "@/lib/customer/discovery/package-occasion-labels";
 import {humanizeProviderValue} from "@/lib/customer/providers/provider-catalog";
 import {providerProfileHref} from "@/lib/customer/providers/provider-query";
 import {
@@ -116,7 +117,7 @@ export function PublicPackageCard({
 
         {packageRecord.eventType ? (
           <span className="absolute left-3 right-3 top-3 w-fit max-w-[calc(100%-1.5rem)] break-words rounded-full border border-white/70 bg-white/95 px-3 py-1.5 text-[11px] font-extrabold text-primary-strong shadow-sm backdrop-blur">
-            {packageRecord.occasionScope === "all" ? "Fits All" : (packageRecord.occasionMatchIds ?? [packageRecord.eventType]).map(humanizeProviderValue).join(", ")}
+            {formatPackageOccasionLabels(packageRecord, humanizeProviderValue).join(", ")}
           </span>
         ) : null}
       </div>
@@ -190,9 +191,7 @@ export function PublicPackageCard({
                   </dt>
 
                   <dd className="mt-0.5 break-words text-xs font-bold leading-5 text-foreground">
-                    {humanizeProviderValue(
-                      packageRecord.eventType,
-                    )}
+                    {formatPackageOccasionLabels(packageRecord, humanizeProviderValue).join(", ")}
                   </dd>
                 </div>
               </div>

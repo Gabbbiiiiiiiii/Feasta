@@ -11,14 +11,18 @@ export const packageV2Enabled = process.env.NEXT_PUBLIC_PROVIDER_PACKAGE_V2_DRAF
 export const packageV2PublicationEnabled = packageV2Enabled &&
   process.env.NEXT_PUBLIC_PROVIDER_PACKAGE_V2_PUBLICATION_ENABLED === "true";
 
+export type PackageV2MutationResult = Omit<PackageMutationV2Response, "status"> & {
+  status: "draft" | "published";
+};
+
 type Mutation = {name: "createProviderPackageV2"; input: CreateProviderPackageV2Request} |
-  {name: "updateProviderPackageV2"; input: UpdateProviderPackageV2Request} |
+  {name: "updateProviderPackageV2"; input: UpdateProviderPackageV2Request; expectedStatus?: "draft" | "published"} |
   {name: "completeProviderPackageEditorDraft"; input: CompletePackageEditorDraftRequest};
 const slot = () => `feasta-v2-pending:${auth.currentUser?.uid ?? "signed-out"}`;
 export function hasPendingV2Draft(): boolean {
   return typeof window !== "undefined" && sessionStorage.getItem(slot()) !== null;
 }
-async function send<Output extends PackageMutationV2Response | CompletePackageEditorDraftResponse>(mutation: Mutation): Promise<Output> {
+async function send<Output extends PackageV2MutationResult | CompletePackageEditorDraftResponse>(mutation: Mutation): Promise<Output> {
   initializeBrowserFirebase();
   await auth.authStateReady();
   // Supported V2 structures always use the validated server writer. Client
@@ -36,12 +40,12 @@ async function send<Output extends PackageMutationV2Response | CompletePackageEd
   if (existing && existing !== JSON.stringify(mutation)) throw new Error("PENDING_V2_SAVE");
   sessionStorage.setItem(slot(), JSON.stringify(mutation));
   try {
-    const result = (await httpsCallable<unknown, PackageMutationV2Response | CompletePackageEditorDraftResponse>(
+    const result = (await httpsCallable<unknown, PackageV2MutationResult | CompletePackageEditorDraftResponse>(
       functions, mutation.name)(mutation.input)).data;
     validateV2DraftResponse(result, mutation.name === "completeProviderPackageEditorDraft" ?
       {kind: "complete", editorDraftId: mutation.input.editorDraftId, revision: mutation.input.expectedRevision} :
       mutation.name === "updateProviderPackageV2" ?
-        {kind: "update", packageId: mutation.input.packageId, revision: mutation.input.expectedRevision} :
+        {kind: "update", packageId: mutation.input.packageId, revision: mutation.input.expectedRevision, status: mutation.expectedStatus ?? "draft"} :
         {kind: "create"});
     sessionStorage.removeItem(slot());
     return result as Output;
@@ -57,7 +61,8 @@ async function send<Output extends PackageMutationV2Response | CompletePackageEd
   }
 }
 export const createV2PackageDraft = (input: CreateProviderPackageV2Request) => send<PackageMutationV2Response>({name:"createProviderPackageV2",input});
-export const updateV2PackageDraft = (input: UpdateProviderPackageV2Request) => send<PackageMutationV2Response>({name:"updateProviderPackageV2",input});
+export const updateV2PackageDraft = (input: UpdateProviderPackageV2Request, expectedStatus?: "draft" | "published") =>
+  send<PackageV2MutationResult>(expectedStatus === "published" ? {name:"updateProviderPackageV2",input,expectedStatus} : {name:"updateProviderPackageV2",input});
 export const completeV2PackageProgress = (input: CompletePackageEditorDraftRequest) => send<CompletePackageEditorDraftResponse>({name:"completeProviderPackageEditorDraft",input});
 export async function retryPendingV2Draft() {
   const raw = sessionStorage.getItem(slot());

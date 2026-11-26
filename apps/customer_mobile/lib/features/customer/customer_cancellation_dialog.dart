@@ -356,9 +356,41 @@ class _CustomerCancellationDialogState extends State<CustomerCancellationDialog>
     );
   }
 
+  bool _isUnifiedCutoffPolicy(List<dynamic> rules, Object? cutoffAt) {
+    if (cutoffAt is! String || cutoffAt.isEmpty) return false;
+    int? before;
+    int? prep;
+    int? service;
+    for (final entry in rules) {
+      if (entry is! Map) continue;
+      final stage = entry['stage'];
+      final bps = entry['refundBasisPoints'];
+      if (bps is! int) continue;
+      if (stage == 'preparation_not_started') before = bps;
+      if (stage == 'preparation_started') prep = bps;
+      if (stage == 'service_started') service = bps;
+    }
+    return before != null && service == 0 && (prep == 0 || prep == before);
+  }
+
+  String _formatPercent(int basisPoints) =>
+      '${(basisPoints / 100).toStringAsFixed(2).replaceFirst(RegExp(r'\.?0+$'), '')}%';
+
   Widget _policyPanel(Map<String, dynamic> policy) {
     final rules = policy['rules'] as List;
     final preview = _options?['refundPreview'];
+    final unified = _isUnifiedCutoffPolicy(
+      rules,
+      _options?['cancellationCutoffAt'],
+    );
+    int beforeBps = 0;
+    for (final entry in rules) {
+      if (entry is Map &&
+          entry['stage'] == 'preparation_not_started' &&
+          entry['refundBasisPoints'] is int) {
+        beforeBps = entry['refundBasisPoints'] as int;
+      }
+    }
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -368,14 +400,28 @@ class _CustomerCancellationDialogState extends State<CustomerCancellationDialog>
           style: TextStyle(fontWeight: FontWeight.bold),
         ),
         const SizedBox(height: 6),
-        for (final entry in rules)
+        if (unified) ...[
           Padding(
             padding: const EdgeInsets.symmetric(vertical: 3),
             child: Text(
-              '${_label(entry['stage'] as String)}: '
-              '${((entry['refundBasisPoints'] as int) / 100).toStringAsFixed(0)}% refundable',
+              'Before cancellation cutoff: ${_formatPercent(beforeBps)} refundable',
             ),
           ),
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 3),
+            child: Text(
+              'After cancellation cutoff: 0% refundable (Cancellation closed)',
+            ),
+          ),
+        ] else
+          for (final entry in rules)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 3),
+              child: Text(
+                '${_label(entry['stage'] as String)}: '
+                '${((entry['refundBasisPoints'] as int) / 100).toStringAsFixed(0)}% refundable',
+              ),
+            ),
         if (policy['terms'] is String &&
             (policy['terms'] as String).isNotEmpty) ...[
           const SizedBox(height: 8),
@@ -383,7 +429,11 @@ class _CustomerCancellationDialogState extends State<CustomerCancellationDialog>
         ],
         if (preview is Map<String, dynamic>) ...[
           const Divider(),
-          Text('Recorded stage: ${_label(preview['frozenStage'] as String)}'),
+          Text(
+            unified
+                ? 'Eligible window: Before cancellation cutoff'
+                : 'Recorded stage: ${_label(preview['frozenStage'] as String)}',
+          ),
           Text(
             'Estimated refundable amount: '
             '${_money(preview['refundAmountInCentavos'])}',
@@ -495,12 +545,16 @@ class _CustomerCancellationDialogState extends State<CustomerCancellationDialog>
           ),
         if (!allowed)
           _panel(
-            reasonCode == 'EVENT_ENDED'
+            reasonCode == 'CANCELLATION_CUTOFF_PASSED'
+                ? 'Cancellation closed — cutoff passed'
+                : reasonCode == 'EVENT_ENDED'
                 ? 'Cancellation closed — event ended'
                 : 'New cancellation unavailable',
-            'Current reason: ${_label(reasonCode)}. '
-            'Existing cancellation and refund requests may '
-            'still continue through review.',
+            reasonCode == 'CANCELLATION_CUTOFF_PASSED'
+                ? 'The cancellation cutoff date has passed. New cancellation requests are no longer accepted. Report an Issue remains available.'
+                : 'Current reason: ${_label(reasonCode)}. '
+                      'Existing cancellation and refund requests may '
+                      'still continue through review.',
           ),
         if (allowed &&
             active == null &&

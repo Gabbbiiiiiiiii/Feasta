@@ -10,6 +10,7 @@ import {Button} from "@/components/ui/button";
 import {Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle} from "@/components/ui/dialog";
 import {Textarea} from "@/components/ui/textarea";
 import {auth, functions, initializeBrowserAppCheck} from "@/lib/firebase/client";
+import {PreBookingCancellationCutoffNotice} from "@/components/customer/bookings/cancellation-cutoff-notice";
 import type {BookingRefundPolicyAcknowledgement, CustomerRefundPolicyDisclosure} from "@/lib/customer/bookings/customer-refund-policy-client";
 import {customerBookingServiceVat, specialOfferBreakdown} from "@/lib/customer/bookings/customer-booking-service-vat";
 
@@ -47,11 +48,6 @@ type SpecialRequest = {
 type ResponseAction = "accept" | "declineOffer" | "requestRevision";
 const pesos = new Intl.NumberFormat("en-PH", {style: "currency", currency: "PHP"});
 const dateFormat = new Intl.DateTimeFormat("en-PH", {dateStyle: "long", timeZone: "UTC"});
-const refundStageLabels = {
-  preparation_not_started: "Before preparation starts",
-  preparation_started: "After preparation starts",
-  service_started: "After service starts",
-};
 
 export function SpecialRequestDetails({requestId, inDialog = false, onStatusChange}: {
   requestId: string;
@@ -222,9 +218,21 @@ export function SpecialRequestDetails({requestId, inDialog = false, onStatusChan
             </div>
           )}
           {pricing && pricing.providerFeeInCentavos !== null &&
-            <p className="text-sm text-muted-foreground">
-              Service charge {amount(pricing.providerFeeInCentavos)} is deducted from provider proceeds. It is not an additional customer charge.
-            </p>}
+            (pricing.isCustomerPaid ? (
+              <div className="flex justify-between gap-3">
+                <span>
+                  FEASTA service fee
+                  {pricing.platformCommissionRateBps
+                    ? ` (${Number.isInteger(pricing.platformCommissionRateBps / 100) ? String(pricing.platformCommissionRateBps / 100) : (pricing.platformCommissionRateBps / 100).toFixed(2).replace(/0+$/u, "").replace(/\.$/u, "")}%)`
+                    : ""}
+                </span>
+                <span>+{amount(pricing.providerFeeInCentavos)}</span>
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                Service charge {amount(pricing.providerFeeInCentavos)} is deducted from provider proceeds. It is not an additional customer charge.
+              </p>
+            ))}
           <div className="flex justify-between gap-3 border-t border-border pt-3 font-bold"><span>Total offered</span><span>{amount(row.priceOffer.totalInCentavos)}</span></div>
           {row.priceOffer.deliveryIncluded ? <aside className="rounded-lg bg-muted p-3 text-sm">
             <p className="font-semibold">Delivery included</p>
@@ -286,22 +294,31 @@ export function SpecialRequestDetails({requestId, inDialog = false, onStatusChan
             </DialogDescription>
           </DialogHeader>
           <form className="space-y-4" onSubmit={event => {event.preventDefault(); void respond();}}>
-            {action === "accept" && row.refundPolicies?.map(policy => (
-              <section key={policy.effectivePolicyKey} className="space-y-2 rounded-lg border border-border p-3 text-sm">
-                <h3 className="font-semibold">Cancellation and refunds</h3>
-                {policy.rules.map(rule => (
-                  <p key={rule.stage}>
-                    {refundStageLabels[rule.stage]} · {rule.refundBasisPoints / 100}% refundable
-                  </p>
-                ))}
-                {policy.terms && <p className="whitespace-pre-wrap break-words">{policy.terms}</p>}
-                <label className="flex items-start gap-2">
-                  <input type="checkbox" checked={refundAccepted} disabled={busy}
-                    onChange={event => setRefundAccepted(event.target.checked)} />
-                  I agree to the cancellation and refund policy.
-                </label>
-              </section>
-            ))}
+            {action === "accept" && row.refundPolicies?.map((policy) => {
+              const beforeBps =
+                policy.rules.find((rule) => rule.stage === "preparation_not_started")
+                  ?.refundBasisPoints ?? 0;
+              return (
+                <section key={policy.effectivePolicyKey} className="space-y-2 rounded-lg border border-border p-3 text-sm">
+                  <h3 className="font-semibold">Cancellation and refunds</h3>
+                  {policy.cancellationCutoff ? (
+                    <PreBookingCancellationCutoffNotice
+                      cutoff={policy.cancellationCutoff}
+                      eventDate={row.eventDate}
+                      eventTime={row.eventTime}
+                    />
+                  ) : null}
+                  <p>Before cancellation cutoff · {beforeBps / 100}% refundable</p>
+                  <p>After cancellation cutoff · 0% refundable (Cancellation closed)</p>
+                  {policy.terms && <p className="whitespace-pre-wrap break-words">{policy.terms}</p>}
+                  <label className="flex items-start gap-2">
+                    <input type="checkbox" checked={refundAccepted} disabled={busy}
+                      onChange={event => setRefundAccepted(event.target.checked)} />
+                    I agree to the cancellation and refund policy.
+                  </label>
+                </section>
+              );
+            })}
             {action === "requestRevision" && <Textarea aria-label="Requested changes" maxLength={2000}
               value={message} disabled={busy} required onChange={event => setMessage(event.target.value)} />}
             {error && <p role="alert" className="text-destructive">{error}</p>}

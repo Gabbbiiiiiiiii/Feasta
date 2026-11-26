@@ -1,11 +1,12 @@
 import {calculateInitialPaymentDeadlineV4, INITIAL_PAYMENT_DEADLINE_POLICY_VERSION} from "../payments/initial-payment-deadline.js";
+import {makeArrangedPaymentOffer, parseArrangedPaymentOffer, requireArrangedPaymentEligibility} from "./arranged-payment-offer.js";
 import {existingAcceptancePlan} from "./existing-acceptance-plan.js";
 import {requireInitialPaymentReservation} from "../payments/initial-payment-reservation.js";
 import {readTrustedProviderRequestPaymentSetInTransaction} from "../payments/provider-request-payment-reader.js";
 import {loadBookingPaymentPolicySnapshot} from "../bookings/load-booking-payment-policy.js";
 import {bookingPolicyTimingV3, frozenBookingPolicyTimingV3, balanceStatusV3} from "../bookings/booking-policy-v3.js";
 import {requireBookingPaymentPolicySnapshot} from "../bookings/booking-payment-eligibility-policy.js";
-import {evaluateInitialPaymentEligibility, enforceInitialPaymentEligibility} from "../payments/initial-payment-eligibility.js";
+import {evaluateInitialPaymentEligibility, validateInitialPaymentEligibility} from "../payments/initial-payment-eligibility.js";
 import {BALANCE_DUE_HOURS_BEFORE_EVENT, canonicalBalanceTiming, canonicalBalanceSchedule, scheduledEventStart} from "../payments/canonical-balance-timing.js";
 import {
   Timestamp,
@@ -90,19 +91,19 @@ export const acceptProviderRequest = onCall(
   async (request) => {
     const actor = requireAuth(request);
 
-    await requireRole(actor.uid, [
-      USER_ROLES.provider,
-    ]);
+    const input = requireObject(request.data);
+    const action = input.action ?? "accept";
+    if (!["accept", "offerArrangement", "acceptArrangement", "declineArrangement", "withdrawArrangement"].includes(String(action))) {
+      throw new HttpsError("invalid-argument", "Invalid booking response.");
+    }
+    const customerResponse = action === "acceptArrangement" || action === "declineArrangement";
+    await requireRole(actor.uid, [customerResponse ? USER_ROLES.customer : USER_ROLES.provider]);
 
     await enforceCallableRateLimit(request, {
       scope: "providerRequests.accept",
       limit: 20,
       windowSeconds: 10 * 60,
     });
-
-    const input = requireObject(
-      request.data,
-    );
 
     const providerRequestId =
       requireString(
@@ -131,6 +132,9 @@ export const acceptProviderRequest = onCall(
 
       const initialRequest =
         initialRequestSnapshot.data() ?? {};
+      if (customerResponse && initialRequest.customerId !== actor.uid) {
+        throw new HttpsError("permission-denied", "This booking request belongs to another customer.");
+      }
 
       const providerId = stringValue(
         initialRequest.providerId,
@@ -297,9 +301,12 @@ export const acceptProviderRequest = onCall(
             ),
           ]);
 
+          if (customerResponse && requestData.customerId !== actor.uid) {
+            throw new HttpsError("permission-denied", "This booking request belongs to another customer.");
+          }
           const authorized =
             authorizeProviderRequest({
-              actorUid: actor.uid,
+              actorUid: customerResponse ? stringValue(providerSnapshot.get("ownerId")) : actor.uid,
               providerRequestSnapshot:
                 requestSnapshot,
               providerSnapshot,
@@ -310,6 +317,56 @@ export const acceptProviderRequest = onCall(
               authorized,
               mainEventSnapshot,
             });
+
+          const acceptanceTime = new Date();
+          const savedOffer = parseArrangedPaymentOffer(requestData.arrangedPaymentOffer);
+          const activeOffer = savedOffer?.status === "offered" &&
+            savedOffer.initialDueAt.toMillis() > acceptanceTime.getTime() ? savedOffer : null;
+          const changedOffer = () => new HttpsError("failed-precondition", "This offer changed or expired. Reload the request.");
+          if (savedOffer && savedOffer.id === input.offerId &&
+              savedOffer.providerOwnerId === authorized.providerOwnerId &&
+              ((customerResponse && action === "acceptArrangement" && savedOffer.status === "accepted") ||
+              (customerResponse && action === "declineArrangement" && savedOffer.status === "declined") ||
+              (!customerResponse && action === "withdrawArrangement" && savedOffer.status === "withdrawn"))) {
+            return {providerRequestId, mainEventId, status: authorized.status, accepted: savedOffer.status === "accepted"};
+          }
+          if (action !== "accept") requirePendingProviderRequest(authorized);
+          if (action !== "accept" && action !== "offerArrangement" &&
+              (!activeOffer || activeOffer.id !== input.offerId ||
+                activeOffer.providerOwnerId !== authorized.providerOwnerId)) throw changedOffer();
+          if (action === "accept" && activeOffer) {
+            throw new HttpsError("failed-precondition", "Withdraw the arranged payment offer before accepting with standard terms.");
+          }
+          if ((action === "declineArrangement" || action === "withdrawArrangement") && activeOffer) {
+            const status = action === "declineArrangement" ? "declined" : "withdrawn";
+            transaction.update(providerRequestReference, {arrangedPaymentOffer: {...activeOffer, status,
+              respondedAt: Timestamp.fromDate(acceptanceTime)}, updatedAt: serverTimestamp()});
+            transaction.update(mainEventReference, {updatedAt: serverTimestamp()});
+            if (customerResponse) {
+              createNotificationInTransaction(transaction, {
+                userId: authorized.providerOwnerId, title: "Arranged payment declined",
+                message: "The customer declined your payment offer. The booking request is still pending.",
+                type: "booking", relatedId: providerRequestId, relatedCollection: "providerRequests",
+              });
+            } else {
+              createNotificationInTransaction(transaction, {
+                userId: authorized.customerId, title: "Arranged payment offer withdrawn",
+                message: "The caterer withdrew the arranged payment offer. Your booking request is still pending review.",
+                type: "booking", relatedId: providerRequestId, relatedCollection: "providerRequests",
+              });
+            }
+            writeAuditLogInTransaction(transaction, {
+              actorId: actor.uid,
+              actorRole: customerResponse ? "customer" : "provider",
+              action: customerResponse
+                ? "provider_request.arranged_payment_declined"
+                : "provider_request.arranged_payment_withdrawn",
+              targetCollection: "providerRequests",
+              targetId: providerRequestId,
+              metadata: {offerId: activeOffer.id, mainEventId, providerId},
+            });
+            return {providerRequestId, mainEventId, status: authorized.status, accepted: false};
+          }
 
           if (
             authorized.status ===
@@ -360,15 +417,15 @@ export const acceptProviderRequest = onCall(
           if (payoutReadinessReason) {
             throw new HttpsError(
               "failed-precondition",
-              "Complete payout setup before accepting new booking requests.",
+              customerResponse
+                ? "This offer cannot be accepted right now because the provider's payout setup is incomplete."
+                : "Complete payout setup before accepting new booking requests.",
               {
                 reason:
                   payoutReadinessReason,
               },
             );
           }
-
-          const acceptanceTime = new Date();
 
           const acceptanceSnapshot =
             validateAcceptanceProviderRequest({
@@ -407,6 +464,35 @@ export const acceptProviderRequest = onCall(
             return {providerRequestId, mainEventId, status: plan.nextStatus, accepted: false};
           }
 
+          const arrangement = action === "acceptArrangement" ? activeOffer : null;
+          if (action === "offerArrangement" || arrangement) {
+            const bookingPolicy = requireBookingPaymentPolicySnapshot(requestData.bookingPaymentPolicySnapshot);
+            requireArrangedPaymentEligibility(requestData, bookingPolicy.depositAllowed);
+            validateInitialPaymentEligibility(requestData);
+            const timing = frozenBookingPolicyTimingV3(requestData);
+            const grossInCentavos = Math.round(acceptanceSnapshot.amount * 100);
+            if (action === "offerArrangement") {
+              const offer = makeArrangedPaymentOffer({
+                grossInCentavos, upfrontInCentavos: input.upfrontInCentavos,
+                initialDueAt: input.initialDueAt, balanceDueAt: input.balanceDueAt,
+                providerOwnerId: authorized.providerOwnerId, now: acceptanceTime,
+                standardBalanceDueAt: timing.remainingBalanceDueAt,
+              });
+              transaction.update(providerRequestReference, {arrangedPaymentOffer: offer, updatedAt: serverTimestamp()});
+              transaction.update(mainEventReference, {updatedAt: serverTimestamp()});
+              createNotificationInTransaction(transaction, {
+                userId: authorized.customerId, title: "Arranged payment offered",
+                message: "Review the first payment and remaining balance offered by your caterer.",
+                type: "booking", relatedId: providerRequestId, relatedCollection: "providerRequests",
+              });
+              writeAuditLogInTransaction(transaction, {actorId: actor.uid, actorRole: "provider",
+                action: "provider_request.arranged_payment_offered", targetCollection: "providerRequests",
+                targetId: providerRequestId, metadata: {offerId: offer.id, mainEventId, providerId}});
+              return {providerRequestId, mainEventId, status: authorized.status, accepted: false};
+            }
+            if (!arrangement || arrangement.grossInCentavos !== grossInCentavos ||
+                arrangement.balanceDueAt.toMillis() > timing.remainingBalanceDueAt.getTime()) throw changedOffer();
+          }
           const financialSnapshot =
             buildProviderRequestFinancialSnapshot(
               {
@@ -416,8 +502,11 @@ export const acceptProviderRequest = onCall(
                 providerOwnerId:
                   authorized.providerOwnerId,
 
-                providerRequest:
-                  authorized.requestData,
+                providerRequest: arrangement
+                  ? {...authorized.requestData,
+                    downPaymentAmount: arrangement.upfrontInCentavos / 100,
+                    remainingBalance: (arrangement.grossInCentavos - arrangement.upfrontInCentavos) / 100}
+                  : authorized.requestData,
 
                 platformSettings:
                   platformSettingsSnapshot
@@ -455,10 +544,15 @@ export const acceptProviderRequest = onCall(
               platformSettings: platformSettingsSnapshot.data() ?? null});
           }
           const submissionEligibilityFrozen = authorized.requestData.initialPaymentEligibilitySchemaVersion === 2;
+          const acceptedArrangement = arrangement ? {...arrangement, status: "accepted" as const,
+            respondedAt: Timestamp.fromDate(acceptanceTime)} : null;
           const timingV3 = authorized.requestData.remainingBalanceTimingSchemaVersion === 3
             ? frozenBookingPolicyTimingV3(authorized.requestData) : null;
+          const arrangedBalanceDue = acceptedArrangement?.balanceDueAt.toDate();
+          const arrangedHardDeadline = arrangedBalanceDue
+            ? new Date(arrangedBalanceDue.getTime() + 24 * 3_600_000) : null;
           if (submissionEligibilityFrozen) {
-            enforceInitialPaymentEligibility(authorized.requestData, "full");
+            validateInitialPaymentEligibility(authorized.requestData);
             const timing = bookingPolicyTimingV3(scheduledEventStart(
               acceptanceSnapshot.eventDate.toDate(), acceptanceSnapshot.eventTime));
             if (acceptanceTime >= timing.hardPaymentDeadlineAt &&
@@ -621,7 +715,7 @@ export const acceptProviderRequest = onCall(
           ];
           let paymentDeadline: Timestamp;
           try {
-            paymentDeadline = Timestamp.fromDate(calculateInitialPaymentDeadlineV4({
+            paymentDeadline = acceptedArrangement?.initialDueAt ?? Timestamp.fromDate(calculateInitialPaymentDeadlineV4({
               acceptedAt: acceptanceTime, eventStartAt: eventStart, hardDeadlines,
             }));
           } catch {
@@ -646,6 +740,7 @@ export const acceptProviderRequest = onCall(
               initialPaymentDeadlineAt: paymentDeadline,
 
               financialSnapshot,
+              ...(acceptedArrangement ? {arrangedPaymentOffer: acceptedArrangement} : {}),
 
               financialSnapshotCapturedAt:
                 Timestamp.fromDate(acceptanceTime),
@@ -717,15 +812,16 @@ export const acceptProviderRequest = onCall(
               ...(timingV3 ? {
                 remainingBalanceTimingSchemaVersion: 3, balanceDueHoursBeforeEvent: 48,
                 eventStartAt: authorized.requestData.eventStartAt,
-                remainingBalanceDueAt: authorized.requestData.remainingBalanceDueAt,
-                hardPaymentDeadlineAt: authorized.requestData.hardPaymentDeadlineAt,
+                remainingBalanceDueAt: acceptedArrangement?.balanceDueAt ?? authorized.requestData.remainingBalanceDueAt,
+                hardPaymentDeadlineAt: arrangedHardDeadline ? Timestamp.fromDate(arrangedHardDeadline) : authorized.requestData.hardPaymentDeadlineAt,
                 preparationStartsAt: authorized.requestData.preparationStartsAt,
                 depositEligibilityCutoffAt: authorized.requestData.depositEligibilityCutoffAt,
-                remainingBalanceGraceEndsAt: authorized.requestData.hardPaymentDeadlineAt,
-                remainingBalanceNextCheckAt: Timestamp.fromDate(timingV3.remainingBalanceDueAt),
+                remainingBalanceGraceEndsAt: arrangedHardDeadline ? Timestamp.fromDate(arrangedHardDeadline) : authorized.requestData.hardPaymentDeadlineAt,
+                remainingBalanceNextCheckAt: Timestamp.fromDate(arrangedBalanceDue ?? timingV3.remainingBalanceDueAt),
                 lifecycleNextTransitionAt: Timestamp.fromDate(timingV3.preparationStartsAt),
                 remainingBalanceStatus: financialSnapshot.remainingBalanceInCentavos > 0
-                  ? balanceStatusV3({...timingV3, now: acceptanceTime,
+                  ? balanceStatusV3({...timingV3, remainingBalanceDueAt: arrangedBalanceDue ?? timingV3.remainingBalanceDueAt,
+                      hardPaymentDeadlineAt: arrangedHardDeadline ?? timingV3.hardPaymentDeadlineAt, now: acceptanceTime,
                       outstandingAmountInCentavos: financialSnapshot.remainingBalanceInCentavos}) : "not_applicable",
               } : {}),
 
@@ -762,11 +858,13 @@ export const acceptProviderRequest = onCall(
               type: "provider_accepted",
               status: summary.status,
 
-              title:
-                "Provider Request Accepted",
+              title: acceptedArrangement
+                ? "Arranged Payment Accepted"
+                : "Provider Request Accepted",
 
-              description:
-                nextStatus === "waiting_for_down_payment"
+              description: acceptedArrangement
+                ? "The customer accepted the caterer's arranged payment terms. Payment for this provider is now available."
+                : nextStatus === "waiting_for_down_payment"
                   ? "This provider accepted. Payment for this provider is now available."
                   : "This provider accepted and its booking is confirmed.",
 
@@ -774,7 +872,7 @@ export const acceptProviderRequest = onCall(
               providerId,
 
               createdBy: actor.uid,
-              createdByRole: "provider",
+              createdByRole: customerResponse ? "customer" : "provider",
               createdAt:
                 serverTimestamp(),
             },
@@ -786,11 +884,13 @@ export const acceptProviderRequest = onCall(
               userId:
                 authorized.customerId,
 
-              title:
-                "Provider Request Accepted",
+              title: acceptedArrangement
+                ? "Arranged payment accepted"
+                : "Provider Request Accepted",
 
-              message:
-                nextStatus === "waiting_for_down_payment"
+              message: acceptedArrangement
+                ? "You accepted the arranged payment terms. Pay the first payment before the deadline to confirm your booking."
+                : nextStatus === "waiting_for_down_payment"
                   ? "This provider accepted your request. You can choose to pay this provider."
                   : "This provider accepted and its booking is confirmed.",
 
@@ -804,14 +904,19 @@ export const acceptProviderRequest = onCall(
             },
           );
 
+          if (acceptedArrangement) createNotificationInTransaction(transaction, {
+            userId: authorized.providerOwnerId, title: "Arranged payment accepted",
+            message: "The customer accepted your offer. The booking awaits the first payment.",
+            type: "booking", relatedId: providerRequestId, relatedCollection: "providerRequests",
+          });
+
           writeAuditLogInTransaction(
             transaction,
             {
               actorId: actor.uid,
-              actorRole: "provider",
+              actorRole: customerResponse ? "customer" : "provider",
 
-              action:
-                "provider_request.accepted",
+              action: customerResponse ? "provider_request.arranged_payment_accepted" : "provider_request.accepted",
 
               targetCollection:
                 "providerRequests",

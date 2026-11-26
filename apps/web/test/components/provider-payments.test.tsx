@@ -196,24 +196,25 @@ describe("provider booking payments workspace", () => {
     expect(screen.getByText(/Reload the page to refresh all financial summaries/)).toBeVisible();
   });
 
-  it("renders the provider finance heading, exact summary metrics, and centavo-safe PHP values", () => {
+  it("renders the provider finance heading, direct-split summary metrics, and hides legacy hold controls when escrow balance is zero", () => {
     renderWorkspace();
 
     expect(screen.getByRole("heading", {level: 1, name: "Payments"}))
       .toBeVisible();
     expect(screen.getByText("Provider finance")).toBeVisible();
-    expect(screen.getByLabelText("Pending earnings")).toBeVisible();
-    expect(screen.getByLabelText("Available earnings")).toBeVisible();
-    expect(screen.getByLabelText("Paid out")).toBeVisible();
+    expect(screen.getByLabelText("Direct payments received")).toBeVisible();
+    expect(screen.getByLabelText("Refund reversals")).toBeVisible();
+    expect(screen.queryByLabelText("Pending earnings (legacy escrow)")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Available earnings (legacy escrow)")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", {name: "Withdraw available earnings"})).not.toBeInTheDocument();
     expect(screen.getByRole("link", {name: "View earnings statement"})).toHaveAttribute("href", "/provider/payments/statements");
-
   });
 
   it("collapses the payment-flow explainer by default", () => {
     renderWorkspace();
 
     const explainerSummary = screen.getByText(
-      "How payments, earnings, and payouts work",
+      "How direct payments, earnings, and refunds work",
     );
     expect(explainerSummary.closest("details")).not.toHaveAttribute("open");
   });

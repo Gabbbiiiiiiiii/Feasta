@@ -1,4 +1,6 @@
 import type {
+  AdminDefaultCancellationPolicyDto,
+  ProviderCancellationPolicyDto,
   RefundEligibilityStage,
 } from "@feasta/shared-types";
 
@@ -25,5 +27,16 @@ export type ProviderPackageRefundPolicyDto = {
 
 export type ProviderRefundPolicyPageDto = {
   providerPolicy: ProviderRefundPolicyDto | null;
-  packages: readonly ProviderPackageRefundPolicyDto[];
+  packages?: readonly ProviderPackageRefundPolicyDto[];
+  adminDefaultCancellationPolicy?: AdminDefaultCancellationPolicyDto;
+  providerCancellationPolicy?: ProviderCancellationPolicyDto | null;
+};
+
+export type SaveProviderCancellationPolicyResponse = {
+  success: boolean;
+  providerId: string;
+  mode: "admin_default" | "provider_custom";
+  cutoffHoursBeforeEvent: number | null;
+  effectiveCutoffHoursBeforeEvent: number;
+  policyVersion: number;
 };

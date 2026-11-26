@@ -1,11 +1,18 @@
-import {fireEvent, render, screen, waitFor} from "@testing-library/react";
+import {fireEvent, render, screen, waitFor, within} from "@testing-library/react";
 import {beforeEach, describe, expect, it, vi} from "vitest";
 import {ProviderPackageForm} from "@/app/provider/packages/provider-package-form";
 import {createProviderPackage, updateProviderPackage} from "@/lib/provider/provider-package-client";
 import {uploadProviderServiceImage} from "@/lib/provider/provider-media-client";
 import {createV2PackageDraft} from "@/lib/provider/provider-package-v2-client";
-vi.mock("@/lib/provider/provider-package-client", () => ({createProviderPackage: vi.fn(), updateProviderPackage: vi.fn()}));
+vi.mock("@/lib/provider/provider-package-client", () => ({createProviderPackage: vi.fn(), updateProviderPackage: vi.fn(), publishProviderPackage: vi.fn()}));
 vi.mock("@/lib/provider/provider-media-client", () => ({uploadProviderServiceImage: vi.fn()}));
+vi.mock("@/app/provider/packages/dish-library-actions", () => ({
+  loadDishLibrary: async () => ({
+    revision: 1,
+    categories: ["Rice"],
+    dishes: [{id: "rice", name: "Steamed rice", category: "Rice"}],
+  }),
+}));
 vi.mock("@/lib/provider/provider-package-v2-client", () => ({
   packageV2Enabled: true,
   packageV2PublicationEnabled: false,
@@ -32,14 +39,11 @@ describe("wizard UX", () => {
     const {container} = render(<ProviderPackageForm {...props} />);
     expect(screen.queryByRole("complementary")).not.toBeInTheDocument();
     expect(screen.getByText(/your authorized service category/)).toBeVisible();
-    expect(screen.getByRole("button", {name: /Request.*occasion/i})).toBeVisible();
+    expect(screen.queryByRole("button", {name: /Request.*occasion/i})).not.toBeInTheDocument();
     fireEvent.change(screen.getByLabelText(/Package name/), {target: {value: "Birthday package"}});
     fireEvent.change(screen.getByLabelText(/Description/), {target: {value: "A complete birthday celebration"}});
     fireEvent.change(screen.getByLabelText(/Suitable occasions/), {target: {value: "birthday"}});
     fireEvent.click(screen.getByRole("button", {name: "Add selected occasion"}));
-    fireEvent.change(screen.getByLabelText(/Package structure/), {
-      target: {value: "fixed"},
-    });
     next();
     expect(screen.getByRole("heading", {name: "Step 2: Pricing & capacity"})).toBeVisible();
     expect(screen.queryByRole("complementary", {name: "Live package summary"})).not.toBeInTheDocument();
@@ -53,6 +57,11 @@ describe("wizard UX", () => {
     fireEvent.change(screen.getByLabelText(/Maximum guests/), {target: {value: "30"}});
     next();
     expect(screen.queryByRole("complementary")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/Package structure/)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", {name: "Choose from Dish List"}));
+    const picker = within(await screen.findByRole("dialog", {name: "Dish Library"}));
+    fireEvent.click(await picker.findByRole("checkbox", {name: "Select all Rice"}));
+    fireEvent.click(picker.getByRole("button", {name: "Add 1 selected dish"}));
     fireEvent.submit(container.querySelector("form")!);
     next();
     expect(screen.getByRole("heading", {name: /Step 4:/})).toBeVisible();
@@ -66,9 +75,9 @@ describe("wizard UX", () => {
     expect(createV2PackageDraft).not.toHaveBeenCalled();
     expect(updateProviderPackage).not.toHaveBeenCalled();
     expect(uploadProviderServiceImage).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", {name: "Save Package Draft"}));
-    expect(screen.getByText("Create private package draft?")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", {name: "Create Draft"}));
+    fireEvent.click(screen.getByRole("button", {name: "Save as Draft"}));
+    expect(screen.getByText("Save package as draft?")).toBeInTheDocument();
+    fireEvent.click(within(screen.getByRole("dialog", {name: "FEASTA Confirmation"})).getByRole("button", {name: "Save as Draft"}));
     await waitFor(() => expect(createV2PackageDraft).toHaveBeenCalledTimes(1));
     expect(createProviderPackage).not.toHaveBeenCalled();
     expect(createV2PackageDraft).toHaveBeenCalledWith(
@@ -94,9 +103,6 @@ describe("wizard UX", () => {
     });
     fireEvent.change(screen.getByLabelText(/Description/), {
       target: {value: "Complete catering for birthday celebrations."},
-    });
-    fireEvent.change(screen.getByLabelText(/Package structure/), {
-      target: {value: "fixed"},
     });
     next();
     expect(screen.getByRole("heading", {

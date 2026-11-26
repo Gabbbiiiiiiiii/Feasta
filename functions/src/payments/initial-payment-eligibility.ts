@@ -3,6 +3,7 @@ import {requireBookingPaymentPolicySnapshot} from "../bookings/booking-payment-e
 import {scheduledEventStart} from "./canonical-balance-timing.js";
 import type {PackagePaymentTermsSnapshot} from "./package-payment-terms.js";
 import type {CustomerPaymentChoice} from "./payment-obligation.js";
+import {parseArrangedPaymentOffer} from "../provider-requests/arranged-payment-offer.js";
 
 export type InitialPaymentEligibility<T> = {
   authorityTimeSource?: "booking_submission";
@@ -12,7 +13,7 @@ export type InitialPaymentEligibility<T> = {
   depositAllowed: boolean;
   depositMinimumNoticeHours: number | null;
   depositEligible: boolean;
-  mode: "minimum_or_full" | "full_only";
+  mode: "minimum_or_full" | "minimum_only" | "full_only";
   reason: "deposit_eligible" | "package_full_payment" | "deposit_disabled" | "short_notice";
 };
 
@@ -27,8 +28,10 @@ export function evaluateSubmissionPaymentEligibility(input: {
   const eligible = input.packagePaymentTerms?.paymentPolicy === "deposit_then_balance" &&
     eligibility.depositAllowed && eligibility.eventStartAt.getTime() - input.submissionTime.getTime() >=
     depositMinimumNoticeHours * 3_600_000;
+  const mode = !eligible ? "full_only" :
+    input.packagePaymentTerms?.fullPaymentAllowed === false ? "minimum_only" : "minimum_or_full";
   return {...eligibility, authorityTimeSource: "booking_submission", submittedAt: new Date(input.submissionTime),
-    depositMinimumNoticeHours, depositEligible: eligible, mode: eligible ? "minimum_or_full" : "full_only",
+    depositMinimumNoticeHours, depositEligible: eligible, mode,
     reason: eligibility.reason === "package_full_payment" || eligibility.reason === "deposit_disabled"
       ? eligibility.reason : eligible ? "deposit_eligible" : "short_notice"};
 }
@@ -49,25 +52,27 @@ export function evaluateInitialPaymentEligibility(input: {
   const reason = !depositPackage ? "package_full_payment" : !depositAllowed ? "deposit_disabled" :
     eventStartAt.getTime() - input.acceptanceTime.getTime() >= depositMinimumNoticeHours! * 60 * 60 * 1000
       ? "deposit_eligible" : "short_notice";
+  const mode = reason !== "deposit_eligible" ? "full_only" :
+    input.packagePaymentTerms?.fullPaymentAllowed === false ? "minimum_only" : "minimum_or_full";
   return {
     evaluatedAt: new Date(input.acceptanceTime), eventStartAt, depositAllowed, depositMinimumNoticeHours,
     depositEligible: reason === "deposit_eligible",
-    mode: reason === "deposit_eligible" ? "minimum_or_full" : "full_only", reason,
+    mode, reason,
   };
 }
 
-/** Never re-evaluate against the checkout clock or mutable current policy. */
-export function enforceInitialPaymentEligibility(
-  request: Readonly<Record<string, unknown>>, choice: CustomerPaymentChoice,
-): void {
-  if (choice === "remaining_balance") return;
+/** Validate frozen initial-payment eligibility evidence without enforcing a specific checkout choice. */
+export function validateInitialPaymentEligibility(
+  request: Readonly<Record<string, unknown>>,
+): {mode: "minimum_or_full" | "minimum_only" | "full_only"; reason: string; arrangedAccepted: boolean} | null {
   if (request.initialPaymentEligibilitySchemaVersion == null && request.initialPaymentEligibility == null &&
-    request.bookingPaymentPolicySnapshot == null) return; // Legacy accepted requests.
+    request.bookingPaymentPolicySnapshot == null) return null; // Legacy accepted requests.
   const data = request.initialPaymentEligibility as InitialPaymentEligibility<{toDate?: () => Date}> | null;
   const submissionBased = request.initialPaymentEligibilitySchemaVersion === 2;
+  const isDepositMode = data?.mode === "minimum_or_full" || data?.mode === "minimum_only";
   if ((!submissionBased && request.initialPaymentEligibilitySchemaVersion !== 1) || !data ||
-    !["minimum_or_full", "full_only"].includes(data.mode) ||
-    data.depositEligible !== (data.mode === "minimum_or_full") ||
+    !["minimum_or_full", "minimum_only", "full_only"].includes(data.mode) ||
+    data.depositEligible !== isDepositMode ||
     typeof data.depositAllowed !== "boolean" ||
     !["deposit_eligible", "package_full_payment", "deposit_disabled", "short_notice"].includes(data.reason)) {
     throw invalidEligibility();
@@ -96,9 +101,36 @@ export function enforceInitialPaymentEligibility(
     const reason = !policy.depositAllowed ? "deposit_disabled" : eligible ? "deposit_eligible" : "short_notice";
     if (data.depositEligible !== eligible || data.reason !== reason) throw invalidEligibility();
   } else if (data.mode !== "full_only") throw invalidEligibility();
-  if (choice === "minimum" && data.mode === "full_only") {
+  const arrangement = parseArrangedPaymentOffer(request.arrangedPaymentOffer);
+  if (arrangement?.status === "accepted") {
+    const policy = requireBookingPaymentPolicySnapshot(request.bookingPaymentPolicySnapshot);
+    const snapshot = request.financialSnapshot as Record<string, unknown> | null;
+    if (!submissionBased || !policy.depositAllowed ||
+        eventStartAt.getTime() - evaluatedAt.getTime() < 72 * 3_600_000 ||
+        snapshot?.grossAmountInCentavos !== arrangement.grossInCentavos ||
+        snapshot?.requiredUpfrontAmountInCentavos !== arrangement.upfrontInCentavos ||
+        snapshot?.remainingBalanceInCentavos !== arrangement.grossInCentavos - arrangement.upfrontInCentavos) {
+      throw invalidEligibility();
+    }
+    return {mode: "minimum_or_full", reason: "arranged_payment", arrangedAccepted: true};
+  }
+  return {mode: data.mode, reason: data.reason, arrangedAccepted: false};
+}
+
+/** Never re-evaluate against the checkout clock or mutable current policy. */
+export function enforceInitialPaymentEligibility(
+  request: Readonly<Record<string, unknown>>, choice: CustomerPaymentChoice,
+): void {
+  if (choice === "remaining_balance") return;
+  const validated = validateInitialPaymentEligibility(request);
+  if (!validated || validated.arrangedAccepted) return;
+  if (choice === "minimum" && validated.mode === "full_only") {
     throw new HttpsError("failed-precondition", "The deposit option is not available for this booking. Choose full payment.",
-      {reason: data.reason === "short_notice" ? "deposit_not_available_for_short_notice_booking" : "deposit_not_available_for_booking"});
+      {reason: validated.reason === "short_notice" ? "deposit_not_available_for_short_notice_booking" : "deposit_not_available_for_booking"});
+  }
+  if (choice === "full" && validated.mode === "minimum_only") {
+    throw new HttpsError("failed-precondition", "Full upfront payment is not available for this booking. Choose the down payment option.",
+      {reason: "full_payment_not_available_for_booking"});
   }
 }
 

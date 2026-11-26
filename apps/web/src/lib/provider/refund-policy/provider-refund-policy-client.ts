@@ -7,7 +7,10 @@ import {
   type RefundEligibilityStage,
 } from "@feasta/shared-types";
 
-import {auth, functions} from "@/lib/firebase/client";
+import {auth, functions, initializeBrowserAppCheck} from "@/lib/firebase/client";
+import type {SaveProviderCancellationPolicyResponse} from "./provider-refund-policy-types";
+
+export type {SaveProviderCancellationPolicyResponse};
 
 export type RefundPolicyDraftPayload = {
   rules: readonly {
@@ -17,9 +20,28 @@ export type RefundPolicyDraftPayload = {
   terms: string | null;
 };
 
+export type ProviderCancellationPolicyPayload =
+  | {mode: "admin_default"}
+  | {mode: "provider_custom"; cutoffHoursBeforeEvent: number};
+
 type MutationResponse = {
   success: boolean;
 };
+
+export async function saveProviderCancellationPolicy(
+  policy: ProviderCancellationPolicyPayload,
+): Promise<SaveProviderCancellationPolicyResponse> {
+  await requireProviderAuth();
+  initializeBrowserAppCheck();
+  const callable = httpsCallable<
+    {policy: ProviderCancellationPolicyPayload; idempotencyKey: string},
+    SaveProviderCancellationPolicyResponse
+  >(functions, "saveProviderCancellationPolicy", {timeout: 30_000});
+  return (await callable({
+    policy,
+    idempotencyKey: crypto.randomUUID(),
+  })).data;
+}
 
 export async function publishProviderRefundPolicy(
   policy: RefundPolicyDraftPayload,

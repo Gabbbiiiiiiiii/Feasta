@@ -47,6 +47,10 @@ import {
   releaseProviderSettlementAvailability,
   settlementIdForEarning,
 } from "./provider-settlement-domain.js";
+import {
+  isCustomerPaidCommissionModel,
+  isDirectProviderSplitRouting,
+} from "../payments/platform-commission-policy.js";
 
 const FUND_CONFIRMATION_PHRASE = "FUND";
 const ADVANCE_CONFIRMATION_PHRASE = "ADVANCE";
@@ -255,6 +259,23 @@ export const requestCompanyAdvance = onCall(
         throw new HttpsError(
           "failed-precondition",
           "Immediate funding is not available for this booking state.",
+        );
+      }
+
+      const financialSnapshot =
+        booking.financialSnapshot &&
+        typeof booking.financialSnapshot === "object" &&
+        !Array.isArray(booking.financialSnapshot)
+          ? (booking.financialSnapshot as Record<string, unknown>)
+          : null;
+      if (
+        isDirectProviderSplitRouting(financialSnapshot?.settlementRoutingMode) ||
+        isCustomerPaidCommissionModel(financialSnapshot?.platformCommissionModel) ||
+        isCustomerPaidCommissionModel(booking.platformCommissionModel)
+      ) {
+        throw new HttpsError(
+          "failed-precondition",
+          "Immediate funding is not needed for direct-routed bookings because customer payments settle directly to your payout account.",
         );
       }
 
@@ -701,6 +722,26 @@ export const approveCompanyAdvanceRequest = onCall(
         throw new HttpsError("failed-precondition", "The booking was not found.");
       }
       const booking = bookingSnap.data() ?? {};
+      const bookingFinancialSnapshot =
+        booking.financialSnapshot &&
+        typeof booking.financialSnapshot === "object" &&
+        !Array.isArray(booking.financialSnapshot)
+          ? (booking.financialSnapshot as Record<string, unknown>)
+          : null;
+      if (
+        isDirectProviderSplitRouting(
+          bookingFinancialSnapshot?.settlementRoutingMode,
+        ) ||
+        isCustomerPaidCommissionModel(
+          bookingFinancialSnapshot?.platformCommissionModel,
+        ) ||
+        isCustomerPaidCommissionModel(booking.platformCommissionModel)
+      ) {
+        throw new HttpsError(
+          "failed-precondition",
+          "Immediate funding advances cannot be approved for direct-routed bookings.",
+        );
+      }
       if (!providerRequestHasCustomerPayment(booking.settlementStatus)) {
         throw new HttpsError(
           "failed-precondition",

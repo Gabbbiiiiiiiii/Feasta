@@ -99,7 +99,7 @@ test(
           3000,
 
         platformCommissionRateBps:
-          200,
+          20,
 
         platformCommissionModel:
           "tiered_capped_2pct_v1",
@@ -554,5 +554,39 @@ test(
       source,
       /birRegisteredName/iu,
     );
+  },
+);
+
+test(
+  "customer_paid_flat_v1 freezes submission-time subtotal, fee, and rate even if admin rate changes later",
+  () => {
+    const result = buildProviderRequestFinancialSnapshot({
+      providerId: "provider_test",
+      providerOwnerId: "owner_test",
+      providerRequest: providerRequest({
+        amount: 1002,
+        downPaymentAmount: 501,
+        remainingBalance: 501,
+        serviceSubtotalInCentavos: 100_000,
+        platformFeeInCentavos: 200,
+        platformCommissionRateBps: 20,
+        platformCommissionModel: "customer_paid_flat_v1",
+      }),
+      platformSettings: {
+        platformCommissionRateBps: 10,
+        platformTaxStatus: "non_vat",
+        platformVatRateBps: 1200,
+        financialPolicyVersion: 5,
+      },
+      providerTaxProfile: null,
+    });
+
+    assert.equal(result.platformCommissionModel, "customer_paid_flat_v1");
+    assert.equal(result.platformCommissionRateBps, 20);
+    assert.equal(result.serviceSubtotalInCentavos, 100_000);
+    assert.equal(result.platformCommissionTotalInCentavos, 200);
+    assert.equal(result.grossAmountInCentavos, 100_200);
+    assert.equal(result.requiredUpfrontAmountInCentavos, 50_100);
+    assert.equal(result.remainingBalanceInCentavos, 50_100);
   },
 );

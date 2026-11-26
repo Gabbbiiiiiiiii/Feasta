@@ -40,10 +40,10 @@ const initialSettings:
       "FEASTA serves customers and verified event service providers in Ormoc City.",
 
     platformCommissionRateBps:
-      200,
+      20,
 
     platformCommissionModel:
-      "tiered_capped_2pct_v1",
+      "customer_paid_flat_v1",
 
     platformTaxStatus:
       "non_vat",
@@ -120,15 +120,15 @@ describe(
         expect(discard).toBeDisabled();
 
         expect(
-          screen.getByText("FEASTA commission policy"),
+          screen.getByText("FEASTA service fee policy (customer-paid)"),
         ).toBeInTheDocument();
 
         expect(
-          screen.getByText("Base commission rate"),
-        ).toBeInTheDocument();
+          screen.getByLabelText("FEASTA service fee rate (%)"),
+        ).toHaveValue("0.2");
 
         expect(
-          screen.getByText("Absolute maximum cap"),
+          screen.getByText("₱1,002.00"),
         ).toBeInTheDocument();
 
         expect(
@@ -200,16 +200,16 @@ describe(
 
         expect(
           screen.getByText(
-            "FEASTA commission policy",
+            "FEASTA service fee policy (customer-paid)",
           ),
         ).toBeInTheDocument();
 
         expect(
-          screen.getByText("2%"),
+          screen.getByText("0.2% customer-paid (no cap)"),
         ).toBeInTheDocument();
 
         expect(
-          screen.getByText("₱1,000"),
+          screen.getByText("₱1,002.00"),
         ).toBeInTheDocument();
 
         expect(
@@ -457,10 +457,10 @@ describe(
             ...initialSettings,
 
             platformCommissionRateBps:
-              200,
+              20,
 
             platformCommissionModel:
-              "tiered_capped_2pct_v1",
+              "customer_paid_flat_v1",
 
             platformTaxStatus:
               "vat_registered",
@@ -562,10 +562,10 @@ describe(
             updateAdminFinancialPolicyAction,
           ).toHaveBeenCalledWith({
             platformCommissionRateBps:
-              200,
+              20,
 
             platformCommissionModel:
-              "tiered_capped_2pct_v1",
+              "customer_paid_flat_v1",
 
             platformTaxStatus:
               "vat_registered",
@@ -653,7 +653,7 @@ describe(
 
         expect(
           screen.getByText(
-            "FEASTA commission policy",
+            "FEASTA service fee policy (customer-paid)",
           ),
         ).toBeInTheDocument();
 

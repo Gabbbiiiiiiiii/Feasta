@@ -15,7 +15,7 @@ export function providerRequestAcceptanceDescription(input: {
     return "The customer will be asked to pay the full amount after you accept. " + payment.explanation;
   }
   if (payment.kind === "minimum") {
-    return "After you accept, the customer may choose the minimum deposit or full payment.";
+    return "After you accept, the customer may choose the minimum down payment or full payment.";
   }
   return payment.explanation;
 

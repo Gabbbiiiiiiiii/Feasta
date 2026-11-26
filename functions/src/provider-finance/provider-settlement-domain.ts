@@ -1,6 +1,12 @@
 import {
   createHash,
 } from "node:crypto";
+import {
+  isDirectProviderSplitRouting,
+  parsePaymentSettlementRoutingMode,
+  PAYMENT_SETTLEMENT_ROUTING_DIRECT_SPLIT_V1,
+  type PaymentSettlementRoutingMode,
+} from "../payments/platform-commission-policy.js";
 
 export const PROVIDER_SETTLEMENT_STATUSES = [
   "awaiting_availability",
@@ -43,6 +49,9 @@ export type ProviderSettlementRecord = {
   customerId: string;
 
   currency: "PHP";
+
+  settlementRoutingMode?: PaymentSettlementRoutingMode;
+  providerRefundClawbackInCentavos?: number;
 
   originalEarningAmountInCentavos: number;
   reversedAmountInCentavos: number;
@@ -180,6 +189,89 @@ export function buildProviderSettlementPlan(
     earning.earningAmountInCentavos -
     earning.reversedAmountInCentavos;
 
+  const directSplit =
+    isDirectProviderSplitRouting(
+      earning.settlementRoutingMode,
+    );
+
+  if (directSplit) {
+    const directPaidConsistent =
+      earning.pendingAmountInCentavos === 0 &&
+      earning.availableAmountInCentavos === 0 &&
+      earning.paidAmountInCentavos === netSettlementAmountInCentavos;
+
+    const directStatus: ProviderSettlementStatus =
+      netSettlementAmountInCentavos === 0 && directPaidConsistent
+        ? "cancelled"
+        : directPaidConsistent
+          ? "paid"
+          : "reconciliation_required";
+
+    return {
+      settlementId,
+
+      settlementRecord: {
+        schemaVersion: 1,
+        settlementId,
+
+        earningId,
+        paymentId: earning.paymentId,
+        providerRequestId:
+          earning.providerRequestId,
+        mainEventId:
+          earning.mainEventId,
+        providerId:
+          earning.providerId,
+        customerId:
+          earning.customerId,
+
+        currency: "PHP",
+
+        settlementRoutingMode:
+          PAYMENT_SETTLEMENT_ROUTING_DIRECT_SPLIT_V1,
+
+        providerRefundClawbackInCentavos:
+          earning.reversedAmountInCentavos,
+
+        originalEarningAmountInCentavos:
+          earning.earningAmountInCentavos,
+
+        reversedAmountInCentavos:
+          earning.reversedAmountInCentavos,
+
+        netSettlementAmountInCentavos,
+
+        reservedAmountInCentavos: 0,
+        paidOutAmountInCentavos:
+          earning.paidAmountInCentavos,
+
+        status: directStatus,
+
+        activePayoutAttemptId: null,
+        lastPayoutAttemptId: null,
+
+        reconciliationRequired:
+          !directPaidConsistent,
+
+        reconciliationReason:
+          directPaidConsistent
+            ? null
+            : "direct_split_earning_buckets_inconsistent",
+
+        createdAt:
+          input.timestamp,
+
+        updatedAt:
+          input.timestamp,
+
+        paidOutAt:
+          directStatus === "paid"
+            ? input.timestamp
+            : null,
+      },
+    };
+  }
+
   const status:
     ProviderSettlementStatus =
       netSettlementAmountInCentavos === 0
@@ -269,6 +361,16 @@ export function reserveProviderSettlementPayout(
     validateSettlement(
       input.settlement,
     );
+
+  if (
+    isDirectProviderSplitRouting(
+      settlement.settlementRoutingMode,
+    )
+  ) {
+    throw settlementInvalid(
+      "Direct-split Provider settlements do not use platform payout reservations.",
+    );
+  }
 
   const earning =
     validateEarning(
@@ -716,6 +818,33 @@ export function assertProviderSettlementRefundDispatchAllowed(
     );
   }
 
+  const directSplit =
+    isDirectProviderSplitRouting(
+      settlement.settlementRoutingMode,
+    );
+
+  if (directSplit) {
+    if (
+      settlement.status ===
+        "reserved" ||
+      settlement.status ===
+        "processing" ||
+      settlement.status ===
+        "reconciliation_required" ||
+      settlement.reservedAmountInCentavos >
+        0 ||
+      settlement.activePayoutAttemptId !==
+        null ||
+      settlement.reconciliationRequired
+    ) {
+      throw settlementInvalid(
+        "Direct-split settlement requires reconciliation before refund dispatch.",
+      );
+    }
+
+    return;
+  }
+
   if (
     settlement.status ===
       "reserved" ||
@@ -743,8 +872,9 @@ export function assertProviderSettlementRefundDispatchAllowed(
  * Synchronizes settlement truth after a successful Customer refund
  * changes the canonical Provider earning.
  *
- * This helper never rewrites settlement history once payout activity
- * has started.
+ * Legacy escrow settlements never rewrite settlement history once payout
+ * activity has started; direct_provider_split_v1 settlements record
+ * proportional split-reversal clawback against the direct-paid share.
  */
 export function buildProviderSettlementRefundUpdate(
   input: {
@@ -815,16 +945,71 @@ export function buildProviderSettlementRefundUpdate(
     (reversed as number) +
     (net as number);
 
+  if (
+    !Number.isSafeInteger(totalAfter) ||
+    totalAfter !==
+      settlement
+        .originalEarningAmountInCentavos
+  ) {
+    throw settlementInvalid(
+      "Refund Provider earning does not reconcile with settlement truth.",
+    );
+  }
+
+  if (
+    settlement.status ===
+      "cancelled" &&
+    net !== 0
+  ) {
+    throw settlementInvalid(
+      "Cancelled Provider settlement cannot become payable again.",
+    );
+  }
+
+  if (
+    isDirectProviderSplitRouting(
+      settlement.settlementRoutingMode,
+    )
+  ) {
+    if (
+      pending !== 0 ||
+      available !== 0 ||
+      paid !== net
+    ) {
+      throw settlementInvalid(
+        "Direct-split refund Provider earning does not reconcile with settlement truth.",
+      );
+    }
+
+    return {
+      reversedAmountInCentavos:
+        reversed,
+
+      netSettlementAmountInCentavos:
+        net,
+
+      paidOutAmountInCentavos:
+        paid,
+
+      providerRefundClawbackInCentavos:
+        reversed,
+
+      status:
+        net === 0
+          ? "cancelled"
+          : "paid",
+
+      updatedAt:
+        input.timestamp,
+    };
+  }
+
   const unpaidAfter =
     (pending as number) +
     (available as number);
 
   if (
-    !Number.isSafeInteger(totalAfter) ||
     !Number.isSafeInteger(unpaidAfter) ||
-    totalAfter !==
-      settlement
-        .originalEarningAmountInCentavos ||
     unpaidAfter !==
       net ||
     paid !== 0
@@ -840,16 +1025,6 @@ export function buildProviderSettlementRefundUpdate(
   ) {
     throw settlementInvalid(
       "Refund Provider earning availability is ambiguous.",
-    );
-  }
-
-  if (
-    settlement.status ===
-      "cancelled" &&
-    net !== 0
-  ) {
-    throw settlementInvalid(
-      "Cancelled Provider settlement cannot become payable again.",
     );
   }
 
@@ -1053,6 +1228,8 @@ function validateEarning(
   providerId: string;
   customerId: string;
 
+  settlementRoutingMode?: PaymentSettlementRoutingMode;
+
   earningAmountInCentavos: number;
   pendingAmountInCentavos: number;
   availableAmountInCentavos: number;
@@ -1066,6 +1243,24 @@ function validateEarning(
   ) {
     throw settlementInvalid(
       "Provider earning linkage is invalid.",
+    );
+  }
+
+  const parsedRoutingMode =
+    value.settlementRoutingMode === undefined ||
+    value.settlementRoutingMode === null
+      ? undefined
+      : parsePaymentSettlementRoutingMode(
+          value.settlementRoutingMode,
+        );
+
+  if (
+    value.settlementRoutingMode !== undefined &&
+    value.settlementRoutingMode !== null &&
+    !parsedRoutingMode
+  ) {
+    throw settlementInvalid(
+      "Provider earning settlement routing mode is invalid.",
     );
   }
 
@@ -1100,6 +1295,10 @@ function validateEarning(
         value.customerId,
         "Customer",
       ),
+
+    ...(parsedRoutingMode
+      ? {settlementRoutingMode: parsedRoutingMode}
+      : {}),
 
     earningAmountInCentavos:
       nonNegativeInteger(
@@ -1183,6 +1382,33 @@ function validateSettlement(
     );
   }
 
+  const parsedRoutingMode =
+    value.settlementRoutingMode === undefined ||
+    value.settlementRoutingMode === null
+      ? undefined
+      : parsePaymentSettlementRoutingMode(
+          value.settlementRoutingMode,
+        );
+
+  if (
+    value.settlementRoutingMode !== undefined &&
+    value.settlementRoutingMode !== null &&
+    !parsedRoutingMode
+  ) {
+    throw settlementInvalid(
+      "Provider settlement routing mode is invalid.",
+    );
+  }
+
+  const clawback =
+    value.providerRefundClawbackInCentavos === undefined ||
+    value.providerRefundClawbackInCentavos === null
+      ? undefined
+      : nonNegativeInteger(
+          value.providerRefundClawbackInCentavos,
+          "Provider refund clawback amount",
+        );
+
   const original =
     nonNegativeInteger(
       value.originalEarningAmountInCentavos,
@@ -1256,6 +1482,14 @@ function validateSettlement(
       ),
 
     currency: "PHP",
+
+    ...(parsedRoutingMode
+      ? {settlementRoutingMode: parsedRoutingMode}
+      : {}),
+
+    ...(clawback !== undefined
+      ? {providerRefundClawbackInCentavos: clawback}
+      : {}),
 
     originalEarningAmountInCentavos:
       original,

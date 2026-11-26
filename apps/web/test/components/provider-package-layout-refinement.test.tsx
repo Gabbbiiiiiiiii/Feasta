@@ -5,7 +5,7 @@ import {ProviderPackageFoodMenu} from "@/app/provider/packages/provider-package-
 import {ProviderPackageReview} from "@/app/provider/packages/provider-package-review";
 import {createProviderPackageOfferDraft} from "@/app/provider/packages/provider-package-offer-builder";
 
-vi.mock("@/lib/provider/provider-package-client", () => ({createProviderPackage: vi.fn(), updateProviderPackage: vi.fn()}));
+vi.mock("@/lib/provider/provider-package-client", () => ({createProviderPackage: vi.fn(), updateProviderPackage: vi.fn(), publishProviderPackage: vi.fn()}));
 vi.mock("@/lib/provider/provider-media-client", () => ({uploadProviderServiceImage: vi.fn()}));
 
 describe("package layout refinement", () => {
@@ -20,7 +20,7 @@ describe("package layout refinement", () => {
     fireEvent.change(screen.getByLabelText(/Description/), {target: {value: "Birthday catering"}});
     fireEvent.change(screen.getByLabelText(/Suitable occasions/), {target: {value: "birthday"}});
     fireEvent.click(screen.getByRole("button", {name: "Add selected occasion"}));
-    fireEvent.change(screen.getByRole("combobox", {name: /Package structure/}), {target: {value: "fixed"}});
+    expect(screen.queryByRole("combobox", {name: /Package structure/})).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", {name: "Next"}));
     expect(screen.getByRole("region", {name: "Guest capacity"})).toBeVisible();
     expect(screen.getByRole("region", {name: "Payment and starting price"})).toBeVisible();

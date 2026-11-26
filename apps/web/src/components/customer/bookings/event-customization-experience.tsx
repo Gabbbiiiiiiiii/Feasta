@@ -24,6 +24,7 @@ import {readCustomerEventListCloud} from "@/lib/customer/event-list/customer-eve
 import type {PlanningEntry} from "../../../../../../functions/src/customer-event-lists/contract";
 import {FixedPackageInclusions} from "./fixed-package-inclusions";
 import {FoodChoiceSelector} from "./food-choice-selector";
+import {PreBookingCancellationCutoffNotice} from "./cancellation-cutoff-notice";
 import {foodChoiceSelectionError, reconcileFoodChoiceSelections} from "@/lib/customer/bookings/food-choice-selection";
 
 
@@ -112,9 +113,13 @@ import {
 
 import {ProviderDatePicker, type ProviderCalendarCache} from "./provider-date-picker";
 import {PackagePaymentTerms} from "@/components/shared/package-payment-terms";
+import {formatBookingEventTypeLabel} from "@/lib/customer/discovery/package-occasion-labels";
 import {PriceDisplay} from "@/components/shared/price-display";
 import {getCustomerProviderTaxPreview} from "@/lib/customer/bookings/customer-provider-vat-preview-client";
-import {customerFeastaCommissionEstimatePesos} from "@/lib/customer/bookings/customer-feasta-commission-estimate";
+import {
+  customerFeastaCommissionEstimatePesos,
+  formatPlatformCommissionRatePercent,
+} from "@/lib/customer/bookings/customer-feasta-commission-estimate";
 import {customerProviderVatBreakdown, type CustomerProviderTaxStatus} from "@/lib/customer/bookings/customer-provider-vat-breakdown";
 import {Button} from "@/components/ui/button";
 import {Input} from "@/components/ui/input";
@@ -141,6 +146,7 @@ type EventCustomizationExperienceProps = {
   bestFitReturnHref?: string;
   initialServiceTier?: CateringPackageServiceTier | null;
   publishedSetups?: readonly ProviderSetup[];
+  platformCommissionRateBps?: number;
 };
 
 type EventDetailsDraft = {
@@ -202,6 +208,7 @@ function EventCustomizationExperienceSession({
   draftOwner = "guest",
   planningOnly = false,
   publishedSetups,
+  platformCommissionRateBps,
   eventListEditProviderId,
   eventListReviewIntent = false,
 }: EventCustomizationExperienceProps) {
@@ -1902,8 +1909,8 @@ function discardAndLeave() {
                   <span className="font-bold text-foreground">
                     {(packageRecord.occasionMatchIds?.length ?? 0) > 1 ? <select aria-label="Event type"
                       value={draft.eventType} onChange={e => updateDraft("eventType", e.currentTarget.value)}>
-                      {packageRecord.occasionMatchIds!.map(id => <option key={id} value={id}>{humanizeProviderValue(id)}</option>)}
-                    </select> : humanizeProviderValue(draft.eventType ?? packageRecord.eventType ?? "Package event")}
+                      {packageRecord.occasionMatchIds!.map(id => <option key={id} value={id}>{formatBookingEventTypeLabel(id, packageRecord.customOccasionLabels, humanizeProviderValue)}</option>)}
+                    </select> : formatBookingEventTypeLabel(draft.eventType ?? packageRecord.eventType ?? "Package event", packageRecord.customOccasionLabels, humanizeProviderValue)}
                   </span>
                 </p>
 
@@ -2490,6 +2497,7 @@ function discardAndLeave() {
               }
               serviceTierLabel={bookingCustomizationReviewLabel(offerSelection.serviceTier)}
               displayedServicePrice={estimatedServicePrice}
+              platformCommissionRateBps={platformCommissionRateBps}
               packageThemeName={
                 offerSelection.availableThemes.find(
                   (theme) => theme.id === offerSelection.packageThemeId,
@@ -3080,6 +3088,7 @@ function BookingReview({
   selectedEventServicesSubtotal,
   serviceTierLabel,
   displayedServicePrice,
+  platformCommissionRateBps,
   packageThemeName,
   themeNotes,
   isSubmitting,
@@ -3130,6 +3139,8 @@ function BookingReview({
   serviceTierLabel: string | null;
 
   displayedServicePrice: number | null;
+
+  platformCommissionRateBps?: number;
 
   packageThemeName: string | null;
 
@@ -3218,15 +3229,25 @@ function BookingReview({
     taxStatus,
   );
 
-  const feastaCommissionEstimate =
-    customerFeastaCommissionEstimatePesos(
-      displayedServicePrice,
-    );
-
-  const estimatedTotal =
+  const subtotalBeforeFee =
     displayedServicePrice !== null
       ? displayedServicePrice +
         selectedEventServicesSubtotal
+      : null;
+
+  const feastaCommissionEstimate =
+    customerFeastaCommissionEstimatePesos(
+      subtotalBeforeFee,
+      platformCommissionRateBps,
+    );
+
+  const estimatedTotal =
+    subtotalBeforeFee !== null
+      ? Math.round(
+          (subtotalBeforeFee +
+            (feastaCommissionEstimate ?? 0)) *
+            100,
+        ) / 100
       : null;
 
   const everyPolicyAcknowledged =
@@ -3340,7 +3361,7 @@ function BookingReview({
             <div className="min-w-0">
               <h4 className="break-words text-lg font-extrabold text-foreground">{packageRecord.name}</h4>
               <p className="mt-1 text-sm text-feasta-text-secondary">{providerName}</p>
-              {packageRecord.eventType ? <p className="mt-1 text-xs font-semibold text-feasta-text-secondary">{humanizeProviderValue(eventDraft.eventType ?? packageRecord.eventType)}</p> : null}
+              {packageRecord.eventType ? <p className="mt-1 text-xs font-semibold text-feasta-text-secondary">{formatBookingEventTypeLabel(eventDraft.eventType ?? packageRecord.eventType, packageRecord.customOccasionLabels, humanizeProviderValue)}</p> : null}
             </div>
             <div className="rounded-xl bg-feasta-canvas px-3 py-2 sm:text-right">
               <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-feasta-text-tertiary">Estimated package price</p>
@@ -3472,6 +3493,8 @@ function BookingReview({
           result={refundPolicyResult}
           error={refundPolicyError}
           notice={refundPolicyNotice}
+          eventDate={eventDraft.eventDate}
+          eventTime={eventDraft.eventTime}
           acknowledgedPolicyKeys={acknowledgedPolicyKeys}
           onAcknowledgementChange={onRefundPolicyAcknowledgementChange}
           onRetry={onRetryRefundPolicies}
@@ -3493,8 +3516,11 @@ function BookingReview({
             <EstimateRow label="Selected FEASTA services" value={selectedEventServicesSubtotal} />
 
             <EstimateRow
-              label="Service charge"
+              label={`FEASTA service fee (${formatPlatformCommissionRatePercent(
+                platformCommissionRateBps,
+              )})`}
               value={feastaCommissionEstimate}
+              detail="Added to total · provider receives 100% of listed price"
             />
 
             <div aria-label="Estimated provider tax breakdown" className="rounded-xl border border-feasta-divider bg-secondary/40 p-3">
@@ -3805,6 +3831,8 @@ function RefundPolicyReview({
   result,
   error,
   notice,
+  eventDate,
+  eventTime,
   acknowledgedPolicyKeys,
   onAcknowledgementChange,
   onRetry,
@@ -3813,6 +3841,8 @@ function RefundPolicyReview({
   result: CustomerRefundPolicyDisclosureResult | null;
   error: RefundPolicyDisclosureError | null;
   notice: string | null;
+  eventDate?: string | null;
+  eventTime?: string | null;
   acknowledgedPolicyKeys: Readonly<Record<string, string>>;
   onAcknowledgementChange: (
     policy: CustomerRefundPolicyDisclosure,
@@ -3885,25 +3915,44 @@ function RefundPolicyReview({
                       <p className="mt-1 text-xs font-bold uppercase tracking-[0.08em] text-primary-strong">
                         {policy.sourceKind === "package_override"
                           ? "Package-specific policy"
-                          : "Provider default policy"}
+                          : "Provider refund policy"}
                       </p>
                     </div>
                   </div>
 
-                  <dl className="mt-4 grid gap-3 md:grid-cols-3">
-                    {policy.rules.map((rule) => (
-                      <div key={rule.stage} className="rounded-[14px] border border-feasta-border-soft bg-white p-3">
-                        <dt className="text-xs font-bold text-feasta-text-secondary">
-                          {refundStageTitle(rule.stage)}
-                        </dt>
-                        <dd className="mt-1 text-xl font-extrabold text-foreground">
-                          {formatRefundBasisPoints(rule.refundBasisPoints)}%
-                        </dd>
-                        <dd className="mt-1 text-xs leading-5 text-feasta-text-tertiary">
-                          {refundStageDescription(rule.stage)}
-                        </dd>
-                      </div>
-                    ))}
+                  {policy.cancellationCutoff ? (
+                    <PreBookingCancellationCutoffNotice
+                      cutoff={policy.cancellationCutoff}
+                      eventDate={eventDate}
+                      eventTime={eventTime}
+                    />
+                  ) : null}
+
+                  <dl className="mt-4 grid gap-3 md:grid-cols-2">
+                    <div className="rounded-[14px] border border-primary/20 bg-white p-3">
+                      <dt className="text-xs font-bold text-feasta-text-secondary">
+                        Before Cancellation Cutoff
+                      </dt>
+                      <dd className="mt-1 text-xl font-extrabold text-foreground">
+                        {formatRefundBasisPoints(beforeCutoffRefundBasisPoints(policy.rules))}%
+                      </dd>
+                      <dd className="mt-1 text-xs leading-5 text-feasta-text-tertiary">
+                        {policy.cancellationCutoff
+                          ? `If you cancel more than ${formatCutoffHoursLabel(policy.cancellationCutoff.cutoffHoursBeforeEvent)} before event start.`
+                          : "If you cancel before the cancellation cutoff."}
+                      </dd>
+                    </div>
+                    <div className="rounded-[14px] border border-feasta-border-soft bg-white p-3">
+                      <dt className="text-xs font-bold text-feasta-text-secondary">
+                        After Cancellation Cutoff
+                      </dt>
+                      <dd className="mt-1 text-xl font-extrabold text-foreground">
+                        0%
+                      </dd>
+                      <dd className="mt-1 text-xs leading-5 text-feasta-text-tertiary">
+                        Cancellation closed — new cancellation requests are not accepted once the cutoff passes.
+                      </dd>
+                    </div>
                   </dl>
 
                   {policy.terms ? (
@@ -3941,20 +3990,20 @@ function RefundPolicyReview({
   );
 }
 
-function refundStageTitle(stage: CustomerRefundPolicyDisclosure["rules"][number]["stage"]): string {
-  if (stage === "preparation_not_started") return "Preparation Not Started";
-  if (stage === "preparation_started") return "Preparation Started";
-  return "Service Started";
+function beforeCutoffRefundBasisPoints(
+  rules: CustomerRefundPolicyDisclosure["rules"],
+): number {
+  return rules.find((rule) => rule.stage === "preparation_not_started")?.refundBasisPoints ?? 0;
 }
 
-function refundStageDescription(stage: CustomerRefundPolicyDisclosure["rules"][number]["stage"]): string {
-  if (stage === "preparation_not_started") {
-    return "Before the Provider starts preparing for the event.";
-  }
-  if (stage === "preparation_started") {
-    return "After preparation, procurement, or event setup has started.";
-  }
-  return "Once the actual event service has begun.";
+function formatCutoffHoursLabel(totalHours: number): string {
+  const safe = Math.max(0, Math.floor(totalHours));
+  const days = Math.floor(safe / 24);
+  const hours = safe % 24;
+  const parts: string[] = [];
+  if (days > 0) parts.push(`${days} ${days === 1 ? "day" : "days"}`);
+  if (hours > 0 || parts.length === 0) parts.push(`${hours} ${hours === 1 ? "hour" : "hours"}`);
+  return parts.join(" ");
 }
 
 function formatRefundBasisPoints(value: number): string {

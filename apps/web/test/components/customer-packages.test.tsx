@@ -99,11 +99,11 @@ describe("customer package marketplace", () => {
     }, {role: "provider", providerId: "provider-one", accountStatus: "active"})!;
     const record = {...packageRecord, paymentPolicy, depositPercentage: paymentPolicy === "full_payment" ? 100 : 50};
     render(<><PublicPackageCard packageRecord={record} marketplaceHref="/customer/packages" /><PackageDetail detail={{provider, packageRecord: record, customization: {foods: [], decorations: [], furniture: [], services: []}}} /></>);
-    const expected = paymentPolicy === "full_payment" ? "Full payment" : "Deposit + balance";
+    const expected = paymentPolicy === "full_payment" ? "Full payment" : "Down Payment";
     expect(screen.getAllByText(expected)).toHaveLength(2);
     expect(screen.getByRole("button", {name: "Payment info"})).toBeVisible();
     if (paymentPolicy === "deposit_then_balance") {
-      expect(screen.getAllByText("Deposit")).toHaveLength(1);
+      expect(screen.getAllByText("Down payment")).toHaveLength(1);
       expect(screen.getAllByText("Balance due")).toHaveLength(1);
       expect(screen.getAllByText("Short notice")).toHaveLength(1);
       expect(screen.getAllByText("Pay 50% first, then the remaining balance")).toHaveLength(1);
@@ -111,14 +111,14 @@ describe("customer package marketplace", () => {
       expect(screen.getAllByText("Under 72 hours: full payment required")).toHaveLength(1);
       expect(screen.queryByText("Full payment")).not.toBeInTheDocument();
       await user.click(screen.getByRole("button", {name: "Payment info"}));
-      expect(screen.getAllByText("Deposit")).toHaveLength(2);
+      expect(screen.getAllByText("Down payment")).toHaveLength(2);
       expect(screen.getAllByText("Balance due")).toHaveLength(2);
       expect(screen.getAllByText("Short notice")).toHaveLength(2);
       expect(screen.getAllByText("Pay 50% first, then the remaining balance")).toHaveLength(2);
       expect(screen.getAllByText("Remaining balance is due 24 hours before the event")).toHaveLength(2);
       expect(screen.getAllByText("Under 72 hours: full payment required")).toHaveLength(2);
     } else {
-      expect(screen.queryByText("Deposit + balance")).not.toBeInTheDocument();
+      expect(screen.queryByText("Down Payment")).not.toBeInTheDocument();
       expect(screen.queryByText("Short notice")).not.toBeInTheDocument();
       expect(screen.queryByText("Under 72 hours: full payment required")).not.toBeInTheDocument();
       expect(screen.getAllByText("100% due after booking acceptance")).toHaveLength(1);

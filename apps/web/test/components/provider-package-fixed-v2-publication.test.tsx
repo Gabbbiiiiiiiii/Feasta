@@ -24,3 +24,21 @@ it("blocks Individual Food even if saved readiness and client flags are true",()
  render(<ProviderPackageCard item={{...base,offerStructure:"individual",v2:{revision:1,publicationReady:true,occasionScope:"specific",occasionIds:["birthday"],serviceOptions:{drop_off:{price:100,includedServices:[]}},equipmentInclusions:[]}}} onPublish={vi.fn()} onEdit={vi.fn()} onArchive={vi.fn()}/>);
  expect(screen.getByRole("button",{name:"Publish Fixed catering"})).toBeDisabled();
 });
+it("shows Edit, View, and Archive actions for published packages and hides Edit for archived packages",()=>{
+ const edit=vi.fn();
+ const published:ProviderPackage={...base,id:"pub-1",status:"published",isActive:true,isPublished:true,providerPubliclyVisible:true,paymentPolicy:"deposit_then_balance",fullPaymentAllowed:true,depositPercentage:50};
+ const view=render(<ProviderPackageCard item={published} onPublish={vi.fn()} onEdit={edit} onArchive={vi.fn()}/>);
+ expect(screen.getByText("50% Down Payment & Full Payment")).toBeVisible();
+ expect(screen.queryByText("Down payment")).not.toBeInTheDocument();
+ expect(screen.queryByText("Balance due")).not.toBeInTheDocument();
+ expect(screen.queryByText("Short notice")).not.toBeInTheDocument();
+ fireEvent.click(screen.getByRole("button",{name:"Edit Fixed catering"}));
+ expect(edit).toHaveBeenCalledTimes(1);
+ expect(screen.getByRole("button",{name:"View Fixed catering"})).toBeVisible();
+ expect(screen.getByRole("button",{name:"Archive Fixed catering"})).toBeVisible();
+ expect(screen.queryByRole("button",{name:"Publish Fixed catering"})).toBeNull();
+ view.unmount();
+
+ render(<ProviderPackageCard item={{...base,id:"arch-1",status:"archived"}} onPublish={vi.fn()} onEdit={vi.fn()} onArchive={vi.fn()}/>);
+ expect(screen.queryByRole("button",{name:"Edit Fixed catering"})).toBeNull();
+});

@@ -11,10 +11,12 @@ import {DialogClose, DialogDescription, DialogHeader, DialogTitle} from "@/compo
 import {CATERING_PACKAGE_SERVICE_TIERS, cateringPackageServiceTierDescription, cateringPackageServiceTierLabel} from "@/lib/catering/catering-service-tier";
 import {packageStartingPrice} from "@/lib/catering/package-offer-configuration";
 import type {ProviderPackage} from "@/lib/provider/provider-package-client";
+import {formatPackageOccasionLabels} from "@/lib/customer/discovery/package-occasion-labels";
 
-export function ProviderPackageDetailPreview({item, serviceCategoryLabel}: {
+export function ProviderPackageDetailPreview({item, serviceCategoryLabel, customOccasionLabels}: {
   item: ProviderPackage;
   serviceCategoryLabel?: string;
+  customOccasionLabels?: readonly string[];
 }) {
   const images = item.imageUrls?.filter(Boolean).length
     ? item.imageUrls.filter(Boolean) : item.imageUrl ? [item.imageUrl] : [];
@@ -37,7 +39,7 @@ export function ProviderPackageDetailPreview({item, serviceCategoryLabel}: {
         <StatusBadge status={item.status} />
         <DetailFieldList>
           {[
-            ["Event type", humanize(item.eventType)],
+            ["Event type", formatPackageOccasionLabels({occasionScope: item.v2?.occasionScope, occasionIds: item.v2?.occasionIds, eventType: item.eventType, customOccasionLabels}, humanize, {allLabel: "Fits All Occasions"}).join(", ")],
             ["Service category", serviceCategoryLabel || (item.serviceCategoryCode ? humanize(item.serviceCategoryCode) : "Not specified")],
             ["Minimum guests", item.minimumGuests],
             ["Maximum guests", item.maximumGuests],

@@ -1,14 +1,31 @@
 "use client";
 
 import {useActionState, useId, useState} from "react";
-import {Check, Copy} from "lucide-react";
+import {Check, Copy, Printer} from "lucide-react";
 import {Button} from "@/components/ui/button";
 import {Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger} from "@/components/ui/dialog";
 import {saveWalkIn, type WalkInActionState} from "./actions";
+import {printBookingSheet, type PrintableBookingSheet} from "@/lib/provider/print-booking-sheet";
+
+export function PrintWalkInButton({sheet}: {sheet: PrintableBookingSheet}) {
+  return (
+    <Button
+      type="button"
+      variant="secondary"
+      size="compact"
+      data-print-hidden=""
+      className="print:hidden"
+      onClick={() => printBookingSheet(sheet)}
+    >
+      <Printer aria-hidden="true" className="size-4" />
+      Print
+    </Button>
+  );
+}
 
 export function CopyWalkInReference({reference}: {reference: string}) {
   const [message, setMessage] = useState("");
-  return <span className="inline-flex items-center gap-1">
+  return <span data-print-hidden="" className="inline-flex items-center gap-1 print:hidden">
     <button type="button" aria-label="Copy booking reference" title="Copy booking reference"
       className="inline-flex size-7 items-center justify-center rounded hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       onClick={async () => {
@@ -37,7 +54,7 @@ export function WalkInStatusForm({id}: {id: string}) {
     return result;
   }, {});
   return (
-    <div className="border-t border-border pt-5">
+    <div data-print-hidden="" className="border-t border-border pt-5 print:hidden">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <Dialog open={open} onOpenChange={(next) => {
           if (cancelling) return;

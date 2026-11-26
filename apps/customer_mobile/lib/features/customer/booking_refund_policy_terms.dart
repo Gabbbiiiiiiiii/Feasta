@@ -25,17 +25,54 @@ class BookingRefundPolicyTerms extends StatelessWidget {
           Text(
             p.sourceKind == 'package_override'
                 ? 'Package-specific refund policy'
-                : 'Provider default refund policy',
+                : 'Provider refund policy',
           ),
-          Text('Current applicable policy ? Version ${p.policyVersion}'),
-          const SizedBox(height: 12),
-          for (var i = 0; i < p.rules.length; i++)
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 6),
-              child: Text(
-                '${refundStageLabels[i]}: ${refundPercentage(p.rules[i].refundBasisPoints)} refund rate',
+          Text('Current applicable policy · Version ${p.policyVersion}'),
+          if (p.cancellationCutoff != null) ...[
+            const SizedBox(height: 10),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: const Color(0xFFE8F1EE),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: const Color(0xFFBFD4CC)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Cancellation cutoff: ${formatCancellationCutoffDuration(p.cancellationCutoff!.cutoffHoursBeforeEvent)} before event start',
+                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w700,
+                      color: const Color(0xFF093B26),
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'New cancellation requests close ${formatCancellationCutoffDuration(p.cancellationCutoff!.cutoffHoursBeforeEvent)} before the scheduled event start (${p.cancellationCutoff!.sourceKind == 'admin_default' ? 'FEASTA default policy' : 'Provider custom policy'}).',
+                  ),
+                  if (p.cancellationCutoff!.guidanceNote != null) ...[
+                    const SizedBox(height: 4),
+                    Text(p.cancellationCutoff!.guidanceNote!),
+                  ],
+                ],
               ),
             ),
+          ],
+          const SizedBox(height: 12),
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 6),
+            child: Text(
+              'Before cancellation cutoff: ${refundPercentage(p.beforeCutoffRefundBasisPoints)} refund',
+            ),
+          ),
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 6),
+            child: Text(
+              'After cancellation cutoff: 0% refund (Cancellation closed)',
+            ),
+          ),
           if (p.terms != null && p.terms!.isNotEmpty) ...[
             const SizedBox(height: 8),
             Text(

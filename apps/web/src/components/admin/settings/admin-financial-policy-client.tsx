@@ -15,6 +15,7 @@ import {
 import {
   DEFAULT_PLATFORM_COMMISSION_MODEL,
   DEFAULT_PLATFORM_COMMISSION_RATE_BPS,
+  computeCustomerPaidPlatformFeeInCentavos,
 } from "@feasta/shared-types";
 
 import {
@@ -492,16 +493,15 @@ function AdminFinancialPolicyClient({
         <div className="grid gap-5 md:grid-cols-2">
           <div className="grid content-start gap-2 rounded-lg border border-border bg-muted/30 p-4 md:col-span-2">
             <p className="font-semibold text-foreground">
-              FEASTA commission policy
+              FEASTA service fee policy (customer-paid)
             </p>
 
             <p className="text-sm leading-5 text-muted-foreground">
-              Configure the base commission
-              percentage. Tiered peso caps
-              still apply. Existing booking
-              snapshots keep their original
-              commission. New bookings use
-              this versioned policy.
+              Configure the dynamic flat service fee percentage added to the
+              customer&apos;s booking total with no maximum peso cap. Providers
+              receive 100% of their listed package price directly upon customer
+              payment (0-day hold). Existing booking snapshots keep their
+              original frozen rate and fee.
             </p>
 
             <div className="mt-2 grid gap-2 sm:max-w-xs">
@@ -509,7 +509,7 @@ function AdminFinancialPolicyClient({
                 htmlFor="financial-policy-commission-rate"
                 className="font-semibold text-foreground"
               >
-                Base commission rate (%)
+                FEASTA service fee rate (%)
               </label>
               <Input
                 id="financial-policy-commission-rate"
@@ -528,37 +528,57 @@ function AdminFinancialPolicyClient({
                 id="financial-policy-commission-rate-help"
                 className="text-sm text-muted-foreground"
               >
-                Caps remain
-                ₱500 / ₱1,000 by booking size.
+                Applies immediately to new bookings (for example, 0.2% or 0.1%). No peso cap applies.
               </p>
             </div>
 
-            <dl className="mt-2 grid gap-2 text-sm sm:grid-cols-2">
-              <PolicyValue
-                label="Standard commission cap"
-                value="₱500"
-              />
-
-              <PolicyValue
-                label="Standard cap maintained through"
-                value="₱75,000"
-              />
-
-              <PolicyValue
-                label="Progressive transition"
-                value="Above ₱75,000 to ₱100,000"
-              />
-
-              <PolicyValue
-                label="Absolute maximum cap"
-                value="₱1,000"
-              />
-
-              <PolicyValue
-                label="Absolute cap applies from"
-                value="₱100,000"
-              />
-            </dl>
+            {commissionRateBps !== null && commissionRateBps > 0 ? (() => {
+              const sampleSubtotalCentavos = 100_000;
+              const sampleFeeCentavos =
+                computeCustomerPaidPlatformFeeInCentavos(
+                  sampleSubtotalCentavos,
+                  commissionRateBps,
+                ) ?? 0;
+              const sampleTotalCentavos = sampleSubtotalCentavos + sampleFeeCentavos;
+              const sampleFeastaVatCentavos =
+                platformTaxStatus === "vat_registered" &&
+                vatRateBps !== null &&
+                vatRateBps > 0
+                  ? Math.round(
+                      (sampleFeeCentavos * vatRateBps) /
+                        (10_000 + vatRateBps),
+                    )
+                  : 0;
+              const formatPhp = (centavos: number) =>
+                `₱${(centavos / 100).toLocaleString("en-PH", {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                })}`;
+              return (
+                <dl className="mt-2 grid gap-2 rounded-lg border border-border/80 bg-background/70 p-3 text-sm sm:grid-cols-2">
+                  <PolicyValue
+                    label="Example package price (provider receives 100%)"
+                    value={formatPhp(sampleSubtotalCentavos)}
+                  />
+                  <PolicyValue
+                    label={`FEASTA service fee (${basisPointsToInput(commissionRateBps)}%)`}
+                    value={`+${formatPhp(sampleFeeCentavos)}`}
+                  />
+                  <PolicyValue
+                    label="Customer total payable"
+                    value={formatPhp(sampleTotalCentavos)}
+                  />
+                  <PolicyValue
+                    label="VAT included in FEASTA fee"
+                    value={
+                      platformTaxStatus === "vat_registered"
+                        ? `${formatPhp(sampleFeastaVatCentavos)} (VAT-inclusive)`
+                        : "₱0.00 (Non-VAT)"
+                    }
+                  />
+                </dl>
+              );
+            })() : null}
           </div>
 
           <div className="grid gap-2">
@@ -726,12 +746,17 @@ function AdminFinancialPolicyClient({
 
             <dl className="grid gap-2 text-sm">
               <PolicyValue
-                label="Commission"
+                label="Service fee"
                 value={
-                  commissionRateBps === null
+                  commissionRateBps === null || commissionRateBps <= 0
                     ? "Invalid rate"
-                    : `${basisPointsToInput(commissionRateBps)}% tiered capped (max ₱1,000)`
+                    : `${basisPointsToInput(commissionRateBps)}% customer-paid (no cap)`
                 }
+              />
+
+              <PolicyValue
+                label="Settlement routing"
+                value="Direct-to-provider instant split (0-day hold)"
               />
 
               <PolicyValue
@@ -755,7 +780,7 @@ function AdminFinancialPolicyClient({
                           ? "Invalid"
                           : vatRateBps /
                             100
-                      }%`
+                      }% (VAT-inclusive)`
                     : "Inactive"
                 }
               />

@@ -99,4 +99,27 @@ describe("Special Request pricing", () => {
     });
     expect(specialOfferBreakdown(legacy, 2000000, request.financialSnapshot)).toBeUndefined();
   });
+
+  it("extracts Provider VAT strictly from provider serviceSubtotal on customer_paid_flat_v1 bookings", () => {
+    expect(
+      customerBookingServiceVat({
+        amount: 1002,
+        financialSnapshot: {
+          schemaVersion: 1,
+          currency: "PHP",
+          serviceSubtotalInCentavos: 100000,
+          grossAmountInCentavos: 100200,
+          platformCommissionModel: "customer_paid_flat_v1",
+          platformCommissionRateBps: 20,
+          platformCommissionTotalInCentavos: 200,
+          providerTaxType: "vat_registered",
+          providerTaxVerificationStatus: "verified",
+        },
+      }),
+    ).toEqual({
+      status: "available",
+      taxType: "vat_registered",
+      includedInPriceInCentavos: 10714,
+    });
+  });
 });

@@ -9,8 +9,11 @@ it("requires a matching positive legacy acknowledgement",()=>{
 it("requires the exact V2 package revision for create and update",()=>{
  expect(()=>validateV2DraftResponse(result,{kind:"create"})).not.toThrow();
  expect(()=>validateV2DraftResponse({...result,packageRevision:8},{kind:"update",packageId:"pkg",revision:7})).not.toThrow();
- for(const value of [{...result,success:false},{...result,sharedContractVersion:3},{...result,packageRevision:0},{...result,packageRevision:2},{...result,packageId:true}]) expect(()=>validateV2DraftResponse(value,{kind:"create"})).toThrow();
+ expect(()=>validateV2DraftResponse({...result,status:"published",packageRevision:8},{kind:"update",packageId:"pkg",revision:7,status:"published"})).not.toThrow();
+ for(const value of [{...result,success:false},{...result,status:"published"},{...result,sharedContractVersion:3},{...result,packageRevision:0},{...result,packageRevision:2},{...result,packageId:true}]) expect(()=>validateV2DraftResponse(value,{kind:"create"})).toThrow();
  expect(()=>validateV2DraftResponse({...result,packageRevision:8},{kind:"update",packageId:"other",revision:7})).toThrow();
+ expect(()=>validateV2DraftResponse({...result,status:"published",packageRevision:8},{kind:"update",packageId:"pkg",revision:7})).toThrow();
+ expect(()=>validateV2DraftResponse({...result,status:"draft",packageRevision:8},{kind:"update",packageId:"pkg",revision:7,status:"published"})).toThrow();
 });
 it("matches completion to the exact editor revision",()=>{
  const completed={status:"draft",packageId:"pkg",packageRevision:1,editorDraftId:"editor",editorDraftRevision:4};

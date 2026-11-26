@@ -271,29 +271,55 @@ class _ReceiptAmounts extends StatelessWidget {
             ),
           ),
           const SizedBox(height: AppSpacing.lg),
-          if (settled != null)
-            _AmountRow(label: 'Amount paid', amountInCentavos: settled)
-          else
-            Text(
-              'Settled amount unavailable for this receipt.',
-              style: AppTypography.bodySmall.copyWith(
-                color: AppColors.secondaryTextAccessible,
-              ),
+          if (settled != null &&
+              request.isCustomerPaidFee &&
+              serviceCharge != null &&
+              serviceCharge <= settled) ...[
+            _AmountRow(
+              label: 'Service subtotal',
+              amountInCentavos: settled - serviceCharge,
             ),
-          if (serviceCharge != null) ...[
             const Divider(height: AppSpacing.lg, color: AppColors.border),
             _AmountRow(
-              label: 'Service charge',
+              label: 'FEASTA service fee',
               amountInCentavos: serviceCharge,
             ),
             const SizedBox(height: AppSpacing.xs),
             Text(
-              'Service charge is deducted from provider proceeds. '
-              'It is not an additional customer charge.',
+              'Customer-paid platform service fee. Your provider receives '
+              '100% of the service subtotal directly, and FEASTA retains '
+              'only the service fee.',
               style: AppTypography.bodySmall.copyWith(
                 color: AppColors.secondaryTextAccessible,
               ),
             ),
+            const Divider(height: AppSpacing.lg, color: AppColors.border),
+            _AmountRow(label: 'Amount paid', amountInCentavos: settled),
+          ] else ...[
+            if (settled != null)
+              _AmountRow(label: 'Amount paid', amountInCentavos: settled)
+            else
+              Text(
+                'Settled amount unavailable for this receipt.',
+                style: AppTypography.bodySmall.copyWith(
+                  color: AppColors.secondaryTextAccessible,
+                ),
+              ),
+            if (serviceCharge != null) ...[
+              const Divider(height: AppSpacing.lg, color: AppColors.border),
+              _AmountRow(
+                label: 'Service charge',
+                amountInCentavos: serviceCharge,
+              ),
+              const SizedBox(height: AppSpacing.xs),
+              Text(
+                'Service charge is deducted from provider proceeds. '
+                'It is not an additional customer charge.',
+                style: AppTypography.bodySmall.copyWith(
+                  color: AppColors.secondaryTextAccessible,
+                ),
+              ),
+            ],
           ],
           if (outstanding != null) ...[
             const Divider(height: AppSpacing.lg, color: AppColors.border),

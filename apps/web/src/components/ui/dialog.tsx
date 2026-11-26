@@ -13,7 +13,7 @@ const DialogClose = DialogPrimitive.Close;
 function DialogOverlay({className, ...props}: React.ComponentProps<typeof DialogPrimitive.Overlay>) {
   return (
     <DialogPrimitive.Overlay
-      className={cn("fixed inset-0 z-50 bg-black/[0.18] transition-opacity duration-fast data-[state=closed]:opacity-0 data-[state=open]:opacity-100", className)}
+      className={cn("fixed inset-0 z-50 bg-black/[0.18] transition-opacity duration-fast data-[state=closed]:opacity-0 data-[state=open]:opacity-100 print:hidden", className)}
       {...props}
     />
   );
@@ -39,7 +39,8 @@ function DialogContent({
         {children}
         {showCloseButton ? (
           <DialogPrimitive.Close
-            className="absolute right-3 top-3 inline-flex size-12 items-center justify-center rounded-lg text-muted-foreground hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            data-print-hidden=""
+            className="absolute right-3 top-3 inline-flex size-12 items-center justify-center rounded-lg text-muted-foreground hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring print:hidden"
             aria-label="Close dialog"
           >
             <X aria-hidden="true" className="size-5" />

@@ -1,3 +1,4 @@
+import {isDropOffOrderQuantity} from "@feasta/shared-types/provider-package-v2";
 import type {OfferV2, ServiceOptionV2, Tier} from "@feasta/shared-types/provider-package-v2";
 import {exact, invalid, normalizedText, plainText, record} from "./v2-validation.js";
 import {parseFoodChoiceGroupsV2, FoodChoiceValidationError} from "./food-choice-groups-v2.js";
@@ -48,7 +49,7 @@ export function parseServiceOptionV2(value: unknown): ServiceOptionV2 {
 export function parseOfferV2(value: unknown, allowHistoricalStandalone = false): OfferV2 {
   const v = exact(value, ["offerSchemaVersion", "serviceOptions", "serviceInclusions",
     "decorInclusions", "furnitureInclusions", "foodInclusions", "price"],
-  ["equipmentInclusions", "pricingModel", "foodChoiceGroups"], "INVALID_INCLUSION");
+  ["equipmentInclusions", "pricingModel", "foodChoiceGroups", "maxDropOffOrderQuantity"], "INVALID_INCLUSION");
   if (v.offerSchemaVersion !== 2 || Object.hasOwn(v, "pricingModel") &&
       v.pricingModel !== "per_pax" && v.pricingModel !== "per_bundle") {
     return invalid("INVALID_INCLUSION");
@@ -61,6 +62,11 @@ export function parseOfferV2(value: unknown, allowHistoricalStandalone = false):
   for (const tier of tiers) {
     if (Object.hasOwn(options, tier)) serviceOptions[tier] = parseServiceOptionV2(options[tier]);
   }
+  const maxQuantity = v.maxDropOffOrderQuantity;
+  if (Object.hasOwn(v, "maxDropOffOrderQuantity") &&
+      (!isDropOffOrderQuantity(maxQuantity) || v.pricingModel !== "per_bundle" || !serviceOptions.drop_off)) {
+    return invalid("INVALID_INCLUSION");
+  }
   const prices = Object.values(serviceOptions).map((o) => phpCentavos(o.price));
   const starting = phpCentavos(v.price);
   if (!prices.length && !allowHistoricalStandalone ||
@@ -69,6 +75,7 @@ export function parseOfferV2(value: unknown, allowHistoricalStandalone = false):
   }
   return {
     offerSchemaVersion: 2, serviceOptions, price: v.price as number,
+    ...(isDropOffOrderQuantity(maxQuantity) ? {maxDropOffOrderQuantity: maxQuantity} : {}),
     serviceInclusions: inclusionList(v.serviceInclusions),
     decorInclusions: inclusionList(v.decorInclusions),
     furnitureInclusions: inclusionList(v.furnitureInclusions),

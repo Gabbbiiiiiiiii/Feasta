@@ -192,6 +192,7 @@ function CustomerBookingDetailsDrawer({
             paymentRequestChoice={paymentRequestChoice}
             paymentError={paymentError}
             onPay={(providerRequestId, paymentChoice) => void startCheckout(providerRequestId, paymentChoice)}
+            onArrangementUpdated={() => loadDetails(true)}
           />
         </>
       ) : null}
@@ -205,12 +206,14 @@ function BookingDetailsContent({
   paymentRequestChoice,
   paymentError,
   onPay,
+  onArrangementUpdated,
 }: {
   details: CustomerBookingDetails;
   paymentRequestId: string | null;
   paymentRequestChoice: CustomerPaymentChoice | null;
   paymentError?: string;
   onPay: (providerRequestId: string, paymentChoice: CustomerPaymentChoice) => void;
+  onArrangementUpdated?: () => void | Promise<void>;
 }) {
   const {booking} = details;
   const providerRequests = details.providerRequests.slice(0, MAX_PROVIDER_REQUESTS);
@@ -294,6 +297,7 @@ function BookingDetailsContent({
               <CustomerBookingProviderRequestCard
                 key={request.id}
                 request={request}
+                onArrangementUpdated={onArrangementUpdated}
                 compact
                 hideInitialPaymentReminder={["cancelled", "expired"].includes(booking.status)}
                 paymentAction={<CustomerBookingPaymentAction request={request} bookingId={booking.id} paymentRequestId={paymentRequestId} paymentRequestChoice={paymentRequestChoice} onPay={onPay} />}

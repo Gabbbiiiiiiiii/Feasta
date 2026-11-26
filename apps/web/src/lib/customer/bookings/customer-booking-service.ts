@@ -1,3 +1,4 @@
+import {arrangedPaymentView} from "@/lib/payments/arranged-payment-view";
 import {projectInitialPaymentDeadline} from "./customer-booking-initial-payment-deadline";
 import {lifecycleEvidence, linkedLifecycleEvidence} from "@/lib/presentation/booking-lifecycle";
 import "server-only";
@@ -7,6 +8,7 @@ import {hasBookingSettlement, projectBookingPayment} from "@/lib/payments/bookin
 import {customerBookingCheckoutOptions} from "./customer-booking-checkout-options";
 import {customerInitialPaymentExplanation} from "./customer-booking-initial-payment-eligibility";
 import {balanceEnforcementPresentation} from "@/lib/payments/remaining-balance-enforcement";
+import {parseBookingCancellationCutoffView} from "@/lib/provider/cancellation-cutoff-view";
 
 import {createHash} from "node:crypto";
 
@@ -642,6 +644,11 @@ function mapProviderRequestDocument(
 ): CustomerBookingProviderRequest {
   const data = document.data() ?? {};
 
+  const arrangedPayment = arrangedPaymentView(data.arrangedPaymentOffer);
+  const arrangedAccepted = arrangedPayment?.status === "accepted" &&
+    data.financialSnapshot?.requiredUpfrontAmountInCentavos === arrangedPayment.upfrontInCentavos &&
+    data.financialSnapshot?.remainingBalanceInCentavos === arrangedPayment.grossInCentavos - arrangedPayment.upfrontInCentavos;
+
   return {
     id: document.id,
     providerRequestId:
@@ -655,11 +662,30 @@ function mapProviderRequestDocument(
     packageName: nullableString(data.packageName),
     services: normalizeServices(data.services),
     amount: finiteNumber(data.amount),
+    serviceSubtotalInCentavos:
+      nullableCentavos(data.financialSnapshot?.serviceSubtotalInCentavos) ??
+      nullableCentavos(data.serviceSubtotalInCentavos),
+    platformFeeInCentavos:
+      nullableCentavos(data.financialSnapshot?.platformCommissionTotalInCentavos) ??
+      nullableCentavos(data.platformFeeInCentavos),
+    platformCommissionRateBps:
+      nullableCentavos(data.financialSnapshot?.platformCommissionRateBps) ??
+      nullableCentavos(data.platformCommissionRateBps),
+    platformCommissionModel:
+      nullableString(data.financialSnapshot?.platformCommissionModel) ??
+      nullableString(data.platformCommissionModel),
     serviceVat: customerBookingServiceVat(data),
     specialOffer: specialOfferBreakdown(data.acceptedSpecialOffer, Math.round(finiteNumber(data.amount) * 100), data.financialSnapshot),
-    downPaymentAmount: finiteNumber(data.downPaymentAmount),
-    downPaymentPercentage: finiteNumber(data.downPaymentPercentage),
-    remainingBalance: finiteNumber(data.remainingBalance),
+    arrangedPayment,
+    downPaymentAmount: arrangedAccepted
+      ? arrangedPayment.upfrontInCentavos / 100
+      : finiteNumber(data.downPaymentAmount),
+    downPaymentPercentage: arrangedAccepted
+      ? finiteNumber(data.financialSnapshot?.requiredUpfrontRateBps) / 100
+      : finiteNumber(data.downPaymentPercentage),
+    remainingBalance: arrangedAccepted
+      ? (arrangedPayment.grossInCentavos - arrangedPayment.upfrontInCentavos) / 100
+      : finiteNumber(data.remainingBalance),
     status: normalizeProviderRequestStatus(data.status),
     paymentStatus: ["refunded", "partially_refunded"].includes(stringValue(data.paymentStatus)) ? stringValue(data.paymentStatus) :
       hasBookingSettlement(data) ? projectBookingPayment(data) ?? "unavailable" : stringValue(data.paymentStatus) || "unpaid",
@@ -715,6 +741,7 @@ function mapProviderRequestDocument(
       expires: isoDateValue(data.expiresAt),
       hasExpires: data.expiresAt != null,
     }),
+    cancellationCutoff: parseBookingCancellationCutoffView(data.cancellationPolicySnapshot),
     reviewStatus: "unavailable",
   };
 }

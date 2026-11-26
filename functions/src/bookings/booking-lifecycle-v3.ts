@@ -161,10 +161,20 @@ export async function materializeBalanceLifecycleV3(providerRequestId: string, n
     transaction.update(reference, {remainingBalanceNextCheckAt: next ? Timestamp.fromDate(next) : null,
       ...(notifyDue ? {remainingBalanceDueNotifiedAt: serverTimestamp()} : {}),
       ...(plan ? {remainingBalanceStatus: plan.nextStatus} : {})});
-    if (notifyDue) transaction.create(db.collection("mainEvents").doc(String(request.mainEventId)).collection("timeline").doc(`v3_balance_due_${providerRequestId}`), {
-      type: "remaining_balance_due", title: "Remaining balance due", description: "Your remaining balance is due. The final payment deadline is 24 hours before the event.",
-      createdAt: serverTimestamp(), createdByRole: "system", providerRequestId, providerId: request.providerId, status: "confirmed",
-    });
+    if (notifyDue) {
+      const hasAcceptedArrangement = (request.arrangedPaymentOffer as {status?: unknown} | null)?.status === "accepted";
+      const hardDeadlineLabel = timing.hardPaymentDeadlineAt.toLocaleString("en-PH", {
+        timeZone: "Asia/Manila", year: "numeric", month: "long", day: "numeric",
+        hour: "numeric", minute: "2-digit", hour12: true,
+      });
+      transaction.create(db.collection("mainEvents").doc(String(request.mainEventId)).collection("timeline").doc(`v3_balance_due_${providerRequestId}`), {
+        type: "remaining_balance_due", title: "Remaining balance due",
+        description: hasAcceptedArrangement
+          ? `Your arranged remaining balance is due. The final payment deadline is ${hardDeadlineLabel} (Manila time).`
+          : "Your remaining balance is due. The final payment deadline is 24 hours before the event.",
+        createdAt: serverTimestamp(), createdByRole: "system", providerRequestId, providerId: request.providerId, status: "confirmed",
+      });
+    }
     if (notifyDue) createNotificationWithIdInTransaction(transaction, `v3_balance_due_${providerRequestId}`,
       {userId: String(request.customerId), title: "Remaining balance due",
         message: `Your remaining balance of ${new Intl.NumberFormat("en-PH", {style: "currency", currency: "PHP"}).format(Number(request.outstandingAmountInCentavos) / 100)} is now due. Pay by ${timing.hardPaymentDeadlineAt.toLocaleString("en-PH", {timeZone: "Asia/Manila", year: "numeric", month: "long", day: "numeric", hour: "numeric", minute: "2-digit", hour12: true})} to keep your booking confirmed.`, type: "payment",

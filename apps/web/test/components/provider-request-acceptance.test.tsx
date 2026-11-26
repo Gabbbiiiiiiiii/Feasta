@@ -171,9 +171,9 @@ describe("provider request acceptance copy", () => {
   });
   it.each([
     ["pending short notice", savedPayment("short_notice"), "Full payment required", "Required customer payment", "full amount"],
-    ["pending deposit eligible", savedPayment("deposit_eligible"), "Deposit or full payment", "Minimum customer deposit", "minimum deposit or full payment"],
+    ["pending deposit eligible", savedPayment("deposit_eligible"), "Down payment or full payment", "Minimum customer down payment", "minimum down payment or full payment"],
     ["accepted short notice", acceptedPayment(), "Full payment required", "Required customer payment", "full amount"],
-    ["accepted deposit eligible", acceptedPayment("deposit_eligible"), "Deposit or full payment", "Minimum customer deposit", "minimum deposit or full payment"],
+    ["accepted deposit eligible", acceptedPayment("deposit_eligible"), "Down payment or full payment", "Minimum customer down payment", "minimum down payment or full payment"],
     ["pending full-payment add-on", savedAddonPayment(), "Full payment required", "Required customer payment", "full amount"],
     ["accepted full-payment add-on", acceptedAddonPayment(), "Full payment required", "Required customer payment", "full amount"],
     ["accepted full-payment add-on with nominal deposit", {...acceptedAddonPayment(), downPaymentAmount: 500, remainingBalance: 500,
@@ -202,7 +202,7 @@ describe("provider request acceptance copy", () => {
       expect(row).toHaveTextContent(initialPaymentPresentation.kind === "minimum" ? /500/ : /1,000/);
     } else {
       expect(screen.queryByText("Required customer payment")).toBeNull();
-      expect(screen.queryByText("Minimum customer deposit")).toBeNull();
+      expect(screen.queryByText("Minimum customer down payment")).toBeNull();
     }
     if ((_name as string).includes("short notice")) expect(screen.getByText(/submitted fewer than 72 hours/)).toBeVisible();
     if ((_name as string).startsWith("accepted")) return;
@@ -298,7 +298,7 @@ describe("provider request acceptance copy", () => {
     await user.click(await screen.findByRole("button", {name: "Accept Request"}));
 
     expect(screen.getByRole("dialog", {name: "Accept this request?"})).toHaveTextContent(
-      "After you accept, the customer may choose the minimum deposit or full payment.",
+      "After you accept, the customer may choose the minimum down payment or full payment.",
     );
     expect(screen.getByRole("dialog", {name: "Accept this request?"})).not.toHaveTextContent(
       "pay the full amount",

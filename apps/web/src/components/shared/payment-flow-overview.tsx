@@ -11,26 +11,26 @@ const FLOW_STAGES = [
   {
     title: "1. Customer payment",
     description:
-      "Records what the customer paid and any completed refunds.",
-    tag: "Checkout & refunds",
+      "Customer pays the package price plus FEASTA’s dynamic service fee in one PayMongo checkout.",
+    tag: "Single PayMongo checkout",
     Icon: CreditCard,
     iconBoxClass: "bg-primary-tint text-primary",
     accentBorderClass: "border-t-primary/40",
   },
   {
-    title: "2. Provider earnings",
+    title: "2. Direct split to provider & FEASTA",
     description:
-      "The provider’s share after commission and applicable withholding. Eligibility does not mean money was transferred.",
-    tag: "Net after commission",
+      "100% of the listed package price routes directly to the provider’s linked payout account (0-day hold) while FEASTA retains only its service fee.",
+    tag: "100% direct to provider",
     Icon: Wallet,
     iconBoxClass: "bg-primary-tint-strong text-primary-strong",
     accentBorderClass: "border-t-primary/70",
   },
   {
-    title: "3. Provider transfer",
+    title: "3. Cutoff refunds & separate VAT",
     description:
-      "Money is recorded as paid out only after the gateway confirms a matching transfer.",
-    tag: "Gateway confirmed",
+      "Eligible cutoff cancellations refund automatically and reverse each party’s exact share. Provider VAT and FEASTA VAT remain separate.",
+    tag: "Automatic split reversal",
     Icon: Landmark,
     iconBoxClass: "bg-primary text-primary-foreground",
     accentBorderClass: "border-t-primary",
@@ -44,7 +44,7 @@ export function PaymentFlowOverview({
 }) {
   return (
     <section
-      aria-label="Understanding payments and payouts"
+      aria-label="Understanding direct payments and splits"
       className={cn(
         "min-w-0",
         embedded
@@ -55,14 +55,14 @@ export function PaymentFlowOverview({
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <div className="min-w-0">
           <p className="text-xs font-bold uppercase tracking-wider text-link">
-            Settlement lifecycle
+            Direct split lifecycle
           </p>
           <h2 className="mt-1 text-lg font-black tracking-tight text-primary-strong">
-            Payments, earnings and transfers
+            How payments split directly
           </h2>
           <p className="mt-1 max-w-2xl text-sm leading-6 text-muted-foreground">
-            A customer payment can be confirmed while the provider is still
-            waiting to receive their earnings.
+            Customer payments settle directly to the provider’s linked payout
+            account while FEASTA retains only its platform service fee.
           </p>
         </div>
       </div>

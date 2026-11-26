@@ -18,6 +18,7 @@ class CustomerCancellationClient {
   static final _keyPattern = RegExp(r'^[A-Za-z0-9:_-]{8,200}$');
 
   static const reasonCodes = {
+    'CANCELLATION_CUTOFF_PASSED',
     'EVENT_ENDED',
     'SCHEDULE_RECONCILIATION_REQUIRED',
     'ALLOWED',
@@ -262,6 +263,14 @@ class CustomerCancellationClient {
 
     final expiry = data['eligibilityExpiresInMs'];
     if (expiry != null && !validInteger(expiry)) throw invalid();
+
+    final cutoffAt = data['cancellationCutoffAt'];
+    if (cutoffAt != null) validDate(cutoffAt);
+
+    final cutoffHours = data['cancellationCutoffHours'];
+    if (cutoffHours != null && !validInteger(cutoffHours, min: 1)) {
+      throw invalid();
+    }
 
     final active = data['activeCancellation'];
     if (active != null) {

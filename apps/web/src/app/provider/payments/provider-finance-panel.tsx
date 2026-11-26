@@ -119,6 +119,18 @@ export function ProviderFinancePanel({
   const setupGuidance =
     payoutSetupGuidance(payout);
 
+  const hasLegacyHeldBalance =
+    finance.earningSummary.pendingAmountInCentavos > 0 ||
+    finance.earningSummary.availableAmountInCentavos > 0;
+
+  const hasLegacyWithdrawals =
+    (finance.mockWithdrawals?.length ?? 0) > 0;
+
+  const directReceivedInCentavos =
+    finance.earningSummary.paidAmountInCentavos > 0
+      ? finance.earningSummary.paidAmountInCentavos
+      : finance.settlementSummary.paidOutAmountInCentavos;
+
   return (
     <div className="grid min-w-0 gap-6">
       <section
@@ -134,9 +146,10 @@ export function ProviderFinancePanel({
           </h2>
 
           <p className="mt-1 text-sm text-muted-foreground">
-            Earnings are calculated from customer payments after FEASTA commission
-            and applicable withholding. Provider VAT remains part of the provider
-            service gross and is not deducted again here.
+            Customer payments route 100% of your listed package price directly to
+            your linked payout account upon confirmation (0-day hold). FEASTA’s
+            platform service fee is paid separately by the customer, and provider
+            VAT remains part of your service price.
           </p>
         </div>
 
@@ -158,46 +171,11 @@ export function ProviderFinancePanel({
 
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           <SummaryCard
-            label="Pending earnings"
-            value={formatCentavos(
-              finance.earningSummary
-                .pendingAmountInCentavos,
-            )}
+            label="Direct payments received"
+            value={formatCentavos(directReceivedInCentavos)}
             trend={{
               label:
-                "Waiting for payout eligibility",
-              direction: "neutral",
-            }}
-            icon={
-              <Clock3 className="size-5" />
-            }
-          />
-
-          <SummaryCard
-            label="Available earnings"
-            value={formatCentavos(
-              finance.earningSummary
-                .availableAmountInCentavos,
-            )}
-            trend={{
-              label:
-                "Eligible earnings; transfer not confirmed",
-              direction: "neutral",
-            }}
-            icon={
-              <CircleDollarSign className="size-5" />
-            }
-          />
-
-          <SummaryCard
-            label="Paid out"
-            value={formatCentavos(
-              finance.settlementSummary
-                .paidOutAmountInCentavos,
-            )}
-            trend={{
-              label:
-                "Confirmed payout transfers",
+                "100% of listed price routed directly on payment",
               direction: "neutral",
             }}
             icon={
@@ -205,69 +183,128 @@ export function ProviderFinancePanel({
             }
           />
 
-
-        </div>
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <p className="text-sm">Reversed by refunds: <strong>{formatCentavos(finance.earningSummary.reversedAmountInCentavos)}</strong></p>
-          <Button
-            type="button"
-            size="compact"
-            disabled={
-              finance.earningSummary.availableAmountInCentavos <= 0 ||
-              working !== null
+          <SummaryCard
+            label="Refund reversals"
+            value={formatCentavos(
+              finance.earningSummary
+                .reversedAmountInCentavos,
+            )}
+            trend={{
+              label:
+                "Provider share reversed on eligible cancellations",
+              direction: "neutral",
+            }}
+            icon={
+              <CircleOff className="size-5" />
             }
-            className="disabled:bg-primary/55 disabled:text-primary-foreground disabled:opacity-100"
-            onClick={() => setWithdrawOpen(true)}
-          >
-            Withdraw available earnings
-          </Button>
+          />
+
+          {hasLegacyHeldBalance ? (
+            <>
+              <SummaryCard
+                label="Pending earnings (legacy escrow)"
+                value={formatCentavos(
+                  finance.earningSummary
+                    .pendingAmountInCentavos,
+                )}
+                trend={{
+                  label:
+                    "Historical pre-direct booking awaiting eligibility",
+                  direction: "neutral",
+                }}
+                icon={
+                  <Clock3 className="size-5" />
+                }
+              />
+
+              <SummaryCard
+                label="Available earnings (legacy escrow)"
+                value={formatCentavos(
+                  finance.earningSummary
+                    .availableAmountInCentavos,
+                )}
+                trend={{
+                  label:
+                    "Historical balance eligible for withdrawal",
+                  direction: "neutral",
+                }}
+                icon={
+                  <CircleDollarSign className="size-5" />
+                }
+              />
+            </>
+          ) : null}
         </div>
+
+        {hasLegacyHeldBalance ? (
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-muted/20 px-4 py-3">
+            <p className="text-sm text-muted-foreground">
+              Legacy escrow balance remaining from pre-direct bookings.
+            </p>
+            <Button
+              type="button"
+              size="compact"
+              disabled={
+                finance.earningSummary.availableAmountInCentavos <= 0 ||
+                working !== null
+              }
+              className="disabled:bg-primary/55 disabled:text-primary-foreground disabled:opacity-100"
+              onClick={() => setWithdrawOpen(true)}
+            >
+              Withdraw available earnings
+            </Button>
+          </div>
+        ) : null}
       </section>
 
-      <ProviderMockWithdrawDialog
-        open={withdrawOpen}
-        availableAmountInCentavos={
-          finance.earningSummary.availableAmountInCentavos
-        }
-        onOpenChange={setWithdrawOpen}
-        onCompleted={reload}
-      />
+      {hasLegacyHeldBalance ? (
+        <ProviderMockWithdrawDialog
+          open={withdrawOpen}
+          availableAmountInCentavos={
+            finance.earningSummary.availableAmountInCentavos
+          }
+          onOpenChange={setWithdrawOpen}
+          onCompleted={reload}
+        />
+      ) : null}
 
-      <section
-        className="grid gap-4"
-        aria-labelledby="provider-withdrawal-history-heading"
-      >
-        <div>
-          <h2
-            id="provider-withdrawal-history-heading"
-            className="text-xl font-bold"
-          >
-            Withdrawal history
-          </h2>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Your self-service mock withdrawals only. Admin releases are tracked
-            on Admin Payments; they still reduce available earnings and raise
-            paid out here.
-          </p>
-        </div>
+      {hasLegacyHeldBalance || hasLegacyWithdrawals ? (
+        <section
+          className="grid gap-4"
+          aria-labelledby="provider-withdrawal-history-heading"
+        >
+          <div>
+            <h2
+              id="provider-withdrawal-history-heading"
+              className="text-xl font-bold"
+            >
+              Legacy withdrawal history
+            </h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Historical withdrawals from pre-direct escrow bookings only. New
+              bookings settle directly to your linked payout account without
+              manual withdrawal.
+            </p>
+          </div>
 
-        {(finance.mockWithdrawals?.length ?? 0) === 0 ? (
-          <p
-            className="rounded-card border border-dashed border-border bg-card p-4 text-sm text-muted-foreground"
-            role="status"
-          >
-            No withdrawals yet. Use Withdraw available earnings to record one.
-          </p>
-        ) : (
-          <ul className="grid gap-3">
-            {(finance.mockWithdrawals ?? []).map((withdrawal) => (
-              <li key={withdrawal.withdrawalId}>
-                <WithdrawalHistoryCard withdrawal={withdrawal} />
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+          {(finance.mockWithdrawals?.length ?? 0) === 0 ? (
+            <p
+              className="rounded-card border border-dashed border-border bg-card p-4 text-sm text-muted-foreground"
+              role="status"
+            >
+              No legacy withdrawals recorded yet.
+            </p>
+          ) : (
+            <ul className="grid gap-3">
+              {(finance.mockWithdrawals ?? []).map((withdrawal) => (
+                <li key={withdrawal.withdrawalId}>
+                  <WithdrawalHistoryCard withdrawal={withdrawal} />
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      ) : null}
 
       <section
         className="rounded-card border border-border bg-card p-5 shadow-card"
@@ -284,13 +321,14 @@ export function ProviderFinancePanel({
                 id="payout-account-heading"
                 className="text-xl font-bold"
               >
-                Payout account
+                Direct payout account
               </h2>
             </div>
 
             <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-              Provider earnings and transfers are tracked separately. Account activation,
-              provider linking and transfer verification must be complete before payouts can be sent.
+              Link and verify your PayMongo payout destination so 100% of your
+              listed package price routes directly to your account when
+              customers pay.
             </p>
           </div>
 
@@ -463,7 +501,7 @@ export function ProviderFinancePanel({
 
       {(finance.disbursements?.length ?? 0) > 0 ? (
         <section className="grid gap-3" aria-labelledby="provider-payouts-heading">
-          <h2 id="provider-payouts-heading" className="text-xl font-bold">Payout updates</h2>
+          <h2 id="provider-payouts-heading" className="text-xl font-bold">Legacy escrow payout updates</h2>
           {finance.disbursements?.map(payout => (
             <article key={payout.id} className="rounded-card border border-border bg-card p-4">
               <p className="font-semibold">{({scheduled: "Scheduled", held: "On hold",
@@ -495,23 +533,29 @@ export function ProviderFinancePanel({
             id="provider-settlements-heading"
             className="text-xl font-bold"
           >
-            Payout tracking
+            Direct settlement history
           </h2>
 
           <p className="mt-1 text-sm text-muted-foreground">
-            Settlement status is separate from customer payment status and
-            Provider earning availability. A customer may be fully paid while
-            Provider settlement is still pending.
+            Records of direct-routed booking payments settled to your linked
+            payout account and any proportional refund reversals.
           </p>
         </div>
 
-        <p className="text-sm">Reserved / processing: <strong>{formatCentavos(finance.settlementSummary.reservedAmountInCentavos)}</strong></p>
+        {finance.settlementSummary.reservedAmountInCentavos > 0 ? (
+          <p className="text-sm">Reserved / processing (legacy): <strong>{formatCentavos(finance.settlementSummary.reservedAmountInCentavos)}</strong></p>
+        ) : null}
         <details className="rounded-card border border-border p-4">
           <summary className="cursor-pointer font-semibold">Settlement accounting details</summary>
           <dl className="mt-3 grid gap-3 sm:grid-cols-2">
-            <FinanceDetail label="Not yet available" value={formatCentavos(finance.settlementSummary.awaitingAvailabilityAmountInCentavos)} />
-            <FinanceDetail label="Earnings eligible; transfer not confirmed" value={formatCentavos(finance.settlementSummary.readyAmountInCentavos)} />
-            <FinanceDetail label="Paid earnings (earnings accounting)" value={formatCentavos(finance.earningSummary.paidAmountInCentavos)} />
+            <FinanceDetail label="Direct settled total" value={formatCentavos(directReceivedInCentavos)} />
+            <FinanceDetail label="Refund reversals" value={formatCentavos(finance.earningSummary.reversedAmountInCentavos)} />
+            {finance.settlementSummary.awaitingAvailabilityAmountInCentavos > 0 ? (
+              <FinanceDetail label="Legacy escrow awaiting eligibility" value={formatCentavos(finance.settlementSummary.awaitingAvailabilityAmountInCentavos)} />
+            ) : null}
+            {finance.settlementSummary.readyAmountInCentavos > 0 ? (
+              <FinanceDetail label="Legacy escrow eligible (not transferred)" value={formatCentavos(finance.settlementSummary.readyAmountInCentavos)} />
+            ) : null}
           </dl>
         </details>
 
@@ -549,7 +593,7 @@ export function ProviderFinancePanel({
         ) : null}
 
         <details className="rounded-card border border-border p-4">
-          <summary className="cursor-pointer font-semibold">Recent payout status history</summary>
+          <summary className="cursor-pointer font-semibold">Recent settlement history</summary>
           {finance.settlements.length === 0 ? <p className="mt-3 text-sm text-muted-foreground">No provider settlement records yet.</p> : (
             <ul className="mt-3 divide-y divide-border">
               {finance.settlements.map(settlement => (
@@ -639,7 +683,7 @@ function SettlementStatus({
 }) {
   return (
     <span className="inline-flex rounded-full border border-border bg-muted/40 px-2.5 py-1 text-xs font-semibold">
-      {({awaiting_availability: "Waiting for eligibility", ready: "Eligible for payout", reserved: "Transfer reserved", processing: "Transfer processing", paid: "Transfer confirmed", reconciliation_required: "Requires attention", cancelled: "Cancelled"} as Record<ProviderSettlementStatus, string>)[status]}
+      {({awaiting_availability: "Waiting for eligibility", ready: "Eligible for payout", reserved: "Transfer reserved", processing: "Transfer processing", paid: "Direct settled", reconciliation_required: "Requires attention", cancelled: "Reversed"} as Record<ProviderSettlementStatus, string>)[status]}
     </span>
   );
 }

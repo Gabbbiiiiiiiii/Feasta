@@ -20,6 +20,13 @@ import {bookingPolicyTimingV3, bookingPolicyV3Evidence} from "./booking-policy-v
 import {buildBookingPaymentAgreement} from "./booking-payment-agreement.js";
 import {assertRefundPolicyAcknowledgements, buildProviderRequestRefundPolicyEvidence, parseRefundPolicyAcknowledgements} from "./booking-refund-policy.js";
 import {loadSpecialOfferRefundPolicies} from "./special-offer-refund-policy.js";
+import {
+  buildCancellationPolicySnapshot,
+  CANCELLATION_POLICY_SETTINGS_DOC_ID,
+  parseStoredAdminCancellationPolicy,
+  parseStoredProviderCancellationPolicy,
+  resolveEffectiveCancellationPolicy,
+} from "../cancellations/cancellation-policy-domain.js";
 
 export async function convertSpecialOfferToBooking(input: {
   tx: Transaction;
@@ -47,7 +54,7 @@ export async function convertSpecialOfferToBooking(input: {
 
   await requireMaintenanceOpen(tx, db, "intake",
     "Booking creation is temporarily unavailable. Your offer is still subject to its original deadline.");
-  const [packageDoc, platformDoc, taxDoc, customerDoc, rollout, ownerDoc, payoutDoc, occupied] = await Promise.all([
+  const [packageDoc, platformDoc, taxDoc, customerDoc, rollout, ownerDoc, payoutDoc, cancellationPolicyDoc, occupied] = await Promise.all([
     tx.get(db.collection("packages").doc(row.packageId)),
     tx.get(db.doc("appSettings/platform")),
     tx.get(db.collection("providerTaxProfiles").doc(row.providerId)),
@@ -55,6 +62,7 @@ export async function convertSpecialOfferToBooking(input: {
     readInitialPaymentRollout(tx),
     tx.get(db.collection("users").doc(provider.ownerId)),
     tx.get(db.collection("providerPaymentAccounts").doc(row.providerId)),
+    tx.get(db.collection("appSettings").doc(CANCELLATION_POLICY_SETTINGS_DOC_ID)),
     tx.get(db.collection("providerRequests").where("providerId", "==", row.providerId)
       .where("status", "in", [...AVAILABILITY_COUNTED_REQUEST_STATUSES])
       .where("eventDate", ">=", Timestamp.fromDate(date))
@@ -100,6 +108,20 @@ export async function convertSpecialOfferToBooking(input: {
     packagePaymentTerms, bookingPaymentPolicySnapshot,
   });
   const gross = offer.totalInCentavos;
+  const offerPlatformFee =
+    typeof offer.platformFeeInCentavos === "number" &&
+    Number.isSafeInteger(offer.platformFeeInCentavos) &&
+    offer.platformFeeInCentavos >= 0
+      ? offer.platformFeeInCentavos
+      : null;
+  const offerCommissionRateBps =
+    typeof offer.platformCommissionRateBps === "number" &&
+    Number.isSafeInteger(offer.platformCommissionRateBps) &&
+    offer.platformCommissionRateBps > 0
+      ? offer.platformCommissionRateBps
+      : (typeof (offer.pricing as Record<string, unknown> | undefined)?.platformCommissionRateBps === "number"
+          ? ((offer.pricing as Record<string, unknown>).platformCommissionRateBps as number)
+          : null);
   const depositRateBps = eligibility.depositEligible ? packagePaymentTerms.depositRateBps : 10_000;
   const upfront = Math.max(1, Number((BigInt(gross) * BigInt(depositRateBps) + 5000n) / 10000n));
   const deadline = Timestamp.fromDate(calculateInitialPaymentDeadlineV4({
@@ -118,9 +140,19 @@ export async function convertSpecialOfferToBooking(input: {
   const refundEvidence = refundPolicy && buildProviderRequestRefundPolicyEvidence(refundPolicy, acceptedTimestamp);
   const customer = customerDoc.data() ?? {};
   const amount = gross / 100;
+  const customerPaidFields =
+    offerPlatformFee !== null && offerCommissionRateBps !== null
+      ? {
+          serviceSubtotalInCentavos: offer.subtotalInCentavos as number,
+          platformFeeInCentavos: offerPlatformFee,
+          platformCommissionRateBps: offerCommissionRateBps,
+          platformCommissionModel: "customer_paid_flat_v1" as const,
+        }
+      : {};
   const payment = {
     amount, downPaymentAmount: upfront / 100, downPaymentPercentage: depositRateBps / 100,
     remainingBalance: (gross - upfront) / 100, paymentStatus: "unpaid",
+    ...customerPaidFields,
     packagePaymentTerms, bookingPaymentPolicySnapshot,
     initialPaymentEligibilitySchemaVersion: 2,
     initialPaymentEligibility: {...eligibility, evaluatedAt: acceptedTimestamp,
@@ -133,6 +165,13 @@ export async function convertSpecialOfferToBooking(input: {
     serviceNames: [row.packageName], selection: agreedOffer,
     eventStartAt, eventEndTime: row.eventEndTime ?? "",
     grossAmountInCentavos: gross, requiredUpfrontAmountInCentavos: upfront,
+    ...(offerPlatformFee !== null && offerCommissionRateBps !== null
+      ? {
+          serviceSubtotalInCentavos: offer.subtotalInCentavos as number,
+          platformFeeInCentavos: offerPlatformFee,
+          platformCommissionRateBps: offerCommissionRateBps,
+        }
+      : {}),
     depositEligible: eligibility.depositEligible, eligibilityReason: eligibility.reason,
     paymentPolicy: {packagePaymentTerms, bookingPaymentPolicySnapshot},
     refundPolicy: refundEvidence?.refundPolicySnapshot ?? null,
@@ -152,6 +191,18 @@ export async function convertSpecialOfferToBooking(input: {
     providerId: row.providerId, providerOwnerId: provider.ownerId, providerRequest: payment,
     platformSettings, providerTaxProfile: taxDoc.data() ?? null,
   });
+  const adminCancellationPolicy = parseStoredAdminCancellationPolicy(
+    cancellationPolicyDoc.exists ? cancellationPolicyDoc.data() : null,
+  );
+  const cancellationPolicySnapshot = buildCancellationPolicySnapshot({
+    effective: resolveEffectiveCancellationPolicy(
+      parseStoredProviderCancellationPolicy(provider.cancellationPolicy),
+      adminCancellationPolicy,
+    ),
+    eventStartAt,
+    submittedAt: acceptedAt,
+    capturedAt: acceptedTimestamp,
+  });
   const shared = {
     bookingId, mainEventId: bookingId, customerId: row.customerId, providerId: row.providerId,
     customerFirstName: customer.firstName ?? "", customerLastName: customer.lastName ?? "",
@@ -163,6 +214,7 @@ export async function convertSpecialOfferToBooking(input: {
     eventLocation: row.address, guestCount: provider.minGuestsPerEvent,
     specialRequest: row.instructions ?? "", acceptedSpecialOffer: agreedOffer,
     bookingPaymentAgreement: {...agreement, agreedAt: acceptedTimestamp},
+    cancellationPolicySnapshot,
     ...payment, status: "waiting_for_down_payment", createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
   };
   recordMaintenanceAdmission(tx, db);

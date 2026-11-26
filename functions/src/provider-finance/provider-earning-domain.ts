@@ -1,3 +1,9 @@
+import {
+  isDirectProviderSplitRouting,
+  PAYMENT_SETTLEMENT_ROUTING_DIRECT_SPLIT_V1,
+  type PaymentSettlementRoutingMode,
+} from "../payments/platform-commission-policy.js";
+
 export const PROVIDER_EARNING_SCHEMA_VERSION =
   1 as const;
 
@@ -51,6 +57,9 @@ export function buildSuccessfulPaymentProviderEarningPlan(
 
     financialLedgerRecord:
       UnknownRecord;
+
+    settlementRoutingMode?:
+      PaymentSettlementRoutingMode | null;
 
     timestamp:
       unknown;
@@ -170,6 +179,11 @@ export function buildSuccessfulPaymentProviderEarningPlan(
       paymentId,
     );
 
+  const directSplit =
+    isDirectProviderSplitRouting(
+      input.settlementRoutingMode,
+    );
+
   return {
     earningId,
 
@@ -181,13 +195,22 @@ export function buildSuccessfulPaymentProviderEarningPlan(
         earningId,
 
       providerEarningStatus:
-        "pending",
+        directSplit
+          ? "paid"
+          : "pending",
 
       providerEarningAmountInCentavos:
         earningAmount,
 
       providerEarningReversedInCentavos:
         0,
+
+      ...(directSplit
+        ? {
+            settlementRoutingMode:
+              PAYMENT_SETTLEMENT_ROUTING_DIRECT_SPLIT_V1,
+          }
+        : {}),
     },
 
     earningRecord: {
@@ -197,7 +220,16 @@ export function buildSuccessfulPaymentProviderEarningPlan(
       earningId,
 
       status:
-        "pending",
+        directSplit
+          ? "paid"
+          : "pending",
+
+      ...(directSplit
+        ? {
+            settlementRoutingMode:
+              PAYMENT_SETTLEMENT_ROUTING_DIRECT_SPLIT_V1,
+          }
+        : {}),
 
       providerId,
       providerRequestId,
@@ -231,19 +263,30 @@ export function buildSuccessfulPaymentProviderEarningPlan(
         earningAmount,
 
       pendingAmountInCentavos:
-        earningAmount,
+        directSplit
+          ? 0
+          : earningAmount,
 
       availableAmountInCentavos:
         0,
 
       paidAmountInCentavos:
-        0,
+        directSplit
+          ? earningAmount
+          : 0,
 
       reversedAmountInCentavos:
         0,
 
       netEarningAmountInCentavos:
         earningAmount,
+
+      ...(directSplit
+        ? {
+            providerRefundClawbackInCentavos: 0,
+            directSettledAt: input.timestamp,
+          }
+        : {}),
 
       sourceFinancialLedgerEntryId:
         paymentId,
@@ -425,13 +468,32 @@ export function buildProviderEarningRefundPlan(
       availableBefore,
     );
 
-  /*
-   * P9 does not yet perform payout reconciliation.
-   * Once money is actually paid out, P10/P12 must
-   * handle recovery/offset accounting rather than
-   * silently rewriting paid settlement history.
-   */
-  if (
+  const directSplit =
+    isDirectProviderSplitRouting(
+      earning.settlementRoutingMode,
+    );
+
+  if (directSplit) {
+    const reversibleTotal =
+      checkedAdd(
+        reversibleUnpaid,
+        paidBefore,
+      );
+
+    if (
+      earningReversal >
+        reversibleTotal
+    ) {
+      throw earningInvalid(
+        "Provider earning reversal exceeds the remaining direct-settled earning.",
+      );
+    }
+  } else if (
+    /*
+     * Legacy escrow does not rewrite paid settlement history directly.
+     * Once money is paid out under platform_escrow_v1, P10/P12 must
+     * handle recovery/offset accounting via explicit reconciliation.
+     */
     earningReversal >
       reversibleUnpaid
   ) {
@@ -456,6 +518,18 @@ export function buildProviderEarningRefundPlan(
       remainingAfterPending,
     );
 
+  const remainingAfterAvailable =
+    remainingAfterPending -
+    availableReduction;
+
+  const paidReduction =
+    directSplit
+      ? Math.min(
+          paidBefore,
+          remainingAfterAvailable,
+        )
+      : 0;
+
   const pendingAfter =
     pendingBefore -
     pendingReduction;
@@ -463,6 +537,25 @@ export function buildProviderEarningRefundPlan(
   const availableAfter =
     availableBefore -
     availableReduction;
+
+  const paidAfter =
+    paidBefore -
+    paidReduction;
+
+  const clawbackBefore =
+    earning.providerRefundClawbackInCentavos === undefined ||
+    earning.providerRefundClawbackInCentavos === null
+      ? 0
+      : nonNegativeInteger(
+          earning.providerRefundClawbackInCentavos,
+          "Provider refund clawback amount",
+        );
+
+  const clawbackAfter =
+    checkedAdd(
+      clawbackBefore,
+      paidReduction,
+    );
 
   const reversedAfter =
     checkedAdd(
@@ -491,7 +584,7 @@ export function buildProviderEarningRefundPlan(
       availableAmountInCentavos:
         availableAfter,
       paidAmountInCentavos:
-        paidBefore,
+        paidAfter,
       netEarningAmountInCentavos:
         netAfter,
     });
@@ -507,6 +600,13 @@ export function buildProviderEarningRefundPlan(
       providerEarningNetAmountInCentavos:
         netAfter,
 
+      ...(directSplit
+        ? {
+            providerRefundClawbackInCentavos:
+              clawbackAfter,
+          }
+        : {}),
+
       lastProviderEarningReversalLedgerEntryId:
         refundLedgerEntryId,
     },
@@ -521,10 +621,17 @@ export function buildProviderEarningRefundPlan(
         availableAfter,
 
       paidAmountInCentavos:
-        paidBefore,
+        paidAfter,
 
       reversedAmountInCentavos:
         reversedAfter,
+
+      ...(directSplit
+        ? {
+            providerRefundClawbackInCentavos:
+              clawbackAfter,
+          }
+        : {}),
 
       netEarningAmountInCentavos:
         netAfter,

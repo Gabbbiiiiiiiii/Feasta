@@ -82,18 +82,38 @@ CustomerBookingVat? customerBookingVatFromRequest(
     return null;
   }
 
+  final isCustomerPaid =
+      snapshot['platformCommissionModel'] == 'customer_paid_flat_v1';
+  final providerTaxBase = isCustomerPaid
+      ? (() {
+          final subtotal = _centavos(snapshot['serviceSubtotalInCentavos']);
+          if (subtotal != null && subtotal > 0 && subtotal <= gross) {
+            return subtotal;
+          }
+          final commission = _centavos(
+            snapshot['platformCommissionTotalInCentavos'],
+          );
+          if (commission != null && commission >= 0 && commission < gross) {
+            return gross - commission;
+          }
+          return gross;
+        })()
+      : gross;
+
   if (taxType == 'non_vat') {
     return CustomerBookingVat(
       taxType: 'non_vat',
       includedVatInCentavos: 0,
-      grossInCentavos: gross,
+      grossInCentavos: providerTaxBase,
     );
   }
 
   // FEASTA's frozen 12% VAT-inclusive component policy.
+  // For customer_paid_flat_v1, Provider VAT applies strictly to the provider's
+  // service subtotal (never to FEASTA's customer-paid service fee).
   // BigInt preserves exact half-up centavo rounding.
   final included =
-      (BigInt.from(gross) * BigInt.from(1200) + BigInt.from(5600)) ~/
+      (BigInt.from(providerTaxBase) * BigInt.from(1200) + BigInt.from(5600)) ~/
       BigInt.from(11200);
 
   if (included > BigInt.from(9007199254740991)) {
@@ -103,7 +123,7 @@ CustomerBookingVat? customerBookingVatFromRequest(
   return CustomerBookingVat(
     taxType: 'vat_registered',
     includedVatInCentavos: included.toInt(),
-    grossInCentavos: gross,
+    grossInCentavos: providerTaxBase,
   );
 }
 
@@ -118,7 +138,26 @@ CustomerBookingVat? customerSpecialOfferVat(Map<String, dynamic> offer) {
   });
 }
 
-/// Display-only provider commission from a special-request price offer.
+bool isCustomerPaidSpecialOffer(Map<String, dynamic> offer) {
+  final pricing = _map(offer['pricing']);
+  return offer['platformCommissionModel'] == 'customer_paid_flat_v1' ||
+      pricing?['platformCommissionModel'] == 'customer_paid_flat_v1';
+}
+
+int? customerSpecialOfferCommissionRateBps(Map<String, dynamic> offer) {
+  final pricing = _map(offer['pricing']);
+  final fromPricing = _centavos(pricing?['platformCommissionRateBps']);
+  if (fromPricing != null && fromPricing > 0 && fromPricing <= 10000) {
+    return fromPricing;
+  }
+  final fromOffer = _centavos(offer['platformCommissionRateBps']);
+  if (fromOffer != null && fromOffer > 0 && fromOffer <= 10000) {
+    return fromOffer;
+  }
+  return null;
+}
+
+/// Display-only platform fee/commission from a special-request price offer.
 /// Null means the fee breakdown is unavailable or inconsistent.
 int? customerSpecialOfferProviderFeeInCentavos(Map<String, dynamic> offer) {
   final total = _centavos(offer['totalInCentavos']);
@@ -126,23 +165,29 @@ int? customerSpecialOfferProviderFeeInCentavos(Map<String, dynamic> offer) {
   final pricing = _map(offer['pricing']);
   if (total == null ||
       subtotal == null ||
-      pricing == null ||
       subtotal <= 0 ||
       subtotal > total) {
     return null;
   }
 
-  final fee = _centavos(pricing['platformCommissionTotalInCentavos']);
-  if (pricing['schemaVersion'] != 1 ||
-      pricing['currency'] != 'PHP' ||
-      pricing['grossAmountInCentavos'] != total ||
-      fee == null ||
-      fee < 0 ||
-      fee > total) {
-    return null;
+  if (pricing != null &&
+      pricing['schemaVersion'] == 1 &&
+      pricing['currency'] == 'PHP' &&
+      pricing['grossAmountInCentavos'] == total) {
+    final fee = _centavos(pricing['platformCommissionTotalInCentavos']);
+    if (fee != null && fee >= 0 && fee <= total) {
+      return fee;
+    }
   }
 
-  return fee;
+  if (isCustomerPaidSpecialOffer(offer)) {
+    final fee = _centavos(offer['platformFeeInCentavos']);
+    if (fee != null && fee >= 0 && subtotal + fee == total) {
+      return fee;
+    }
+  }
+
+  return null;
 }
 
 /// Explanation from the saved initial-payment eligibility, never device time.
@@ -197,6 +242,40 @@ String? customerInitialPaymentExplanation(Map<String, dynamic> request) {
   return 'Full payment is required because fewer than $amount $unit$plural remained before the event when this booking was accepted.';
 }
 
+class CustomerArrangedPayment {
+  const CustomerArrangedPayment({
+    required this.id,
+    required this.status,
+    required this.upfront,
+    required this.balance,
+    required this.initialDue,
+    required this.balanceDue,
+  });
+
+  final String id, status;
+  final int upfront, balance;
+  final DateTime initialDue, balanceDue;
+
+  static CustomerArrangedPayment? fromRecord(Object? value) {
+    final row = _map(value);
+    if (row == null || row['schemaVersion'] != 1) return null;
+    final id = _string(row['id']);
+    final status = _string(row['status']);
+    final upfront = _centavos(row['upfrontInCentavos']);
+    final gross = _centavos(row['grossInCentavos']);
+    final initialDue = _timestampDate(row['initialDueAt']);
+    final balanceDue = _timestampDate(row['balanceDueAt']);
+    if (id == null || status == null ||
+        (status != 'offered' && status != 'accepted') ||
+        upfront == null || gross == null || upfront < 100 || gross - upfront < 100 ||
+        initialDue == null || balanceDue == null || !initialDue.isBefore(balanceDue)) {
+      return null;
+    }
+    return CustomerArrangedPayment(id: id, status: status, upfront: upfront,
+      balance: gross - upfront, initialDue: initialDue, balanceDue: balanceDue);
+  }
+}
+
 class CustomerProviderPaymentRequest {
   const CustomerProviderPaymentRequest({
     required this.id,
@@ -220,11 +299,16 @@ class CustomerProviderPaymentRequest {
     this.agreedTotalInCentavos,
     this.providerFeeInCentavos,
     this.commissionAccruedInCentavos,
+    this.isCustomerPaidFee = false,
+    this.serviceSubtotalInCentavos,
+    this.platformFeeInCentavos,
+    this.platformCommissionRateBps,
     this.paymentId,
     this.initialPaymentId,
     this.remainingBalancePaymentId,
     this.paidAt,
     this.deliveryIncluded = false,
+    this.arrangedPayment,
   });
 
   final String id;
@@ -248,11 +332,16 @@ class CustomerProviderPaymentRequest {
   final int? agreedTotalInCentavos;
   final int? providerFeeInCentavos;
   final int? commissionAccruedInCentavos;
+  final bool isCustomerPaidFee;
+  final int? serviceSubtotalInCentavos;
+  final int? platformFeeInCentavos;
+  final int? platformCommissionRateBps;
   final String? paymentId;
   final String? initialPaymentId;
   final String? remainingBalancePaymentId;
   final DateTime? paidAt;
   final bool deliveryIncluded;
+  final CustomerArrangedPayment? arrangedPayment;
 
   bool get canStartCheckout => checkoutOptions.isNotEmpty;
 
@@ -282,9 +371,11 @@ class CustomerProviderPaymentRequest {
     );
   }
 
-  /// Prefer trusted ledger commission; fall back to frozen quote fee.
+  /// Prefer trusted ledger commission; fall back to frozen quote/platform fee.
   int? get serviceChargeInCentavos =>
-      commissionAccruedInCentavos ?? providerFeeInCentavos;
+      commissionAccruedInCentavos ??
+      providerFeeInCentavos ??
+      (isCustomerPaidFee ? platformFeeInCentavos : null);
 
   factory CustomerProviderPaymentRequest.fromDoc(
     DocumentSnapshot<Map<String, dynamic>> document, {
@@ -310,6 +401,18 @@ class CustomerProviderPaymentRequest {
     final commission = _centavos(
       financial['platformCommissionTotalInCentavos'],
     );
+    final isCustomerPaidFee =
+        financial['platformCommissionModel'] == 'customer_paid_flat_v1' ||
+        data['platformCommissionModel'] == 'customer_paid_flat_v1' ||
+        quote['platformCommissionModel'] == 'customer_paid_flat_v1';
+    final serviceSubtotalInCentavos =
+        _centavos(financial['serviceSubtotalInCentavos']) ??
+        _centavos(data['serviceSubtotalInCentavos']);
+    final platformFeeInCentavos =
+        commission ?? _centavos(data['platformFeeInCentavos']);
+    final platformCommissionRateBps =
+        _centavos(financial['platformCommissionRateBps']) ??
+        _centavos(data['platformCommissionRateBps']);
     final hasFee =
         hasQuote &&
         commission != null &&
@@ -346,13 +449,20 @@ class CustomerProviderPaymentRequest {
       serviceVat: customerBookingVatFromRequest(data),
       agreedPackagePriceInCentavos: hasQuote ? subtotal : null,
       agreedTotalInCentavos: hasQuote ? total : null,
-      providerFeeInCentavos: hasFee ? commission : null,
+      providerFeeInCentavos: hasFee
+          ? commission
+          : (hasQuote && isCustomerPaidFee ? platformFeeInCentavos : null),
       commissionAccruedInCentavos: _centavos(data['commissionAccruedInCentavos']),
+      isCustomerPaidFee: isCustomerPaidFee,
+      serviceSubtotalInCentavos: serviceSubtotalInCentavos,
+      platformFeeInCentavos: platformFeeInCentavos,
+      platformCommissionRateBps: platformCommissionRateBps,
       paymentId: _string(data['paymentId']),
       initialPaymentId: _string(data['initialPaymentId']),
       remainingBalancePaymentId: _string(data['remainingBalancePaymentId']),
       paidAt: _timestampDate(data['paidAt']),
       deliveryIncluded: hasQuote && quote['deliveryIncluded'] == true,
+      arrangedPayment: CustomerArrangedPayment.fromRecord(data['arrangedPaymentOffer']),
       checkoutOptions: _checkoutOptions(
         data,
         providerRequestId: document.id,
@@ -407,7 +517,7 @@ const _retryPaymentStatuses = <String>{
   'expired',
 };
 
-enum _InitialEligibility { invalid, minimumOrFull, fullOnly }
+enum _InitialEligibility { invalid, minimumOrFull, minimumOnly, fullOnly }
 
 // Read the frozen server decision; amounts and the checkout clock never grant
 // deposit permission. Legacy means all three canonical fields are absent/null.
@@ -425,8 +535,9 @@ _InitialEligibility _initialPaymentEligibility(Map<String, dynamic> request) {
   final mode = data['mode'];
   final reason = data['reason'];
   final hours = _centavos(data['depositMinimumNoticeHours']);
-  if ((mode != 'minimum_or_full' && mode != 'full_only') ||
-      data['depositEligible'] != (mode == 'minimum_or_full') ||
+  final isDepositMode = mode == 'minimum_or_full' || mode == 'minimum_only';
+  if ((!isDepositMode && mode != 'full_only') ||
+      data['depositEligible'] != isDepositMode ||
       data['depositAllowed'] is! bool ||
       !const {
         'deposit_eligible',
@@ -447,8 +558,22 @@ _InitialEligibility _initialPaymentEligibility(Map<String, dynamic> request) {
               data['evaluatedAt'] == null))) {
     return _InitialEligibility.invalid;
   }
+  final arrangement = CustomerArrangedPayment.fromRecord(request['arrangedPaymentOffer']);
+  if (arrangement?.status == 'accepted') {
+    final terms = arrangement!;
+    final snapshot = _map(request['financialSnapshot']);
+    if (version != 2 || data['depositAllowed'] != true || snapshot == null ||
+        snapshot['requiredUpfrontAmountInCentavos'] != terms.upfront ||
+        snapshot['remainingBalanceInCentavos'] != terms.balance ||
+        snapshot['grossAmountInCentavos'] != terms.upfront + terms.balance) {
+      return _InitialEligibility.invalid;
+    }
+    return _InitialEligibility.minimumOrFull;
+  }
   return mode == 'minimum_or_full'
       ? _InitialEligibility.minimumOrFull
+      : mode == 'minimum_only'
+      ? _InitialEligibility.minimumOnly
       : _InitialEligibility.fullOnly;
 }
 
@@ -469,14 +594,18 @@ bool _balanceEnforcementBlocksActions(
     final hard = _timestampDate(request['hardPaymentDeadlineAt']);
     final prep = _timestampDate(request['preparationStartsAt']);
     final policy = _map(request['bookingLifecyclePolicySnapshot']);
+    final arrangement = CustomerArrangedPayment.fromRecord(request['arrangedPaymentOffer']);
+    final standardDue = event?.subtract(const Duration(hours: 48));
+    final expectedDue = arrangement?.status == 'accepted' ? arrangement!.balanceDue : standardDue;
     if (event == null ||
         due == null ||
         hard == null ||
         prep == null ||
         request['balanceDueHoursBeforeEvent'] != 48 ||
-        due != event.subtract(const Duration(hours: 48)) ||
-        hard != event.subtract(const Duration(hours: 24)) ||
-        prep != hard ||
+        due != expectedDue ||
+        due.isAfter(standardDue!) ||
+        hard != due.add(const Duration(hours: 24)) ||
+        prep != event.subtract(const Duration(hours: 24)) ||
         policy == null ||
         policy['schemaVersion'] != 3 ||
         policy['providerStartsManually'] != false ||
@@ -581,6 +710,15 @@ List<CustomerPaymentOption> _checkoutOptions(
       ];
     }
 
+    if (partialDeposit && eligibility == _InitialEligibility.minimumOnly) {
+      return [
+        CustomerPaymentOption(
+          choice: CustomerPaymentChoice.minimum,
+          amountInCentavos: upfront,
+        ),
+      ];
+    }
+
     return [
       CustomerPaymentOption(
         choice: CustomerPaymentChoice.full,
@@ -673,7 +811,10 @@ List<CustomerPaymentOption> _checkoutOptions(
 
   if (eligibility == _InitialEligibility.invalid ||
       (initialChoice == CustomerPaymentChoice.minimum &&
-          eligibility != _InitialEligibility.minimumOrFull)) {
+          eligibility != _InitialEligibility.minimumOrFull &&
+          eligibility != _InitialEligibility.minimumOnly) ||
+      (initialChoice == CustomerPaymentChoice.full &&
+          eligibility == _InitialEligibility.minimumOnly)) {
     return const [];
   }
 

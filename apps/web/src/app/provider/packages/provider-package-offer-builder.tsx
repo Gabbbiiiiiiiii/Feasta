@@ -350,9 +350,12 @@ export function ProviderPackageOfferBuilder({
                 {option.enabled ? (
                   <div className="mt-4 grid gap-4">
                     <label className="grid gap-2 text-sm font-medium">
-                      {label} price (PHP {priceUnit})
+                      <span>
+                        {label} price (PHP {priceUnit})
+                        <span aria-hidden="true" className="ml-1 text-destructive">*</span>
+                      </span>
                       <ProviderPackageMoneyInput
-                        value={option.price} error={option.inputError} disabled={disabled}
+                        value={option.price} error={option.inputError} disabled={disabled} required
                         onChange={(price, inputError) => updateService(tier, {price, inputError})}
                       />
                     </label>

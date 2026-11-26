@@ -23,7 +23,8 @@ export async function loadDishLibrary(): Promise<{revision: number; dishes: Libr
   return {revision: snapshot.get("revision") ?? 0, dishes: snapshot.get("dishes") ?? [], categories: snapshot.get("categories") ?? [], parentGroups: snapshot.get("parentGroups") ?? {}, groupNames: snapshot.get("groupNames")};
 }
 
-export async function saveDishLibrary(revision: number, input: LibraryDish[], savedCategories: string[], categoryGroups: Record<string, string> = {}, groupNames?: string[], unassignedCategories: string[] = []) {
+export async function saveDishLibrary(revision: number, input: LibraryDish[], savedCategories: string[], categoryGroups: Record<string, string> = {}, groupNames?: string[], _unassignedCategories: string[] = []) {
+  void _unassignedCategories;
   const {ref, providerId} = await libraryRef();
   if (!Number.isSafeInteger(revision) || revision < 0 || !Array.isArray(input) || input.length > 500) {
     throw new Error("A dish library can have at most 500 dishes.");
@@ -44,7 +45,6 @@ export async function saveDishLibrary(revision: number, input: LibraryDish[], sa
       groupNames.some((name) => typeof name !== "string" || categoryNameError(name)))) {
     throw new Error("Enter valid names for up to 500 parent groups.");
   }
-  const unassigned = new Set(unassignedCategories.map(categoryKey));
   const ids = new Set<string>();
   const names = new Set<string>();
   const categories = new Map<string, {category: string; parentGroup: string}>();
@@ -82,28 +82,10 @@ export async function saveDishLibrary(revision: number, input: LibraryDish[], sa
     const previous = new Map<string, LibraryDish>(
       ((snapshot.get("dishes") ?? []) as LibraryDish[]).map((dish) => [dish.id, dish]),
     );
-    const existingCategories = new Set([
-      ...((snapshot.get("categories") ?? []) as string[]).map(categoryKey),
-      ...Array.from(previous.values(), (dish) => categoryKey(dish.category)),
-    ]);
     const submittedCategories = new Set([
       ...categoryNames.map(categoryKey),
       ...dishes.map((dish) => categoryKey(dish.category)),
     ]);
-    for (const key of submittedCategories) {
-      if (!existingCategories.has(key) && !Object.hasOwn(parentGroups, key) && !categories.has(key)) {
-        throw new Error("Assign a Parent Group before saving a new category.");
-      }
-    }
-    for (const dish of dishes) {
-      if (dish.parentGroup) continue;
-      const existing = previous.get(dish.id);
-      if (!existing || existing.name !== dish.name ||
-          (existing.parentGroup?.trim() && (!unassigned.has(categoryKey(dish.category)) ||
-            categoryKey(existing.category) !== categoryKey(dish.category) || categories.has(categoryKey(dish.category))))) {
-        throw new Error("Assign a Parent Group before saving a dish.");
-      }
-    }
     const storedGroups = groupNames ?? snapshot.get("groupNames");
     const previousAssignments = Object.entries(
       (snapshot.get("parentGroups") ?? {}) as Record<string, string>,

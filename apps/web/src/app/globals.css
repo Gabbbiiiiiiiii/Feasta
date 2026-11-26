@@ -1124,3 +1124,90 @@ textarea::placeholder {
     box-shadow: none !important;
   }
 }
+
+/* ==========================================================================
+   PRINTABLE FULL-SCREEN DETAIL DRAWER PRINTING (PROVIDER REQUEST & BOOKING REVIEW)
+   ========================================================================== */
+
+@media print {
+  body:has([data-printable-detail-drawer]) {
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #ffffff !important;
+  }
+
+  /* Hide page content and overlays outside the active printable detail drawer. */
+  body:has([data-printable-detail-drawer])
+    > :not([data-printable-detail-drawer]):not(:has([data-printable-detail-drawer])) {
+    display: none !important;
+  }
+
+  body:has([data-printable-detail-drawer]) [data-printable-detail-drawer] {
+    position: static !important;
+    inset: auto !important;
+    transform: none !important;
+    display: block !important;
+    width: 100% !important;
+    max-width: none !important;
+    height: auto !important;
+    max-height: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: visible !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    background: #ffffff !important;
+    box-shadow: none !important;
+  }
+
+  body:has([data-printable-detail-drawer]) [data-printable-detail-header] {
+    padding: 0 0 4mm !important;
+    border-bottom: 1px solid #d1d5db !important;
+    background: #ffffff !important;
+  }
+
+  body:has([data-printable-detail-drawer]) [data-printable-detail-header] > div {
+    max-width: none !important;
+    padding: 0 !important;
+  }
+
+  body:has([data-printable-detail-drawer]) [data-printable-detail-body] {
+    overflow: visible !important;
+    height: auto !important;
+    max-height: none !important;
+    padding: 4mm 0 0 !important;
+    background: #ffffff !important;
+  }
+
+  body:has([data-printable-detail-drawer]) [data-printable-detail-body] > div {
+    max-width: none !important;
+  }
+
+  body:has([data-printable-detail-drawer]) [data-printable-detail-footer],
+  body:has([data-printable-detail-drawer]) [data-print-hidden] {
+    display: none !important;
+  }
+
+  body:has([data-printable-detail-drawer]) [data-print-expand][hidden] {
+    display: block !important;
+  }
+
+  body:has([data-printable-detail-drawer]) [data-print-card],
+  body:has([data-printable-detail-drawer]) dl > div,
+  body:has([data-printable-detail-drawer]) li {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  body:has([data-printable-detail-drawer]) h1,
+  body:has([data-printable-detail-drawer]) h2,
+  body:has([data-printable-detail-drawer]) h3,
+  body:has([data-printable-detail-drawer]) h4 {
+    break-after: avoid;
+    page-break-after: avoid;
+  }
+
+  body:has([data-printable-detail-drawer]) * {
+    box-shadow: none !important;
+  }
+}

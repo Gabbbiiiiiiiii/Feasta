@@ -1,3 +1,4 @@
+import {arrangedPaymentView} from "@/lib/payments/arranged-payment-view";
 import {BOOKING_REVIEW_LABEL, BOOKING_REVIEW_MESSAGE, COMPLETION_ON_HOLD_LABEL, ENDED_REVIEW_MESSAGE} from "@/lib/presentation/booking-lifecycle";
 import {scheduledEventWindow} from "@/lib/presentation/scheduled-event-window";
 export type BookingPolicyPresentation = {
@@ -17,9 +18,13 @@ export function bookingPolicyV3Presentation(data: Readonly<Record<string, unknow
   };
   const event = date(data.eventStartAt), due = date(data.remainingBalanceDueAt), hard = date(data.hardPaymentDeadlineAt), prep = date(data.preparationStartsAt);
   const policy = data.bookingLifecyclePolicySnapshot as Record<string, unknown> | null;
+  const arrangement = arrangedPaymentView(data.arrangedPaymentOffer);
+  const arrangedDue = arrangement?.status === "accepted" ? Date.parse(arrangement.balanceDueAt) : null;
+  const expectedDue = event ? event.getTime() - 48 * 3_600_000 : Number.NaN;
+  const expectedHard = (arrangedDue ?? expectedDue) + 24 * 3_600_000;
   if (!event || !due || !hard || !prep || data.balanceDueHoursBeforeEvent !== 48 ||
-    due.getTime() !== event.getTime() - 48 * 3_600_000 || hard.getTime() !== event.getTime() - 24 * 3_600_000 ||
-    prep.getTime() !== hard.getTime() || policy?.schemaVersion !== 3 || policy.providerStartsManually !== false ||
+    due.getTime() !== (arrangedDue ?? expectedDue) || due.getTime() > expectedDue || hard.getTime() !== expectedHard ||
+    prep.getTime() !== event.getTime() - 24 * 3_600_000 || policy?.schemaVersion !== 3 || policy.providerStartsManually !== false ||
     policy.requiresFullPayment !== true || policy.autoStartAtScheduledTime !== true || policy.providerConfirmsCompletion !== true) return null;
   const enforcement = data.remainingBalanceEnforcement as {status?: unknown} | null;
   const eligibility = data.refundEligibilityState as {activeCancellationRequestId?: unknown} | null;

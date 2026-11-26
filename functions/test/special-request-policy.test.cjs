@@ -1,5 +1,6 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
+const {dropOffOrderLimit} = require("@feasta/shared-types/provider-package-v2");
 
 const {
   nextSpecialRequestStatus,
@@ -30,6 +31,14 @@ test("package estimates use whole quantities and integer centavos", () => {
     assert.equal(specialRequestPackageSubtotal(150000, invalid), null);
   }
   assert.equal(specialRequestPackageSubtotal(Number.MAX_SAFE_INTEGER, 2), null);
+});
+
+test("configured order limits apply to bundle pricing and legacy offers retain their limit", () => {
+  assert.equal(dropOffOrderLimit("per_bundle", 5), 5);
+  assert.equal(dropOffOrderLimit("per_bundle", undefined), 1);
+  assert.equal(dropOffOrderLimit("per_pax", 5), 1);
+  assert.equal(dropOffOrderLimit("per_bundle", 101), 1);
+  assert.equal(dropOffOrderLimit(undefined, undefined), 100);
 });
 
 test("special requests require a priced Drop-Off catering option and a delivery address", () => {

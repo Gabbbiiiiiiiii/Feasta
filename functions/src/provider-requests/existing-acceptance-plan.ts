@@ -2,9 +2,10 @@ import {Timestamp} from "firebase-admin/firestore";
 import {HttpsError} from "firebase-functions/v2/https";
 import {requireInitialPaymentHold, originalInitialPaymentDeadline} from "../payments/initial-payment-reservation.js";
 import {providerPaymentObligationForChoice} from "../payments/payment-obligation.js";
-import {enforceInitialPaymentEligibility} from "../payments/initial-payment-eligibility.js";
+import {validateInitialPaymentEligibility} from "../payments/initial-payment-eligibility.js";
 import {scheduledEventStart} from "../payments/canonical-balance-timing.js";
 import {classifyProviderRequestRefundPolicyEvidence, requireRefundEligibilityState} from "../bookings/booking-refund-policy.js";
+import {parseArrangedPaymentOffer} from "./arranged-payment-offer.js";
 
 /** Explicit provider retry only; no migration and no new financial/policy evidence. */
 export function existingAcceptancePlan(request: Readonly<Record<string, unknown>>, now: Date) {
@@ -24,7 +25,7 @@ export function existingAcceptancePlan(request: Readonly<Record<string, unknown>
       .some(field => request[field] != null) ||
     ![undefined, null, "unpaid"].includes(request.paymentStatus as string | null | undefined) ||
     request.initialPaymentEligibilitySchemaVersion == null) return invalid();
-  enforceInitialPaymentEligibility(request, "full");
+  validateInitialPaymentEligibility(request);
   const eligibility = request.initialPaymentEligibility as Record<string, unknown>;
   const eventStart = scheduledEventStart(eventDate.toDate(), request.eventTime);
   if (!(eligibility.eventStartAt instanceof Timestamp) || eligibility.eventStartAt.toMillis() !== eventStart.getTime() ||
@@ -35,8 +36,12 @@ export function existingAcceptancePlan(request: Readonly<Record<string, unknown>
     requireRefundEligibilityState(request, now).activeCancellationRequestId !== null)) return invalid();
   const obligation = providerPaymentObligationForChoice({financialSnapshot: request.financialSnapshot, paymentChoice: "full"});
   const snapshot = request.financialSnapshot as Record<string, unknown>;
+  const arrangement = parseArrangedPaymentOffer(request.arrangedPaymentOffer);
+  const expectedUpfront = arrangement?.status === "accepted"
+    ? arrangement.upfrontInCentavos
+    : Math.round(Number(request.downPaymentAmount) * 100);
   if (obligation.amountInCentavos !== Math.round(Number(request.amount) * 100) ||
-    snapshot.requiredUpfrontAmountInCentavos !== Math.round(Number(request.downPaymentAmount) * 100)) return invalid();
+    snapshot.requiredUpfrontAmountInCentavos !== expectedUpfront) return invalid();
   let expiresAt: Timestamp;
   try { expiresAt = originalInitialPaymentDeadline(request); } catch { return invalid(); }
   requireInitialPaymentHold({...request, expiresAt}, now);

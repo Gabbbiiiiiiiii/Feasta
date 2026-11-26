@@ -89,6 +89,11 @@ const defaultSettings: AdminPlatformSettings = {
   updatedBy: null,
 };
 
+export async function getActivePlatformCommissionRateBps(): Promise<number> {
+  const snapshot = await platformSettingsReference().get();
+  return mapPlatformSettings(snapshot).platformCommissionRateBps;
+}
+
 export async function getAdminPlatformSettings(): Promise<
   AdminPlatformSettings
 > {

@@ -206,6 +206,7 @@ function CustomerBookingDetailContent({
               <CustomerBookingProviderRequestCard
                 key={request.id}
                 request={request}
+                onArrangementUpdated={() => startRefresh(() => router.refresh())}
                 durableConfirmation
                 hideInitialPaymentReminder={["cancelled", "expired"].includes(booking.status)}
                 complaintAction={SAFE_DOCUMENT_ID.test(request.providerRequestId) && request.id === request.providerRequestId && request.mainEventId === booking.id ?

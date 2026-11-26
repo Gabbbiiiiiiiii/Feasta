@@ -523,10 +523,13 @@ export function classifyProviderRequestRefundPolicyEvidence(
     const policyKey = boundedPolicyKey(
       snapshot.policyKey,
     );
-    const policyDraft = parseRefundPolicyDraft({
-      rules: snapshot.rules,
-      terms: snapshot.terms,
-    });
+    const policyDraft = parseRefundPolicyDraft(
+      {
+        rules: snapshot.rules,
+        terms: snapshot.terms,
+      },
+      {allowNonMonotonic: true},
+    );
 
     if (
       snapshot.schemaVersion !==

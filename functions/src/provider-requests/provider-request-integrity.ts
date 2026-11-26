@@ -307,7 +307,38 @@ export function validateAcceptanceProviderRequest(
       ),
     );
 
-  if (
+  const isCustomerPaid =
+    requestData.platformCommissionModel === "customer_paid_flat_v1";
+
+  if (isCustomerPaid) {
+    const subtotalCentavos = requestData.serviceSubtotalInCentavos;
+    const feeCentavos = requestData.platformFeeInCentavos;
+    const rateBps = requestData.platformCommissionRateBps;
+    if (
+      typeof subtotalCentavos !== "number" ||
+      !Number.isSafeInteger(subtotalCentavos) ||
+      subtotalCentavos <= 0 ||
+      typeof feeCentavos !== "number" ||
+      !Number.isSafeInteger(feeCentavos) ||
+      feeCentavos < 0 ||
+      typeof rateBps !== "number" ||
+      !Number.isSafeInteger(rateBps) ||
+      rateBps <= 0 ||
+      rateBps > 10_000 ||
+      !sameMoney(serviceAmount, subtotalCentavos / 100) ||
+      !sameMoney(amount, (subtotalCentavos + feeCentavos) / 100) ||
+      downPaymentAmount > amount ||
+      !sameMoney(
+        remainingBalance,
+        roundCurrency(amount - downPaymentAmount),
+      )
+    ) {
+      throw new HttpsError(
+        "failed-precondition",
+        "The provider-request financial snapshot is invalid.",
+      );
+    }
+  } else if (
     !sameMoney(amount, serviceAmount) ||
     !sameMoney(
       downPaymentAmount,
@@ -339,11 +370,11 @@ export function validateAcceptanceProviderRequest(
           100,
       );
 
+  const percentageDiff = Math.abs(effectivePercentage - expectedPercentage);
   if (
-    !sameMoney(
-      effectivePercentage,
-      expectedPercentage,
-    )
+    isCustomerPaid
+      ? percentageDiff > 0.05
+      : !sameMoney(effectivePercentage, expectedPercentage)
   ) {
     throw new HttpsError(
       "failed-precondition",
@@ -505,6 +536,8 @@ function samePackagePaymentTerms(
       right.source &&
     left.paymentPolicy ===
       right.paymentPolicy &&
+    (left.fullPaymentAllowed ?? true) ===
+      (right.fullPaymentAllowed ?? true) &&
     left.depositRateBps ===
       right.depositRateBps &&
     left
@@ -1163,13 +1196,16 @@ function mixedProviderAssignmentEvent(
       throw invalidServiceLinkage();
     }
 
+    const isCustomerPaid =
+      request.platformCommissionModel === "customer_paid_flat_v1";
+
     return {
       ...event,
       providerId: assignment.providerId,
       currentProviderId: assignment.providerId,
       packageId: assignment.packageId,
       packageName: assignment.packageName,
-      packagePrice: assignment.amount,
+      packagePrice: isCustomerPaid ? service.price : assignment.amount,
       totalAmount: assignment.amount,
       downPaymentAmount: assignment.downPaymentAmount,
       remainingBalance: assignment.remainingBalance,
@@ -1179,6 +1215,9 @@ function mixedProviderAssignmentEvent(
       selectedAddOns: [],
     };
   }
+
+  const isCustomerPaidMarketplace =
+    request.platformCommissionModel === "customer_paid_flat_v1";
 
   if (
     request.packageId !== null ||
@@ -1197,7 +1236,8 @@ function mixedProviderAssignmentEvent(
     assignment.downPaymentAmount !== assignment.amount ||
     assignment.remainingBalance !== 0 ||
     assignment.downPaymentPercentage !== 100 ||
-    service.downPaymentAmount !== assignment.amount ||
+    service.downPaymentAmount !==
+      (isCustomerPaidMarketplace ? service.price : assignment.amount) ||
     service.downPaymentPercentage !== 100 ||
     !Object.hasOwn(assignment, "selectedAddOns") ||
     !Array.isArray(assignment.selectedAddOns) ||
@@ -1272,6 +1312,8 @@ function packageAssignmentEvent(request: DocumentData, event: DocumentData): Doc
     }
   }
   if (!parsePackagePaymentTermsSnapshot(assignment.packagePaymentTerms)) throw invalidPaymentTerms();
+  const isCustomerPaid =
+    request.platformCommissionModel === "customer_paid_flat_v1";
   // Project only assignment-owned fields. Shared event scope must always come
   // from the actual parent, even if a malformed assignment contains extra keys.
   return {...event, providerId: assignment.providerId, currentProviderId: assignment.providerId,
@@ -1279,5 +1321,7 @@ function packageAssignmentEvent(request: DocumentData, event: DocumentData): Doc
     packagePaymentTerms: assignment.packagePaymentTerms,
     downPaymentAmount: assignment.downPaymentAmount, remainingBalance: assignment.remainingBalance,
     downPaymentPercentage: assignment.downPaymentPercentage,
-    totalAmount: assignment.amount, packagePrice: assignment.amount, selectedAddOns: []};
+    totalAmount: assignment.amount,
+    packagePrice: isCustomerPaid ? assignment.services[0].price : assignment.amount,
+    selectedAddOns: []};
 }

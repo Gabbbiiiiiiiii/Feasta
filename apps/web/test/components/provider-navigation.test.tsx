@@ -138,7 +138,7 @@ describe("provider navigation configuration", () => {
       "/provider/account",
     ]);
     expect(hrefs(approvedProvider)).toContain("/provider/requests");
-    expect(hrefs(approvedProvider)).not.toContain("/provider/refund-policy");
+    expect(hrefs(approvedProvider)).toContain("/provider/refund-policy");
   });
 
   it("keeps active matching exact for the dashboard and nested for owned routes", () => {

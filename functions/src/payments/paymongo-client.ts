@@ -65,6 +65,7 @@ export async function createPayMongoCheckout(
     description: string;
     successUrl: string;
     cancelUrl: string;
+    extraMetadata?: Record<string, string>;
   },
 ): Promise<CheckoutSession> {
   try {
@@ -110,6 +111,7 @@ export async function createPayMongoCheckout(
                 input.description,
 
               metadata: {
+                ...(input.extraMetadata ?? {}),
                 ...(input.checkoutAttemptId ? {
                   feasta_checkout_attempt_id: input.checkoutAttemptId,
                 } : {}),

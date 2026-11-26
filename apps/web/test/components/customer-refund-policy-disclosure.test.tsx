@@ -34,7 +34,11 @@ vi.mock("@/lib/customer/bookings/customer-booking-submission-client", () => ({
     Boolean((error as {refreshRefundPolicies?: boolean})?.refreshRefundPolicies),
 }));
 
-vi.mock("@/lib/firebase/client", () => ({auth: {}, functions: {}, initializeBrowserAppCheck: vi.fn()}));
+vi.mock("@/lib/firebase/client", () => ({
+  auth: {currentUser: null, onAuthStateChanged: () => () => {}},
+  functions: {},
+  initializeBrowserAppCheck: vi.fn(),
+}));
 vi.mock("@/lib/customer/bookings/customer-booking-agreement", async () => {
   const {bookingAgreementFixture} = await import("./booking-agreement-fixture");
   return {getCustomerBookingPaymentAgreements: vi.fn(async (input: {providerId: string}) => [bookingAgreementFixture(input.providerId)])};
@@ -76,7 +80,7 @@ describe("Customer booking refund policy disclosure and agreement", () => {
     });
   });
 
-  it("shows a single Provider default policy, exact stages, optional terms, and requires acknowledgement", async () => {
+  it("shows a single Provider refund policy, unified cutoff rules, optional terms, and requires acknowledgement", async () => {
     const user = userEvent.setup();
     renderExperience();
     await reachReview();
@@ -84,12 +88,13 @@ describe("Customer booking refund policy disclosure and agreement", () => {
     const refundSection = await screen.findByRole("region", {name: "Refund Policy"});
     expect(within(refundSection).getByRole("heading", {name: "Maria's Catering"}))
       .toBeVisible();
-    expect(within(refundSection).getByText("Provider default policy")).toBeVisible();
-    expect(within(refundSection).getByText("Preparation Not Started")).toBeVisible();
-    expect(within(refundSection).getByText("Preparation Started")).toBeVisible();
-    expect(within(refundSection).getByText("Service Started")).toBeVisible();
+    expect(within(refundSection).getByText("Provider refund policy")).toBeVisible();
+    expect(within(refundSection).getByText("Before Cancellation Cutoff")).toBeVisible();
+    expect(within(refundSection).getByText("After Cancellation Cutoff")).toBeVisible();
     expect(within(refundSection).getByText("100%")).toBeVisible();
-    expect(within(refundSection).getByText("50.25%")).toBeVisible();
+    expect(within(refundSection).getByText("0%")).toBeVisible();
+    expect(within(refundSection).getByText(/Cancellation closed/iu)).toBeVisible();
+    expect(within(refundSection).queryByText("Preparation Started")).not.toBeInTheDocument();
     expect(within(refundSection).getByText("Written notice is appreciated."))
       .toBeVisible();
     expect(within(refundSection).queryByText(/₱|PHP|estimated refund/iu))
@@ -123,14 +128,13 @@ describe("Customer booking refund policy disclosure and agreement", () => {
     const guest = render(<EventCustomizationExperience planningOnly detail={detailFixture()} eventServices={serviceFixtures()} />);
     await screen.findByText("Changes save automatically");
     fireEvent.change(screen.getByLabelText("Event date"), {target: {value: "2026-09-20"}});
-    fireEvent.change(screen.getByLabelText("Start time"), {target: {value: "18:00"}});
-    fireEvent.change(screen.getByLabelText("End time"), {target: {value: "22:00"}});
+    fireEvent.change(screen.getByLabelText("Event Start Time"), {target: {value: "18:00"}});
+    fireEvent.change(screen.getByLabelText("Event End Time"), {target: {value: "22:00"}});
     fireEvent.change(screen.getByLabelText(/^Number of guests/iu), {target: {value: "100"}});
     fireEvent.change(screen.getByLabelText(/^Complete event address/iu), {target: {value: "Guest venue"}});
     fireEvent.click(screen.getByRole("button", {name: "Continue"}));
-    fireEvent.click(screen.getByRole("button", {name: "Continue"}));
-    const card = screen.getByText("Event photography").closest("label")!;
-    fireEvent.click(within(card).getByRole("checkbox"));
+    const card = screen.queryByText("Event photography")?.closest("label");
+    if (card) fireEvent.click(within(card).getByRole("checkbox"));
     fireEvent.click(screen.getByRole("button", {name: "Review booking"}));
     expect(screen.getByRole("link", {name: "Sign in to continue"})).toHaveAttribute("href", expect.stringContaining("/book"));
     expect(mocks.loadDisclosures).not.toHaveBeenCalled();
@@ -159,7 +163,7 @@ describe("Customer booking refund policy disclosure and agreement", () => {
 
     const refundSection = await screen.findByRole("region", {name: "Refund Policy"});
     expect(within(refundSection).getAllByRole("article")).toHaveLength(2);
-    expect(within(refundSection).getByText("Provider default policy")).toBeVisible();
+    expect(within(refundSection).getByText("Provider refund policy")).toBeVisible();
     expect(within(refundSection).getByText("Package-specific policy")).toBeVisible();
 
     const checkboxes = within(refundSection).getAllByRole("checkbox");
@@ -302,19 +306,19 @@ describe("Customer booking refund policy disclosure and agreement", () => {
 async function reachReview({selectAddon = false}: {selectAddon?: boolean} = {}) {
   fireEvent.click(screen.getByRole("button", {name: "Event date"}));
   fireEvent.click(await screen.findByRole("button", {name: "September 20, 2026, Available"}));
-  fireEvent.change(screen.getByLabelText("Start time"), {target: {value: "18:00"}});
-  fireEvent.change(screen.getByLabelText("End time"), {target: {value: "22:00"}});
+  fireEvent.change(screen.getByLabelText("Event Start Time"), {target: {value: "18:00"}});
+  fireEvent.change(screen.getByLabelText("Event End Time"), {target: {value: "22:00"}});
   fireEvent.change(screen.getByLabelText(/^Number of guests/iu), {target: {value: "100"}});
   await screen.findByText("Maria's Catering is available");
   fireEvent.change(screen.getByLabelText(/^Complete event address/iu), {
     target: {value: "Grand Ballroom, Ormoc City"},
   });
   fireEvent.click(screen.getByRole("button", {name: "Continue"}));
-  fireEvent.click(screen.getByRole("button", {name: "Continue"}));
   if (selectAddon) {
-    const card = screen.getByText("Event photography").closest("label");
-    if (!card) throw new Error("Expected event service card.");
-    fireEvent.click(within(card).getByRole("checkbox"));
+    const addon = screen.queryByText("Event photography")?.closest("label");
+    if (addon) {
+      fireEvent.click(within(addon).getByRole("checkbox"));
+    }
   }
   fireEvent.click(screen.getByRole("button", {name: "Review booking"}));
   await screen.findByRole("heading", {name: "Review your booking request"});

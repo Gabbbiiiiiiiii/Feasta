@@ -35,6 +35,10 @@ export function buildBookingPaymentAgreement(input: {
   grossAmountInCentavos: number;
   requiredUpfrontAmountInCentavos: number;
 
+  serviceSubtotalInCentavos?: number;
+  platformFeeInCentavos?: number;
+  platformCommissionRateBps?: number;
+
   depositEligible: boolean;
   eligibilityReason?: string;
 
@@ -56,6 +60,35 @@ export function buildBookingPaymentAgreement(input: {
       "failed-precondition",
       "Agreement financial evidence is invalid.",
     );
+  }
+
+  const hasCustomerFeeBreakdown =
+    input.serviceSubtotalInCentavos !== undefined ||
+    input.platformFeeInCentavos !== undefined ||
+    input.platformCommissionRateBps !== undefined;
+
+  if (hasCustomerFeeBreakdown) {
+    const subtotal = input.serviceSubtotalInCentavos;
+    const fee = input.platformFeeInCentavos;
+    const rateBps = input.platformCommissionRateBps;
+    if (
+      typeof subtotal !== "number" ||
+      !Number.isSafeInteger(subtotal) ||
+      subtotal <= 0 ||
+      typeof fee !== "number" ||
+      !Number.isSafeInteger(fee) ||
+      fee < 0 ||
+      subtotal + fee !== gross ||
+      typeof rateBps !== "number" ||
+      !Number.isSafeInteger(rateBps) ||
+      rateBps <= 0 ||
+      rateBps > 10_000
+    ) {
+      throw new HttpsError(
+        "failed-precondition",
+        "Agreement fee breakdown evidence is invalid.",
+      );
+    }
   }
 
   const serviceNames = [
@@ -128,6 +161,14 @@ export function buildBookingPaymentAgreement(input: {
     eventEndTime: input.eventEndTime,
 
     ...timing,
+
+    ...(hasCustomerFeeBreakdown
+      ? {
+          serviceSubtotalInCentavos: input.serviceSubtotalInCentavos!,
+          platformFeeInCentavos: input.platformFeeInCentavos!,
+          platformCommissionRateBps: input.platformCommissionRateBps!,
+        }
+      : {}),
 
     grossAmountInCentavos: gross,
 
@@ -225,6 +266,14 @@ export function bookingPaymentAgreementDisclosure(
 
     preparationStartsAt:
       agreement.preparationStartsAt,
+
+    ...(agreement.serviceSubtotalInCentavos !== undefined
+      ? {
+          serviceSubtotalInCentavos: agreement.serviceSubtotalInCentavos,
+          platformFeeInCentavos: agreement.platformFeeInCentavos,
+          platformCommissionRateBps: agreement.platformCommissionRateBps,
+        }
+      : {}),
 
     grossAmountInCentavos:
       agreement.grossAmountInCentavos,

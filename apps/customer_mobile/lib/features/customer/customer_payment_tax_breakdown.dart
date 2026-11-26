@@ -88,13 +88,19 @@ class CustomerPaymentTaxBreakdown extends StatelessWidget {
           const SizedBox(height: AppSpacing.md),
           if (serviceCharge != null) ...[
             _MoneyRow(
-              label: 'Service charge',
+              label: request.isCustomerPaidFee
+                  ? 'FEASTA service fee'
+                  : 'Service charge',
               amountInCentavos: serviceCharge,
             ),
             const SizedBox(height: AppSpacing.xs),
             Text(
-              'Service charge is deducted from provider proceeds. '
-              'It is not an additional customer charge.',
+              request.isCustomerPaidFee
+                  ? 'Includes FEASTA service fee paid by the customer. '
+                        'Your provider receives 100% of the service subtotal '
+                        'directly, and FEASTA retains only the service fee.'
+                  : 'Service charge is deducted from provider proceeds. '
+                        'It is not an additional customer charge.',
               style: AppTypography.bodySmall.copyWith(
                 color: AppColors.secondaryTextAccessible,
               ),

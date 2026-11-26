@@ -45,7 +45,17 @@ class BookingAgreementTerms extends StatelessWidget {
               color: AppColors.primary,
             ),
           ),
-          row('Total service amount', agreementMoney(a.gross)),
+          if (a.serviceSubtotal != null &&
+              a.platformFee != null &&
+              a.platformCommissionRateBps != null) ...[
+            row('Service subtotal', agreementMoney(a.serviceSubtotal!)),
+            row(
+              'FEASTA service fee (${formatCommissionRateBps(a.platformCommissionRateBps!)})',
+              '+${agreementMoney(a.platformFee!)}',
+            ),
+            row('Total payable', agreementMoney(a.gross)),
+          ] else
+            row('Total service amount', agreementMoney(a.gross)),
           row('Required upfront payment', agreementMoney(a.upfront)),
           row('Remaining balance', agreementMoney(a.remaining)),
           if (a.depositEligible || a.eligibilityReason == 'short_notice')

@@ -57,20 +57,10 @@ function goToStep(target: number) {
 describe("provider package modal and media", () => {
   it.each(["deposit_then_balance", "full_payment"] as const)("renders compact canonical %s terms", (paymentPolicy) => {
     render(<ProviderPackageCard item={{...record, paymentPolicy, depositPercentage: paymentPolicy === "full_payment" ? 100 : 50, balanceDueDaysBeforeEvent: null}} onEdit={vi.fn()} onPublish={vi.fn()} onArchive={vi.fn()} />);
-    expect(screen.getByText(paymentPolicy === "full_payment" ? "Full payment" : "Deposit + balance")).toBeVisible();
-    if (paymentPolicy === "deposit_then_balance") {
-      expect(screen.getByText("Deposit")).toBeVisible();
-      expect(screen.getByText("Balance due")).toBeVisible();
-      expect(screen.getByText("Short notice")).toBeVisible();
-      expect(screen.getByText("Pay 50% first, then the remaining balance")).toBeVisible();
-      expect(screen.getByText("Remaining balance is due 24 hours before the event")).toBeVisible();
-      expect(screen.getByText("Under 72 hours: full payment required")).toBeVisible();
-      expect(screen.queryByText("Full payment")).not.toBeInTheDocument();
-    } else {
-      expect(screen.queryByText("Deposit + balance")).not.toBeInTheDocument();
-      expect(screen.queryByText("Short notice")).not.toBeInTheDocument();
-      expect(screen.queryByText("Under 72 hours: full payment required")).not.toBeInTheDocument();
-    }
+    expect(screen.getByText(paymentPolicy === "full_payment" ? "Full Payment" : "50% Down Payment")).toBeVisible();
+    expect(screen.queryByText("Down payment")).not.toBeInTheDocument();
+    expect(screen.queryByText("Balance due")).not.toBeInTheDocument();
+    expect(screen.queryByText("Short notice")).not.toBeInTheDocument();
     expect(document.body).not.toHaveTextContent(/deposit \?|�/);
   });
 
@@ -88,29 +78,29 @@ describe("provider package modal and media", () => {
     goToStep(1);
     fireEvent.change(screen.getByRole("textbox", {name: /Package name/}), {target: {value: "Updated package"}});
     goToStep(5);
-    fireEvent.click(screen.getByRole("button", {name: "Save changes"}));
+    fireEvent.click(screen.getByRole("button", {name: "Save as Draft"}));
     await waitFor(() => expect(mocks.update).toHaveBeenCalledWith(record.id, expect.objectContaining({name: "Updated package", ...inclusions})));
   });
   it("preserves saved deposit terms when editing", async () => {
     render(<ProviderPackageForm {...props} initialPackage={record} onSaved={vi.fn()} onCancel={vi.fn()} />);
     goToStep(2);
-    expect(screen.getByLabelText(/Payment terms/)).toHaveValue("deposit_then_balance");
-    expect(screen.getByLabelText(/Deposit required/)).toHaveValue(20);
+    expect(screen.getByRole("checkbox", {name: "Down Payment"})).toBeChecked();
+    expect(screen.getByLabelText(/Down payment required/)).toHaveValue(20);
     expect(screen.queryByLabelText(/Remaining balance due/)).not.toBeInTheDocument();
     goToStep(5);
-    fireEvent.click(screen.getByRole("button", {name: "Save changes"}));
+    fireEvent.click(screen.getByRole("button", {name: "Save as Draft"}));
     await waitFor(() => expect(mocks.update).toHaveBeenCalledWith(record.id, expect.objectContaining({paymentPolicy: "deposit_then_balance", depositPercentage: 20})));
   });
 
   it("switches back to Full Payment and submits canonical terms even with invalid deposit fields", async () => {
     render(<ProviderPackageForm {...props} initialPackage={record} onSaved={vi.fn()} onCancel={vi.fn()} />);
     goToStep(2);
-    fireEvent.change(screen.getByLabelText(/Deposit required/), {target: {value: "0"}});
-    fireEvent.change(screen.getByLabelText(/Payment terms/), {target: {value: "full_payment"}});
-    expect(screen.queryByLabelText(/Deposit required/)).not.toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText(/Down payment required/), {target: {value: "0"}});
+    fireEvent.click(screen.getByRole("checkbox", {name: "Down Payment"}));
+    expect(screen.queryByLabelText(/Down payment required/)).not.toBeInTheDocument();
     expect(screen.getByText("Customers pay the full amount after you accept their booking request.")).toBeVisible();
     goToStep(5);
-    fireEvent.click(screen.getByRole("button", {name: "Save changes"}));
+    fireEvent.click(screen.getByRole("button", {name: "Save as Draft"}));
     await waitFor(() => expect(mocks.update).toHaveBeenCalledWith(record.id, expect.objectContaining({paymentPolicy: "full_payment", depositPercentage: 100})));
     const payload = mocks.update.mock.calls.at(-1)?.[1];
     expect(payload).not.toHaveProperty("balanceDueDaysBeforeEvent");
@@ -122,16 +112,16 @@ describe("provider package modal and media", () => {
     fireEvent.change(screen.getByLabelText(/Description/), {target: {value: "A complete birthday package"}});
     fireEvent.click(screen.getByRole("button", {name: "Next"}));
     expect(screen.getByRole("heading", {name: "Step 1: Package details"})).toBeVisible();
-    expect(screen.getByText("Choose a package structure.")).toBeVisible();
-    fireEvent.change(screen.getByLabelText(/Package structure/), {target: {value: "fixed"}});
     fireEvent.change(screen.getByLabelText(/Suitable occasions/), {target: {value: "birthday"}});
     fireEvent.click(screen.getByRole("button", {name: "Next"}));
     expect(screen.getByRole("heading", {name: "Step 1: Package details"})).toBeVisible();
     fireEvent.click(screen.getByRole("button", {name: "Add selected occasion"}));
     goToStep(2);
-    expect(screen.getByLabelText(/Payment terms/)).toHaveValue("full_payment");
-    fireEvent.change(screen.getByLabelText(/Payment terms/), {target: {value: "deposit_then_balance"}});
-    expect(screen.getByLabelText(/Deposit required/)).toHaveValue(null);
+    expect(screen.getByRole("checkbox", {name: "Full Payment"})).toBeChecked();
+    fireEvent.click(screen.getByRole("checkbox", {name: "Down Payment"}));
+    expect(screen.getByRole("checkbox", {name: "Down Payment"})).toBeChecked();
+    expect(screen.getByRole("checkbox", {name: "Full Payment"})).toBeChecked();
+    expect(screen.getByLabelText(/Down payment required/)).toHaveValue(null);
     expect(screen.queryByLabelText(/Remaining balance due/)).not.toBeInTheDocument();
   });
 
@@ -139,14 +129,14 @@ describe("provider package modal and media", () => {
   it("uses supplied deposit bounds without exposing a Provider-editable balance deadline", async () => {
     render(<ProviderPackageForm {...props} paymentPolicyBounds={paymentPolicyBounds} initialPackage={record} onSaved={vi.fn()} onCancel={vi.fn()} />);
     goToStep(2);
-    const deposit = screen.getByLabelText(/Deposit required/);
+    const deposit = screen.getByLabelText(/Down payment required/);
     expect(deposit).toHaveAttribute("min", "12.5");
     expect(deposit).toHaveAttribute("max", "92.5");
     expect(screen.queryByLabelText(/Remaining balance due/)).not.toBeInTheDocument();
     expect(screen.getByText("Current FEASTA policy allows 12.5%–92.5%.")).toBeVisible();
     fireEvent.change(deposit, {target: {value: "90.25"}});
     goToStep(5);
-    fireEvent.click(screen.getByRole("button", {name: "Save changes"}));
+    fireEvent.click(screen.getByRole("button", {name: "Save as Draft"}));
     await waitFor(() => expect(mocks.update).toHaveBeenCalledWith(record.id, expect.objectContaining({
       paymentPolicy: "deposit_then_balance",
       depositPercentage: 90.25,
@@ -158,7 +148,7 @@ describe("provider package modal and media", () => {
   it.each(["", "0", "100", "12.49", "92.51"])("blocks invalid deposit %s without replacing it", (value) => {
     render(<ProviderPackageForm {...props} paymentPolicyBounds={paymentPolicyBounds} initialPackage={record} onSaved={vi.fn()} onCancel={vi.fn()} />);
     goToStep(2);
-    const input = screen.getByLabelText(/Deposit required/);
+    const input = screen.getByLabelText(/Down payment required/);
     fireEvent.change(input, {target: {value}});
     expect(input).toHaveAttribute("aria-invalid", "true");
     expect(input).toHaveValue(value === "" ? null : Number(value));
@@ -211,7 +201,7 @@ describe("provider package modal and media", () => {
     expect(mocks.upload).not.toHaveBeenCalled();
     await user.click(screen.getByRole("button", {name: "Move image 2 earlier"}));
     goToStep(5);
-    await user.click(screen.getByRole("button", {name: "Save changes"}));
+    await user.click(screen.getByRole("button", {name: "Save as Draft"}));
     expect(screen.getByRole("button", {name: "Cancel"})).toBeDisabled();
     expect(screen.queryByRole("button", {name: "Close dialog"})).not.toBeInTheDocument();
     await user.keyboard("{Escape}");
@@ -255,7 +245,7 @@ describe("provider package modal and media", () => {
     const saved = vi.fn();
     render(<ProviderPackageForm {...props} initialPackage={record} onSaved={saved} onCancel={vi.fn()} />);
     goToStep(5);
-    fireEvent.click(screen.getByRole("button", {name: "Save changes"}));
+    fireEvent.click(screen.getByRole("button", {name: "Save as Draft"}));
     await waitFor(() => expect(mocks.update).toHaveBeenCalledWith(record.id, expect.objectContaining({
       imageUrl: image, imageUrls: [image], foodInclusions: [], decorInclusions: [], furnitureInclusions: [], serviceInclusions: [],
     })));
@@ -282,7 +272,7 @@ describe("provider package modal and media", () => {
     expect(screen.getByText("Cover").closest("div.border-t")?.parentElement).toContainElement(screen.getAllByRole("img")[0]!);
     expect(mocks.upload).not.toHaveBeenCalled();
     goToStep(5);
-    fireEvent.click(screen.getByRole("button", {name: "Save changes"}));
+    fireEvent.click(screen.getByRole("button", {name: "Save as Draft"}));
     await waitFor(() => expect(mocks.update).toHaveBeenCalledWith(record.id, expect.objectContaining({imageUrl: image, imageUrls: [image, image.replace("asset", "second")]})));
     expect(mocks.upload).toHaveBeenCalledTimes(2);
     expect(mocks.upload).toHaveBeenNthCalledWith(1, expect.any(String), second);
@@ -370,7 +360,7 @@ describe("provider package modal and media", () => {
     fireEvent.change(screen.getByRole("textbox", {name: /Buffet Setup price/}), {target: {value: "8500.5"}});
     expect(screen.getByRole("textbox", {name: /Starting price/})).toHaveValue("8,500.50");
     goToStep(5);
-    fireEvent.click(screen.getByRole("button", {name: "Save changes"}));
+    fireEvent.click(screen.getByRole("button", {name: "Save as Draft"}));
     await waitFor(() => expect(mocks.update).toHaveBeenCalledWith(record.id, expect.objectContaining({
       price: 8500.5,
       serviceOptions: {
@@ -413,8 +403,8 @@ describe("provider package modal and media", () => {
     fireEvent.click(screen.getByRole("checkbox", {name: /Drop-Off Catering/}));
     fireEvent.change(screen.getByRole("textbox", {name: /Drop-Off Catering price/}), {target: {value: "10000"}});
     goToStep(5);
-    expect(screen.getByRole("button", {name: "Save changes"})).toBeEnabled();
-    fireEvent.click(screen.getByRole("button", {name: "Save changes"}));
+    expect(screen.getByRole("button", {name: "Save as Draft"})).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", {name: "Save as Draft"}));
     await waitFor(() => expect(mocks.update).toHaveBeenCalledWith(record.id, expect.objectContaining({
       price: 10000,
       serviceOptions: {
@@ -490,11 +480,10 @@ describe("starting price PHP display", () => {
     expect(input).toHaveValue(price.toLocaleString("en-PH", {minimumFractionDigits: 2, maximumFractionDigits: 2}));
   });
 
-  it.each(["fixed", "customizable"])("formats new %s packages with the shared currency input", (structure) => {
+  it("formats new packages with the shared currency input", () => {
     render(<ProviderPackageForm {...props} onSaved={vi.fn()} onCancel={vi.fn()} />);
     fireEvent.change(screen.getByLabelText(/Package name/), {target: {value: "Currency package"}});
     fireEvent.change(screen.getByLabelText(/Description/), {target: {value: "Currency display regression package"}});
-    fireEvent.change(screen.getByLabelText(/Package structure/), {target: {value: structure}});
     fireEvent.change(screen.getByLabelText(/Suitable occasions/), {target: {value: "birthday"}});
     fireEvent.click(screen.getByRole("button", {name: "Add selected occasion"}));
     goToStep(2);

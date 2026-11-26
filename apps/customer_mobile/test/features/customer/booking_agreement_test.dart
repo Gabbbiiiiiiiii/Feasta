@@ -108,7 +108,11 @@ void main() {
         );
       }
       for (final key in BookingAgreement.fields.where(
-        (k) => k != 'eligibilityReason',
+        (k) =>
+            k != 'eligibilityReason' &&
+            k != 'serviceSubtotalInCentavos' &&
+            k != 'platformFeeInCentavos' &&
+            k != 'platformCommissionRateBps',
       )) {
         expect(
           () => BookingAgreement.fromJson({...agreementFixture()}..remove(key)),
@@ -116,6 +120,31 @@ void main() {
           reason: key,
         );
       }
+      // Customer-paid fee breakdown parses cleanly when consistent and rejects mismatches.
+      final customerPaid = BookingAgreement.fromJson({
+        ...agreementFixture(deposit: false),
+        'grossAmountInCentavos': 100200,
+        'requiredUpfrontAmountInCentavos': 100200,
+        'remainingBalanceInCentavos': 0,
+        'serviceSubtotalInCentavos': 100000,
+        'platformFeeInCentavos': 200,
+        'platformCommissionRateBps': 20,
+      });
+      expect(customerPaid.serviceSubtotal, 100000);
+      expect(customerPaid.platformFee, 200);
+      expect(customerPaid.platformCommissionRateBps, 20);
+      expect(
+        () => BookingAgreement.fromJson({
+          ...agreementFixture(deposit: false),
+          'grossAmountInCentavos': 100200,
+          'requiredUpfrontAmountInCentavos': 100200,
+          'remainingBalanceInCentavos': 0,
+          'serviceSubtotalInCentavos': 100000,
+          'platformFeeInCentavos': 100,
+          'platformCommissionRateBps': 20,
+        }),
+        throwsA(fails),
+      );
       expect(
         () => BookingAgreement.fromJson({
           ...agreementFixture(deposit: false),

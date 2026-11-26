@@ -19,8 +19,9 @@ export async function prepareTrustedMixedProviderSubmission(input: {
   transaction: Transaction; firestore: Firestore; customerId: string; bookingId: string;
   envelope: MultiProviderMixedSubmissionEnvelope; submissionTime: Date;
   loadRefundRollout: (transaction: Transaction) => Promise<MultiProviderRefundRolloutSnapshot>;
+  platformCommissionRateBps?: number;
 }) {
-  const {transaction, firestore, customerId, bookingId, envelope, submissionTime} = input;
+  const {transaction, firestore, customerId, bookingId, envelope, submissionTime, platformCommissionRateBps} = input;
   const eventDate = new Date(`${envelope.event.eventDate}T00:00:00+08:00`);
   const eventTime = String(envelope.event.eventTime);
   const eventEndTime = String(envelope.event.eventEndTime);
@@ -31,7 +32,7 @@ export async function prepareTrustedMixedProviderSubmission(input: {
     throw new HttpsError("invalid-argument", "Mixed submission event is invalid.");
   }
   const rows = await readTrustedMixedProviderSelections({transaction, firestore, envelope});
-  const financials = prepareMixedProviderFinancials(rows);
+  const financials = prepareMixedProviderFinancials(rows, {platformCommissionRateBps});
   const cateringEligibility = new Map<string, PreparedMultiProviderEligibilityItem>();
   const items = [];
   for (const [index, row] of rows.entries()) {
@@ -61,7 +62,7 @@ export async function prepareTrustedMixedProviderSubmission(input: {
   }
   const refunds = prepareMixedProviderRefundPolicies({rows, rollout: await input.loadRefundRollout(transaction)});
   const agreements = prepareMixedProviderBookingAgreements({customerId, rows, financials,
-    cateringEligibility, refunds, guestCount, eventEndTime,
+    cateringEligibility, refunds, guestCount, eventEndTime, platformCommissionRateBps,
     standaloneEventStart: rows.length === 1 ? items[0].initialPaymentEligibility.eventStartAt : undefined});
   const requests = rows.map(row => {
     const type = row.kind === "catering_package" ? "catering" as const : "addon" as const;

@@ -192,30 +192,62 @@ export function CustomerPaymentReceiptView({
                 </tr>
               </thead>
               <tbody className="text-feasta-text-secondary">
-                <tr className="border-t border-feasta-border-soft">
-                  <td className="px-4 py-3 align-top">
-                    <p className="font-bold text-foreground">{paymentDescription}</p>
-                    <p className="mt-0.5 break-words text-xs">{receipt.serviceLabel}</p>
-                  </td>
-                  <td className="px-4 py-3 text-right align-top font-bold tabular-nums text-foreground">
-                    {receipt.amountPaidFormatted}
-                  </td>
-                </tr>
-                {receipt.chargeBreakdown?.status === "available" ? (
-                  <tr className="border-t border-feasta-border-soft">
-                    <td className="px-4 py-3">
-                      <p>Service charge</p>
-                      <p className="mt-0.5 text-xs text-feasta-text-tertiary">
-                        Deducted from provider proceeds
-                      </p>
-                    </td>
-                    <td className="px-4 py-3 text-right font-semibold tabular-nums">
-                      {formatServiceVat(
-                        receipt.chargeBreakdown.platformChargeInCentavos,
-                      )}
-                    </td>
-                  </tr>
-                ) : null}
+                {receipt.chargeBreakdown?.status === "available" &&
+                receipt.chargeBreakdown.chargeModel === "customer_paid" ? (
+                  <>
+                    <tr className="border-t border-feasta-border-soft">
+                      <td className="px-4 py-3 align-top">
+                        <p className="font-bold text-foreground">{paymentDescription}</p>
+                        <p className="mt-0.5 break-words text-xs">{receipt.serviceLabel}</p>
+                      </td>
+                      <td className="px-4 py-3 text-right align-top font-bold tabular-nums text-foreground">
+                        {formatServiceVat(
+                          receipt.chargeBreakdown.serviceAmountInCentavos,
+                        )}
+                      </td>
+                    </tr>
+                    <tr className="border-t border-feasta-border-soft">
+                      <td className="px-4 py-3">
+                        <p>FEASTA service fee</p>
+                        <p className="mt-0.5 text-xs text-feasta-text-tertiary">
+                          Customer-paid platform service fee
+                        </p>
+                      </td>
+                      <td className="px-4 py-3 text-right font-semibold tabular-nums">
+                        +{formatServiceVat(
+                          receipt.chargeBreakdown.platformChargeInCentavos,
+                        )}
+                      </td>
+                    </tr>
+                  </>
+                ) : (
+                  <>
+                    <tr className="border-t border-feasta-border-soft">
+                      <td className="px-4 py-3 align-top">
+                        <p className="font-bold text-foreground">{paymentDescription}</p>
+                        <p className="mt-0.5 break-words text-xs">{receipt.serviceLabel}</p>
+                      </td>
+                      <td className="px-4 py-3 text-right align-top font-bold tabular-nums text-foreground">
+                        {receipt.amountPaidFormatted}
+                      </td>
+                    </tr>
+                    {receipt.chargeBreakdown?.status === "available" ? (
+                      <tr className="border-t border-feasta-border-soft">
+                        <td className="px-4 py-3">
+                          <p>Service charge</p>
+                          <p className="mt-0.5 text-xs text-feasta-text-tertiary">
+                            Deducted from provider proceeds
+                          </p>
+                        </td>
+                        <td className="px-4 py-3 text-right font-semibold tabular-nums">
+                          {formatServiceVat(
+                            receipt.chargeBreakdown.platformChargeInCentavos,
+                          )}
+                        </td>
+                      </tr>
+                    ) : null}
+                  </>
+                )}
                 {hasRefund ? (
                   <tr className="border-t border-feasta-border-soft">
                     <td className="px-4 py-3">Refund recorded</td>

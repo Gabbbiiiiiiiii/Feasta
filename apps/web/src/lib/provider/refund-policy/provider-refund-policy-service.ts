@@ -1,39 +1,37 @@
 import "server-only";
 
 import {
+  CANCELLATION_CUTOFF_HOURS_MAX_HARD,
+  CANCELLATION_CUTOFF_HOURS_MIN_HARD,
+  CANCELLATION_POLICY_SCHEMA_VERSION,
   REFUND_BASIS_POINTS_MAX,
   REFUND_BASIS_POINTS_MIN,
   REFUND_ELIGIBILITY_STAGES,
   REFUND_POLICY_TERMS_MAX_LENGTH,
   REFUND_POLICY_SCHEMA_VERSION,
+  type ProviderCancellationPolicyDto,
   type RefundEligibilityStage,
 } from "@feasta/shared-types";
 import {Timestamp} from "firebase-admin/firestore";
 
+import {getAdminDefaultCancellationPolicy} from "@/lib/admin/file-maintenance/admin-cancellation-policy-service";
 import {requireApprovedProvider} from "@/lib/auth/session";
 import {adminDb} from "@/lib/firebase/admin";
 
 import type {
-  ProviderPackageRefundPolicyDto,
   ProviderRefundPolicyDto,
   ProviderRefundPolicyPageDto,
   ProviderRefundRuleDto,
 } from "./provider-refund-policy-types";
-
-const MAX_REFUND_POLICY_PACKAGES = 100;
 
 export async function getProviderRefundPolicyPage():
 Promise<ProviderRefundPolicyPageDto> {
   const account = await requireApprovedProvider();
   const providerId = requireDocumentId(account.providerId, "providerId");
 
-  const [providerSnapshot, packagesSnapshot] = await Promise.all([
+  const [providerSnapshot, adminDefaultCancellationPolicy] = await Promise.all([
     adminDb.collection("providers").doc(providerId).get(),
-    adminDb.collection("packages")
-      .where("providerId", "==", providerId)
-      .orderBy("createdAt", "desc")
-      .limit(MAX_REFUND_POLICY_PACKAGES)
-      .get(),
+    getAdminDefaultCancellationPolicy(),
   ]);
 
   if (!providerSnapshot.exists) {
@@ -45,29 +43,50 @@ Promise<ProviderRefundPolicyPageDto> {
       providerSnapshot.data()?.refundPolicy,
       "provider_default",
     ),
-    packages: packagesSnapshot.docs.map((document) =>
-      parsePackage(document.id, document.data())),
+    adminDefaultCancellationPolicy,
+    providerCancellationPolicy: parseProviderCancellationPolicy(
+      providerSnapshot.data()?.cancellationPolicy,
+    ),
   };
 }
 
-function parsePackage(
-  packageId: string,
-  value: Record<string, unknown>,
-): ProviderPackageRefundPolicyDto {
-  const name = typeof value.name === "string" ? value.name.trim() : "";
-  const status = value.status;
-  if (!name || !isPackageStatus(status)) {
-    throw new Error("A Provider package contains invalid refund policy data.");
+function parseProviderCancellationPolicy(
+  value: unknown,
+): ProviderCancellationPolicyDto | null {
+  if (value === null || value === undefined) return null;
+  if (!isRecord(value) || value.schemaVersion !== CANCELLATION_POLICY_SCHEMA_VERSION) {
+    throw new Error("A stored cancellation policy is invalid.");
   }
-
-  const override = parsePolicy(value.refundPolicyOverride, "package_override");
-  return {
-    packageId: requireDocumentId(packageId, "packageId"),
-    name: name.slice(0, 120),
-    status,
-    policySource: override ? "package_override" : "provider_default",
-    override,
-  };
+  if (!Number.isSafeInteger(value.policyVersion) || (value.policyVersion as number) < 1) {
+    throw new Error("A stored cancellation policy version is invalid.");
+  }
+  const effectiveAt = timestampIso(value.effectiveAt);
+  if (value.mode === "admin_default") {
+    return {
+      mode: "admin_default",
+      cutoffHoursBeforeEvent: null,
+      policyVersion: value.policyVersion as number,
+      effectiveAt,
+    };
+  }
+  if (value.mode === "provider_custom") {
+    const hours = value.cutoffHoursBeforeEvent;
+    if (
+      typeof hours !== "number" ||
+      !Number.isSafeInteger(hours) ||
+      hours < CANCELLATION_CUTOFF_HOURS_MIN_HARD ||
+      hours > CANCELLATION_CUTOFF_HOURS_MAX_HARD
+    ) {
+      throw new Error("A stored custom cancellation cutoff is invalid.");
+    }
+    return {
+      mode: "provider_custom",
+      cutoffHoursBeforeEvent: hours,
+      policyVersion: value.policyVersion as number,
+      effectiveAt,
+    };
+  }
+  throw new Error("A stored cancellation policy mode is invalid.");
 }
 
 function parsePolicy(
@@ -133,11 +152,6 @@ function timestampIso(value: unknown): string {
     throw new Error("A stored refund policy date is invalid.");
   }
   return value.toDate().toISOString();
-}
-
-function isPackageStatus(value: unknown):
-value is ProviderPackageRefundPolicyDto["status"] {
-  return value === "draft" || value === "published" || value === "archived";
 }
 
 function isStage(value: unknown): value is RefundEligibilityStage {

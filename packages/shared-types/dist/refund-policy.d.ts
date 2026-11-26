@@ -1,3 +1,4 @@
+import type { CancellationCutoffDisclosure } from "./cancellation-policy.js";
 export declare const REFUND_POLICY_SCHEMA_VERSION: 1;
 export declare const REFUND_ELIGIBILITY_STAGES: readonly ["preparation_not_started", "preparation_started", "service_started"];
 export type RefundEligibilityStage = (typeof REFUND_ELIGIBILITY_STAGES)[number];
@@ -43,6 +44,7 @@ export type EffectiveRefundPolicyDisclosure = {
     policyVersion: number;
     rules: readonly RefundPolicyRule[];
     terms: string | null;
+    cancellationCutoff?: CancellationCutoffDisclosure;
 };
 export type RefundPolicySnapshot<TTimestamp = unknown> = {
     schemaVersion: typeof REFUND_POLICY_SCHEMA_VERSION;

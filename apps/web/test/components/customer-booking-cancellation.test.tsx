@@ -76,6 +76,39 @@ describe("Customer Provider-service cancellation", () => {
     expect(document.body).not.toHaveTextContent("provider-private-001");
   });
 
+  it("shows unified Before/After Cancellation Cutoff rules for cutoff-backed bookings", async () => {
+    mocks.loadOptions.mockResolvedValue(policyBackedOptions({
+      cancellationCutoffAt: "2026-12-07T06:00:00.000Z",
+      cancellationCutoffHours: 72,
+      policy: {
+        sourceKind: "provider_default",
+        policyVersion: 5,
+        rules: [
+          {stage: "preparation_not_started", refundBasisPoints: 8_000},
+          {stage: "preparation_started", refundBasisPoints: 0},
+          {stage: "service_started", refundBasisPoints: 0},
+        ],
+        terms: "Cancel before the cutoff date.",
+      },
+      refundPreview: {
+        calculationStatus: "calculated",
+        frozenStage: "preparation_not_started",
+        refundAmountInCentavos: 200_000,
+        currency: "PHP",
+      },
+    }));
+
+    renderDialog();
+
+    expect(await screen.findByText("Provider refund policy · Version 5")).toBeVisible();
+    expect(screen.getByText("Before Cancellation Cutoff")).toBeVisible();
+    expect(screen.getByText("After Cancellation Cutoff")).toBeVisible();
+    expect(screen.getByText("80%")).toBeVisible();
+    expect(screen.getByText("Cancellation closed")).toBeVisible();
+    expect(screen.getByText("Current eligible window")).toBeVisible();
+    expect(screen.queryByText("Preparation Started")).not.toBeInTheDocument();
+  });
+
   it("validates the exact reason bounds and submits only the trusted fields", async () => {
     const submitted = deferredSubmission();
     mocks.submit.mockReturnValue(submitted.promise);

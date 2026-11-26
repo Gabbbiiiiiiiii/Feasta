@@ -35,6 +35,10 @@ export type BookingAgreementDisclosure = {
 
   grossAmountInCentavos: number;
 
+  serviceSubtotalInCentavos?: number;
+  platformFeeInCentavos?: number;
+  platformCommissionRateBps?: number;
+
   requiredUpfrontAmountInCentavos:
     number;
 
@@ -85,6 +89,9 @@ const DISCLOSURE_FIELDS =
     "preparationStartsAt",
 
     "grossAmountInCentavos",
+    "serviceSubtotalInCentavos",
+    "platformFeeInCentavos",
+    "platformCommissionRateBps",
     "requiredUpfrontAmountInCentavos",
     "remainingBalanceInCentavos",
 
@@ -252,6 +259,29 @@ export function parseBookingPaymentAgreements(
         throw new Error(
           "Booking agreement totals are invalid.",
         );
+      }
+
+      const hasFeeBreakdown =
+        item.serviceSubtotalInCentavos !== undefined ||
+        item.platformFeeInCentavos !== undefined ||
+        item.platformCommissionRateBps !== undefined;
+
+      if (hasFeeBreakdown) {
+        if (
+          !Number.isSafeInteger(item.serviceSubtotalInCentavos) ||
+          item.serviceSubtotalInCentavos <= 0 ||
+          !Number.isSafeInteger(item.platformFeeInCentavos) ||
+          item.platformFeeInCentavos < 0 ||
+          !Number.isSafeInteger(item.platformCommissionRateBps) ||
+          item.platformCommissionRateBps <= 0 ||
+          item.platformCommissionRateBps > 10_000 ||
+          item.serviceSubtotalInCentavos + item.platformFeeInCentavos !==
+            item.grossAmountInCentavos
+        ) {
+          throw new Error(
+            "Booking agreement fee breakdown is invalid.",
+          );
+        }
       }
 
       const event =

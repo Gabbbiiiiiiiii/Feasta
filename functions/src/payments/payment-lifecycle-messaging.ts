@@ -218,13 +218,27 @@ export function providerNotificationTitleForPaymentLifecycle(
 export function providerNotificationMessageForPaymentLifecycle(
   status: PaymentStatus,
   paymentChoice: unknown,
+  options?: {
+    directProviderSplit?: boolean;
+  },
 ): string {
+  const directSplit =
+    options?.directProviderSplit === true;
+
   const choice =
     paymentLifecycleChoice(
       paymentChoice,
     );
 
   if (!choice) {
+    if (status === "paid" && directSplit) {
+      return (
+        "A payment for your provider " +
+        "request was confirmed and routed " +
+        "directly to your payout account."
+      );
+    }
+
     return legacyProviderMessage(
       status,
     );
@@ -235,10 +249,16 @@ export function providerNotificationMessageForPaymentLifecycle(
 
   switch (status) {
     case "paid":
-      return (
-        `The customer's ${label} ` +
-        "was confirmed."
-      );
+      return directSplit
+        ? (
+            `The customer's ${label} ` +
+            "was confirmed and routed directly " +
+            "to your payout account."
+          )
+        : (
+            `The customer's ${label} ` +
+            "was confirmed."
+          );
 
     case "failed":
       return (

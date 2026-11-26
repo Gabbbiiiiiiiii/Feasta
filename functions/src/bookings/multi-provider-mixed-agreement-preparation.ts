@@ -46,6 +46,7 @@ type Input = {
   guestCount: number;
   eventEndTime: string;
   standaloneEventStart?: Date;
+  platformCommissionRateBps?: number;
 };
 
 function reject(message: string): never {
@@ -101,6 +102,7 @@ export function prepareMixedProviderBookingAgreements(
     refunds,
     guestCount,
     eventEndTime,
+    platformCommissionRateBps,
   } = input;
 
   if (
@@ -122,7 +124,7 @@ export function prepareMixedProviderBookingAgreements(
     return reject("Mixed agreement input is invalid.");
   }
 
-  const canonical = prepareMixedProviderFinancials(rows);
+  const canonical = prepareMixedProviderFinancials(rows, {platformCommissionRateBps});
 
   if (
     canonical.totalGrossAmountInCentavos !==
@@ -269,6 +271,15 @@ export function prepareMixedProviderBookingAgreements(
                 financial.packagePaymentTerms.depositRateBps,
               )
             : gross,
+        ...(financial.serviceSubtotalInCentavos !== undefined &&
+          financial.platformFeeInCentavos !== undefined &&
+          financial.platformCommissionRateBps !== undefined
+          ? {
+              serviceSubtotalInCentavos: financial.serviceSubtotalInCentavos,
+              platformFeeInCentavos: financial.platformFeeInCentavos,
+              platformCommissionRateBps: financial.platformCommissionRateBps,
+            }
+          : {}),
         depositEligible: initial.depositEligible,
         eligibilityReason: initial.reason,
         paymentPolicy: {
@@ -317,6 +328,15 @@ export function prepareMixedProviderBookingAgreements(
       grossAmountInCentavos: financial.grossAmountInCentavos,
       requiredUpfrontAmountInCentavos:
         financial.grossAmountInCentavos,
+      ...(financial.serviceSubtotalInCentavos !== undefined &&
+        financial.platformFeeInCentavos !== undefined &&
+        financial.platformCommissionRateBps !== undefined
+        ? {
+            serviceSubtotalInCentavos: financial.serviceSubtotalInCentavos,
+            platformFeeInCentavos: financial.platformFeeInCentavos,
+            platformCommissionRateBps: financial.platformCommissionRateBps,
+          }
+        : {}),
       depositEligible: false,
       paymentPolicy: {paymentPolicy: "full_payment"},
       refundPolicy,

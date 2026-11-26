@@ -70,6 +70,8 @@ type Input = {
   classifyTrustedRequest: (
     row: TrustedMultiProviderPackage,
   ) => TrustedRequest;
+
+  platformCommissionRateBps?: number;
 };
 
 function reject(message: string): never {
@@ -113,6 +115,7 @@ export async function prepareTrustedMultiProviderSubmission(
     submissionTime,
     loadRefundRollout,
     classifyTrustedRequest,
+    platformCommissionRateBps,
   } = input;
 
   if (
@@ -186,7 +189,9 @@ export async function prepareTrustedMultiProviderSubmission(
     resolved: row.resolved,
   }));
 
-  const financials = prepareMultiProviderFinancials(entries);
+  const financials = prepareMultiProviderFinancials(entries, {
+    platformCommissionRateBps,
+  });
 
   const eligibility = await prepareMultiProviderPaymentEligibility({
     transaction,
@@ -212,6 +217,7 @@ export async function prepareTrustedMultiProviderSubmission(
     refunds,
     guestCount,
     eventEndTime,
+    platformCommissionRateBps,
   });
 
   const requests = rows.map((row) => {

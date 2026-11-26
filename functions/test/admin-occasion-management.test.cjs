@@ -7,9 +7,14 @@ const {Timestamp} = require('firebase-admin/firestore');
 let store, failCommit, role, authDisabled, rateCalls, writes;
 class Ref {constructor(path) {this.path=path; this.id=path.split('/').at(-1);}}
 class Query {
-  constructor(path, cap=Infinity) {this.path=path; this.cap=cap;}
+  constructor(path, filters=[], orders=[], after=null, cap=Infinity) {
+    Object.assign(this, {path, filters, orders, after, cap});
+  }
   doc(id) {return new Ref(`${this.path}/${id}`);}
-  limit(cap) {return new Query(this.path,cap);}
+  where(f, op, v) {assert.equal(op, '=='); return new Query(this.path, [...this.filters, [f, v]], this.orders, this.after, this.cap);}
+  orderBy(f) {return new Query(this.path, this.filters, [...this.orders, typeof f === 'string' ? f : '__name__'], this.after, this.cap);}
+  startAfter(a) {return new Query(this.path, this.filters, this.orders, a, this.cap);}
+  limit(cap) {return new Query(this.path, this.filters, this.orders, this.after, cap);}
 }
 const snapshot = (p,v) => ({id:p.split('/').at(-1), exists:v!==undefined, data:()=>v});
 const db = {collection:p=>new Query(p), runTransaction:async fn=>{
@@ -17,8 +22,12 @@ const db = {collection:p=>new Query(p), runTransaction:async fn=>{
   const tx={get:async q=>{
     assert.equal(writing,false,'All reads must precede writes');
     if(q instanceof Ref)return snapshot(q.path,store.get(q.path));
-    return {docs:[...store].filter(([p])=>p.startsWith(q.path+'/') && p.split('/').length===q.path.split('/').length+1)
-      .slice(0,q.cap).map(([p,v])=>snapshot(p,v))};
+    let rows=[...store].filter(([p,v])=>p.startsWith(q.path+'/') && p.split('/').length===q.path.split('/').length+1 &&
+      q.filters.every(([f,x])=>v?.[f]===x));
+    if(q.orders.includes('__name__')) rows.sort(([a],[b])=>a<b?-1:a>b?1:0);
+    if(q.after!=null) rows=rows.filter(([p])=>p.split('/').at(-1)>q.after);
+    const docs=rows.slice(0,q.cap).map(([p,v])=>snapshot(p,v));
+    return {docs, size:docs.length};
   },create:(r,v)=>{writing=true;staged.push(['create',r,v]);},
   update:(r,v)=>{writing=true;staged.push(['update',r,v]);}};
   const result=await fn(tx);
@@ -278,4 +287,41 @@ test('applicability fails closed on stale revisions, inactive categories, and co
   await assert.rejects(call('addAdminOccasionApplicableServices',request),/atomic commit failure/);
   assert.deepEqual(store,prior);
   assert.equal(writes,0);
+});
+
+test('create, metadata edit and applicability add refresh published V2 package discovery pins',async()=>{
+  store.set('contractPolicies/providerPackageV2',{maxSpecificOccasions:10,maxThemeImages:4});
+  store.set('occasions/wedding',{...occasion('wedding',true),label:'Wedding',normalizedName:'wedding',sortOrder:2});
+  store.set('packages/pkg_all',{
+    occasionSchemaVersion:2,occasionScope:'all',occasionIds:[],
+    eventType:'birthday',occasionMatchIds:['birthday','wedding'],occasionCatalogRevision:1,
+    providerEligibilityRevision:1,occasionEligibilityState:'valid',
+    serviceCategoryCode:'catering_service',status:'published',
+    isPublished:true,isActive:true,providerPubliclyVisible:true,
+  });
+  store.delete('occasions/garden_party');
+  // 1) createAdminOccasion (inactive) advances catalog 1 -> 2 and refreshes V2 package
+  const created=await call('createAdminOccasion',input({expectedCatalogRevision:1}));
+  assert.equal(created.catalogRevision,2);
+  assert.equal(store.get('packages/pkg_all').occasionCatalogRevision,2);
+  assert.deepEqual(store.get('packages/pkg_all').occasionMatchIds,['birthday','wedding']);
+  // 2) updateAdminOccasion changes sortOrder of birthday (1 -> 10) -> wedding sorts before birthday!
+  const updated=await call('updateAdminOccasion',edit({
+    expectedCatalogRevision:2,expectedOccasionRevision:1,idempotencyKey:'occasion_mutation_0002',
+    occasion:{id:'birthday',label:'Birthday Celebration',aliases:['Birthday Party'],sortOrder:10,
+      applicableServiceCategoryCodes:['catering_service']},
+  }));
+  assert.equal(updated.catalogRevision,3);
+  assert.equal(store.get('packages/pkg_all').occasionCatalogRevision,3);
+  assert.deepEqual(store.get('packages/pkg_all').occasionMatchIds,['wedding','birthday']);
+  // 3) addAdminOccasionApplicableServices on inactive occasion advances catalog 3 -> 4 and refreshes V2 package
+  store.set('serviceCategories/photography',{code:'photography',status:'active',serviceType:'addon'});
+  const added=await call('addAdminOccasionApplicableServices',{
+    occasionId:'garden_party',applicableServiceCategoryCodes:['catering_service','photography'],
+    expectedOccasionRevision:1,expectedCatalogRevision:3,reason:'Expand approved inactive scope',
+    idempotencyKey:'add_applicable_v2_001',
+  });
+  assert.equal(added.catalogRevision,4);
+  assert.equal(store.get('packages/pkg_all').occasionCatalogRevision,4);
+  assert.deepEqual(store.get('packages/pkg_all').occasionMatchIds,['wedding','birthday']);
 });

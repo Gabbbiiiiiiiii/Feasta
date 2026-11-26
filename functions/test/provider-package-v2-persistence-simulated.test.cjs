@@ -9,7 +9,7 @@ function fixture({draftGate=true,publication=false}={}) {
  const records=new Map();const updateTimes=new Map();let serial=0;let commits=0;let external=0;
  function ref(p){return {path:p,id:p.split('/').at(-1),collection:name=>collection(p+'/'+name)};}
  function collection(p){const query={path:p,filters:[],maximum:Infinity,where(k,op,v){return {...this,filters:[...this.filters,[k,v]]};},select(){return this;},limit(n){return {...this,maximum:n};},doc(id){return ref(p+'/'+(id??'generated_'+(++serial)));}};return query;}
- const snapshot=(r)=>({id:r.id,ref:r,updateTime:updateTimes.get(r.path),exists:records.has(r.path),data:()=>records.get(r.path)});
+ const snapshot=(r)=>({id:r.id,ref:r,updateTime:updateTimes.get(r.path),exists:records.has(r.path),data:()=>records.get(r.path),get:field=>records.get(r.path)?.[field]});
  const db={doc:ref,collection,async runTransaction(fn){
   const writes=[];let writing=false;const reads=new Map();
   const fingerprint=r=>JSON.stringify(r.id?records.get(r.path):[...records].filter(([p,data])=>p.startsWith(r.path+'/')&&!p.slice(r.path.length+1).includes('/')&&r.filters.every(([k,v])=>data[k]===v)).slice(0,r.maximum));
@@ -17,7 +17,7 @@ function fixture({draftGate=true,publication=false}={}) {
    const docs=[...records].filter(([p,data])=>p.startsWith(r.path+'/')&&!p.slice(r.path.length+1).includes('/')&&r.filters.every(([k,v])=>data[k]===v)).slice(0,r.maximum).map(([p])=>snapshot(ref(p)));return {docs,size:docs.length,empty:!docs.length};},
    create(r,data){writing=true;writes.push(['create',r,data]);},update(r,data){writing=true;writes.push(['update',r,data]);},set(r,data){writing=true;writes.push(['set',r,data]);},delete(r){writing=true;writes.push(['delete',r]);}};
   const result=await fn(tx);if([...reads].some(([r,version])=>fingerprint(r)!==version))return db.runTransaction(fn);for(const [mode,r]of writes){if(!publication)assert.equal(r.path.startsWith('maintenance'),false,'private drafts must not write maintenance');if(mode==='create')assert.equal(records.has(r.path),false);if(mode==='update')assert.equal(records.has(r.path),true);}
-  for(const [mode,r,data]of writes){if(mode==='delete')records.delete(r.path);else records.set(r.path,mode==='update'?{...records.get(r.path),...data}:data);}if(writes.length)commits++;return result;
+  for(const [mode,r,data]of writes){if(mode==='delete')records.delete(r.path);else{const next=mode==='update'?{...records.get(r.path),...data}:{...data};for(const [k,v] of Object.entries(next))if(v&&typeof v==='object'&&typeof v.isEqual==='function'&&v.isEqual(FieldValue.delete()))delete next[k];records.set(r.path,next);}}if(writes.length)commits++;return result;
  }};
  records.set('users/owner',{role:'provider',providerId:'provider',accountStatus:'active',isActive:true,isBlocked:false});
  records.set('providers/provider',{ownerId:'owner',verificationStatus:'approved',isActive:true,eventTypesSupported:['birthday'],providerServiceType:'catering',serviceCategories:['catering_service'],minGuestsPerEvent:1,maxGuestsPerEvent:100});
@@ -386,8 +386,58 @@ for(const pricingModel of ['per_pax','per_bundle'])test('Fixed '+pricingModel+' 
  const published=f.readOwned(created.packageId);
  for(const key of Object.keys(request).filter(k=>k!=='idempotencyKey'))assert.deepEqual(published[key],before[key],key);
  assert.equal(published.status,'published');assert.equal(published.revision,3);
- await assert.rejects(f.api.updateProviderPackageV2(f.req({...update,expectedRevision:3,idempotencyKey:'fixed_published_key_001'})));
- assert.equal(f.readOwned(created.packageId),published);assert.ok(verified.length>=3);
+ const publishedEdit={...request,name:'Updated '+pricingModel+' package',price:150.5,
+  serviceOptions:{buffet_setup:{price:150.5,includedServices:['Setup'],decorInclusions:['Flowers'],furnitureInclusions:['Tables'],equipmentInclusions:['Warmers']}},
+  packageId:created.packageId,expectedRevision:3,idempotencyKey:'fixed_published_key_001'};
+ const editedPublished=await f.api.updateProviderPackageV2(f.req(publishedEdit));
+ assert.equal(editedPublished.status,'published');assert.equal(editedPublished.packageRevision,4);
+ assert.deepEqual(await f.api.updateProviderPackageV2(f.req(publishedEdit)),editedPublished);
+ const afterPublishedEdit=f.readOwned(created.packageId);
+ assert.equal(afterPublishedEdit.status,'published');assert.equal(afterPublishedEdit.isPublished,true);
+ assert.equal(afterPublishedEdit.isActive,true);assert.equal(afterPublishedEdit.providerPubliclyVisible,true);
+ assert.deepEqual(afterPublishedEdit.publishedAt,published.publishedAt);
+ assert.equal(afterPublishedEdit.name,'Updated '+pricingModel+' package');assert.equal(afterPublishedEdit.price,150.5);
+ const customer=f.load('customer-package-v2',{...f.mocks,'./provider-package-drafts-v2.js':f.api});
+ const customerRead=await customer.getCustomerPackageV2({data:{packageId:created.packageId}});
+ assert.equal(customerRead.package.revision,4);assert.equal(customerRead.package.price,150.5);
+ await assert.rejects(f.api.updateProviderPackageV2(f.req({...publishedEdit,idempotencyKey:'fixed_published_stale_001'})),e=>e.details.reason==='REVISION_CONFLICT');
+ await assert.rejects(f.api.updateProviderPackageV2(f.req({...publishedEdit,foodInclusions:[],expectedRevision:4,idempotencyKey:'fixed_published_empty_food_001'})),e=>e.details.reason==='INCOMPLETE_PACKAGE');
+ assert.ok(verified.length>=4);
+});
+
+test('published customizable V2 updates preserve live visibility, enforce publication gates, and reject archived packages',async()=>{
+ const f=await productionDraft({offerStructure:'customizable',pricingModel:'per_bundle',price:2000,
+  serviceOptions:{drop_off:{price:2000,includedServices:['Delivery']}}});
+ const published=await f.publish();
+ assert.equal(published.status,'published');assert.equal(published.packageRevision,2);
+ const originalPublishedAt=f.readOwned(f.id).publishedAt;
+ const baseEdit=input({offerStructure:'customizable',pricingModel:'per_bundle',name:'Updated customizable bundle',
+  price:2500,serviceOptions:{drop_off:{price:2500,includedServices:['Delivery','Setup']}},
+  packageId:f.id,expectedRevision:2,idempotencyKey:'published_customizable_edit_001'});
+
+ // Maintenance pause must block published customizable updates.
+ f.records.get('maintenanceControls/intake').publication=true;
+ await assert.rejects(f.api.updateProviderPackageV2(f.req({...baseEdit,idempotencyKey:'published_maint_blocked_001'})),/MAINTENANCE_PAUSED/);
+ f.records.get('maintenanceControls/intake').publication=false;
+
+ // Disabled publication gate or ineligible public profile must block published updates.
+ f.records.get('contractPolicies/providerPackageV2').featureGates.packagePublication=false;
+ await assert.rejects(f.api.updateProviderPackageV2(f.req({...baseEdit,idempotencyKey:'published_gate_blocked_001'})),e=>e.details.reason==='FEATURE_DISABLED');
+ f.records.get('contractPolicies/providerPackageV2').featureGates.packagePublication=true;
+ f.records.get('providers/provider').publiclyVisible=false;
+ await assert.rejects(f.api.updateProviderPackageV2(f.req({...baseEdit,idempotencyKey:'published_provider_blocked_001'})),e=>e.details.reason==='PROVIDER_INELIGIBLE');
+ f.records.get('providers/provider').publiclyVisible=true;
+
+ const updated=await f.api.updateProviderPackageV2(f.req(baseEdit));
+ assert.equal(updated.status,'published');assert.equal(updated.packageRevision,3);
+ const saved=f.readOwned(f.id);
+ assert.equal(saved.status,'published');assert.equal(saved.isPublished,true);assert.equal(saved.isActive,true);
+ assert.equal(saved.providerPubliclyVisible,true);assert.deepEqual(saved.publishedAt,originalPublishedAt);
+ assert.equal(saved.name,'Updated customizable bundle');assert.equal(saved.price,2500);
+
+ // Archived packages must remain non-editable.
+ f.records.set('packages/'+f.id,{...saved,status:'archived',isActive:false,isPublished:false,providerPubliclyVisible:false,publishedAt:null});
+ await assert.rejects(f.api.updateProviderPackageV2(f.req({...baseEdit,expectedRevision:3,idempotencyKey:'archived_edit_blocked_001'})),e=>e.code==='failed-precondition');
 });
 
 test('incomplete Fixed records cannot use V2 update or linked editor completion',async()=>{

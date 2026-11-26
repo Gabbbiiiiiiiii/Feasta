@@ -6,12 +6,14 @@ import {createPortal} from "react-dom";
 
 type PackagePaymentTermsSource = {
   paymentPolicy?: "full_payment" | "deposit_then_balance" | null;
+  fullPaymentAllowed?: boolean | null;
   depositPercentage?: number | null;
   balanceDueDaysBeforeEvent?: number | null;
 };
 
 type PaymentTermsModel = {
   deposit: boolean;
+  bothAllowed: boolean;
   timing: string;
   depositDetail: string;
 };
@@ -22,10 +24,11 @@ function paymentTermsModel(source: PackagePaymentTermsSource): PaymentTermsModel
   const days = source.balanceDueDaysBeforeEvent;
   return {
     deposit,
+    bothAllowed: deposit && source.fullPaymentAllowed === true,
     timing: days != null && days !== 1 ? String(days) + " days" : "24 hours",
     depositDetail: source.depositPercentage != null
       ? "Pay " + String(source.depositPercentage) + "% first, then the remaining balance"
-      : "Pay a deposit first, then the remaining balance",
+      : "Pay a down payment first, then the remaining balance",
   };
 }
 
@@ -36,9 +39,15 @@ function PaymentTermsDetails({model}: {model: PaymentTermsModel}) {
   return (
     <dl className="grid gap-1.5 text-muted-foreground">
       <div className="grid gap-0.5">
-        <dt className="font-semibold text-foreground">Deposit</dt>
+        <dt className="font-semibold text-foreground">Down payment</dt>
         <dd className="leading-5">{model.depositDetail}</dd>
       </div>
+      {model.bothAllowed ? (
+        <div className="grid gap-0.5">
+          <dt className="font-semibold text-foreground">Full payment</dt>
+          <dd className="leading-5">Customers may also pay 100% upfront</dd>
+        </div>
+      ) : null}
       <div className="grid gap-0.5">
         <dt className="font-semibold text-foreground">Balance due</dt>
         <dd className="leading-5">Remaining balance is due {model.timing} before the event</dd>
@@ -62,9 +71,33 @@ export function PackagePaymentTerms({source}: {source: PackagePaymentTermsSource
       aria-label="Payment terms"
     >
       <span className="w-fit rounded-full border border-border bg-white px-2.5 py-1 font-semibold text-primary-strong">
-        {model.deposit ? "Deposit + balance" : "Full payment"}
+        {model.bothAllowed ? "Down Payment & Full Payment" : model.deposit ? "Down Payment" : "Full payment"}
       </span>
       <PaymentTermsDetails model={model} />
+    </div>
+  );
+}
+
+/** Compact single-pill payment summary for provider package list cards; full rules remain in detail/edit views. */
+export function PackagePaymentTermsBadge({source}: {source: PackagePaymentTermsSource}) {
+  const model = paymentTermsModel(source);
+  if (!model) return null;
+
+  const depositPrefix =
+    model.deposit && source.depositPercentage != null
+      ? `${String(source.depositPercentage)}% `
+      : "";
+  const label = model.bothAllowed
+    ? `${depositPrefix}Down Payment & Full Payment`
+    : model.deposit
+      ? `${depositPrefix}Down Payment`
+      : "Full Payment";
+
+  return (
+    <div className="pt-1" aria-label="Payment terms">
+      <span className="inline-flex w-fit items-center rounded-full border border-border bg-secondary px-2.5 py-1 text-xs font-semibold leading-none text-primary-strong">
+        {label}
+      </span>
     </div>
   );
 }
@@ -162,7 +195,7 @@ export function PackagePaymentTermsCardHint({source}: {source: PackagePaymentTer
       onMouseLeave={scheduleClose}
     >
       <span className="inline-flex h-6 w-fit items-center rounded-full border border-border bg-muted px-2.5 text-xs font-semibold leading-none text-primary-strong">
-        {model.deposit ? "Deposit + balance" : "Full payment"}
+        {model.bothAllowed ? "Down Payment & Full Payment" : model.deposit ? "Down Payment" : "Full payment"}
       </span>
       <button
         ref={buttonRef}

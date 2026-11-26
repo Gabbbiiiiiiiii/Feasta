@@ -1,8 +1,13 @@
+import {FieldValue} from "firebase-admin/firestore";
 import {parsePackageClassification} from "./package-classification.js";
 import {preparePackageServiceName} from "../providers/service-name-uniqueness.js";
 import {requireLegacyPackageOccasionAuthority} from "./legacy-package-occasion-authority.js";
 import {occasionDependencyEntryPath, validOccasionDependencyEntry} from "../admin/occasion-dependency-registry.js";
-import {isLegacyPackageDraft} from "./legacy-occasion-publication-guard.js";
+import {
+  isLegacyOccasionPackage,
+  isLegacyPackageDraft,
+} from "./legacy-occasion-publication-guard.js";
+import {assertLegacyPackagePublication} from "./legacy-package-publication-guard.js";
 import {BALANCE_DUE_HOURS_BEFORE_EVENT} from "../payments/canonical-balance-timing.js";
 import {cloudinarySecrets} from "../shared/cloudinary.js";
 import {
@@ -15,12 +20,17 @@ import {
   requireRole,
 } from "../shared/authorization.js";
 import {
+  isProviderPubliclyEligible,
   USER_ROLES,
 } from "../shared/constants.js";
 import {db} from "../shared/firestore.js";
 import {
   appCheckCallableOptions,
 } from "../shared/function-options.js";
+import {
+  recordMaintenanceAdmission,
+  requireMaintenanceOpen,
+} from "../shared/maintenance.js";
 import {
   enforceCallableRateLimit,
 } from "../shared/rate-limit.js";
@@ -34,10 +44,12 @@ import {
 import {
   assertCanonicalPackagePaymentTerms,
   assertCanonicalPackageServiceCategory,
-  assertDraftPackage,
+  assertEditablePackage,
   assertPackageMatchesProviderCapabilities,
   assertPackageOfferConfigured,
   assertPackagePaymentTermsWithinPolicy,
+  assertPackagePublishable,
+  assertStrictPackageGuestRange,
   authorizeOwnedPackage,
   authorizeProviderForPackageManagement,
   parseCanonicalPackageWrite,
@@ -61,6 +73,7 @@ const ALLOWED_FIELDS = [
   "serviceOptions",
   "themeOptions",
   "paymentPolicy",
+  "fullPaymentAllowed",
   "depositPercentage",
   "balanceDueDaysBeforeEvent",
   "downPaymentPercentage",
@@ -168,6 +181,9 @@ export const updateProviderPackage = onCall(
     assertPackageOfferConfigured(
       validated,
     );
+    assertStrictPackageGuestRange(
+      validated,
+    );
 
     const userReference = db
       .collection("users")
@@ -250,17 +266,59 @@ export const updateProviderPackage = onCall(
             packageSnapshot,
           });
 
-        assertDraftPackage(
+        assertEditablePackage(
           packageRecord,
         );
 
-        // Check stored data after ownership/draft authorization. A scalar caller
+        const isPublishedPackage =
+          packageRecord.status === "published";
+
+        // Check stored data after ownership/lifecycle authorization. A scalar caller
         // must never edit a V2 or partially migrated package, even when it sends
         // no V2 fields itself. Publication's stricter pricing fence is separate.
         if (!isLegacyPackageDraft(packageRecord.packageData)) {
           throw new HttpsError("failed-precondition",
             "This package requires a compatible V2 writer.",
             {reason: "CLIENT_UPGRADE_REQUIRED"});
+        }
+
+        if (isPublishedPackage) {
+          assertLegacyPackagePublication(packageRecord.packageData);
+          if (!isLegacyOccasionPackage(packageRecord.packageData)) {
+            throw new HttpsError(
+              "failed-precondition",
+              "V2 occasion packages require verified customer compatibility before publishing.",
+            );
+          }
+          const nextPublishedRecord: Record<string, unknown> = {
+            ...packageRecord.packageData,
+            ...validated,
+            ...classification,
+            ...(validated.pricingModel !== undefined ? {pricingModel: validated.pricingModel} : {}),
+          };
+          if (validated.pricingModel === undefined) {
+            delete nextPublishedRecord.pricingModel;
+          }
+          assertLegacyPackagePublication(nextPublishedRecord);
+          assertPackagePublishable(nextPublishedRecord);
+
+          if (
+            !isProviderPubliclyEligible(
+              {
+                ...provider.providerData,
+                id: provider.providerId,
+              },
+              user,
+            )
+          ) {
+            throw new HttpsError(
+              "failed-precondition",
+              "Complete your approved public provider profile before updating published packages.",
+              {reason: "PROVIDER_INELIGIBLE"},
+            );
+          }
+
+          await requireMaintenanceOpen(transaction, db, "publication");
         }
 
         assertPackageMatchesProviderCapabilities(
@@ -361,6 +419,10 @@ export const updateProviderPackage = onCall(
           transaction.create(nextRef, nextEntry);
         }
 
+        if (isPublishedPackage) {
+          recordMaintenanceAdmission(transaction, db);
+        }
+
         transaction.update(
           packageReference,
           {
@@ -392,6 +454,11 @@ export const updateProviderPackage = onCall(
               BALANCE_DUE_HOURS_BEFORE_EVENT : null,
             paymentPolicy:
               validated.paymentPolicy,
+            fullPaymentAllowed:
+              validated.paymentPolicy === "deposit_then_balance" &&
+              validated.fullPaymentAllowed !== undefined
+                ? validated.fullPaymentAllowed
+                : FieldValue.delete(),
 
             depositPercentage:
               validated
@@ -429,16 +496,24 @@ export const updateProviderPackage = onCall(
               validated
                 .serviceInclusions,
 
-            /*
-             * Draft editing must never
-             * make the package public.
-             */
-            status: "draft",
-            isActive: false,
-            isPublished: false,
-            providerPubliclyVisible:
-              false,
-            publishedAt: null,
+            ...(isPublishedPackage ? {
+              status: "published",
+              isActive: true,
+              isPublished: true,
+              providerPubliclyVisible: true,
+              publishedAt: packageRecord.packageData.publishedAt ?? serverTimestamp(),
+            } : {
+              /*
+               * Draft editing must never
+               * make the package public.
+               */
+              status: "draft",
+              isActive: false,
+              isPublished: false,
+              providerPubliclyVisible:
+                false,
+              publishedAt: null,
+            }),
 
             updatedAt:
               serverTimestamp(),
@@ -451,7 +526,7 @@ export const updateProviderPackage = onCall(
         return {
           success: true,
           packageId,
-          status: "draft" as const,
+          status: isPublishedPackage ? ("published" as const) : ("draft" as const),
         };
       },
     );

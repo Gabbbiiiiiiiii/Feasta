@@ -23,12 +23,17 @@ export function providerPackageSaveError(error: unknown): string {
     INVALID_PACKAGE_STYLE: "Step 1: Package style must contain 2 to 80 safe characters.",
     INVALID_NAME: "Step 1: Check the package name and description lengths.",
     INVALID_OCCASION_SELECTION: "Step 1: Choose an active, approved occasion available for this service category.",
+    INVALID_PRIVATE_OCCASIONS: "Step 1: Check your custom labels and make sure Other is available and selected.",
+    PRIVATE_OCCASION_LIBRARY_FULL: "Step 1: Your custom occasion library has reached 100 names. Reuse a saved name.",
     INVALID_FOOD_CHOICE_GROUP: "Step 3: Check food selection names, options and required selection counts.",
     INVALID_FOOD_CHOICE_GROUPS: "Step 3: Check food selection names, options and required selection counts.",
     INVALID_MEDIA_REFERENCE: "Step 4: An image reference is not valid for this package. Remove it and select an authorized image.",
     INVALID_EDITOR_PROGRESS: "Saved editor progress contains invalid fields. Review the draft before retrying; no package save is confirmed.",
     INCOMPLETE_EDITOR_PROGRESS: "Saved progress is incomplete. Review all five steps before creating a package draft.",
     CLIENT_UPGRADE_REQUIRED: "The package editor and backend contract versions differ. Reload after the compatible backend is available.",
+    PROVIDER_INELIGIBLE: "Complete your approved public provider profile before publishing packages.",
+    INCOMPLETE_PACKAGE: "Complete all required package details before publishing.",
+    OCCASION_UNAVAILABLE: "One or more selected occasions are inactive or unavailable for this service.",
   };
   if (typeof reason === "string" && Object.hasOwn(reasons, reason)) return reasons[reason] + " Your entries are still here.";
   if (code === "invalid-argument" && /^Unsupported package fields:\s*(?:pricingModel|offerStructure|packageStyle)(?:,\s*(?:pricingModel|offerStructure|packageStyle))*\.?$/iu.test(message) && !/^Unsupported package fields:\s*pricingModel\.?$/iu.test(message)) {
@@ -48,4 +53,30 @@ export function providerPackageSaveError(error: unknown): string {
   if (code === "invalid-argument") return "The package service rejected one or more fields. Your entries are still here. Review your details; if they are valid, the connected backend may need a compatibility update.";
   if (code === "failed-precondition") return "The package or provider is not currently eligible for this save. Your entries are still here. Check your provider setup and package status before retrying.";
   return "The package could not be saved. Your entries are still here. Try again; if it continues, check package service compatibility.";
+}
+
+
+export function providerPackagePublishError(error: unknown): string {
+  const record = error && typeof error === "object" ? error as {code?: unknown; message?: unknown; details?: {reason?: unknown}} : {};
+  const reason = record.details?.reason;
+  if (reason === "FEATURE_DISABLED" || record.message === "FEATURE_DISABLED") {
+    return "Package publication is not enabled in this environment.";
+  }
+  if (reason === "PROVIDER_INELIGIBLE") {
+    return "Complete your approved public provider profile before publishing packages.";
+  }
+  if (reason === "INCOMPLETE_PACKAGE") {
+    return "Complete all required package details before publishing.";
+  }
+  if (reason === "OCCASION_UNAVAILABLE") {
+    return "One or more selected occasions are inactive or unavailable for this service.";
+  }
+  const code = typeof record.code === "string" ? record.code.replace(/^functions\//u, "") : "";
+  if (code === "unavailable" || code === "deadline-exceeded") {
+    return "The publish request could not be confirmed. Check your connection and retry publishing.";
+  }
+  if (code === "failed-precondition") {
+    return "This package or your provider profile is not currently eligible for publishing.";
+  }
+  return providerPackageSaveError(error);
 }

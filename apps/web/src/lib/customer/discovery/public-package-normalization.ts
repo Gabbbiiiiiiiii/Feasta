@@ -115,6 +115,7 @@ export function normalizePublicPackage(
       balanceDueHoursBeforeEvent: value.balanceDueHoursBeforeEvent === 24 ? 24 : null,
     } : {}),
     ...(verifiedV2 ? {sharedContractVersion: 2 as const, revision: Number(value.revision),
+      maxDropOffOrderQuantity: typeof value.maxDropOffOrderQuantity === "number" ? value.maxDropOffOrderQuantity : undefined,
       pricingModel: value.pricingModel as "per_pax" | "per_bundle" | undefined,
       occasionScope: value.occasionScope as "specific" | "all",
       occasionMatchIds: value.occasionMatchIds as string[], foodChoiceGroups,
@@ -134,6 +135,9 @@ export function normalizePublicPackage(
           ? legacyPrice
           : null,
     paymentPolicy: value.paymentPolicy === "full_payment" || value.paymentPolicy === "deposit_then_balance" ? value.paymentPolicy : null,
+    ...(value.paymentPolicy === "deposit_then_balance" && typeof value.fullPaymentAllowed === "boolean"
+      ? {fullPaymentAllowed: value.fullPaymentAllowed}
+      : {}),
     depositPercentage: typeof value.depositPercentage === "number" && Number.isFinite(value.depositPercentage) && value.depositPercentage > 0 && value.depositPercentage <= 100 ? value.depositPercentage : null,
     balanceDueDaysBeforeEvent: value.paymentTermsSchemaVersion === 2 ? null : safeInteger(value.balanceDueDaysBeforeEvent, 1, 365),
     serviceOptions,

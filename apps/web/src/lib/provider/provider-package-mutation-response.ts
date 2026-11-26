@@ -13,11 +13,12 @@ export function validatePackageMutationResponse(value: unknown, status: "draft" 
 }
 export function validateV2DraftResponse(value: unknown, expected: {
   kind: "create" | "update" | "complete";
-  packageId?: string; revision?: number; editorDraftId?: string;
+  packageId?: string; revision?: number; editorDraftId?: string; status?: "draft" | "published";
 }): void {
   const result = record(value);
   const expectedPackageRevision = expected.kind === "update" ? (expected.revision ?? 0) + 1 : 1;
-  if (result.status !== "draft" || !identifier(result.packageId) || result.packageRevision !== expectedPackageRevision ||
+  const expectedStatus = expected.kind === "update" ? (expected.status ?? "draft") : "draft";
+  if (result.status !== expectedStatus || !identifier(result.packageId) || result.packageRevision !== expectedPackageRevision ||
       (expected.packageId !== undefined && result.packageId !== expected.packageId)) throw new Error("INVALID_DRAFT_RESPONSE");
   if (expected.kind === "complete") {
     if (result.editorDraftId !== expected.editorDraftId || result.editorDraftRevision !== (expected.revision ?? 0) + 1) throw new Error("INVALID_DRAFT_RESPONSE");

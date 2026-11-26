@@ -6,7 +6,8 @@ import {Button} from "@/components/ui/button";
 import {Timestamp, type DocumentData} from "firebase-admin/firestore";
 import {usesDropOffTimeDisplay} from "@/lib/catering/catering-schedule";
 import {walkInReferencePattern, readWalkInProvider} from "@/lib/provider/bookings/walk-in-booking-service";
-import {CopyWalkInReference, WalkInStatusForm} from "./walk-in-status-form";
+import {CopyWalkInReference, PrintWalkInButton, WalkInStatusForm} from "./walk-in-status-form";
+import type {PrintableBookingSheet} from "@/lib/provider/print-booking-sheet";
 
 const pageSize = 20;
 const peso = new Intl.NumberFormat("en-PH", {style: "currency", currency: "PHP"});
@@ -221,6 +222,59 @@ function WalkInDetails({id, booking}: {id: string; booking: DocumentData}) {
   const notes = [booking.serviceDetails, booking.specialRequests].filter(Boolean);
   const statusStyle = booking.status === "confirmed" ? "bg-accent text-primary"
     : booking.status === "cancelled" ? "bg-destructive/10 text-destructive" : "bg-muted text-foreground";
+  const walkInSheet: PrintableBookingSheet = {
+    documentTitle: "Walk-In Booking Sheet",
+    fileTitle: `FEASTA - Walk-In ${id}`,
+    reference: id,
+    status: typeof booking.status === "string"
+      ? `${booking.status.charAt(0).toUpperCase()}${booking.status.slice(1)} (Walk-in)`
+      : "Walk-in",
+    submittedAt: recorded || undefined,
+    eventDetails: [
+      {label: "Date & Time", value: [eventDate, eventTimes].filter(Boolean).join(" · ") || "Not provided"},
+      {label: "Occasion", value: typeof booking.eventType === "string" ? booking.eventType : "Not provided"},
+      {label: "Guests", value: booking.guestCount ? `${String(booking.guestCount)} guests` : "Not provided"},
+      {label: "Venue", value: venue || "Not provided"},
+    ],
+    customerDetails: [
+      {label: "Name", value: typeof booking.customerName === "string" ? booking.customerName : "Not provided"},
+      {label: "Mobile", value: typeof booking.phone === "string" ? booking.phone : "Not provided"},
+      ...(typeof booking.email === "string" && booking.email.trim() ? [{label: "Email", value: booking.email}] : []),
+      ...(typeof booking.additionalContact === "string" && booking.additionalContact.trim()
+        ? [{label: "Additional Contact", value: booking.additionalContact}] : []),
+    ],
+    packageSummary: typeof booking.serviceName === "string" && booking.serviceName.trim()
+      ? {
+          name: booking.serviceName,
+          tier: typeof booking.pricingOption?.label === "string" ? booking.pricingOption.label : undefined,
+          meta: typeof published?.description === "string" ? published.description : undefined,
+        }
+      : undefined,
+    notes: [
+      ...(notes.length > 0 ? [{title: "Internal Notes & Special Requests", body: notes.map(String).join("\n\n")}] : []),
+      ...(typeof booking.agreementNotes === "string" && booking.agreementNotes.trim()
+        ? [{title: "Booking Agreement Notes", body: booking.agreementNotes}] : []),
+      ...(typeof booking.cancellationReason === "string" && booking.cancellationReason.trim()
+        ? [{title: "Cancellation Reason", body: booking.cancellationReason}] : []),
+    ],
+    paymentSummary: {
+      heading: "Agreed Pricing Summary",
+      lines: [
+        {
+          label: "Agreed price",
+          amount: typeof booking.agreedPriceCentavos === "number"
+            ? peso.format(booking.agreedPriceCentavos / 100)
+            : "—",
+          highlight: true,
+        },
+      ],
+      details: [
+        ...(agreement ? [`Booking agreement acknowledged on ${agreement}`] : []),
+        ...(typeof booking.pricingNotes === "string" && booking.pricingNotes.trim() ? [booking.pricingNotes] : []),
+      ],
+    },
+    footerText: `FEASTA Walk-In Record #${id}${recorded ? ` · Recorded ${recorded}` : ""}`,
+  };
   return (
     <div className="grid min-w-0 gap-5">
       <div className="-mt-3 flex flex-wrap items-center gap-x-2 text-sm text-muted-foreground">
@@ -236,6 +290,7 @@ function WalkInDetails({id, booking}: {id: string; booking: DocumentData}) {
               <span aria-hidden="true" className="size-1.5 rounded-full bg-current" />{booking.status}
             </span>
             <span className="rounded-full bg-muted px-2.5 py-1 text-muted-foreground">Walk-in</span>
+            <PrintWalkInButton sheet={walkInSheet} />
           </div>
         </header>
         <DetailFieldList>

@@ -76,7 +76,51 @@ describe("admin provider payout board", () => {
     vi.mocked(releaseMockProviderDisbursement).mockReset();
   });
 
-  it("shows ready-to-pay and history sections", () => {
+  it("hides legacy escrow controls when there are no historical escrow records", () => {
+    render(
+      <ProviderPayoutBoard
+        board={{
+          ...board,
+          companyFloat: {
+            ...board.companyFloat,
+            availableBalanceInCentavos: 0,
+            outstandingAdvanceInCentavos: 0,
+            formattedAvailableBalance: "₱0.00",
+          },
+          readyToPay: [],
+          history: [],
+          advanceRequests: [],
+          rejectedAdvanceRequests: [],
+          advanceHistory: [],
+        }}
+        loading={false}
+        releasingId={null}
+        onRefresh={vi.fn()}
+        onReleased={vi.fn()}
+        onReleaseStart={vi.fn()}
+        onReleaseEnd={vi.fn()}
+      />,
+    );
+
+    expect(
+      screen.getByRole("heading", {name: "FEASTA service fees & direct splits"}),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("heading", {name: "FEASTA service fee wallet"}),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("button", {name: "Withdraw service fee"}),
+    ).toBeEnabled();
+    expect(
+      screen.queryByRole("button", {name: "Add to company float"}),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(/Legacy escrow payouts & company float/i),
+    ).not.toBeInTheDocument();
+  });
+
+  it("shows service fee wallet and collapsed legacy escrow records when historical items exist", async () => {
+    const user = userEvent.setup();
     render(
       <ProviderPayoutBoard
         board={board}
@@ -89,10 +133,15 @@ describe("admin provider payout board", () => {
       />,
     );
 
-    expect(screen.getByRole("heading", {name: "Provider payouts"})).toBeVisible();
-    expect(screen.getByRole("heading", {name: "FEASTA commission"})).toBeVisible();
-    expect(screen.getByRole("button", {name: "Withdraw commission"})).toBeEnabled();
+    expect(screen.getByRole("heading", {name: "FEASTA service fees & direct splits"})).toBeVisible();
+    expect(screen.getByRole("heading", {name: "FEASTA service fee wallet"})).toBeVisible();
+    expect(screen.getByRole("button", {name: "Withdraw service fee"})).toBeEnabled();
     expect(screen.getByRole("button", {name: "Add to company float"})).toBeEnabled();
+
+    const legacySummary = screen.getByText(/Legacy escrow payouts & company float/i);
+    expect(legacySummary.closest("details")).not.toHaveAttribute("open");
+    await user.click(legacySummary);
+
     expect(screen.getByRole("heading", {name: "Ready to pay"})).toBeVisible();
     expect(screen.getByRole("heading", {name: "Admin payout history"})).toBeVisible();
     expect(screen.getByText("₱900.00")).toBeVisible();
@@ -100,7 +149,7 @@ describe("admin provider payout board", () => {
     expect(screen.getByText(/Reference: mock_wd_admin_1/u)).toBeVisible();
   });
 
-  it("shows commission withdrawal history", () => {
+  it("shows service fee withdrawal history", () => {
     render(
       <ProviderPayoutBoard
         board={{
@@ -129,14 +178,15 @@ describe("admin provider payout board", () => {
     );
 
     expect(
-      screen.getByRole("heading", {name: "Commission withdrawal history"}),
+      screen.getByRole("heading", {name: "Service fee withdrawal history"}),
     ).toBeVisible();
     expect(screen.getByText("₱250.00")).toBeVisible();
     expect(screen.getByText("company_commission_wd_test_1")).toBeVisible();
     expect(screen.getByText("FEASTA Admin")).toBeVisible();
   });
 
-  it("shows rejected advance requests in company advance history", () => {
+  it("shows rejected advance requests in company advance history", async () => {
+    const user = userEvent.setup();
     render(
       <ProviderPayoutBoard
         board={{
@@ -163,6 +213,7 @@ describe("admin provider payout board", () => {
       />,
     );
 
+    await user.click(screen.getByText(/Legacy escrow payouts & company float/i));
     expect(screen.getByRole("heading", {name: "Company advance history"})).toBeVisible();
     expect(screen.getByText("₱880.00")).toBeVisible();
     expect(screen.getByText("rejected")).toBeVisible();
@@ -184,6 +235,7 @@ describe("admin provider payout board", () => {
       />,
     );
 
+    await user.click(screen.getByText(/Legacy escrow payouts & company float/i));
     await user.click(screen.getByRole("button", {name: "Release mock payout"}));
     const dialog = screen.getByRole("dialog", {
       name: "Release mock provider payout?",
@@ -233,6 +285,7 @@ describe("admin provider payout board", () => {
       />,
     );
 
+    await user.click(screen.getByText(/Legacy escrow payouts & company float/i));
     await user.click(screen.getByRole("button", {name: "Release mock payout"}));
     const dialog = screen.getByRole("dialog", {
       name: "Release mock provider payout?",
@@ -294,6 +347,7 @@ describe("admin provider payout board", () => {
       />,
     );
 
+    await user.click(screen.getByText(/Legacy escrow payouts & company float/i));
     await user.click(screen.getByRole("button", {name: "Approve advance"}));
     const dialog = screen.getByRole("dialog", {
       name: "Approve company advance?",

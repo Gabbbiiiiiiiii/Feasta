@@ -535,6 +535,12 @@ class _ProviderPaymentCard extends StatelessWidget {
               ),
             if (request.deliveryIncluded)
               const _DetailRow(label: 'Delivery', value: 'Included'),
+            if (request.isCustomerPaidFee &&
+                request.providerFeeInCentavos != null)
+              _DetailRow(
+                label: 'FEASTA service fee',
+                value: '+${_peso(request.providerFeeInCentavos! / 100)}',
+              ),
             _DetailRow(label: 'Total payable', value: _peso(total / 100)),
             for (final option in request.checkoutOptions)
               if (option.choice == CustomerPaymentChoice.minimum)
@@ -549,11 +555,26 @@ class _ProviderPaymentCard extends StatelessWidget {
               ),
             if (request.providerFeeInCentavos case final fee?)
               Text(
-                'Service charge ${_peso(fee / 100)} is deducted from provider '
-                'proceeds. It is not an additional customer charge.',
+                request.isCustomerPaidFee
+                    ? 'Includes FEASTA service fee (${_peso(fee / 100)}) paid by '
+                          'the customer. Your provider receives 100% of the '
+                          'package price.'
+                    : 'Service charge ${_peso(fee / 100)} is deducted from provider '
+                          'proceeds. It is not an additional customer charge.',
               )
             else
               const Text('This booking has no recorded service fee breakdown.'),
+          ] else if (request.isCustomerPaidFee &&
+              request.serviceSubtotalInCentavos != null &&
+              request.platformFeeInCentavos != null) ...[
+            _DetailRow(
+              label: 'Service subtotal',
+              value: _peso(request.serviceSubtotalInCentavos! / 100),
+            ),
+            _DetailRow(
+              label: 'FEASTA service fee',
+              value: '+${_peso(request.platformFeeInCentavos! / 100)}',
+            ),
           ],
           if (request.serviceVat == null)
             Text(

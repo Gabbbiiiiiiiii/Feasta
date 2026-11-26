@@ -9,6 +9,7 @@ import {appCheckCallableOptions} from "../shared/function-options.js";
 import {enforceCallableRateLimit} from "../shared/rate-limit.js";
 import {correlationIdFromCallable} from "../shared/security-events.js";
 import {isServiceCategoryCode} from "../shared/service-category-code.js";
+import {planTransactionalV2DiscoveryRefresh} from "../packages/occasion-package-discovery-refresh.js";
 import {parseOccasionReview} from "../packages/occasion-suggestion-v2-validation.js";
 import {occasionId} from "../packages/occasion-v2-validation.js";
 import {normalizeSuggestionName} from "../packages/provider-occasion-suggestion-v2-domain.js";
@@ -139,10 +140,38 @@ async function mutate(request: CallableRequest, create: boolean) {
       revision: (before?.revision ?? 0) + 1, updatedAt: now};
     const result = {occasionId: n.id, occasionRevision: after.revision,
       catalogRevision: revision + 1, operationId: op.id};
+    let refreshPlan;
+    try {
+      refreshPlan = await planTransactionalV2DiscoveryRefresh(tx, db, {
+        nextCatalogRevision: result.catalogRevision,
+        preloadedOccasions: all,
+        ...(create ? {} : {
+          upsertOccasion: {
+            id: n.id,
+            data: {...before!, ...after, active: before!.active},
+          },
+        }),
+        skipUnavailablePackages: true,
+      });
+    } catch (error) {
+      if (error instanceof Error &&
+          (error.message === "PACKAGE_DISCOVERY_REFRESH_REQUIRED" ||
+           error.message === "PACKAGE_INVENTORY_TOO_LARGE")) {
+        fail(error.message);
+      }
+      throw error;
+    }
     if (create) tx.create(occasions.doc(n.id), {...after, active: false,
       moderationState: "approved", createdBy: uid, createdAt: now});
     else tx.update(occasions.doc(n.id), after); // Preserve server compatibility fields.
     tx.update(catalog, {revision: result.catalogRevision, updatedAt: now});
+    for (const item of refreshPlan) {
+      if (!item.changed) continue;
+      tx.update(db.collection("packages").doc(item.packageId), {
+        ...item.patch,
+        updatedAt: now,
+      });
+    }
     for (const {ref, name} of reservations) tx.create(ref,
       {occasionId: n.id, normalizedName: name, revision: 1, createdAt: now, updatedAt: now});
     // Old reservations deliberately remain reserved; names cannot silently be reassigned.
@@ -232,9 +261,30 @@ export const addAdminOccasionApplicableServices = onCall(appCheckCallableOptions
     const result = {occasionId: id, occasionRevision: before.revision + 1,
       catalogRevision: revision + 1, operationId: op.id,
       added: change.added, removed: [] as string[]};
+    let refreshPlan;
+    try {
+      refreshPlan = await planTransactionalV2DiscoveryRefresh(tx, db, {
+        nextCatalogRevision: result.catalogRevision,
+        skipUnavailablePackages: true,
+      });
+    } catch (error) {
+      if (error instanceof Error &&
+          (error.message === "PACKAGE_DISCOVERY_REFRESH_REQUIRED" ||
+           error.message === "PACKAGE_INVENTORY_TOO_LARGE")) {
+        fail(error.message);
+      }
+      throw error;
+    }
     tx.update(occasions.doc(id), {applicableServiceCategoryCodes: proposed,
       revision: result.occasionRevision, updatedAt: now});
     tx.update(catalog, {revision: result.catalogRevision, updatedAt: now});
+    for (const item of refreshPlan) {
+      if (!item.changed) continue;
+      tx.update(db.collection("packages").doc(item.packageId), {
+        ...item.patch,
+        updatedAt: now,
+      });
+    }
     tx.create(db.collection("occasionMaintenanceAudits").doc(op.id), {
       actorUid: uid, correlationId: correlationIdFromCallable(request), reason,
       action: "applicability_add_inactive", before,

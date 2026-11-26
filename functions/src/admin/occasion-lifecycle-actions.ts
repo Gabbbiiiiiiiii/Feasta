@@ -86,6 +86,7 @@ async function execute(request: Parameters<typeof requireOccasionLifecycleActor>
         "OCCASION_PACKAGE_DEPENDENCY_REQUIRES_REVIEW",
         "ROUTINE_DEACTIVATION_PACKAGE_REVIEW_REQUIRED",
         "ROUTINE_DEACTIVATION_GALLERY_REVIEW_REQUIRED",
+        "PACKAGE_DISCOVERY_REFRESH_REQUIRED",
       ].includes(error.message)) {
         fail(error.message, error.message === "ADMIN_REQUIRED" ?
           "permission-denied" : "failed-precondition");

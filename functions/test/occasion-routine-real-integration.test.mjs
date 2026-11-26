@@ -15,6 +15,9 @@ const files = [
   ["occasion-package-dependencies", "admin/occasion-package-dependencies.ts"],
   ["occasion-booking-dependencies", "admin/occasion-booking-dependencies.ts"],
   ["occasion-routine-activation", "admin/occasion-routine-activation.ts"],
+  ["occasion-package-discovery-refresh", "packages/occasion-package-discovery-refresh.ts"],
+  ["occasion-v2-validation", "packages/occasion-v2-validation.ts"],
+  ["v2-validation", "packages/v2-validation.ts"],
   ["occasion-transition-inventory-scan", "packages/occasion-transition-inventory-scan.ts"],
   ["occasion-withdrawal-batch", "packages/occasion-withdrawal-batch.ts"],
 ];
@@ -45,6 +48,14 @@ export const db = {
     return {
       doc(id) {
         return ref(name + "/" + id);
+      },
+      where(field, op, value) {
+        if (op !== "==") throw Error("UNEXPECTED_QUERY_OP");
+        return {
+          limit(n) {
+            return {kind: "where", name, field, value, limit: n};
+          },
+        };
       },
       orderBy(field) {
         if (field !== "__name__") {
@@ -86,11 +97,16 @@ export const db = {
 
         if (target.kind) {
           const rows = [...current.docs.entries()]
-            .filter(([path]) => {
+            .filter(([path, data]) => {
               const segments = path.split("/");
               if (target.kind === "collection") {
                 return segments.length === 2 &&
                   segments[0] === target.name;
+              }
+              if (target.kind === "where") {
+                return segments.length === 2 &&
+                  segments[0] === target.name &&
+                  data?.[target.field] === target.value;
               }
               return segments.at(-2) === target.name;
             })
@@ -176,6 +192,14 @@ export function isServiceCategoryCode(value) {
     /^[a-z][a-z0-9_]{1,63}$/.test(value);
 }
 
+export class HttpsError extends Error {
+  constructor(code, message, details) {
+    super(message);
+    this.code = code;
+    this.details = details;
+  }
+}
+
 export async function requireOccasionLifecycleAdmin(tx, uid) {
   const snap = await tx.get(db.collection("users").doc(uid));
   const admin = snap.data();
@@ -194,6 +218,18 @@ const replacements = new Map([
   [
     'import {FieldPath} from "firebase-admin/firestore";',
     'import {FieldPath} from "./runtime.mjs";',
+  ],
+  [
+    'import {FieldPath, type Firestore, type Query, type QuerySnapshot, type Transaction} from "firebase-admin/firestore";',
+    'import {FieldPath} from "./runtime.mjs";\ntype Firestore = any; type Query = any; type QuerySnapshot = any; type Transaction = any;',
+  ],
+  [
+    'import {HttpsError} from "firebase-functions/v2/https";',
+    'import {HttpsError} from "./runtime.mjs";',
+  ],
+  [
+    'import type {GlobalOccasion} from "@feasta/shared-types/provider-package-v2";',
+    'type GlobalOccasion = any;',
   ],
   [
     'import {db} from "../shared/firestore.ts";',
@@ -459,4 +495,98 @@ test("replaying completed operation produces no additional writes", async () => 
 
   assert.equal(replay.idempotentReplay, true);
   assert.equal(state.writes.length, count);
+});
+
+test("logical deactivation refreshes unaffected and fits-all V2 catering packages while hiding deactivated-only packages", async () => {
+  const {state, input} = fixture();
+  state.docs.set("contractPolicies/providerPackageV2", {
+    maxSpecificOccasions: 10,
+    maxThemeImages: 4,
+  });
+  state.docs.set("occasions/wedding", {
+    id: "wedding",
+    label: "Wedding",
+    normalizedName: "wedding",
+    aliases: [],
+    revision: 2,
+    sortOrder: 20,
+    active: true,
+    moderationState: "approved",
+    applicableServiceCategoryCodes: ["catering_service"],
+  });
+  state.docs.set("occasions/birthday", {
+    ...state.docs.get("occasions/birthday"),
+    label: "Birthday",
+    normalizedName: "birthday",
+    aliases: [],
+    sortOrder: 1,
+  });
+  state.docs.set("packages/v2_all", {
+    providerId: "provider_one",
+    serviceCategoryCode: "catering_service",
+    occasionSchemaVersion: 2,
+    occasionScope: "all",
+    occasionIds: [],
+    eventType: "birthday",
+    occasionMatchIds: ["birthday", "wedding"],
+    occasionCatalogRevision: 6,
+    providerEligibilityRevision: 1,
+    occasionEligibilityState: "valid",
+    status: "published",
+    isActive: true,
+    isPublished: true,
+    providerPubliclyVisible: true,
+    isDeleted: false,
+  });
+  state.docs.set("packages/v2_wedding", {
+    providerId: "provider_one",
+    serviceCategoryCode: "catering_service",
+    occasionSchemaVersion: 2,
+    occasionScope: "specific",
+    occasionIds: ["wedding"],
+    eventType: "wedding",
+    occasionMatchIds: ["wedding"],
+    occasionCatalogRevision: 6,
+    providerEligibilityRevision: 1,
+    occasionEligibilityState: "valid",
+    status: "published",
+    isActive: true,
+    isPublished: true,
+    providerPubliclyVisible: true,
+    isDeleted: false,
+  });
+  state.docs.set("packages/v2_birthday_only", {
+    providerId: "provider_one",
+    serviceCategoryCode: "catering_service",
+    occasionSchemaVersion: 2,
+    occasionScope: "specific",
+    occasionIds: ["birthday"],
+    eventType: "birthday",
+    occasionMatchIds: ["birthday"],
+    occasionCatalogRevision: 6,
+    providerEligibilityRevision: 1,
+    occasionEligibilityState: "valid",
+    status: "published",
+    isActive: true,
+    isPublished: true,
+    providerPubliclyVisible: true,
+    isDeleted: false,
+  });
+
+  const result = await deactivateRoutineOccasion("admin_one", input);
+
+  assert.equal(result.active, false);
+  assert.equal(result.catalogRevision, 7);
+  assert.deepEqual([...result.refreshedPackageIds].sort(), ["v2_all", "v2_wedding"]);
+  // Fits-all drops deactivated birthday and switches eventType to remaining wedding
+  assert.equal(state.docs.get("packages/v2_all").occasionCatalogRevision, 7);
+  assert.deepEqual(state.docs.get("packages/v2_all").occasionMatchIds, ["wedding"]);
+  assert.equal(state.docs.get("packages/v2_all").eventType, "wedding");
+  assert.equal(state.docs.get("packages/v2_all").isPublished, true);
+  // Unaffected specific package advances to catalog revision 7 and stays visible
+  assert.equal(state.docs.get("packages/v2_wedding").occasionCatalogRevision, 7);
+  assert.deepEqual(state.docs.get("packages/v2_wedding").occasionMatchIds, ["wedding"]);
+  // Deactivated-only specific package is NOT refreshed (stays logically hidden) and NOT withdrawn
+  assert.equal(state.docs.get("packages/v2_birthday_only").occasionCatalogRevision, 6);
+  assert.equal(state.docs.get("packages/v2_birthday_only").isPublished, true);
 });

@@ -35,6 +35,8 @@ type ConfirmationDialogProps = {
   destructive?: boolean;
   stackedActions?: boolean;
   onDiscard?: () => void;
+  discardLabel?: string;
+  discardDestructive?: boolean;
   loading?: boolean;
   confirmDisabled?: boolean;
   loadingLabel?: string;
@@ -60,6 +62,8 @@ function ConfirmationDialog({
   destructive = false,
   stackedActions = false,
   onDiscard,
+  discardLabel = "Discard changes",
+  discardDestructive = false,
   loading = false,
   confirmDisabled = false,
   loadingLabel = "Submitting",
@@ -206,10 +210,14 @@ function ConfirmationDialog({
             {confirmLabel}
           </Button>
           {onDiscard ? (
-            <Button type="button" variant="secondary"
+            <Button
+              type="button"
+              variant={discardDestructive ? "destructive" : "secondary"}
               className="order-2 w-full rounded-full"
-              disabled={isBusy} onClick={onDiscard}>
-              Discard changes
+              disabled={isBusy}
+              onClick={onDiscard}
+            >
+              {discardLabel}
             </Button>
           ) : null}
           {stackedActions && cancelButton}

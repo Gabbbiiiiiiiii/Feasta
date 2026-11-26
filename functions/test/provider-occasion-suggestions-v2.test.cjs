@@ -122,6 +122,22 @@ test('admin queue requires active current admin and pending filter',async()=>{aw
 test('reject creates exactly one audit and outbox; replay precedes revisions',async()=>{const a=await submit();activeRole='admin';const r=await review(a.suggestion.suggestionId);store.get('occasionCatalog/current').revision=99;assert.deepEqual(await review(a.suggestion.suggestionId),r);for(const prefix of ['occasionSuggestionReviewAudits/','occasionSuggestionOutbox/'])assert.equal([...store.keys()].filter(k=>k.startsWith(prefix)).length,1);await assert.rejects(review(a.suggestion.suggestionId,{decision:'reject',reason:'Changed'}),e=>e.details.reason==='IDEMPOTENCY_CONFLICT');});
 test('catalog and suggestion revision conflicts abort with no audit',async()=>{const a=await submit();activeRole='admin';await assert.rejects(review(a.suggestion.suggestionId,{expectedCatalogRevision:2}),e=>e.details.reason==='REVISION_CONFLICT');await assert.rejects(review(a.suggestion.suggestionId,{expectedRevision:2}),e=>e.details.reason==='REVISION_CONFLICT');assert.equal([...store.keys()].filter(k=>k.startsWith('occasionSuggestionReviewAudits/')).length,0);});
 test('approve new creates inactive identity and atomic name reservations',async()=>{const a=await submit();activeRole='admin';const r=await review(a.suggestion.suggestionId,{decision:'approve_new',newOccasion:{id:'garden_party',label:'Garden Party',aliases:[],applicableServiceCategoryCodes:['catering_service'],sortOrder:9}});assert.equal(r.targetActive,false);assert.equal(r.catalogRevision,2);assert.equal(store.get('occasions/garden_party').active,false);assert.equal([...store.keys()].filter(k=>k.startsWith('occasionNameReservations/')).length,1);assert.equal(store.get('providers/p1').eventTypesSupported,undefined);});
+test('approve new refreshes published V2 package discovery pins to the new catalog revision',async()=>{
+  store.get('contractPolicies/providerPackageV2').maxSpecificOccasions=10;
+  store.set('occasions/birthday',occasion(true));
+  store.set('packages/pkg_v2',{
+    occasionSchemaVersion:2,occasionScope:'specific',occasionIds:['birthday'],
+    eventType:'birthday',occasionMatchIds:['birthday'],occasionCatalogRevision:1,
+    providerEligibilityRevision:1,occasionEligibilityState:'valid',
+    serviceCategoryCode:'catering_service',status:'published',
+    isPublished:true,isActive:true,providerPubliclyVisible:true,
+  });
+  const a=await submit();activeRole='admin';
+  const r=await review(a.suggestion.suggestionId,{decision:'approve_new',newOccasion:{id:'garden_party',label:'Garden Party',aliases:[],applicableServiceCategoryCodes:['catering_service'],sortOrder:9}});
+  assert.equal(r.catalogRevision,2);
+  assert.equal(store.get('packages/pkg_v2').occasionCatalogRevision,2);
+  assert.deepEqual(store.get('packages/pkg_v2').occasionMatchIds,['birthday']);
+});
 test('approve existing inactive requires matching identity and revision',async()=>{const a=await submit('Birthday party');store.set('occasions/birthday',occasion(false));activeRole='admin';await assert.rejects(review(a.suggestion.suggestionId,{decision:'approve_existing_inactive',targetOccasionId:'birthday',targetExpectedRevision:2}),e=>e.details.reason==='REVISION_CONFLICT');const r=await review(a.suggestion.suggestionId,{decision:'approve_existing_inactive',targetOccasionId:'birthday',targetExpectedRevision:1});assert.equal(r.status,'approved');assert.equal(r.catalogRevision,1);assert.equal(store.get('occasions/birthday').revision,1);});
 test('map requires active applicable target',async()=>{const a=await submit();store.set('occasions/birthday',occasion());activeRole='admin';const r=await review(a.suggestion.suggestionId,{decision:'map',targetOccasionId:'birthday',targetExpectedRevision:1});assert.equal(r.status,'mapped');assert.equal(r.targetActive,true);});
 test('invalid map applicability and approval identity fail',async()=>{const a=await submit();store.set('occasions/birthday',occasion(false));activeRole='admin';await assert.rejects(review(a.suggestion.suggestionId,{decision:'approve_existing_inactive',targetOccasionId:'birthday',targetExpectedRevision:1}),e=>e.details.reason==='INVALID_REVIEW_TARGET');store.get('occasions/birthday').active=true;store.get('occasions/birthday').applicableServiceCategoryCodes=['photography'];await assert.rejects(review(a.suggestion.suggestionId,{decision:'map',targetOccasionId:'birthday',targetExpectedRevision:1}),e=>e.details.reason==='INVALID_REVIEW_TARGET');});

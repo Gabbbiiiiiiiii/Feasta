@@ -1,12 +1,14 @@
 {
   "canonicalSource": "packages/shared-types",
   "archive": "feasta-shared-types-0.1.0.tgz",
-  "sha256": "6f8df79c9b0cb8063106b237e9481ba3f1ac2edd2e40796db1ff00d4ebcafb29",
+  "sha256": "57cfb29d72ce5ffd91c0df41fa7e78658256d61898f92d061b4daae737c4e421",
   "files": [
     "dist/authentication.d.ts",
     "dist/authentication.js",
     "dist/booking.d.ts",
     "dist/booking.js",
+    "dist/cancellation-policy.d.ts",
+    "dist/cancellation-policy.js",
     "dist/cancellation.d.ts",
     "dist/cancellation.js",
     "dist/collections.d.ts",

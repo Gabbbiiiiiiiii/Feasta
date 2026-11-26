@@ -128,3 +128,43 @@ test(
     }
   },
 );
+
+test("customer-paid fee breakdown is disclosed and bound to agreementKey", () => {
+  const agreement = buildBookingPaymentAgreement({
+    ...base(),
+    serviceSubtotalInCentavos: 100000,
+    platformFeeInCentavos: 200,
+    platformCommissionRateBps: 20,
+    grossAmountInCentavos: 100200,
+    requiredUpfrontAmountInCentavos: 50100,
+  });
+
+  const disclosure = bookingPaymentAgreementDisclosure(agreement);
+  assert.equal(disclosure.serviceSubtotalInCentavos, 100000);
+  assert.equal(disclosure.platformFeeInCentavos, 200);
+  assert.equal(disclosure.platformCommissionRateBps, 20);
+  assert.equal(disclosure.grossAmountInCentavos, 100200);
+  assert.equal(disclosure.requiredUpfrontAmountInCentavos, 50100);
+  assert.equal(disclosure.remainingBalanceInCentavos, 50100);
+
+  const differentRate = buildBookingPaymentAgreement({
+    ...base(),
+    serviceSubtotalInCentavos: 100000,
+    platformFeeInCentavos: 100,
+    platformCommissionRateBps: 10,
+    grossAmountInCentavos: 100100,
+    requiredUpfrontAmountInCentavos: 50050,
+  });
+  assert.notEqual(differentRate.agreementKey, agreement.agreementKey);
+
+  assert.throws(() =>
+    buildBookingPaymentAgreement({
+      ...base(),
+      serviceSubtotalInCentavos: 100000,
+      platformFeeInCentavos: 200,
+      platformCommissionRateBps: 20,
+      grossAmountInCentavos: 100000,
+      requiredUpfrontAmountInCentavos: 50000,
+    }),
+  );
+});

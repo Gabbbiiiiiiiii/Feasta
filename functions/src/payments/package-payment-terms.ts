@@ -45,6 +45,8 @@ export type PackagePaymentTermsSnapshot = {
   paymentPolicy:
     PackagePaymentPolicy | null;
 
+  fullPaymentAllowed?: boolean;
+
   depositRateBps: number;
 
   balanceDueDaysBeforeEvent:
@@ -73,6 +75,9 @@ export function buildPackagePaymentTermsSnapshot(
       schemaVersion: 2,
       source: "canonical_package",
       paymentPolicy: packageData.paymentPolicy,
+      ...(packageData.fullPaymentAllowed !== undefined
+        ? {fullPaymentAllowed: packageData.fullPaymentAllowed}
+        : {}),
       depositRateBps: percentageToBasisPoints(
         packageData.depositPercentage,
         "Package deposit percentage",
@@ -239,12 +244,15 @@ export function parsePackagePaymentTermsSnapshot(
   if (data.schemaVersion === 2) {
     const full = data.paymentPolicy === "full_payment";
     const rate = basisPointRate(data.depositRateBps);
+    const fullPaymentAllowed = data.fullPaymentAllowed;
     if (data.source !== "canonical_package" || data.usesLegacyPaymentTerms !== false ||
       data.balanceDueDaysBeforeEvent !== null || rate === null ||
-      (full ? rate !== BASIS_POINTS_SCALE || data.balanceDueHoursBeforeEvent !== null :
+      (fullPaymentAllowed !== undefined && typeof fullPaymentAllowed !== "boolean") ||
+      (full ? rate !== BASIS_POINTS_SCALE || data.balanceDueHoursBeforeEvent !== null || fullPaymentAllowed === false :
         data.paymentPolicy !== "deposit_then_balance" || rate <= 0 || rate >= BASIS_POINTS_SCALE ||
         data.balanceDueHoursBeforeEvent !== BALANCE_DUE_HOURS_BEFORE_EVENT)) throw invalidSnapshot();
     return {schemaVersion: 2, source: "canonical_package", paymentPolicy: full ? "full_payment" : "deposit_then_balance",
+      ...(full || fullPaymentAllowed === undefined ? {} : {fullPaymentAllowed}),
       depositRateBps: rate, balanceDueDaysBeforeEvent: null,
       balanceDueHoursBeforeEvent: full ? null : BALANCE_DUE_HOURS_BEFORE_EVENT, usesLegacyPaymentTerms: false};
   }

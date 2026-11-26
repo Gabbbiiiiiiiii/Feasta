@@ -95,15 +95,15 @@ test("rollout is off when absent and fails closed when a stored gate is malforme
   );
 });
 
-test("booking relationships resolve Provider defaults, package overrides, and add-on fallback", () => {
-  const providerDefault = policy(4, [8_000, 3_000, 0]);
-  const packageOverride = policy(7, [10_000, 5_000, 0], "Package terms");
-  const addOnDefault = policy(2, [9_000, 2_500, 0]);
+test("booking relationships resolve one unified Provider policy and ignore legacy package overrides", () => {
+  const providerDefault = policy(4, [8_000, 0, 0]);
+  const legacyPackageOverride = policy(7, [10_000, 5_000, 0], "Legacy package terms");
+  const addOnDefault = policy(2, [9_000, 0, 0]);
   const resolved = domain.resolveBookingRefundPolicies([
     relationship(
       "provider_catering_001",
       providerDefault,
-      packageOverride,
+      legacyPackageOverride,
     ),
     relationship(
       "provider_photo_001",
@@ -113,11 +113,11 @@ test("booking relationships resolve Provider defaults, package overrides, and ad
 
   assert.equal(
     resolved.get("provider_catering_001")?.effective.source.kind,
-    "package_override",
+    "provider_default",
   );
   assert.equal(
     resolved.get("provider_catering_001")?.effective.effectivePolicyKey,
-    "package_override:package_provider_catering_001:v7",
+    "provider_default:provider_catering_001:v4",
   );
   assert.equal(
     resolved.get("provider_photo_001")?.effective.source.kind,

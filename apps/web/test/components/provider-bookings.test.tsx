@@ -466,6 +466,24 @@ describe("provider bookings workspace", () => {
     expect(screen.queryByRole("button", {name: "Mark Preparation Started"})).not.toBeInTheDocument();
     expect(screen.getByRole("button", {name: "Mark Completed"})).toBeVisible();
   });
+
+  it("shows direct payment routing instead of company-float immediate funding on direct-split bookings", async () => {
+    const directBooking: ProviderBooking = {
+      ...booking("confirmed"),
+      isCustomerPaidFee: true,
+      isDirectProviderSplit: true,
+    };
+    mocks.loadBooking.mockResolvedValueOnce(directBooking);
+    const user = userEvent.setup();
+    renderWorkspace([directBooking]);
+
+    await user.click(screen.getAllByRole("button", {name: "View booking for Ana Reyes"})[0]);
+    const drawer = await screen.findByRole("dialog", {name: "Booking details"});
+    expect(within(drawer).getByText("Direct payment routing")).toBeVisible();
+    expect(
+      within(drawer).queryByRole("button", {name: "Request immediate fund"}),
+    ).not.toBeInTheDocument();
+  });
 });
 
 it("ignores an older list response after a newer view loads", async () => {

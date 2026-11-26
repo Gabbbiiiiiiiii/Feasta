@@ -33,11 +33,18 @@ it("saves categories and dishes together with a new revision",async()=>{
 it("rejects a stale revision without overwriting another edit",async()=>{
  m.revision=2;await expect(saveDishLibrary(1,[dish],["Chicken"])).rejects.toThrow("library changed");expect(m.set).not.toHaveBeenCalled();
 });
-it("rejects a new empty category without a Parent Group", async () => {
-  await expect(saveDishLibrary(0, [], ["Desserts"])).rejects.toThrow(
-    "Assign a Parent Group before saving a new category.",
-  );
-  expect(m.set).not.toHaveBeenCalled();
+it("saves a new empty category and a dish in an ungrouped category without requiring a Parent Group", async () => {
+  const result = await saveDishLibrary(0, [], ["Desserts"]);
+  expect(result).toEqual({revision: 1, dishes: [], categories: ["Desserts"], parentGroups: {}});
+  expect(m.set).toHaveBeenCalledWith(expect.anything(), result);
+
+  const dishResult = await saveDishLibrary(0, [{...dish, parentGroup: ""}], ["Chicken"]);
+  expect(dishResult).toEqual({
+    revision: 1,
+    dishes: [{...dish, parentGroup: ""}],
+    categories: ["Chicken"],
+    parentGroups: {},
+  });
 });
 it("saves a new empty category with a valid Parent Group", async () => {
   const result = await saveDishLibrary(0, [], ["Desserts"], {desserts: " Sweets "});

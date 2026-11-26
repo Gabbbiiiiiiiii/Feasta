@@ -23,6 +23,9 @@ import {
   reserveProviderSettlementPayout,
   settlementIdForEarning,
 } from "./provider-settlement-domain.js";
+import {
+  isDirectProviderSplitRouting,
+} from "../payments/platform-commission-policy.js";
 
 type UnknownRecord =
   Readonly<Record<string, unknown>>;
@@ -185,7 +188,61 @@ export async function releaseProviderRequestEarningsForSettlementInTransaction(
     });
   }
 
+  let releasedEarningCount = 0;
+
   for (const record of records) {
+    if (
+      isDirectProviderSplitRouting(
+        record.earning.settlementRoutingMode,
+      )
+    ) {
+      /*
+       * Direct-to-provider split earnings already settled directly on
+       * payment.paid. Completion verifies integrity without re-releasing
+       * into an escrow availability bucket.
+       */
+      if (
+        (record.earning.status !== "paid" &&
+          record.earning.status !== "reversed") ||
+        record.earning.pendingAmountInCentavos !== 0 ||
+        record.earning.availableAmountInCentavos !== 0
+      ) {
+        throw settlementPrecondition(
+          "Direct-split provider earning requires reconciliation.",
+        );
+      }
+
+      if (!record.settlement) {
+        const backfill =
+          buildProviderSettlementPlan({
+            earningId: record.paymentId,
+            earning: record.earning,
+            timestamp: input.timestamp,
+          });
+
+        if (backfill.settlementRecord.reconciliationRequired) {
+          throw settlementPrecondition(
+            "Direct-split provider settlement requires reconciliation.",
+          );
+        }
+
+        input.transaction.create(
+          record.settlementReference,
+          backfill.settlementRecord,
+        );
+      } else if (
+        record.settlement.reconciliationRequired === true ||
+        (record.settlement.status !== "paid" &&
+          record.settlement.status !== "cancelled")
+      ) {
+        throw settlementPrecondition(
+          "Direct-split provider settlement requires reconciliation.",
+        );
+      }
+
+      continue;
+    }
+
     let settlement =
       record.settlement;
 
@@ -248,11 +305,12 @@ export async function releaseProviderRequestEarningsForSettlementInTransaction(
         release.settlementUpdate,
       );
     }
+
+    releasedEarningCount += 1;
   }
 
   return {
-    releasedEarningCount:
-      records.length,
+    releasedEarningCount,
   };
 }
 

@@ -185,7 +185,8 @@ function isPublishablePackageV2(p, maxThemeImages) {
     }
     if (p.paymentTermsSchemaVersion !== 2 ||
         (p.balanceDueDaysBeforeEvent !== undefined && p.balanceDueDaysBeforeEvent !== null) ||
-        (p.paymentPolicy === "full_payment" ? p.depositPercentage !== 100 || p.balanceDueHoursBeforeEvent !== null :
+        (p.fullPaymentAllowed !== undefined && typeof p.fullPaymentAllowed !== "boolean") ||
+        (p.paymentPolicy === "full_payment" ? p.depositPercentage !== 100 || p.balanceDueHoursBeforeEvent !== null || p.fullPaymentAllowed === false :
             p.paymentPolicy !== "deposit_then_balance" || typeof p.depositPercentage !== "number" ||
                 !Number.isFinite(p.depositPercentage) || p.depositPercentage <= 0 || p.depositPercentage >= 100 ||
                 p.balanceDueHoursBeforeEvent !== 24))

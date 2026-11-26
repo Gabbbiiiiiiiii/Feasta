@@ -1,4 +1,5 @@
 import {customerInitialPaymentEligibility, customerInitialPaymentExplanation} from "@/lib/customer/bookings/customer-booking-initial-payment-eligibility";
+import {arrangedPaymentView} from "@/lib/payments/arranged-payment-view";
 
 export type ProviderInitialPaymentPresentation = {
   kind: "full" | "minimum" | "unavailable";
@@ -23,11 +24,20 @@ export function providerInitialPaymentPresentation(data: Readonly<Record<string,
   }
   const eligibility = customerInitialPaymentEligibility(data);
   if (eligibility.kind !== "canonical" || data.initialPaymentEligibilitySchemaVersion !== 2) return unavailableProviderInitialPayment;
+  const arrangement = arrangedPaymentView(data.arrangedPaymentOffer);
+  const arrangedAccepted = arrangement?.status === "accepted" && eligibility.reason === "arranged_payment";
   const agreement = record(data.bookingPaymentAgreement);
   const frozenEligibility = record(data.initialPaymentEligibility);
+  const depositEligibleMode = (mode: unknown) => mode === "minimum_or_full" || mode === "minimum_only";
+  const expectedAgreementDepositEligible = arrangedAccepted
+    ? depositEligibleMode(frozenEligibility?.mode)
+    : depositEligibleMode(eligibility.mode);
+  const expectedAgreementReason = arrangedAccepted
+    ? String(frozenEligibility?.reason ?? "")
+    : eligibility.reason;
   if (!agreement || !frozenEligibility || agreement.schemaVersion !== 1 || agreement.timingSchemaVersion !== 3 ||
     agreement.channel !== "booking_submission" || agreement.initialPaymentEligibilitySchemaVersion !== 2 ||
-    agreement.depositEligible !== (eligibility.mode === "minimum_or_full") || agreement.eligibilityReason !== eligibility.reason ||
+    agreement.depositEligible !== expectedAgreementDepositEligible || agreement.eligibilityReason !== expectedAgreementReason ||
     !validAmounts(agreement)) return unavailableProviderInitialPayment;
   const submittedAt = savedTime(frozenEligibility.submittedAt);
   const eventStartAt = savedTime(frozenEligibility.eventStartAt);
@@ -35,8 +45,23 @@ export function providerInitialPaymentPresentation(data: Readonly<Record<string,
     savedTime(agreement.agreedAt) !== submittedAt || savedTime(agreement.eventStartAt) !== eventStartAt) return unavailableProviderInitialPayment;
   const gross = agreement.grossAmountInCentavos;
   const upfront = agreement.requiredUpfrontAmountInCentavos;
-  if (eligibility.mode === "full_only" && (upfront !== gross || agreement.remainingBalanceInCentavos !== 0)) {
+  if (!arrangedAccepted && eligibility.mode === "full_only" && (upfront !== gross || agreement.remainingBalanceInCentavos !== 0)) {
     return unavailableProviderInitialPayment;
+  }
+  if (arrangedAccepted && arrangement) {
+    const snapshot = record(data.financialSnapshot);
+    if (!snapshot || snapshot.schemaVersion !== 1 || snapshot.currency !== "PHP" || !validAmounts(snapshot) ||
+      snapshot.grossAmountInCentavos !== gross ||
+      snapshot.grossAmountInCentavos !== arrangement.grossInCentavos ||
+      snapshot.requiredUpfrontAmountInCentavos !== arrangement.upfrontInCentavos ||
+      snapshot.remainingBalanceInCentavos !== arrangement.grossInCentavos - arrangement.upfrontInCentavos) {
+      return unavailableProviderInitialPayment;
+    }
+    return {
+      kind: "minimum",
+      amount: arrangement.upfrontInCentavos / 100,
+      explanation: "Arranged payment accepted. The customer can pay the arranged first payment or pay in full.",
+    };
   }
   // Acceptance snapshots retain nominal package upfront terms. Full-only eligibility
   // can require more upfront than that snapshot while preserving the same gross.
@@ -44,14 +69,19 @@ export function providerInitialPaymentPresentation(data: Readonly<Record<string,
     const snapshot = record(data.financialSnapshot);
     if (!snapshot || snapshot.schemaVersion !== 1 || snapshot.currency !== "PHP" || !validAmounts(snapshot) ||
       snapshot.grossAmountInCentavos !== gross ||
-      (eligibility.mode === "minimum_or_full" && snapshot.requiredUpfrontAmountInCentavos !== upfront)) {
+      (depositEligibleMode(eligibility.mode) && snapshot.requiredUpfrontAmountInCentavos !== upfront)) {
       return unavailableProviderInitialPayment;
     }
   }
-  if (eligibility.mode === "minimum_or_full") {
+  if (depositEligibleMode(eligibility.mode)) {
     if (upfront <= 0 || upfront >= gross) return unavailableProviderInitialPayment;
-    return {kind: "minimum", amount: upfront / 100,
-      explanation: "The customer may choose the minimum deposit or full payment."};
+    return {
+      kind: "minimum",
+      amount: upfront / 100,
+      explanation: eligibility.mode === "minimum_only"
+        ? "Down payment only. The customer pays the required down payment first and the remaining balance later."
+        : "The customer may choose the minimum down payment or full payment.",
+    };
   }
   const explanation = eligibility.reason === "short_notice" && data.initialPaymentEligibilitySchemaVersion === 2
     ? "Full payment is required because the booking was submitted fewer than 72 hours before the event."
@@ -84,14 +114,30 @@ export function cateringPaymentPresentation(data: StoredRecord, requestId: strin
   if (submittedAt === null || eventStartAt === null || submittedAt >= eventStartAt ||
     (eligibility?.reason === "short_notice" && eventStartAt - submittedAt >= 72 * 3600000) ||
     (eligibility?.reason === "deposit_eligible" && eventStartAt - submittedAt < 72 * 3600000)) return fail;
-  for (const evidence of [data, parent]) {
-    for (const field of ["eventStartAt", "depositEligibilityCutoffAt", "remainingBalanceDueAt", "hardPaymentDeadlineAt", "preparationStartsAt"] as const) {
-      if (evidence[field] !== undefined && (savedTime(evidence[field]) === null ||
-        savedTime(evidence[field]) !== savedTime(agreement[field]))) return fail;
+  const arrangement = arrangedPaymentView(data.arrangedPaymentOffer);
+  const arrangedDue = arrangement?.status === "accepted" ? Date.parse(arrangement.balanceDueAt) : null;
+  for (const field of ["eventStartAt", "depositEligibilityCutoffAt", "remainingBalanceDueAt", "hardPaymentDeadlineAt", "preparationStartsAt"] as const) {
+    const agreementTime = savedTime(agreement[field]);
+    if (parent[field] !== undefined && (savedTime(parent[field]) === null ||
+      savedTime(parent[field]) !== agreementTime)) return fail;
+    if (data[field] !== undefined) {
+      const valueTime = savedTime(data[field]);
+      if (valueTime === null) return fail;
+      if (arrangedDue !== null && field === "remainingBalanceDueAt") {
+        if (agreementTime === null || valueTime !== arrangedDue || valueTime > agreementTime) return fail;
+      } else if (arrangedDue !== null && field === "hardPaymentDeadlineAt") {
+        if (valueTime !== arrangedDue + 24 * 3_600_000) return fail;
+      } else if (valueTime !== agreementTime) {
+        return fail;
+      }
     }
   }
   const projected = {...data, bookingPaymentAgreement: agreement};
-  if (!consistentOriginalAmounts(projected, data.financialSnapshot === undefined ? undefined : record(data.financialSnapshot) ?? undefined)) return fail;
+  if (arrangedDue !== null) {
+    if (!consistentOriginalAmounts(projected)) return fail;
+  } else if (!consistentOriginalAmounts(projected, data.financialSnapshot === undefined ? undefined : record(data.financialSnapshot) ?? undefined)) {
+    return fail;
+  }
   return providerInitialPaymentPresentation(projected);
 }
 

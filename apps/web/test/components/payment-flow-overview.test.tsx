@@ -26,12 +26,12 @@ describe("payment demonstration evidence", () => {
     if (scenario === "wrong_reference") data.evidence.reference_number = "pd-" + "b".repeat(40);
     expect(parsePaymentDemoEvidence(data)).toBeNull();
   });
-  it("renders the settlement lifecycle without the capstone demo panel", () => {
+  it("renders the direct-split lifecycle without the capstone demo panel", () => {
     render(<PaymentFlowOverview />);
     expect(screen.getAllByRole("listitem").map((step) => step.firstElementChild?.textContent)).toEqual([
       "1. Customer payment",
-      "2. Provider earnings",
-      "3. Provider transfer",
+      "2. Direct split to provider & FEASTA",
+      "3. Cutoff refunds & separate VAT",
     ]);
     expect(screen.queryByText("Separate capstone test demonstration")).not.toBeInTheDocument();
     expect(screen.queryByText("PayMongo simulator transfer confirmed")).not.toBeInTheDocument();

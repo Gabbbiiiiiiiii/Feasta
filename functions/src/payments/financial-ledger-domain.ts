@@ -1,5 +1,6 @@
 import {
   allocateCumulativeFixedTotal,
+  isCustomerPaidCommissionModel,
   parsePlatformCommissionModel,
   type PlatformCommissionModel,
 } from "./platform-commission-policy.js";
@@ -45,12 +46,15 @@ type FinancialSnapshot = {
   schemaVersion: 1;
   currency: "PHP";
 
+  serviceSubtotalInCentavos:
+    number | null;
+
   grossAmountInCentavos: number;
 
   platformCommissionRateBps: number;
 
   /*
-   * Present on new tiered capped snapshots.
+   * Present on new customer-paid or tiered capped snapshots.
    * Absent on legacy flat-bps snapshots.
    */
   platformCommissionModel:
@@ -255,6 +259,11 @@ export function buildSuccessfulPaymentFinancialAllocation(
     commissionAfter -
     commissionReversed;
 
+  const isCustomerPaid =
+    isCustomerPaidCommissionModel(
+      financial.platformCommissionModel,
+    );
+
   const providerVatApplicable =
     financial
       .providerTaxVerificationStatus ===
@@ -267,10 +276,25 @@ export function buildSuccessfulPaymentFinancialAllocation(
       ? DEFAULT_PROVIDER_VAT_RATE_BPS
       : 0;
 
+  /*
+   * For customer_paid_flat_v1, Provider VAT is strictly extracted from the
+   * provider's settled service share (settledGross - commission), never on
+   * FEASTA's platform service fee.
+   */
+  const providerVatBaseBefore =
+    isCustomerPaid
+      ? settledBefore - commissionBefore
+      : settledBefore;
+
+  const providerVatBaseAfter =
+    isCustomerPaid
+      ? settledAfter - commissionAfter
+      : settledAfter;
+
   const providerVatBefore =
     providerVatApplicable
       ? inclusiveTaxComponent(
-          settledBefore,
+          providerVatBaseBefore,
           providerVatRateBps,
         )
       : 0;
@@ -278,7 +302,7 @@ export function buildSuccessfulPaymentFinancialAllocation(
   const providerVatAfter =
     providerVatApplicable
       ? inclusiveTaxComponent(
-          settledAfter,
+          providerVatBaseAfter,
           providerVatRateBps,
         )
       : 0;
@@ -291,22 +315,36 @@ export function buildSuccessfulPaymentFinancialAllocation(
     financial.platformTaxStatus ===
       "vat_registered";
 
+  /*
+   * For customer_paid_flat_v1, FEASTA Platform VAT (when VAT-registered) is
+   * extracted inclusively from FEASTA's service fee (commission * rate / (100% + rate))
+   * so customer totals stay exact without adding extra tax on top.
+   * Legacy models preserve their historical exclusive formula.
+   */
   const platformVatBefore =
     platformVatApplicable
-      ? applyBasisPoints(
-          commissionBefore,
-          financial
-            .platformVatRateBps,
-        )
+      ? (isCustomerPaid
+          ? inclusiveTaxComponent(
+              commissionBefore,
+              financial.platformVatRateBps,
+            )
+          : applyBasisPoints(
+              commissionBefore,
+              financial.platformVatRateBps,
+            ))
       : 0;
 
   const platformVatAfter =
     platformVatApplicable
-      ? applyBasisPoints(
-          commissionAfter,
-          financial
-            .platformVatRateBps,
-        )
+      ? (isCustomerPaid
+          ? inclusiveTaxComponent(
+              commissionAfter,
+              financial.platformVatRateBps,
+            )
+          : applyBasisPoints(
+              commissionAfter,
+              financial.platformVatRateBps,
+            ))
       : 0;
 
   const platformVatForPayment =
@@ -690,16 +728,41 @@ function requireFinancialSnapshot(
     );
   }
 
+  const grossAmountInCentavos =
+    positiveSafeInteger(
+      snapshot
+        .grossAmountInCentavos,
+      "Financial gross amount",
+    );
+
+  const serviceSubtotalInCentavos =
+    snapshot.serviceSubtotalInCentavos === undefined ||
+    snapshot.serviceSubtotalInCentavos === null
+      ? null
+      : positiveSafeInteger(
+          snapshot.serviceSubtotalInCentavos,
+          "Financial service subtotal",
+        );
+
+  if (
+    isCustomerPaidCommissionModel(platformCommissionModel) &&
+    serviceSubtotalInCentavos !== null &&
+    platformCommissionTotalInCentavos !== null &&
+    serviceSubtotalInCentavos + platformCommissionTotalInCentavos !==
+      grossAmountInCentavos
+  ) {
+    throw financialAllocationInvalid(
+      "Customer-paid financial snapshot subtotal and fee do not equal gross amount.",
+    );
+  }
+
   return {
     schemaVersion: 1,
     currency: "PHP",
 
-    grossAmountInCentavos:
-      positiveSafeInteger(
-        snapshot
-          .grossAmountInCentavos,
-        "Financial gross amount",
-      ),
+    serviceSubtotalInCentavos,
+
+    grossAmountInCentavos,
 
     platformCommissionRateBps:
       basisPointRate(

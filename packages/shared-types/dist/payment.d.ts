@@ -28,18 +28,39 @@ export declare const MAX_BALANCE_DUE_DAYS_BEFORE_EVENT = 30;
  * configuration in `appSettings/platform` is the
  * authority for new financial snapshots.
  */
-export declare const DEFAULT_PLATFORM_COMMISSION_RATE_BPS = 200;
+export declare const DEFAULT_PLATFORM_COMMISSION_RATE_BPS = 20;
 export declare const DEFAULT_PLATFORM_VAT_RATE_BPS = 1200;
 /**
- * Provider-friendly tiered capped commission model.
+ * Dynamic flat customer-paid FEASTA service fee model (no cap).
  *
- * Configurable base rate (default 2%) with dynamic
- * caps so high-value bookings are not charged a
- * large uncapped percentage.
+ * Customer pays serviceSubtotal + applyBasisPoints(serviceSubtotal, rateBps).
+ * Provider receives 100% of serviceSubtotal.
+ */
+export declare const PLATFORM_COMMISSION_MODEL_CUSTOMER_PAID_FLAT_V1: "customer_paid_flat_v1";
+/**
+ * Legacy provider-deducted tiered capped commission model.
+ * Retained for historical booking snapshots and ledger reads.
  */
 export declare const PLATFORM_COMMISSION_MODEL_TIERED_CAPPED_2PCT_V1: "tiered_capped_2pct_v1";
-export type PlatformCommissionModel = typeof PLATFORM_COMMISSION_MODEL_TIERED_CAPPED_2PCT_V1;
+export type PlatformCommissionModel = typeof PLATFORM_COMMISSION_MODEL_CUSTOMER_PAID_FLAT_V1 | typeof PLATFORM_COMMISSION_MODEL_TIERED_CAPPED_2PCT_V1;
 export declare const DEFAULT_PLATFORM_COMMISSION_MODEL: PlatformCommissionModel;
+/**
+ * Direct-to-provider instant split settlement routing.
+ *
+ * Customer pays once via PayMongo (service subtotal + FEASTA service fee).
+ * On payment.paid, 100% of the service subtotal settles immediately to the
+ * provider (0-day hold, no Admin custody) and FEASTA retains only its fee.
+ */
+export declare const PAYMENT_SETTLEMENT_ROUTING_DIRECT_SPLIT_V1: "direct_provider_split_v1";
+/**
+ * Legacy platform-escrow settlement routing (3-banking-day post-event hold
+ * and Admin/Platform payout release). Preserved for historical bookings.
+ */
+export declare const PAYMENT_SETTLEMENT_ROUTING_PLATFORM_ESCROW_V1: "platform_escrow_v1";
+export type PaymentSettlementRoutingMode = typeof PAYMENT_SETTLEMENT_ROUTING_DIRECT_SPLIT_V1 | typeof PAYMENT_SETTLEMENT_ROUTING_PLATFORM_ESCROW_V1;
+export declare const DEFAULT_PAYMENT_SETTLEMENT_ROUTING: PaymentSettlementRoutingMode;
+export declare function parsePaymentSettlementRoutingMode(value: unknown): PaymentSettlementRoutingMode | null;
+export declare function isDirectProviderSplitRouting(value: unknown): value is typeof PAYMENT_SETTLEMENT_ROUTING_DIRECT_SPLIT_V1;
 /** ₱25,000 — end of pure 2% band (inclusive). */
 export declare const TIERED_COMMISSION_PURE_RATE_MAX_CENTAVOS = 2500000;
 /** ₱75,000 — end of fixed ₱500 band (inclusive). */
@@ -106,5 +127,11 @@ export declare function allocateCumulativeFixedTotal(input: {
     grossAmountInCentavos: number;
     cumulativeBaseAfterInCentavos: number;
 }): number | null;
+export declare function isCustomerPaidCommissionModel(model: unknown): model is typeof PLATFORM_COMMISSION_MODEL_CUSTOMER_PAID_FLAT_V1;
+/**
+ * Dynamic uncapped customer-paid FEASTA service fee on the provider's
+ * service subtotal (in integer centavos), using half-up rounding.
+ */
+export declare function computeCustomerPaidPlatformFeeInCentavos(serviceSubtotalInCentavos: unknown, rateBps?: number): number | null;
 export declare function parsePlatformCommissionModel(value: unknown): PlatformCommissionModel | null;
 //# sourceMappingURL=payment.d.ts.map

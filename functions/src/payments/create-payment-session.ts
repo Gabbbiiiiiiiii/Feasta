@@ -90,6 +90,11 @@ import {
 import {
   remainingBalanceSchedule,
 } from "./remaining-balance-domain.js";
+import {
+  allocateCumulativeFixedTotal,
+  isDirectProviderSplitRouting,
+  PAYMENT_SETTLEMENT_ROUTING_DIRECT_SPLIT_V1,
+} from "./platform-commission-policy.js";
 
 const payMongoSecretKey = defineSecret(
   "PAYMONGO_SECRET_KEY",
@@ -594,6 +599,17 @@ export async function createPaymentSessionForCustomer(
       const amountInCentavos =
         obligation.amountInCentavos;
 
+      const directSplitMetadata =
+        buildDirectSplitCheckoutMetadata({
+          financialSnapshot:
+            providerRequest.financialSnapshot,
+          paymentChoice:
+            obligation.paymentChoice,
+          paymentAmountInCentavos:
+            amountInCentavos,
+          providerId,
+        });
+
       if (existing) {
         if (existing.reconciliationRequired) {
           throw new HttpsError("failed-precondition", "Payment requires reconciliation.");
@@ -640,6 +656,8 @@ export async function createPaymentSessionForCustomer(
             amountInCentavos,
             checkoutUrl:
               existing.checkoutUrl as string,
+            extraMetadata:
+              directSplitMetadata,
           };
         }
 
@@ -653,6 +671,8 @@ export async function createPaymentSessionForCustomer(
           providerId,
           amountInCentavos,
           checkoutUrl: null,
+          extraMetadata:
+            directSplitMetadata,
         };
       }
 
@@ -894,6 +914,7 @@ export async function createPaymentSessionForCustomer(
         providerId,
         amountInCentavos,
         checkoutUrl: null,
+        extraMetadata: directSplitMetadata,
       };
     },
   );
@@ -932,6 +953,9 @@ export async function createPaymentSessionForCustomer(
             : "FEASTA Booking Deposit",
       successUrl: correlatedReturnUrl(input.successUrl, paymentId),
       cancelUrl: correlatedReturnUrl(input.cancelUrl, paymentId),
+      ...(foundation.extraMetadata
+        ? {extraMetadata: foundation.extraMetadata}
+        : {}),
     }, createCheckout);
   } catch (error) {
     if (error instanceof HttpsError && error.code === "failed-precondition") throw error;
@@ -1006,6 +1030,85 @@ export async function createPaymentSessionForCustomer(
 
     throw checkoutUnavailable();
   }
+}
+
+function buildDirectSplitCheckoutMetadata(
+  input: {
+    financialSnapshot: unknown;
+    paymentChoice: CustomerPaymentChoice;
+    paymentAmountInCentavos: number;
+    providerId: string;
+  },
+): Record<string, string> | undefined {
+  if (
+    !input.financialSnapshot ||
+    typeof input.financialSnapshot !== "object" ||
+    Array.isArray(input.financialSnapshot)
+  ) {
+    return undefined;
+  }
+
+  const snapshot =
+    input.financialSnapshot as Record<string, unknown>;
+
+  if (
+    !isDirectProviderSplitRouting(
+      snapshot.settlementRoutingMode,
+    )
+  ) {
+    return undefined;
+  }
+
+  const gross = snapshot.grossAmountInCentavos;
+  const totalFee = snapshot.platformCommissionTotalInCentavos;
+
+  if (
+    typeof gross !== "number" ||
+    !Number.isSafeInteger(gross) ||
+    gross <= 0 ||
+    typeof totalFee !== "number" ||
+    !Number.isSafeInteger(totalFee) ||
+    totalFee < 0 ||
+    totalFee > gross ||
+    input.paymentAmountInCentavos > gross
+  ) {
+    return undefined;
+  }
+
+  let platformFeeShare: number;
+  if (input.paymentChoice === "full") {
+    platformFeeShare = totalFee;
+  } else if (input.paymentChoice === "minimum") {
+    platformFeeShare = allocateCumulativeFixedTotal({
+      totalInCentavos: totalFee,
+      grossAmountInCentavos: gross,
+      cumulativeBaseAfterInCentavos: input.paymentAmountInCentavos,
+    });
+  } else {
+    const priorSettled = gross - input.paymentAmountInCentavos;
+    const priorFee =
+      priorSettled === 0
+        ? 0
+        : allocateCumulativeFixedTotal({
+            totalInCentavos: totalFee,
+            grossAmountInCentavos: gross,
+            cumulativeBaseAfterInCentavos: priorSettled,
+          });
+    platformFeeShare = Math.max(0, totalFee - priorFee);
+  }
+
+  const providerShare = Math.max(
+    0,
+    input.paymentAmountInCentavos - platformFeeShare,
+  );
+
+  return {
+    feasta_settlement_routing:
+      PAYMENT_SETTLEMENT_ROUTING_DIRECT_SPLIT_V1,
+    feasta_provider_id: input.providerId,
+    feasta_provider_share_centavos: String(providerShare),
+    feasta_platform_fee_centavos: String(platformFeeShare),
+  };
 }
 
 function validateRemainingBalanceTimingSnapshot(

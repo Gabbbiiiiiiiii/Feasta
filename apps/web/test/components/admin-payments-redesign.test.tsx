@@ -188,7 +188,7 @@ describe("/admin/payments redesign contracts", () => {
     );
 
     const explainerSummary = screen.getByText(
-      "How payments, earnings, and payouts work",
+      "How direct payments, service fees, and refunds work",
     );
     expect(explainerSummary.closest("details")).not.toHaveAttribute("open");
 
@@ -199,7 +199,7 @@ describe("/admin/payments redesign contracts", () => {
       name: /Customer payments/i,
     });
     const payoutsTab = within(tablist).getByRole("tab", {
-      name: /Provider payouts/i,
+      name: /FEASTA service fees/i,
     });
 
     expect(paymentsTab).toHaveAttribute("aria-selected", "true");
@@ -211,7 +211,7 @@ describe("/admin/payments redesign contracts", () => {
     expect(payoutsTab).toHaveFocus();
     expect(payoutsTab).toHaveAttribute("aria-selected", "true");
     expect(
-      screen.getByRole("heading", {name: "Provider payouts"}),
+      screen.getByRole("heading", {name: "FEASTA service fees & direct splits"}),
     ).toBeVisible();
 
     await user.keyboard("{ArrowLeft}");
@@ -305,7 +305,8 @@ describe("/admin/payments redesign contracts", () => {
     confirmSpy.mockRestore();
   });
 
-  it("renders human-readable transport block messages and ready total in ProviderPayoutBoard", () => {
+  it("renders human-readable transport block messages and ready total in ProviderPayoutBoard", async () => {
+    const user = userEvent.setup();
     render(
       <ProviderPayoutBoard
         board={populatedBoard}
@@ -318,6 +319,7 @@ describe("/admin/payments redesign contracts", () => {
       />,
     );
 
+    await user.click(screen.getByText(/Legacy escrow payouts & company float/i));
     expect(screen.getByText("Total ready: ₱900.00")).toBeVisible();
     expect(
       screen.getByText(/Application payout transfers are disabled/i),

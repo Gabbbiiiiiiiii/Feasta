@@ -24,6 +24,9 @@ import {
 import {
   settlementIdForEarning,
 } from "./provider-settlement-domain.js";
+import {
+  isDirectProviderSplitRouting,
+} from "../payments/platform-commission-policy.js";
 
 type UnknownRecord =
   Readonly<
@@ -119,6 +122,18 @@ export function scheduleCompletedProviderRequestDisbursementInTransaction(
     financialSnapshot
       .providerDisbursementPolicyVersion !==
         PROVIDER_DISBURSEMENT_POLICY_VERSION
+  ) {
+    return null;
+  }
+
+  /*
+   * Direct-to-provider instant split bookings settle 100% of the provider's
+   * service share immediately upon payment.paid with no 3-banking-day hold.
+   */
+  if (
+    isDirectProviderSplitRouting(
+      financialSnapshot.settlementRoutingMode,
+    )
   ) {
     return null;
   }

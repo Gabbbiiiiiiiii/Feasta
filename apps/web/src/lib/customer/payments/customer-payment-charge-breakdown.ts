@@ -1,6 +1,7 @@
 export type CustomerPaymentChargeBreakdown =
   | {
       status: "available";
+      chargeModel?: "customer_paid" | "provider_deducted";
       serviceAmountInCentavos: number;
       platformChargeInCentavos: number;
       notice: string;
@@ -25,13 +26,14 @@ function centavos(value: unknown): number | null {
 
 /**
  * Customer-safe payment charge projection only.
- * Service charge uses trusted ledger commission for this payment and is
- * never treated as an extra customer surcharge.
+ * Branches on customer_paid_flat_v1 (customer-paid FEASTA service fee) vs
+ * legacy provider-deducted bookings so historical receipts stay accurate.
  */
 export function customerPaymentChargeBreakdown(
   payment: RecordData,
   paymentId: string,
   amountPaidInCentavos: number,
+  platformCommissionModel?: unknown,
 ): CustomerPaymentChargeBreakdown {
   if (
     !Number.isSafeInteger(amountPaidInCentavos) ||
@@ -61,8 +63,24 @@ export function customerPaymentChargeBreakdown(
     return partial;
   }
 
+  const isCustomerPaid =
+    platformCommissionModel === "customer_paid_flat_v1" ||
+    payment.platformCommissionModel === "customer_paid_flat_v1";
+
+  if (isCustomerPaid) {
+    return {
+      status: "available",
+      chargeModel: "customer_paid",
+      serviceAmountInCentavos: amountPaidInCentavos - platformCharge,
+      platformChargeInCentavos: platformCharge,
+      notice:
+        "Includes FEASTA service fee paid by the customer. Your provider receives 100% of the service subtotal directly, and FEASTA retains only the service fee.",
+    };
+  }
+
   return {
     status: "available",
+    chargeModel: "provider_deducted",
     serviceAmountInCentavos: amountPaidInCentavos,
     platformChargeInCentavos: platformCharge,
     notice:

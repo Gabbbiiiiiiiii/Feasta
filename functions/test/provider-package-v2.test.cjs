@@ -157,6 +157,26 @@ test("selected tier resolves shared-first normalized dedupe with no other-tier l
     serviceOptions: {drop_off: {price: 1.01, includedServices: tier}}}), "drop_off").serviceInclusions.length, 100);
 });
 
+test("private occasion labels normalize spacing and reject duplicate or unsafe names", () => {
+  const {parsePrivatePackageOccasions} = require("@feasta/shared-types/provider-package-v2");
+  assert.deepEqual(parsePrivatePackageOccasions(["  Barangay   Fiesta  "]), ["Barangay Fiesta"]);
+  for (const invalid of [null, [1], [" "], ["a"], ["Bad\u0000label"], ["Fiesta", "ＦＩＥＳＴＡ"]]) {
+    assert.throws(() => parsePrivatePackageOccasions(invalid));
+  }
+});
+
+test("only fixed-price offers with Drop-Off can set a whole quantity limit", () => {
+  const eligible = {pricingModel: "per_bundle", maxDropOffOrderQuantity: 5};
+  assert.equal(offer.parseOfferV2(pricing(eligible)).maxDropOffOrderQuantity, 5);
+  for (const invalid of [0, -1, 1.5, 101, "5", null]) {
+    fails(() => offer.parseOfferV2(pricing({...eligible, maxDropOffOrderQuantity: invalid})), "INVALID_INCLUSION");
+  }
+  fails(() => offer.parseOfferV2(pricing({...eligible, pricingModel: "per_pax"})), "INVALID_INCLUSION");
+  fails(() => offer.parseOfferV2(pricing({...eligible, serviceOptions: {
+    full_service: {price: 1.01, includedServices: []},
+  }})), "INVALID_INCLUSION");
+});
+
 test("tier structures, raw inclusion limits, null/absent semantics and prices are strict", () => {
   for (const tier of [undefined, null, "unknown", "buffet_setup"]) fails(() => offer.resolveOfferV2(pricing(), tier), "INVALID_INCLUSION");
   fails(() => offer.parseServiceOptionV2({price: 1, includedServices: [], enabled: true}), "UNKNOWN_FIELD");

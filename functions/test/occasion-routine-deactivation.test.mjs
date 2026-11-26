@@ -45,6 +45,10 @@ const imports = [
     'import {isServiceCategoryCode} from "./harness.mjs";',
   ],
   [
+    'import {planTransactionalV2DiscoveryRefresh} from "../packages/occasion-package-discovery-refresh.js";',
+    'import {planTransactionalV2DiscoveryRefresh} from "./harness.mjs";',
+  ],
+  [
     'import {isRoutineOccasionTransitionValid} from "./occasion-routine-activation.js";',
     'import {isRoutineOccasionTransitionValid} from "./occasion-routine-activation.ts";',
   ],
@@ -155,7 +159,9 @@ export const db = {
         }
 
         if (target.kind === "packages") {
-          const docs = current.packages
+          const docs = [...current.packages]
+            .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+            .filter((item) => target.after == null || item.id > target.after)
             .slice(0, target.limit)
             .map((item) => ({
               id: item.id,
@@ -305,6 +311,13 @@ export function planOccasionGalleryWithdrawal() {
   }
 
   return current.galleryChanges;
+}
+
+export async function planTransactionalV2DiscoveryRefresh() {
+  if (current.refreshError) {
+    throw Error("PACKAGE_DISCOVERY_REFRESH_REQUIRED");
+  }
+  return current.refreshPlan ?? [];
 }
 
 export async function requireOccasionLifecycleAdmin(_tx, uid) {
@@ -950,4 +963,31 @@ test("exact pagination boundary does not truncate inventory", async () => {
   assert(f.writes.every((write) =>
     !/^(mainEvents|providerRequests|payments|refunds)\//.test(write.path)
   ));
+});
+
+test("deactivation applies V2 discovery pin refresh patches", async () => {
+  const f = fixture({
+    refreshPlan: [{
+      packageId: "pkg_wedding",
+      changed: true,
+      patch: {
+        eventType: "wedding",
+        occasionMatchIds: ["wedding"],
+        occasionCatalogRevision: 7,
+        providerEligibilityRevision: 1,
+        occasionEligibilityState: "valid",
+      },
+    }],
+  });
+  f.docs.set("packages/pkg_wedding", {
+    occasionCatalogRevision: 6,
+    status: "published",
+    isPublished: true,
+  });
+
+  const result = await deactivateRoutineOccasion("admin_one", input());
+
+  assert.deepEqual(result.refreshedPackageIds, ["pkg_wedding"]);
+  assert.equal(f.docs.get("packages/pkg_wedding").occasionCatalogRevision, 7);
+  assert.equal(f.docs.get("packages/pkg_wedding").status, "published");
 });

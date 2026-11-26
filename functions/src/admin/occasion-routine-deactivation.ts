@@ -10,6 +10,7 @@ import {assertNoOccasionBookingDependencies} from "./occasion-booking-dependenci
 import type {Query, QuerySnapshot, Transaction} from "firebase-admin/firestore";
 import {db} from "../shared/firestore.js";
 import {isServiceCategoryCode} from "../shared/service-category-code.js";
+import {planTransactionalV2DiscoveryRefresh} from "../packages/occasion-package-discovery-refresh.js";
 import {isRoutineOccasionTransitionValid} from "./occasion-routine-activation.js";
 import {requireOccasionLifecycleAdmin} from "./occasion-activation-readiness.js";
 
@@ -207,10 +208,22 @@ export async function deactivateRoutineOccasion(
 
     await requireNoLiveRoutineBookingDependencies(tx, input.occasionId);
 
-    // Logical deactivation: existing public records are not rewritten.
-    // Customer and provider paths must enforce current occasion authority.
+    // Logical deactivation never withdraws provider publication flags.
+    // Refresh still-eligible published V2 discovery pins to the new catalog
+    // revision so unaffected packages and fits-all packages stay discoverable
+    // while packages specific to this deactivated occasion stay hidden.
     const withdrawnPackageIds: string[] = [];
     const withdrawnGallerySetupIds: string[] = [];
+
+    const nextCatalogRevision = catalog.revision + 1;
+    const refreshPlan = await planTransactionalV2DiscoveryRefresh(tx, db, {
+      nextCatalogRevision,
+      deactivateOccasionId: input.occasionId,
+      skipUnavailablePackages: true,
+    });
+    const refreshedPackageIds = refreshPlan
+      .filter((item) => item.changed)
+      .map((item) => item.packageId);
 
     const now = new Date();
     const result = {
@@ -219,9 +232,10 @@ export async function deactivateRoutineOccasion(
       action: "deactivate" as const,
       active: false,
       occasionRevision: occasion.revision + 1,
-      catalogRevision: catalog.revision + 1,
+      catalogRevision: nextCatalogRevision,
       withdrawnPackageIds,
       withdrawnGallerySetupIds,
+      refreshedPackageIds,
       state: "completed" as const,
       idempotentReplay: false,
     };
@@ -236,6 +250,14 @@ export async function deactivateRoutineOccasion(
       revision: result.catalogRevision,
       updatedAt: now,
     });
+
+    for (const item of refreshPlan) {
+      if (!item.changed) continue;
+      tx.update(db.collection("packages").doc(item.packageId), {
+        ...item.patch,
+        updatedAt: now,
+      });
+    }
 
     tx.create(opRef, {
       operationId: id,
@@ -261,6 +283,7 @@ export async function deactivateRoutineOccasion(
       afterCatalogRevision: result.catalogRevision,
       withdrawnPackageIds,
       withdrawnGallerySetupIds,
+      refreshedPackageIds,
       galleryWithdrawalLedger: [],
       createdAt: now,
     });

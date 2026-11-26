@@ -135,15 +135,62 @@ export function BookingPaymentAgreementReview({
                 )}
               </dd>
 
-              <dt>
-                Service total
-              </dt>
+              {agreement.serviceSubtotalInCentavos !== undefined &&
+              agreement.platformFeeInCentavos !== undefined &&
+              agreement.platformCommissionRateBps !== undefined ? (
+                <>
+                  <dt>
+                    Service subtotal
+                  </dt>
 
-              <dd>
-                {money(
-                  agreement.grossAmountInCentavos,
-                )}
-              </dd>
+                  <dd>
+                    {money(
+                      agreement.serviceSubtotalInCentavos,
+                    )}
+                  </dd>
+
+                  <dt>
+                    FEASTA service fee (
+                    {Number.isInteger(
+                      agreement.platformCommissionRateBps / 100,
+                    )
+                      ? String(agreement.platformCommissionRateBps / 100)
+                      : (agreement.platformCommissionRateBps / 100)
+                          .toFixed(2)
+                          .replace(/0+$/u, "")
+                          .replace(/\.$/u, "")}
+                    %)
+                  </dt>
+
+                  <dd>
+                    +{money(
+                      agreement.platformFeeInCentavos,
+                    )}
+                  </dd>
+
+                  <dt>
+                    Total payable
+                  </dt>
+
+                  <dd>
+                    {money(
+                      agreement.grossAmountInCentavos,
+                    )}
+                  </dd>
+                </>
+              ) : (
+                <>
+                  <dt>
+                    Service total
+                  </dt>
+
+                  <dd>
+                    {money(
+                      agreement.grossAmountInCentavos,
+                    )}
+                  </dd>
+                </>
+              )}
 
               <dt>
                 {agreement.depositEligible

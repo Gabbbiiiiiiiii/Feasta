@@ -5,9 +5,9 @@ import {HttpsError} from "firebase-functions/v2/https";
 type Row = Record<string, unknown>;
 const content = [
   "name", "description", "serviceCategoryCode", "price", "serviceOptions",
-  "themeOptions", "paymentPolicy", "depositPercentage", "minimumGuests", "maximumGuests",
+  "themeOptions", "paymentPolicy", "fullPaymentAllowed", "depositPercentage", "minimumGuests", "maximumGuests",
   "imageUrl", "imageUrls", "foodInclusions", "decorInclusions", "furnitureInclusions",
-  "serviceInclusions", "equipmentInclusions", "foodChoiceGroups", "pricingModel",
+  "serviceInclusions", "equipmentInclusions", "foodChoiceGroups", "pricingModel", "maxDropOffOrderQuantity",
   "offerStructure", "packageStyle", "downPaymentPercentage", "balanceDueDaysBeforeEvent",
 ];
 const metadata = [

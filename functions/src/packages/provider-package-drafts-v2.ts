@@ -1,3 +1,4 @@
+import {parsePrivatePackageOccasions, privateOccasionKey} from "@feasta/shared-types/provider-package-v2";
 import {isPublishablePackageV2, isV2PaymentPolicyValid,
   isCustomerProviderV2, isPackageWithinProviderV2} from "@feasta/shared-types/customer-package-v2";
 import {occasionDependencyEntryPath, validOccasionDependencyEntry} from "../admin/occasion-dependency-registry.js";
@@ -21,9 +22,9 @@ import {requireActiveServiceCategoryInTransaction} from "../shared/service-categ
 import {requireMaintenanceOpen, recordMaintenanceAdmission} from "../shared/maintenance.js";
 import {BALANCE_DUE_HOURS_BEFORE_EVENT} from "../payments/canonical-balance-timing.js";
 import {authorizeProviderForPackageManagement, authorizeOwnedPackage, assertDraftPackage,
-  parseCanonicalPackageWrite, assertCanonicalPackageServiceCategory,
+  assertEditablePackage, parseCanonicalPackageWrite, assertCanonicalPackageServiceCategory,
   assertCanonicalPackagePaymentTerms, assertPackageMatchesProviderCapabilities,
-  assertPackagePaymentTermsWithinPolicy, verifyPackageImages} from "./package-domain.js";
+  assertPackagePaymentTermsWithinPolicy, assertStrictPackageGuestRange, verifyPackageImages} from "./package-domain.js";
 import {packagePaymentPolicyBoundsFromData} from "./package-payment-policy.js";
 import {parseOfferV2} from "./offer-v2-validation.js";
 import {resolveOccasionV2} from "./occasion-v2-validation.js";
@@ -42,8 +43,8 @@ const baseFields = ["name", "description", "serviceCategoryCode", "price", "serv
   "imageUrl", "foodInclusions", "decorInclusions", "furnitureInclusions", "serviceInclusions",
   "occasionSchemaVersion", "occasionScope", "occasionIds", "offerSchemaVersion",
   "sharedContractVersion", "idempotencyKey"];
-const optionalFields = ["pricingModel", "offerStructure", "packageStyle", "equipmentInclusions", "foodChoiceGroups", "imageUrls",
-  "balanceDueDaysBeforeEvent", "downPaymentPercentage"];
+const optionalFields = ["privateOccasionLabels", "maxDropOffOrderQuantity", "pricingModel", "offerStructure", "packageStyle", "equipmentInclusions", "foodChoiceGroups", "imageUrls",
+  "balanceDueDaysBeforeEvent", "downPaymentPercentage", "fullPaymentAllowed"];
 const hash = (v: unknown) => createHash("sha256").update(JSON.stringify(v, (_key, value) =>
   value && typeof value === "object" && !Array.isArray(value) ?
     Object.fromEntries(Object.keys(value).sort().map((key) => [key,
@@ -117,7 +118,7 @@ export function parseV2DraftWrite(value: unknown, update: boolean) {
   }
   const offer = parseOfferV2(Object.fromEntries(["offerSchemaVersion", "price", "serviceOptions",
     "serviceInclusions", "decorInclusions", "furnitureInclusions", "foodInclusions",
-    "equipmentInclusions", "foodChoiceGroups", "pricingModel"].filter((key) => Object.hasOwn(input, key))
+    "equipmentInclusions", "foodChoiceGroups", "pricingModel", "maxDropOffOrderQuantity"].filter((key) => Object.hasOwn(input, key))
     .map((key) => [key, input[key]])));
   if (input.offerStructure === "customizable" &&
       (!offer.foodChoiceGroups?.length || !offer.pricingModel)) {
@@ -167,12 +168,17 @@ export function packageWriteFromProgress(progress: PackageEditorProgressV2) {
     }));
   return {sharedContractVersion: 2, idempotencyKey: "internal_completion_key",
     name: progress.name, description: progress.description,
+    ...(progress.privateOccasionLabels !== undefined ? {privateOccasionLabels: progress.privateOccasionLabels} : {}),
     ...(progress.offerStructure !== undefined ?
       {offerStructure: progress.offerStructure} : {}),
     ...(progress.packageStyle !== undefined ?
       {packageStyle: progress.packageStyle} : {}),
     serviceCategoryCode: progress.serviceCategoryCode, ...progress.occasion,
     offerSchemaVersion: 2, serviceOptions: options,
+    ...(progress.maxDropOffOrderQuantityText !== undefined &&
+      progress.pricingModel === "per_bundle" && options.drop_off
+      ? {maxDropOffOrderQuantity: /^[0-9]+$/u.test(progress.maxDropOffOrderQuantityText)
+        ? Number(progress.maxDropOffOrderQuantityText) : null} : {}),
     ...(progress.pricingModel &&
       progress.pricingModel !== "legacy" ? {pricingModel: progress.pricingModel} : {}),
     price: progress.priceText === undefined ?
@@ -180,6 +186,8 @@ export function packageWriteFromProgress(progress: PackageEditorProgressV2) {
       number(progress.priceText),
     minimumGuests: number(progress.minimumGuestsText),
     maximumGuests: number(progress.maximumGuestsText), paymentPolicy: progress.paymentPolicy,
+    ...(progress.paymentPolicy === "deposit_then_balance" && typeof progress.fullPaymentAllowed === "boolean"
+      ? {fullPaymentAllowed: progress.fullPaymentAllowed} : {}),
     depositPercentage: progress.paymentPolicy === "full_payment" ? 100 :
       number(progress.depositPercentageText),
     themeOptions: (progress.themes ?? []).map((theme) => ({id: theme.editorThemeId,
@@ -398,6 +406,7 @@ function callable(mode: Mode) {
           packageWriteFromProgress(progress as PackageEditorProgressV2), false));
       // V3 remains isolated; V2 fixed and customizable share full authority.
       if (!isolatedDemo() && input.sharedContractVersion !== 2) fail("FEATURE_DISABLED");
+      if (!publication) assertStrictPackageGuestRange(base);
       if (publication && !isPublishablePackageV2(publishing!.packageData,
         policy.maxThemeImages)) fail("INCOMPLETE_PACKAGE");
       if (publishing && !isPackageWithinProviderV2(publishing.packageData, provider.providerData)) fail("PROVIDER_INELIGIBLE");
@@ -408,22 +417,28 @@ function callable(mode: Mode) {
         db.collection("packages").doc(input.packageId as string) : newRef;
       const old = recoverySource ?? (mode === "update" ? authorizeOwnedPackage({providerId,
         packageSnapshot: await tx.get(packageRef)}) : null);
+      const wasPublished = Boolean(old && !recovery && old.status === "published");
       if (old && !recovery) {
-        assertDraftPackage(old);
+        assertEditablePackage(old);
         const data = old.packageData;
+        const validLifecycle = wasPublished ?
+          data.isDeleted === false && data.isActive === true &&
+            data.isPublished === true && data.providerPubliclyVisible === true &&
+            data.publishedAt !== null && data.publishedAt !== undefined :
+          data.isDeleted === false && data.isActive === false &&
+            data.isPublished === false && data.providerPubliclyVisible === false &&
+            data.publishedAt === null;
         // Updates must retain the persisted occasion-contract version.
         // No implicit V2/V3 migration is permitted.
         if (data.sharedContractVersion !== input.sharedContractVersion ||
             data.occasionSchemaVersion !== 2 ||
             data.offerSchemaVersion !== 2 ||
-            data.isDeleted !== false || data.isActive !== false ||
-            data.isPublished !== false ||
-            data.providerPubliclyVisible !== false ||
-            data.publishedAt !== null) {
+            !validLifecycle) {
           fail("CLIENT_UPGRADE_REQUIRED");
         }
         if (input.sharedContractVersion === 3) {
-          if (data.occasionEligibilityModel !== "global_v1" ||
+          if (wasPublished ||
+              data.occasionEligibilityModel !== "global_v1" ||
               data.globalEligibilityContractVersion !== 1 ||
               Object.hasOwn(data, "providerEligibilityRevision")) {
             fail("CLIENT_UPGRADE_REQUIRED");
@@ -434,6 +449,20 @@ function callable(mode: Mode) {
         }
         if (revision(data.revision) !== input.expectedRevision) fail("REVISION_CONFLICT",
           "aborted");
+        if (wasPublished) {
+          if (policy.featureGates?.packagePublication !== true ||
+              policy.featureGates?.customerDiscovery !== true ||
+              policy.featureGates?.customerBooking !== true) {
+            fail("FEATURE_DISABLED");
+          }
+          if (privateCustomizableDraft) {
+            await requireMaintenanceOpen(tx, db, "publication");
+          }
+          if (!isCustomerProviderV2(providerId, provider.providerData, user!) ||
+              !isProviderPubliclyEligible({...provider.providerData, id: providerId}, user!)) {
+            fail("PROVIDER_INELIGIBLE");
+          }
+        }
       }
       const catalog = (await tx.get(db.doc("occasionCatalog/current"))).data();
       if (catalog?.activationState !== "stable") fail("CONFIG_UNAVAILABLE");
@@ -471,6 +500,35 @@ function callable(mode: Mode) {
       const approved = occasions.filter(o => o.active === true &&
         o.moderationState === "approved" &&
         o.applicableServiceCategoryCodes.includes(category)).map(o => o.id);
+
+      const packageLabelsRef = db.collection("providers").doc(providerId)
+        .collection("packagePrivateOccasions").doc(packageRef.id);
+      const retainedLabels = old && input.privateOccasionLabels === undefined
+        ? (await tx.get(packageLabelsRef)).get("labels") : undefined;
+      const privateLabels = input.privateOccasionLabels === undefined && retainedLabels === undefined ? undefined : (() => {
+        try { return parsePrivatePackageOccasions(input.privateOccasionLabels ?? retainedLabels); }
+        catch { return fail("INVALID_PRIVATE_OCCASIONS", "invalid-argument"); }
+      })();
+      const otherOccasion = occasions.find(row => approved.includes(row.id) &&
+        (row.id === "other" || privateOccasionKey(row.label) === "other"));
+      if (privateLabels?.length &&
+          (input.occasionScope !== "specific" || !otherOccasion ||
+            !Array.isArray(input.occasionIds) || !input.occasionIds.includes(otherOccasion.id) ||
+            privateLabels.some(label => occasions.some(row => approved.includes(row.id) &&
+              privateOccasionKey(row.label) === privateOccasionKey(label))))) {
+        fail("INVALID_PRIVATE_OCCASIONS", "invalid-argument");
+      }
+      const privateCatalog = db.collection("providers").doc(providerId).collection("catalog");
+      const privateOccasionRef = privateCatalog.doc("privateOccasionLibrary");
+      const savedLabels = privateLabels?.length ? (await tx.get(privateOccasionRef)).get("labels") : [];
+      const libraryLabels = new Map<string, string>();
+      if (Array.isArray(savedLabels)) {
+        for (const label of savedLabels) {
+          if (typeof label === "string") libraryLabels.set(privateOccasionKey(label), label);
+        }
+      }
+      for (const label of privateLabels ?? []) libraryLabels.set(privateOccasionKey(label), label);
+      if (libraryLabels.size > 100) fail("PRIVATE_OCCASION_LIBRARY_FULL", "failed-precondition");
 
       const occasion = isGlobal ?
         resolveGlobalOccasionForCallable({
@@ -512,11 +570,11 @@ function callable(mode: Mode) {
         eventType: occasion.eventType,
       });
       const payment = (await tx.get(db.doc("appSettings/platform"))).data();
-      if ((publication || recovery) && !isV2PaymentPolicyValid(base, payment)) {
+      if ((publication || recovery || wasPublished) && !isV2PaymentPolicyValid(base, payment)) {
         fail("CONFIG_UNAVAILABLE");
       }
       assertPackagePaymentTermsWithinPolicy(base, packagePaymentPolicyBoundsFromData(payment));
-      if (publishing) {
+      if (publishing || wasPublished) {
         // V2 uses current provider and catalog eligibility.
         // Global V3 publication remains disabled.
         if (isGlobal || !("providerEligibilityRevision" in occasion)) {
@@ -546,9 +604,17 @@ function callable(mode: Mode) {
         providerId, revision: next, paymentTermsSchemaVersion: 2,
         balanceDueHoursBeforeEvent: base.paymentPolicy === "deposit_then_balance" ?
           BALANCE_DUE_HOURS_BEFORE_EVENT : null,
-        status: "draft", isActive: false, isPublished: false, providerPubliclyVisible: false,
-        publishedAt: null, isDeleted: false, deletedAt: null, deletedBy: null, deletionReason: null,
+        status: wasPublished ? "published" : "draft",
+        isActive: wasPublished,
+        isPublished: wasPublished,
+        providerPubliclyVisible: wasPublished,
+        publishedAt: wasPublished ? old!.packageData.publishedAt : null,
+        isDeleted: false, deletedAt: null, deletedBy: null, deletionReason: null,
         updatedAt: now, updatedBy: actor.uid};
+      if (wasPublished) {
+        if (!isPublishablePackageV2(stored, policy.maxThemeImages)) fail("INCOMPLETE_PACKAGE");
+        if (!isPackageWithinProviderV2(stored, provider.providerData)) fail("PROVIDER_INELIGIBLE");
+      }
       if (recoverySource) {
         const proposed = {...recoverySource.packageData, ...stored,
           updatedAt: "SERVER_TIMESTAMP_AT_RECOVERY"};
@@ -707,7 +773,8 @@ function callable(mode: Mode) {
       const result = envelope ? {editorDraftId: editorRef!.id,
         editorDraftRevision: editor!.revision + 1,
         packageId: packageRef.id, packageRevision: next, status: "draft"} :
-        {success: true, packageId: packageRef.id, packageRevision: next, status: "draft",
+        {success: true, packageId: packageRef.id, packageRevision: next,
+          status: wasPublished ? "published" : "draft",
           sharedContractVersion: isGlobal ? 3 : 2, discoveryProjection};
       const commitName = await preparePackageServiceName(
         tx, db, providerId, stored.name, old?.packageData.name,
@@ -733,9 +800,17 @@ function callable(mode: Mode) {
         }
       }
 
+      if (privateLabels !== undefined && input.privateOccasionLabels !== undefined) {
+        if (privateLabels.length) {
+          tx.set(packageLabelsRef, {labels: privateLabels});
+          tx.set(privateOccasionRef, {labels: [...libraryLabels.values()]});
+        } else {
+          tx.delete(packageLabelsRef);
+        }
+      }
       if (old) tx.update(packageRef, {...stored,
         // Full replacement must clear optional fields omitted by this request.
-        ...Object.fromEntries((["pricingModel", "equipmentInclusions", "foodChoiceGroups", "imageUrls"] as const)
+        ...Object.fromEntries((["maxDropOffOrderQuantity", "pricingModel", "equipmentInclusions", "foodChoiceGroups", "imageUrls", "fullPaymentAllowed"] as const)
           .filter((field) => !Object.hasOwn(stored, field))
           .map((field) => [field, FieldValue.delete()]))});
       else tx.create(packageRef, {...stored, createdAt: now, createdBy: actor.uid});
@@ -751,7 +826,7 @@ function callable(mode: Mode) {
         action: "fixed_v2_in_place_recovery", createdAt: now,
       });
       tx.create(opRef, {actorUid: actor.uid, providerId, requestHash, result, createdAt: now});
-      if (!privateCustomizableDraft) recordMaintenanceAdmission(tx, db);
+      if (!privateCustomizableDraft || wasPublished) recordMaintenanceAdmission(tx, db);
       return {kind: "committed" as const, result};
     });
     if (mode === "previewRecovery") {

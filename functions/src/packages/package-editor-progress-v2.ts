@@ -5,6 +5,7 @@
  * Match packages/shared-types/src/provider-package-v2.cts.
  */
 
+import {parsePrivatePackageOccasions} from "@feasta/shared-types/provider-package-v2";
 import {
   parseIndividualFoodItemsV2,
   IndividualFoodItemValidationError,
@@ -85,15 +86,19 @@ export function validatePackageEditorProgress(
       limits.maxThemeImages < 1 || limits.maxThemeImages > 4) return invalid();
 
   const input = object(value, [
-    "name", "description", "serviceCategoryCode", "occasion", "offerStructure", "packageStyle", "pricingModel", "priceText",
+    "privateOccasionLabels", "name", "description", "serviceCategoryCode", "occasion", "offerStructure", "packageStyle", "pricingModel", "priceText", "maxDropOffOrderQuantityText",
     "minimumGuestsText", "maximumGuestsText", "tiers", "foodInclusions", "foodChoiceGroups", "individualFoodItems", "individualFoodDraft", "serviceInclusions",
     "decorInclusions", "furnitureInclusions", "equipmentInclusions", "themes",
-    "marketingAssetIds", "paymentPolicy", "depositPercentageText",
+    "marketingAssetIds", "paymentPolicy", "fullPaymentAllowed", "depositPercentageText",
   ]);
   const output: ProgressRecord = {};
+  optional(input, "privateOccasionLabels", (v) => {
+    try { return parsePrivatePackageOccasions(v); } catch { return invalid(); }
+  }, output);
   optional(input, "name", (v) => string(v, 80), output);
   optional(input, "description", (v) => string(v, 5000), output);
   optional(input, "serviceCategoryCode", (v) => string(v, 128), output);
+  optional(input, "maxDropOffOrderQuantityText", (v) => string(v, 3), output);
   optional(input, "priceText", (v) => string(v, 64), output);
   optional(input, "minimumGuestsText", (v) => string(v, 64), output);
   optional(input, "maximumGuestsText", (v) => string(v, 64), output);
@@ -117,6 +122,10 @@ export function validatePackageEditorProgress(
   }, output);
   optional(input, "paymentPolicy", (v) => {
     if (!["full_payment", "deposit_then_balance"].includes(v as string)) return invalid();
+    return v;
+  }, output);
+  optional(input, "fullPaymentAllowed", (v) => {
+    if (typeof v !== "boolean") return invalid();
     return v;
   }, output);
 

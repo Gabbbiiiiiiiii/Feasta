@@ -3,6 +3,7 @@ import {parseProviderDirectoryReturnHref} from "@/lib/customer/providers/provide
 import {notFound, redirect} from "next/navigation";
 import {EventCustomizationExperience} from "@/components/customer/bookings/event-customization-experience";
 import {getOptionalAccountContext} from "@/lib/auth/session";
+import {getActivePlatformCommissionRateBps} from "@/lib/admin/settings/admin-settings-service";
 import {getPublicPackageDetail} from "@/lib/customer/discovery/package-detail-service";
 import {getPublicEventServices} from "@/lib/customer/discovery/event-service-discovery-service";
 import {readPublishedProviderSetups} from "@/lib/provider/provider-setup-gallery-service";
@@ -28,11 +29,12 @@ export default async function CustomerPackagePlanPage({params, searchParams}: {
   }
   const detail = await getPublicPackageDetail(packageId);
   if (!detail) notFound();
-  const [services, publishedSetups] = await Promise.all([
+  const [services, publishedSetups, platformCommissionRateBps] = await Promise.all([
     getPublicEventServices(detail.provider.id),
     readPublishedProviderSetups(detail.provider.id),
+    getActivePlatformCommissionRateBps(),
   ]);
   return <EventCustomizationExperience key={`${packageId}:${contextQuery}:${editProvider ?? ""}`} detail={detail}
     eventServices={services.services} initialEventContext={context} initialPlanningContext={planningContext} bestFitReturnHref={bestFitReturnHref} initialServiceTier={initialServiceTier} draftOwner="guest" planningOnly eventListEditProviderId={editProvider}
-    publishedSetups={publishedSetups} />;
+    publishedSetups={publishedSetups} platformCommissionRateBps={platformCommissionRateBps} />;
 }

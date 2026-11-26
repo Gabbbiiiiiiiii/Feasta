@@ -76,7 +76,21 @@ export interface FoodChoiceOptionV2 {id:string; name:string}
 export interface FoodChoiceGroupV2 {
   id:string; title:string; selectionCount:number; options:FoodChoiceOptionV2[];
 }
+export const MAX_DROP_OFF_ORDER_QUANTITY = 100;
+
+export function isDropOffOrderQuantity(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) &&
+    value >= 1 && value <= MAX_DROP_OFF_ORDER_QUANTITY;
+}
+
+/** Legacy offers retain the previous Special Request quantity limit. */
+export function dropOffOrderLimit(pricingModel: unknown, configuredLimit: unknown): number {
+  if (pricingModel === undefined) return MAX_DROP_OFF_ORDER_QUANTITY;
+  return pricingModel === "per_bundle" && isDropOffOrderQuantity(configuredLimit) ? configuredLimit : 1;
+}
+
 export interface OfferV2 {
+  maxDropOffOrderQuantity?: number;
   offerSchemaVersion: 2;
   serviceOptions: Partial<Record<Tier, ServiceOptionV2>>;
   serviceInclusions: string[];
@@ -213,7 +227,34 @@ export interface IndividualFoodDraftV2 {
   name: string;
   servingOptions: IndividualServingDraftV2[];
 }
+export const MAX_PRIVATE_PACKAGE_OCCASIONS = 10;
+export const MAX_PRIVATE_OCCASION_LENGTH = 60;
+
+export function privateOccasionKey(value: string): string {
+  return value.normalize("NFKC").replace(/\s+/gu, " ").trim().toLocaleLowerCase("en-PH");
+}
+
+export function parsePrivatePackageOccasions(value: unknown): string[] {
+  if (!Array.isArray(value) || value.length > MAX_PRIVATE_PACKAGE_OCCASIONS) {
+    throw new Error("Invalid custom occasions.");
+  }
+  const seen = new Set<string>();
+  return value.map((item: unknown) => {
+    if (typeof item !== "string" || /[\p{Cc}\p{Cf}]/u.test(item)) {
+      throw new Error("Invalid custom occasion name.");
+    }
+    const name = item.trim().replace(/\s+/gu, " ");
+    const key = privateOccasionKey(name);
+    if (name.length < 2 || name.length > MAX_PRIVATE_OCCASION_LENGTH || seen.has(key)) {
+      throw new Error("Invalid or duplicate custom occasion name.");
+    }
+    seen.add(key);
+    return name;
+  });
+}
+
 export interface PackageEditorProgressV2 {
+  privateOccasionLabels?: string[];
   // All fields optional; empty text and unfinished numeric text are allowed.
   name?: string; description?: string; serviceCategoryCode?: string;
   offerStructure?: 'fixed'|'customizable'|'individual';
@@ -222,6 +263,7 @@ export interface PackageEditorProgressV2 {
   packageStyle?: string;
   occasion?: {occasionSchemaVersion:2; occasionScope?:'specific'|'all'; occasionIds?:string[]};
   pricingModel?: 'legacy'|'per_pax'|'per_bundle';
+  maxDropOffOrderQuantityText?: string;
   priceText?: string; minimumGuestsText?: string; maximumGuestsText?: string;
   tiers?: Partial<Record<Tier, {enabled:boolean; priceText:string;
     includedServices:string[]; decorInclusions:string[];
@@ -233,7 +275,7 @@ export interface PackageEditorProgressV2 {
   decorInclusions?:string[]; furnitureInclusions?:string[]; equipmentInclusions?:string[];
   themes?: {editorThemeId:string; name:string; description:string; assetIds:string[]}[];
   marketingAssetIds?:string[];
-  paymentPolicy?: 'full_payment'|'deposit_then_balance'; depositPercentageText?:string;
+  paymentPolicy?: 'full_payment'|'deposit_then_balance'; fullPaymentAllowed?: boolean; depositPercentageText?:string;
 }
 export interface PackageEditorDraftV2 {
   editorSchemaVersion:2;
@@ -275,7 +317,7 @@ export interface ExistingPackageWriteInput {
   price:number;
   serviceOptions:Partial<Record<Tier, {price:number; includedServices:readonly string[]}>>;
   themeOptions:{id:string; name:string; description:string; imageUrls:readonly string[]}[];
-  paymentPolicy:'full_payment'|'deposit_then_balance'; depositPercentage:number;
+  paymentPolicy:'full_payment'|'deposit_then_balance'; fullPaymentAllowed?: boolean; depositPercentage:number;
   balanceDueDaysBeforeEvent?:number|null; downPaymentPercentage?:number;
   minimumGuests:number; maximumGuests:number; imageUrl:string; imageUrls?:string[];
   foodInclusions:string[]; decorInclusions:string[]; furnitureInclusions:string[]; serviceInclusions:string[];
@@ -307,6 +349,7 @@ export type PackageV2Write = Omit<ExistingPackageWriteInput,
   WritableOccasionV2 & OfferV2 & {
     offerStructure?: 'fixed'|'customizable'|'individual';
     packageStyle?: string;
+    privateOccasionLabels?: string[];
   };
 export type CreateProviderPackageV2Request = PackageV2Write & {sharedContractVersion:2; idempotencyKey:string};
 export type UpdateProviderPackageV2Request = CreateProviderPackageV2Request & {packageId:string; expectedRevision:number};

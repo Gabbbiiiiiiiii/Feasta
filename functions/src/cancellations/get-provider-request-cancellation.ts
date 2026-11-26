@@ -256,6 +256,12 @@ async function cancellationOptions(
     const result = (...args: Parameters<typeof optionsResult>) => ({
       ...optionsResult(...args), providerRequestStatus: status,
       eligibilityExpiresInMs: deadline.eligibilityExpiresInMs,
+      ...(deadline.cancellationCutoffAt !== null
+        ? {
+            cancellationCutoffAt: deadline.cancellationCutoffAt,
+            cancellationCutoffHours: deadline.cancellationCutoffHours,
+          }
+        : {}),
     });
     const activeCancellation = safeCancellation &&
       isCancellationWorkflowActive(safeCancellation.status)

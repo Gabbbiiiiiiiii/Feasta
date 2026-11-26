@@ -1,4 +1,5 @@
 import {BookingLifecycleStatus, BookingLifecycleText} from "@/components/shared/booking-lifecycle-status";
+import {CustomerArrangedPayment} from "./customer-arranged-payment";
 import {Clock3, TriangleAlert} from "lucide-react";
 import {initialPaymentReminderDeadline} from "@/lib/customer/bookings/customer-booking-initial-payment-deadline";
 import Link from "next/link";
@@ -27,6 +28,7 @@ import type {
 } from "@/lib/customer/bookings/customer-booking-types";
 import {customerBookingPaymentPresentation, formatCustomerBalanceDeadline} from "@/lib/customer/bookings/customer-booking-payment-presentation";
 import {hasPartialUpfrontPayment} from "@/lib/payments/customer-payment-presentation";
+import {describeCancellationCutoff} from "@/lib/provider/cancellation-cutoff-view";
 import {cn} from "@/lib/utils";
 
 type CustomerBookingProviderRequestCardProps = {
@@ -41,6 +43,7 @@ type CustomerBookingProviderRequestCardProps = {
   cancellationStatus?: ReactNode;
   cancellationAction?: ReactNode;
   complaintAction?: ReactNode;
+  onArrangementUpdated?: () => void | Promise<void>;
 };
 
 const MAX_SERVICES_PER_REQUEST = 30;
@@ -57,6 +60,7 @@ function CustomerBookingProviderRequestCard({
   cancellationStatus,
   cancellationAction,
   complaintAction,
+  onArrangementUpdated,
 }: CustomerBookingProviderRequestCardProps) {
   const services = request.services.slice(0, MAX_SERVICES_PER_REQUEST);
   const initialDeadline = hideInitialPaymentReminder ? null : initialPaymentReminderDeadline(request);
@@ -108,6 +112,10 @@ function CustomerBookingProviderRequestCard({
         </div>
       </header>
 
+      {request.arrangedPayment && <CustomerArrangedPayment key={request.arrangedPayment.id}
+        offer={request.arrangedPayment} requestId={request.id} pendingRequest={request.status === "pending"}
+        onChange={onArrangementUpdated} />}
+
       <div className={cn(
         "rounded-xl border p-3",
         outcomeClassName(request.status),
@@ -139,7 +147,7 @@ function CustomerBookingProviderRequestCard({
 
       {request.specialOffer && <h4 className="text-sm font-bold">Price breakdown</h4>}
       <dl className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-border bg-border">
-        {request.specialOffer && <>
+        {request.specialOffer ? <>
           {request.specialOffer.quantity !== undefined && (
             <FinancialMetric label="Packages ordered" value={String(request.specialOffer.quantity)} />
           )}
@@ -148,8 +156,39 @@ function CustomerBookingProviderRequestCard({
           )}
           <FinancialMetric label="Package subtotal" value={formatCurrency(request.specialOffer.subtotalInCentavos / 100)} />
           {request.specialOffer.deliveryIncluded && <FinancialMetric label="Delivery" value="Included" />}
-        </>}
-        <FinancialMetric label={request.specialOffer ? "Total payable" : "Total service price"} value={formatCurrency(request.amount)} />
+          {request.specialOffer.isCustomerPaid && request.specialOffer.providerFeeInCentavos !== null && (
+            <FinancialMetric
+              label={
+                request.specialOffer.platformCommissionRateBps
+                  ? `FEASTA service fee (${Number.isInteger(request.specialOffer.platformCommissionRateBps / 100) ? String(request.specialOffer.platformCommissionRateBps / 100) : (request.specialOffer.platformCommissionRateBps / 100).toFixed(2).replace(/0+$/u, "").replace(/\.$/u, "")}%)`
+                  : "FEASTA service fee"
+              }
+              value={`+${formatCurrency(request.specialOffer.providerFeeInCentavos / 100)}`}
+            />
+          )}
+        </> : request.platformCommissionModel === "customer_paid_flat_v1" &&
+          request.serviceSubtotalInCentavos != null &&
+          request.platformFeeInCentavos != null ? (
+          <>
+            <FinancialMetric label="Service subtotal" value={formatCurrency(request.serviceSubtotalInCentavos / 100)} />
+            <FinancialMetric
+              label={
+                request.platformCommissionRateBps
+                  ? `FEASTA service fee (${Number.isInteger(request.platformCommissionRateBps / 100) ? String(request.platformCommissionRateBps / 100) : (request.platformCommissionRateBps / 100).toFixed(2).replace(/0+$/u, "").replace(/\.$/u, "")}%)`
+                  : "FEASTA service fee"
+              }
+              value={`+${formatCurrency(request.platformFeeInCentavos / 100)}`}
+            />
+          </>
+        ) : null}
+        <FinancialMetric
+          label={
+            request.specialOffer || request.platformCommissionModel === "customer_paid_flat_v1"
+              ? "Total payable"
+              : "Total service price"
+          }
+          value={formatCurrency(request.amount)}
+        />
         {checkoutPresentation.currentAmount !== null ? <FinancialMetric label={checkoutPresentation.dueLabel} value={formatCurrency(checkoutPresentation.currentAmount)} /> : null}
       </dl>
       <section
@@ -167,11 +206,22 @@ function CustomerBookingProviderRequestCard({
                 <summary className="cursor-pointer font-semibold">Tax breakdown</summary>
                 <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
                   <span>VAT-exclusive service amount</span>
-                  <strong>{formatCurrency((Math.round(request.amount * 100) - request.serviceVat.includedInPriceInCentavos) / 100)}</strong>
+                  <strong>
+                    {formatCurrency(
+                      ((request.platformCommissionModel === "customer_paid_flat_v1" &&
+                        request.serviceSubtotalInCentavos != null
+                        ? request.serviceSubtotalInCentavos
+                        : request.specialOffer?.isCustomerPaid
+                          ? request.specialOffer.subtotalInCentavos
+                          : Math.round(request.amount * 100)) -
+                        request.serviceVat.includedInPriceInCentavos) /
+                        100,
+                    )}
+                  </strong>
                 </div>
               </details>
               <p className="text-xs text-muted-foreground">
-                VAT is already included in the total service price. No additional charge.
+                VAT is already included in the provider&apos;s service price. No additional charge.
               </p>
             </div>
           ) : (
@@ -192,6 +242,10 @@ function CustomerBookingProviderRequestCard({
           <p className="font-semibold">FEASTA service fee</p>
           {request.specialOffer.providerFeeInCentavos === null ? (
             <p className="text-muted-foreground">This booking has no recorded fee breakdown.</p>
+          ) : request.specialOffer.isCustomerPaid ? (
+            <p>
+              {formatCurrency(request.specialOffer.providerFeeInCentavos / 100)} FEASTA service fee is included in your total payable. The provider receives 100% of the package subtotal.
+            </p>
           ) : (
             <p>{formatCurrency(request.specialOffer.providerFeeInCentavos / 100)} provider commission, calculated on the total payable using FEASTA’s tiered caps. Customer charge {formatCurrency(0)}.</p>
           )}
@@ -218,18 +272,38 @@ function CustomerBookingProviderRequestCard({
       ) : null}
       {partialUpfront ? (
         <details className="rounded-xl border border-border p-3 text-sm text-muted-foreground">
-          <summary className="cursor-pointer font-semibold">Original payment terms</summary>
+          <summary className="cursor-pointer font-semibold">
+            {request.arrangedPayment?.status === "accepted" ? "Arranged payment terms" : "Original payment terms"}
+          </summary>
           <dl className="mt-3 grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-border bg-border">
-            <FinancialMetric label="Payment terms" value={partialUpfront ? "Deposit + remaining balance" : "Full payment"} />
-            <FinancialMetric label="Deposit amount" value={formatCurrency(request.downPaymentAmount)} />
+            <FinancialMetric
+              label="Payment terms"
+              value={request.arrangedPayment?.status === "accepted" ? "Arranged payment" : partialUpfront ? "Down Payment" : "Full payment"}
+            />
+            <FinancialMetric
+              label={request.arrangedPayment?.status === "accepted" ? "First payment" : "Deposit amount"}
+              value={formatCurrency(request.downPaymentAmount)}
+            />
             <FinancialMetric label="Remaining amount" value={formatCurrency(request.remainingBalance)} />
-            <FinancialMetric label="Deposit rate" value={formatPercentage(request.downPaymentPercentage)} />
+            <FinancialMetric
+              label={request.arrangedPayment?.status === "accepted" ? "First payment share" : "Deposit rate"}
+              value={formatPercentage(request.downPaymentPercentage)}
+            />
             {request.remainingBalanceDueAt && partialUpfront ? <FinancialMetric label="Balance deadline" value={formatCustomerBalanceDeadline(request.remainingBalanceDueAt)} /> : null}
           </dl>
         </details>
       ) : null}
       {checkoutPresentation.showRemainingBalance && request.remainingBalanceStatus && request.remainingBalanceStatus !== "not_applicable" ? (
         <RemainingBalanceLifecycle request={request} />
+      ) : null}
+
+      {request.cancellationCutoff ? (
+        <div className="rounded-xl border border-border bg-muted/20 p-3 text-xs leading-5">
+          <p className="font-semibold text-foreground">Cancellation cutoff</p>
+          <p className="mt-0.5 text-muted-foreground">
+            {describeCancellationCutoff(request.cancellationCutoff)}
+          </p>
+        </div>
       ) : null}
 
       {durableConfirmation ? (

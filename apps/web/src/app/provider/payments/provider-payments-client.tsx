@@ -234,7 +234,7 @@ export function ProviderPaymentsClient({
       <PageHeading
         eyebrow="Provider finance"
         title="Payments"
-        description="Track customer payments, manage your earnings, and check payout status."
+        description="Track direct customer payments, manage your payout destination, and review settlement history."
       />
 
       <details className="group rounded-xl border border-border/80 bg-secondary/50 transition-colors duration-fast open:bg-secondary/35">
@@ -243,7 +243,7 @@ export function ProviderPaymentsClient({
             aria-hidden="true"
             className="size-4 shrink-0 text-primary transition-transform duration-fast group-open:rotate-90 motion-reduce:transition-none"
           />
-          <span>How payments, earnings, and payouts work</span>
+          <span>How direct payments, earnings, and refunds work</span>
         </summary>
         <div className="px-3.5 pb-4 pt-1 sm:px-4">
           <PaymentFlowOverview embedded />
@@ -261,7 +261,7 @@ export function ProviderPaymentsClient({
         </p>
       ) : null}
 
-      <p className="text-sm text-muted-foreground">Customer payments are separate from earnings and payouts. Reload the page to refresh all financial summaries.</p>
+      <p className="text-sm text-muted-foreground">Customer payments split directly to your linked payout account and FEASTA’s service fee. Reload the page to refresh all financial summaries.</p>
 
       <section
         className="rounded-card border border-border bg-card p-3 shadow-card"

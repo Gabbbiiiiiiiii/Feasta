@@ -14,9 +14,9 @@ function validInput(
 ) {
   return {
     platformCommissionRateBps:
-      200,
+      20,
     platformCommissionModel:
-      "tiered_capped_2pct_v1",
+      "customer_paid_flat_v1",
     platformTaxStatus:
       "non_vat",
     platformVatRateBps:
@@ -153,7 +153,7 @@ describe(
             }),
           ),
         ).toThrow(
-          "FEASTA commission must use the tiered capped policy.",
+          "FEASTA service fee must use the customer-paid flat rate policy.",
         );
       },
     );

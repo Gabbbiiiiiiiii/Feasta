@@ -12,7 +12,7 @@ const SIGNAL_FIELDS = [
   "status", "paymentStatus", "updatedAt", "providerRequestIds", "expiresAt", "pendingProviderRequestCount",
   "initialPaymentDeadlineAt", "initialPayment", "bookingPolicy", "remainingBalanceStatus",
   "remainingBalanceEnforcement", "cancelledAt", "confirmedAt", "completedAt",
-  "acceptedAt", "respondedAt", "rejectedAt", "replacementStatus", "settlementStatus",
+  "acceptedAt", "respondedAt", "rejectedAt", "replacementStatus", "settlementStatus", "arrangedPaymentOffer",
 ] as const;
 
 export function bookingSignal(data: Record<string, unknown> | undefined): string {

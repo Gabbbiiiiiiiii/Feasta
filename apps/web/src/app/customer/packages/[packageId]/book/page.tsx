@@ -17,6 +17,9 @@ import {
   requireVerifiedEmail,
 } from "@/lib/auth/session";
 import {
+  getActivePlatformCommissionRateBps,
+} from "@/lib/admin/settings/admin-settings-service";
+import {
   getPublicEventServices,
 } from "@/lib/customer/discovery/event-service-discovery-service";
 import {
@@ -122,11 +125,12 @@ export default async function CustomerPackageBookingPage({
     notFound();
   }
 
-  const [eventServices, publishedSetups] = await Promise.all([
+  const [eventServices, publishedSetups, platformCommissionRateBps] = await Promise.all([
     getPublicEventServices(
       detail.provider.id,
     ),
     readPublishedProviderSetups(detail.provider.id),
+    getActivePlatformCommissionRateBps(),
   ]);
 
   return (
@@ -144,6 +148,7 @@ export default async function CustomerPackageBookingPage({
         initialEventContext={initialEventContext}
         initialPlanningContext={planningContext} bestFitReturnHref={bestFitReturnHref} initialServiceTier={initialServiceTier}
         publishedSetups={publishedSetups}
+        platformCommissionRateBps={platformCommissionRateBps}
       />
     </div>
   );

@@ -141,7 +141,7 @@ export function validateAdminFinancialPolicyUpdate(
       DEFAULT_PLATFORM_COMMISSION_MODEL
   ) {
     throw new Error(
-      "FEASTA commission must use the tiered capped policy.",
+      "FEASTA service fee must use the customer-paid flat rate policy.",
     );
   }
 

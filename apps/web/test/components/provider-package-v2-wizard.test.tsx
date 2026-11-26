@@ -27,14 +27,10 @@ vi.mock("@/app/provider/packages/dish-library-actions", () => ({
 async function chooseSavedDishes(names:string[]){const dialog=screen.queryByRole("dialog",{name:/Food Choice Group/});fireEvent.click((dialog?within(dialog):screen).getByRole("button",{name:"Choose from Dish List"}));const picker=within(await screen.findByRole("dialog",{name:"Dish Library"}));for(const name of names){fireEvent.change(picker.getByRole("searchbox"),{target:{value:name}});fireEvent.click(picker.getByRole("checkbox",{name}));}fireEvent.click(picker.getByRole("button",{name:`Add ${names.length} selected ${names.length===1?"dish":"dishes"}`}));}
 const api=vi.hoisted(()=>({create:vi.fn(),update:vi.fn(),complete:vi.fn(),retry:vi.fn(),pending:vi.fn(()=>false),save:vi.fn(),legacy:vi.fn()}));
 vi.mock("@/lib/provider/provider-package-v2-client",()=>({packageV2Enabled:true,packageV2PublicationEnabled:false,createV2PackageDraft:api.create,updateV2PackageDraft:api.update,completeV2PackageProgress:api.complete,hasPendingV2Draft:api.pending,retryPendingV2Draft:api.retry}));
-vi.mock("@/lib/provider/provider-package-client",()=>({createProviderPackage:api.legacy,updateProviderPackage:api.legacy}));
+vi.mock("@/lib/provider/provider-package-client",()=>({createProviderPackage:api.legacy,updateProviderPackage:api.legacy,publishProviderPackage:vi.fn()}));
 vi.mock("@/lib/provider/provider-package-progress",()=>({packageEditorProgressEnabled:true,savePackageProgress:api.save,packageProgressError:()=>"Progress failed"}));
 const props={occasionCatalog:{options:[{id:"birthday",label:"Birthday",categoryCodes:["catering_service"]},{id:"wedding",label:"Wedding",categoryCodes:["catering_service"]}],catalogRevision:1,eligibilityModel: "global_v1" as const,maxSpecificOccasions:10},packageCategoryOptions:[{code:"catering_service",name:"Catering"}],eventTypesSupported:["birthday","wedding"],minGuestsPerEvent:1,maxGuestsPerEvent:100,onSaved:vi.fn(),onCancel:vi.fn()};
 const packageValue:ProviderPackage={id:"pkg",providerId:"provider",name:"Catering draft",description:"Complete catering package.",eventType:"birthday",serviceCategoryCode:"catering_service",price:100,serviceOptions:{drop_off:{price:100,includedServices:["Delivery"]}},themeOptions:[],paymentPolicy:"full_payment",depositPercentage:100,downPaymentPercentage:100,balanceDueDaysBeforeEvent:null,minimumGuests:10,maximumGuests:50,imageUrl:"",imageUrls:[],foodInclusions:[],decorInclusions:[],furnitureInclusions:[],serviceInclusions:[],status:"draft",isActive:false,isPublished:false,providerPubliclyVisible:false,pricingModel:"per_pax",v2:{revision:7,offerStructure:"fixed",packageStyle:"Buffet Catering",occasionScope:"specific",occasionIds:["birthday","wedding"],equipmentInclusions:["Shared warmer"],serviceOptions:{drop_off:{price:100,includedServices:["Delivery"],equipmentInclusions:["Tier equipment"]}}}};
-const chooseClassification=()=>{
- fireEvent.change(screen.getByRole("combobox",{name:/Package structure/}),
-  {target:{value:"fixed"}});
-};
 const next=()=>fireEvent.click(screen.getByRole("button",{name:"Next"}));
 const review=()=>{next();next();next();next();};
 afterEach(()=>vi.unstubAllGlobals());
@@ -63,20 +59,16 @@ const servicesDraft = (offerStructure: "fixed" | "customizable"): SavedEditorDra
 it.each([0, 1, 2, 3, 4] as const)("shares stable footer regions on step %s", (step) => {
  render(<ProviderPackageForm {...props} dialogLayout initialEditorProgress={{...servicesDraft("fixed"), currentStep:step}}/>);
  const footer = screen.getByRole("group", {name:"Package wizard actions"});
- const [left, helper, actions] = Array.from(footer.children);
- expect(footer).toHaveClass("grid", "min-w-0", "lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,20rem)]");
+ expect(footer).toHaveClass("flex", "min-w-0", "sm:flex-row", "sm:justify-between");
  expect(footer.parentElement).toHaveClass("shrink-0", "border-t");
  expect(screen.getByRole("region", {name:"Package details"})).not.toContainElement(footer);
- expect(helper).toHaveClass("min-w-0", "text-center");
- expect(within(helper as HTMLElement).getByText(/Save Draft & Exit keeps your place in the wizard/)).toHaveClass("text-xs", "leading-5", "text-muted-foreground");
- expect(actions).toHaveClass("grid", "grid-cols-[minmax(0,1fr)_minmax(0,2fr)]", "gap-3");
- fireEvent.click(within(left as HTMLElement).getByRole("button", {name:"Cancel"}));
+ const nav = footer.firstElementChild as HTMLElement;
+ const actions = footer.lastElementChild as HTMLElement;
+ fireEvent.click(within(nav).getByRole("button", {name:"Cancel"}));
  expect(props.onCancel).toHaveBeenCalledTimes(1);
- const back = within(actions as HTMLElement).queryByRole("button", {name:"Back"});
+ const back = within(nav).queryByRole("button", {name:"Back"});
  if (step === 0) {
   expect(back).not.toBeInTheDocument();
-  expect(actions.firstElementChild).toHaveAttribute("aria-hidden", "true");
-  expect(actions.firstElementChild).not.toHaveAttribute("tabindex");
  } else {
   expect(back).toBeEnabled();
   fireEvent.click(back!);
@@ -84,40 +76,32 @@ it.each([0, 1, 2, 3, 4] as const)("shares stable footer regions on step %s", (st
   next();
  }
  if (step < 4) {
-  expect(within(footer).queryByRole("button", {name:"Save Package Draft"})).not.toBeInTheDocument();
+  expect(within(footer).getByText(/Save Draft & Exit keeps your place in the wizard/)).toHaveClass("text-xs", "leading-5", "text-muted-foreground");
+  expect(within(footer).queryByRole("button", {name:"Save as Draft"})).not.toBeInTheDocument();
+  expect(within(footer).queryByRole("button", {name:"Publish Package"})).not.toBeInTheDocument();
+  expect(within(actions).getByRole("button", {name:"Next"})).toBeEnabled();
   next();
   expect(screen.getByRole("heading", {name:new RegExp(`^Step ${step + 2}:`)})).toBeVisible();
  } else {
-  expect(within(footer).getByRole("button", {name:"Save Package Draft"})).toBeEnabled();
+  expect(within(actions).getByRole("button", {name:"Save as Draft"})).toBeEnabled();
+  expect(within(actions).getByRole("button", {name:"Publish Package"})).toBeDisabled();
   expect(within(footer).queryByRole("button", {name:"Next"})).not.toBeInTheDocument();
  }
  expect(api.create).not.toHaveBeenCalled();
 });
-it.each(["fixed", "customizable"] as const)("offers only the two supported structures and selects %s", (structure) => {
- render(<ProviderPackageForm {...props}/>);
- const select = screen.getByRole("combobox", {name: /Package structure/});
- expect(within(select).getAllByRole("option").filter(option => option.getAttribute("value"))).toHaveLength(2);
- expect(within(select).getByRole("option", {name: "Fixed Package"})).toHaveValue("fixed");
- expect(within(select).getByRole("option", {name: "Customizable Package"})).toHaveValue("customizable");
- expect(within(select).queryByRole("option", {name: "Individual Food Item"})).not.toBeInTheDocument();
- fireEvent.change(select, {target: {value: structure}});
- expect(select).toHaveValue(structure);
-});
 it("retains the individual structure when editing a historical package", () => {
  render(<ProviderPackageForm {...props} initialPackage={{...packageValue, offerStructure: "individual", v2: {...packageValue.v2!, offerStructure: "individual"}}}/>);
- const select = screen.getByRole("combobox", {name: /Package structure/});
- expect(select).toHaveValue("individual");
- expect(within(select).getByRole("option", {name: "Individual Food Item"})).toBeDisabled();
+ next();
+ next();
+ expect(screen.getByText(/Individual food items can be edited in private progress/)).toBeVisible();
  expect(api.update).not.toHaveBeenCalled();
 });
-it("retains individual progress on the classification step and saves without conversion", async () => {
- const initial: SavedEditorDraft = {...servicesDraft("fixed"), currentStep: 0,
+it("retains individual progress on the food menu step and saves without conversion", async () => {
+ const initial: SavedEditorDraft = {...servicesDraft("fixed"), currentStep: 2,
   progress: {...servicesDraft("fixed").progress, offerStructure: "individual"}};
  api.save.mockResolvedValueOnce(initial);
  render(<ProviderPackageForm {...props} initialEditorProgress={initial} onProgressExit={vi.fn()}/>);
- const select = screen.getByRole("combobox", {name: /Package structure/});
- expect(select).toHaveValue("individual");
- expect(within(select).getByRole("option", {name: "Individual Food Item"})).toBeDisabled();
+ expect(screen.getByText(/Individual food items can be edited in private progress/)).toBeVisible();
  fireEvent.click(screen.getByRole("button", {name: "Save Draft & Exit"}));
  await waitFor(() => expect(api.save).toHaveBeenCalledTimes(1));
  expect(api.save.mock.calls[0][0].progress.offerStructure).toBe("individual");
@@ -129,7 +113,7 @@ it.each(["fixed", "customizable"] as const)("keeps %s Step 4 navigation separate
  expect(screen.getByRole("heading",{name:"Step 5: Review & save"})).toBeVisible();
  expect(screen.queryByRole("dialog",{name:"FEASTA Confirmation"})).not.toBeInTheDocument();
  expect(navigation).not.toBeInTheDocument();
- expect(screen.getByRole("button",{name:"Save Package Draft"})).toHaveAttribute("type","button");
+ expect(screen.getByRole("button",{name:"Save as Draft"})).toHaveAttribute("type","button");
  expect(screen.getByText("Review catering")).toBeVisible();
  const region=screen.getByRole("region",{name:"Package details"});
  expect(region).toHaveClass("overflow-y-auto");
@@ -147,9 +131,9 @@ it.each(["fixed", "customizable"] as const)("keeps %s Step 4 navigation separate
  expect(screen.getByLabelText("Service inclusions")).toHaveValue("Delivery retained");
  next();
  for (const action of ["Cancel", "Close dialog", "Escape"]) {
-  fireEvent.click(screen.getByRole("button",{name:"Save Package Draft"}));
+  fireEvent.click(screen.getByRole("button",{name:"Save as Draft"}));
   const dialog=screen.getByRole("dialog",{name:"FEASTA Confirmation"});
-  expect(within(dialog).getByText("Create private package draft?")).toBeVisible();
+  expect(within(dialog).getByText("Save package as draft?")).toBeVisible();
   if(action === "Escape") fireEvent.keyDown(dialog,{key:"Escape"});
   else fireEvent.click(within(dialog).getByRole("button",{name:action}));
   await waitFor(()=>expect(screen.queryByRole("dialog",{name:"FEASTA Confirmation"})).not.toBeInTheDocument());
@@ -161,7 +145,6 @@ it("creates a new draft once after explicit confirmation and preserves review on
  let reject!: (reason: Error) => void;
  api.create.mockImplementationOnce(()=>new Promise((_,r)=>{reject=r;}));
  render(<ProviderPackageForm {...props}/>);
- chooseClassification();
  fireEvent.change(screen.getByLabelText(/Package name/),{target:{value:"New catering"}});
  fireEvent.change(screen.getByLabelText(/Description/),{target:{value:"Complete new catering package."}});
  fireEvent.change(screen.getByLabelText(/Suitable occasions/),{target:{value:"birthday"}});
@@ -173,54 +156,26 @@ it("creates a new draft once after explicit confirmation and preserves review on
  fireEvent.change(screen.getByLabelText(/Drop-Off.*price/),{target:{value:"100"}});
   next();
 
-  const rules = screen.getByRole("region", {
-    name: "Parent Group rules",
-  });
-
-  fireEvent.click(
-    within(rules).getByRole("button", {
-      name: "Add Parent Group rule",
-    }),
-  );
-
-  const parentGroup = await within(rules).findByRole(
-    "combobox",
-    {name: "Parent Group"},
-  );
-
-  fireEvent.change(parentGroup, {
-    target: {value: "Main dishes"},
-  });
-
-  expect(within(rules).getByText("5 eligible dishes"))
-    .toBeVisible();
-
-  fireEvent.click(
-    within(rules).getByRole("button", {name: "Save rule"}),
-  );
-
-  expect(within(rules).getByText("Choose 1 from 5 dishes"))
-    .toBeVisible();
+  await chooseSavedDishes(["Chicken Afritada"]);
 
   next();
   next();
  expect(api.create).not.toHaveBeenCalled();
- fireEvent.click(screen.getByRole("button",{name:"Save Package Draft"}));
- const button=within(screen.getByRole("dialog",{name:"FEASTA Confirmation"})).getByRole("button",{name:"Create Draft"});
+ fireEvent.click(screen.getByRole("button",{name:"Save as Draft"}));
+ const button=within(screen.getByRole("dialog",{name:"FEASTA Confirmation"})).getByRole("button",{name:"Save as Draft"});
  fireEvent.click(button);fireEvent.click(button);
  await waitFor(()=>expect(api.create).toHaveBeenCalledTimes(1));
- expect(screen.getByRole("button",{name:/Creating package/})).toBeDisabled();
+ expect(screen.getByRole("button",{name:/Saving draft/})).toBeDisabled();
  expect(screen.getByRole("button",{name:"Cancel"})).toBeDisabled();
  expect(screen.getByRole("button",{name:"Back"})).toBeDisabled();
  reject(new Error("save failed"));
  await waitFor(()=>expect(screen.getByRole("alert")).toBeInTheDocument());
  expect(screen.getByText("New catering")).toBeVisible();
- expect(screen.getByRole("button",{name:"Save Package Draft"})).toBeEnabled();
+ expect(screen.getByRole("button",{name:"Save as Draft"})).toBeEnabled();
  expect(props.onSaved).not.toHaveBeenCalled();
 });
 it("creates a real multi-occasion Fixed Bundle draft from the new wizard",async()=>{
  render(<ProviderPackageForm {...props}/>);
- chooseClassification();
  fireEvent.change(screen.getByLabelText(/Suitable occasions/),{target:{value:"birthday"}});
  fireEvent.click(screen.getByRole("button",{name:"Add selected occasion"}));
  fireEvent.change(screen.getByLabelText(/Package name/),{target:{value:"New catering"}});
@@ -234,42 +189,15 @@ it("creates a real multi-occasion Fixed Bundle draft from the new wizard",async(
  fireEvent.change(screen.getByLabelText(/Drop-Off.*price/),{target:{value:"100"}});
   next();
 
-  const rules = screen.getByRole("region", {
-    name: "Parent Group rules",
-  });
-
-  fireEvent.click(
-    within(rules).getByRole("button", {
-      name: "Add Parent Group rule",
-    }),
-  );
-
-  const parentGroup = await within(rules).findByRole(
-    "combobox",
-    {name: "Parent Group"},
-  );
-
-  fireEvent.change(parentGroup, {
-    target: {value: "Main dishes"},
-  });
-
-  expect(within(rules).getByText("5 eligible dishes"))
-    .toBeVisible();
-
-  fireEvent.click(
-    within(rules).getByRole("button", {name: "Save rule"}),
-  );
-
-  expect(within(rules).getByText("Choose 1 from 5 dishes"))
-    .toBeVisible();
+  await chooseSavedDishes(["Chicken Afritada"]);
 
   next();
   next();
- fireEvent.click(screen.getByRole("button",{name:"Save Package Draft"}));
+ fireEvent.click(screen.getByRole("button",{name:"Save as Draft"}));
  expect(api.create).not.toHaveBeenCalled();
- expect(screen.getByText("Create private package draft?")).toBeInTheDocument();
- expect(screen.getByText("Your package will be saved as a private draft. It will not be published or visible to customers. You can review and edit your package later.")).toBeInTheDocument();
- fireEvent.click(within(screen.getByRole("dialog",{name:"FEASTA Confirmation"})).getByRole("button",{name:"Create Draft"}));
+ expect(screen.getByText("Save package as draft?")).toBeInTheDocument();
+ expect(screen.getByText("Your package will be saved as a private draft. It will not be published or visible to customers until you publish it.")).toBeInTheDocument();
+ fireEvent.click(within(screen.getByRole("dialog",{name:"FEASTA Confirmation"})).getByRole("button",{name:"Save as Draft"}));
  await waitFor(()=>expect(api.create).toHaveBeenCalledTimes(1));
  expect(api.create.mock.calls[0][0]).toMatchObject({offerStructure:"fixed",occasionIds:["birthday","wedding"],pricingModel:"per_bundle",price:100,sharedContractVersion:2});
 expect(api.create.mock.calls[0][0]).not.toHaveProperty("packageStyle");
@@ -277,16 +205,16 @@ expect(api.create.mock.calls[0][0]).not.toHaveProperty("packageStyle");
 });
 it("reopens V2 selections and preserves tier extensions with the server revision",async()=>{
  render(<ProviderPackageForm {...props} initialPackage={packageValue}/>); review();
- fireEvent.click(screen.getByRole("button",{name:"Save changes"}));
- fireEvent.click(within(screen.getByRole("dialog",{name:"FEASTA Confirmation"})).getByRole("button",{name:"Save changes"}));
+ fireEvent.click(screen.getByRole("button",{name:"Save as Draft"}));
+ fireEvent.click(within(screen.getByRole("dialog",{name:"FEASTA Confirmation"})).getByRole("button",{name:"Save as Draft"}));
  await waitFor(()=>expect(api.update).toHaveBeenCalledTimes(1));
  expect(api.update.mock.calls[0][0]).toMatchObject({packageId:"pkg",expectedRevision:7,offerStructure:"fixed",packageStyle:"Buffet Catering",occasionIds:["birthday","wedding"],pricingModel:"per_pax",equipmentInclusions:["Shared warmer"],serviceOptions:{drop_off:{equipmentInclusions:["Tier equipment"]}}});
  expect(api.legacy).not.toHaveBeenCalled();
 });
 it("persists Fits All without inventing a scalar occasion",async()=>{
  render(<ProviderPackageForm {...props} initialPackage={{...packageValue,pricingModel:"per_bundle",v2:{...packageValue.v2!,occasionScope:"all",occasionIds:[]}}}/>);review();
- fireEvent.click(screen.getByRole("button",{name:"Save changes"}));
- fireEvent.click(within(screen.getByRole("dialog",{name:"FEASTA Confirmation"})).getByRole("button",{name:"Save changes"}));
+ fireEvent.click(screen.getByRole("button",{name:"Save as Draft"}));
+ fireEvent.click(within(screen.getByRole("dialog",{name:"FEASTA Confirmation"})).getByRole("button",{name:"Save as Draft"}));
  await waitFor(()=>expect(api.update).toHaveBeenCalledTimes(1));
  expect(api.update.mock.calls[0][0]).toMatchObject({occasionScope:"all",occasionIds:[],pricingModel:"per_bundle"});
  expect(api.update.mock.calls[0][0]).not.toHaveProperty("eventType");
@@ -305,8 +233,8 @@ it("saves latest resumed progress before completing exactly that editor revision
     occasion:{occasionSchemaVersion:2 as const,occasionScope:"all" as const,occasionIds:[]},pricingModel:"per_pax" as const,minimumGuestsText:"10",maximumGuestsText:"50",paymentPolicy:"full_payment" as const,tiers:{drop_off:{enabled:true,priceText:"100",includedServices:["Delivery"],decorInclusions:[],furnitureInclusions:[],equipmentInclusions:[]}}}};
  api.save.mockResolvedValue({...draft,revision:4});api.complete.mockResolvedValue({packageId:"new",packageRevision:1,status:"draft"});
  render(<ProviderPackageForm {...props} initialEditorProgress={draft}/>);
- fireEvent.click(screen.getByRole("button",{name:"Save Package Draft"}));
- fireEvent.click(within(screen.getByRole("dialog",{name:"FEASTA Confirmation"})).getByRole("button",{name:"Create Draft"}));
+ fireEvent.click(screen.getByRole("button",{name:"Save as Draft"}));
+ fireEvent.click(within(screen.getByRole("dialog",{name:"FEASTA Confirmation"})).getByRole("button",{name:"Save as Draft"}));
  await waitFor(()=>expect(api.complete).toHaveBeenCalledTimes(1));
  expect(api.complete.mock.calls[0][0]).toMatchObject({editorDraftId:"editor",expectedRevision:4,expectedPackageRevision:null});
  expect(api.create).not.toHaveBeenCalled();
@@ -314,12 +242,12 @@ it("saves latest resumed progress before completing exactly that editor revision
 it("reports stale revisions without overwriting or falling back to legacy",async()=>{
  api.update.mockRejectedValue({code:"functions/aborted",details:{reason:"REVISION_CONFLICT"}});
  render(<ProviderPackageForm {...props} initialPackage={packageValue}/>);review();
- fireEvent.click(screen.getByRole("button",{name:"Save changes"}));
- fireEvent.click(within(screen.getByRole("dialog",{name:"FEASTA Confirmation"})).getByRole("button",{name:"Save changes"}));
+ fireEvent.click(screen.getByRole("button",{name:"Save as Draft"}));
+ fireEvent.click(within(screen.getByRole("dialog",{name:"FEASTA Confirmation"})).getByRole("button",{name:"Save as Draft"}));
  await waitFor(()=>expect(screen.getByRole("alert")).toHaveTextContent("entries are still here"));
  expect(api.update.mock.calls[0][0].expectedRevision).toBe(7);expect(api.legacy).not.toHaveBeenCalled();
 });
-it("blocks missing package classifications at Step 1",()=>{
+it("advances from Step 1 without a package structure field",()=>{
  render(<ProviderPackageForm {...props}/>);
  fireEvent.change(screen.getByLabelText(/Suitable occasions/),{target:{value:"birthday"}});
  fireEvent.click(screen.getByRole("button",{name:"Add selected occasion"}));
@@ -327,37 +255,17 @@ it("blocks missing package classifications at Step 1",()=>{
   {target:{value:"New catering"}});
  fireEvent.change(screen.getByLabelText(/Description/),
   {target:{value:"Complete catering description."}});
+ expect(screen.queryByRole("combobox",{name:/Package structure/})).not.toBeInTheDocument();
  next();
- expect(screen.getByRole("heading",{name:"Step 1: Package details"}))
-  .toBeInTheDocument();
- expect(screen.getByRole("alert")).toHaveTextContent("Choose a package structure.");
-
- fireEvent.change(screen.getByRole("combobox",{name:/Package structure/}),
-  {target:{value:"fixed"}});
- next(); expect(screen.getByRole("heading",{name:"Step 2: Pricing & capacity"})).toBeInTheDocument();
+ expect(screen.getByRole("heading",{name:"Step 2: Pricing & capacity"})).toBeVisible();
  expect(api.create).not.toHaveBeenCalled();
-});
-
-it("allows a customizable package without a package style",()=>{
- render(<ProviderPackageForm {...props}/>);
- fireEvent.change(screen.getByLabelText(/Package name/),
-  {target:{value:"Specialty catering"}});
- fireEvent.change(screen.getByLabelText(/Description/),
-  {target:{value:"Complete specialty catering description."}});
- fireEvent.change(screen.getByRole("combobox",{name:/Package structure/}),
-  {target:{value:"customizable"}});
- fireEvent.change(screen.getByRole("combobox",{name:/Suitable occasions/}),
-  {target:{value:"birthday"}});
- fireEvent.click(screen.getByRole("button",{name:"Add selected occasion"}));
- next();
- expect(screen.getByRole("heading",{name:"Step 2: Pricing & capacity"}))
-  .toBeInTheDocument();
 });
 
 it("restores stored package classifications for editing",()=>{
  render(<ProviderPackageForm {...props} initialPackage={packageValue}/>);
- expect(screen.getByRole("combobox",{name:/Package structure/}))
-  .toHaveValue("fixed");
+ next();
+ next();
+ expect(screen.getByRole("heading", {name: "Included dishes"})).toBeVisible();
  expect(screen.queryByRole("textbox",{name:/Package style/})).not.toBeInTheDocument();
 });
 it("locks uncertain saves and retries the recorded request",async()=>{
@@ -380,8 +288,8 @@ it("edits and saves separate per-tier inclusions without overwriting existing va
  fireEvent.change(screen.getByLabelText("Equipment inclusions for Drop-Off Catering"),
   {target:{value:"Serving trays"}});
  next();
- fireEvent.click(screen.getByRole("button",{name:"Save changes"}));
- fireEvent.click(within(screen.getByRole("dialog",{name:"FEASTA Confirmation"})).getByRole("button",{name:"Save changes"}));
+ fireEvent.click(screen.getByRole("button",{name:"Save as Draft"}));
+ fireEvent.click(within(screen.getByRole("dialog",{name:"FEASTA Confirmation"})).getByRole("button",{name:"Save as Draft"}));
  await waitFor(()=>expect(api.update).toHaveBeenCalledTimes(1));
  expect(api.update.mock.calls[0][0].serviceOptions.drop_off).toMatchObject({
   decorInclusions:["Table flowers","Backdrop"],
@@ -390,7 +298,7 @@ it("edits and saves separate per-tier inclusions without overwriting existing va
 it("cancels branded confirmation with Escape, X and Cancel while preserving wizard state",async()=>{
  render(<ProviderPackageForm {...props} initialPackage={packageValue}/>); review();
  for (const action of ["Cancel", "Close dialog", "Escape"]) {
-  fireEvent.click(screen.getByRole("button",{name:"Save changes"}));
+  fireEvent.click(screen.getByRole("button",{name:"Save as Draft"}));
   const dialog=screen.getByRole("dialog",{name:"FEASTA Confirmation"});
   if(action === "Escape") fireEvent.keyDown(dialog,{key:"Escape"});
   else fireEvent.click(within(dialog).getByRole("button",{name:action}));
@@ -403,16 +311,16 @@ it("submits once while saving and recovers after an error",async()=>{
  let reject!: (reason: Error) => void;
  api.update.mockImplementationOnce(()=>new Promise((_,r)=>{reject=r;}));
  render(<ProviderPackageForm {...props} initialPackage={packageValue}/>); review();
- fireEvent.click(screen.getByRole("button",{name:"Save changes"}));
- const button=within(screen.getByRole("dialog",{name:"FEASTA Confirmation"})).getByRole("button",{name:"Save changes"});
+ fireEvent.click(screen.getByRole("button",{name:"Save as Draft"}));
+ const button=within(screen.getByRole("dialog",{name:"FEASTA Confirmation"})).getByRole("button",{name:"Save as Draft"});
  fireEvent.click(button);fireEvent.click(button);
  await waitFor(()=>expect(api.update).toHaveBeenCalledTimes(1));
  expect(screen.getByRole("button",{name:/Saving/})).toBeDisabled();
  reject(new Error("save failed"));
  await waitFor(()=>expect(screen.getByRole("alert")).toBeInTheDocument());
  expect(screen.getByText("Catering draft")).toBeInTheDocument();
- fireEvent.click(screen.getByRole("button",{name:"Save changes"}));
- fireEvent.click(within(screen.getByRole("dialog",{name:"FEASTA Confirmation"})).getByRole("button",{name:"Save changes"}));
+ fireEvent.click(screen.getByRole("button",{name:"Save as Draft"}));
+ fireEvent.click(within(screen.getByRole("dialog",{name:"FEASTA Confirmation"})).getByRole("button",{name:"Save as Draft"}));
  await waitFor(()=>expect(api.update).toHaveBeenCalledTimes(2));
 });
 it("exits only after a confirmed progress save",async()=>{
@@ -432,10 +340,14 @@ it("keeps the editor open if Save Draft & Exit fails",async()=>{
 });
 
 // Stage F2: a private V2 package preserves exactly-one-of-three meal choices.
-it("creates a private V2 draft from Parent Group rules without changing included dishes", async () => {
-  render(<ProviderPackageForm {...props} />);
+it("creates a private V2 draft with mapped custom occasions, included dishes and customer choices", async () => {
+  const catalog = {...props.occasionCatalog, options: [
+    ...props.occasionCatalog.options,
+    {id: "other", label: "Other", categoryCodes: ["catering_service"]},
+  ]};
+  const loadPrivateOccasions = vi.fn().mockResolvedValue({available: ["Family Reunion"], selected: []});
+  render(<ProviderPackageForm {...props} occasionCatalog={catalog} loadPrivateOccasions={loadPrivateOccasions} />);
 
-  chooseClassification();
   fireEvent.change(screen.getByLabelText(/Package name/), {
     target: {value: "Choice catering"},
   });
@@ -446,6 +358,15 @@ it("creates a private V2 draft from Parent Group rules without changing included
     target: {value: "birthday"},
   });
   fireEvent.click(screen.getByRole("button", {name: "Add selected occasion"}));
+  const createCustom = await screen.findByRole("option", {name: "Create custom occasion"});
+  expect(screen.queryByRole("option", {name: "Choose suitable occasions"})).not.toBeInTheDocument();
+  expect(screen.getByRole("option", {name: "Family Reunion"})).toBeInTheDocument();
+  const occasionSelect = screen.getByRole("combobox", {name: /Suitable occasions/});
+  fireEvent.change(occasionSelect, {target: {value: createCustom.getAttribute("value")}});
+  fireEvent.change(screen.getByLabelText("Custom occasion name"), {target: {value: "Barangay Fiesta"}});
+  fireEvent.click(screen.getByRole("button", {name: "Add selected occasion"}));
+  expect(screen.getByText("Barangay Fiesta (custom)")).toBeVisible();
+  expect(screen.queryByRole("button", {name: "Remove Other occasion"})).not.toBeInTheDocument();
   next();
 
   fireEvent.change(screen.getByLabelText(/Minimum guests/), {
@@ -460,35 +381,36 @@ it("creates a private V2 draft from Parent Group rules without changing included
   });
   next();
 
-  const rules = screen.getByRole("region", {name: "Parent Group rules"});
-  fireEvent.click(within(rules).getByRole("button", {
-    name: "Add Parent Group rule",
-  }));
+  expect(screen.queryByLabelText(/Package structure/)).not.toBeInTheDocument();
+  expect(screen.getByRole("heading", {name: "Included dishes"})).toBeVisible();
+  expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  next();
+  expect(screen.getByRole("alert")).toHaveTextContent("Add an included dish or a customer-selectable food group.");
+  await chooseSavedDishes(["Fish"]);
 
-  fireEvent.change(await within(rules).findByRole("combobox", {
-    name: "Parent Group",
-  }), {target: {value: "Main dishes"}});
-
-  expect(within(rules).getByText("5 eligible dishes")).toBeVisible();
-
-  fireEvent.click(within(rules).getByRole("button", {name: "Save rule"}));
-
-  expect(within(rules).getByText("Choose 1 from 5 dishes")).toBeVisible();
+  const groups = screen.getByRole("region", {name: "Customer-selectable food groups"});
+  fireEvent.click(within(groups).getByRole("button", {name: "Add choice group"}));
+  await screen.findByRole("option", {name: "Main dishes"});
+  fireEvent.change(screen.getByLabelText("Group Name"), {target: {value: "Main dishes"}});
+  fireEvent.click(screen.getByRole("button", {name: "Save choice group"}));
+  expect(within(groups).getByText("Choose 1 from 5 dishes")).toBeVisible();
 
   next();
   next();
 
-  fireEvent.click(screen.getByRole("button", {name: "Save Package Draft"}));
+  fireEvent.click(screen.getByRole("button", {name: "Save as Draft"}));
   fireEvent.click(
     within(screen.getByRole("dialog", {name: "FEASTA Confirmation"}))
-      .getByRole("button", {name: "Create Draft"}),
+      .getByRole("button", {name: "Save as Draft"}),
   );
 
   await waitFor(() => expect(api.create).toHaveBeenCalledTimes(1));
 
   const received = api.create.mock.calls[0][0];
 
-  expect(received.foodInclusions).toEqual([]);
+  expect(received.occasionIds).toEqual(["birthday", "other"]);
+  expect(received.privateOccasionLabels).toEqual(["Barangay Fiesta"]);
+  expect(received.foodInclusions).toEqual(["Saved Dishes: Fish"]);
   expect(received.foodChoiceGroups).toMatchObject([{
     title: "Main dishes",
     selectionCount: 1,
@@ -503,7 +425,8 @@ it("creates a private V2 draft from Parent Group rules without changing included
   expect(received.sharedContractVersion).toBe(2);
 });
 it("blocks an impossible Parent Group selection without invoking package creation", async () => {
-  render(<ProviderPackageForm {...props} initialPackage={packageValue} />);
+  const customizable: ProviderPackage = {...packageValue, offerStructure: "customizable", v2: {...packageValue.v2!, offerStructure: "customizable"}};
+  render(<ProviderPackageForm {...props} initialPackage={customizable} />);
   next();
   next();
 
@@ -575,24 +498,11 @@ it("preserves incomplete historical food groups when saving the editor draft", a
     />,
   );
 
-  const rules = screen.getByRole("region", {name: "Parent Group rules"});
-
-  expect(within(rules).getByRole("heading", {
-    name: "Main dish",
-  })).toBeVisible();
-
-  fireEvent.click(within(rules).getByRole("button", {name: "Edit rule"}));
-
-  const selector = await within(rules).findByRole("combobox", {
-    name: "Parent Group",
-  });
-
-  expect(selector).toHaveValue("");
-
-  expect(within(rules).getByRole("button", {name: "Save rule"}))
-    .toBeDisabled();
-
-  fireEvent.click(within(rules).getByRole("button", {name: "Cancel"}));
+  const groups = screen.getByRole("region", {name: "Customer-selectable food groups"});
+  expect(within(groups).getByRole("heading", {name: "Main dish"})).toBeVisible();
+  fireEvent.click(within(groups).getByRole("button", {name: "Edit choice group 1"}));
+  const dialog = screen.getByRole("dialog", {name: "Edit Food Choice Group"});
+  fireEvent.click(within(dialog).getByRole("button", {name: "Cancel"}));
 
   fireEvent.click(screen.getByRole("button", {name: "Save Draft & Exit"}));
 
@@ -604,7 +514,7 @@ it("preserves incomplete historical food groups when saving the editor draft", a
   expect(api.update).not.toHaveBeenCalled();
   await waitFor(() => expect(exit).toHaveBeenCalledTimes(1));
 });
-it("reopens and updates existing private Parent Group rules", async () => {
+it("reopens and updates existing private food choices without replacing dishes", async () => {
   const originalGroup = {
     id: "main",
     title: "Main dishes",
@@ -625,32 +535,23 @@ it("reopens and updates existing private Parent Group rules", async () => {
   next();
   next();
 
-  const rules = screen.getByRole("region", {name: "Parent Group rules"});
-
-  fireEvent.click(within(rules).getByRole("button", {name: "Edit rule"}));
-
-  expect(await within(rules).findByRole("combobox", {
-    name: "Parent Group",
-  })).toHaveValue("Main dishes");
-
-  expect(within(rules).getByText("5 eligible dishes")).toBeVisible();
-
-  fireEvent.change(within(rules).getByRole("spinbutton", {
-    name: "Number of dishes to choose",
-  }), {target: {value: "2"}});
-
-  fireEvent.click(within(rules).getByRole("button", {name: "Save rule"}));
-
-  expect(within(rules).getByText("Choose 2 from 5 dishes")).toBeVisible();
+  const groups = screen.getByRole("region", {name: "Customer-selectable food groups"});
+  fireEvent.click(within(groups).getByRole("button", {name: "Edit choice group 1"}));
+  const dialog = screen.getByRole("dialog", {name: "Edit Food Choice Group"});
+  await within(dialog).findByRole("option", {name: "Main dishes"});
+  expect(within(dialog).getByLabelText("Group Name")).toHaveValue("Main dishes");
+  fireEvent.change(within(dialog).getByLabelText("Number of dishes to choose"), {target: {value: "2"}});
+  fireEvent.click(within(dialog).getByRole("button", {name: "Save choice group"}));
+  expect(within(groups).getByText("Choose 2 from 2 dishes")).toBeVisible();
 
   next();
   next();
 
-  fireEvent.click(screen.getByRole("button", {name: "Save changes"}));
+  fireEvent.click(screen.getByRole("button", {name: "Save as Draft"}));
 
   fireEvent.click(
     within(screen.getByRole("dialog", {name: "FEASTA Confirmation"}))
-      .getByRole("button", {name: "Save changes"}),
+      .getByRole("button", {name: "Save as Draft"}),
   );
 
   await waitFor(() => expect(api.update).toHaveBeenCalledTimes(1));
@@ -660,13 +561,7 @@ it("reopens and updates existing private Parent Group rules", async () => {
   expect(saved.id).toBe("main");
   expect(saved.title).toBe("Main dishes");
   expect(saved.selectionCount).toBe(2);
-  expect(saved.options.map((option: {name: string}) => option.name)).toEqual([
-    "Chicken Afritada",
-    "Pork Menudo",
-    "Sweet and Sour Fish",
-    "Fish",
-    "Pancit Canton Bilao",
-  ]);
+  expect(saved.options).toEqual(originalGroup.options);
 });
 // Step 3.5B-4: individual food draft save and resume
 it("saves and restores unfinished individual food serving options", async () => {
@@ -795,10 +690,10 @@ it.each(["fixed", "customizable"] as const)("keeps Rice and its dish through %s 
  const choices=structure === "customizable" ? [{id:"main",title:"Main dishes",selectionCount:1,options:[{id:"chicken",name:"Chicken"},{id:"fish",name:"Fish"}]}] : [];
  render(<ProviderPackageForm {...props} initialPackage={{...packageValue,offerStructure:structure,foodInclusions:["Rice: Steamed Rice"],v2:{...packageValue.v2!,offerStructure:structure,foodChoiceGroups:choices}}}/>);
  next();next();next();fireEvent.click(screen.getByRole("button",{name:"Back"}));next();next();
- fireEvent.click(screen.getByRole("button",{name:"Save changes"}));
- fireEvent.click(within(screen.getByRole("dialog",{name:"FEASTA Confirmation"})).getByRole("button",{name:"Save changes"}));
+ fireEvent.click(screen.getByRole("button",{name:"Save as Draft"}));
+ fireEvent.click(within(screen.getByRole("dialog",{name:"FEASTA Confirmation"})).getByRole("button",{name:"Save as Draft"}));
  await waitFor(()=>expect(api.update).toHaveBeenCalledTimes(1));
- expect(api.update.mock.calls[0][0]).toMatchObject({foodInclusions:["Rice: Steamed Rice"],...(choices.length ? {foodChoiceGroups:choices} : {}),expectedRevision:7});expect(api.legacy).not.toHaveBeenCalled();
+ expect(api.update.mock.calls[0][0]).toMatchObject({offerStructure:structure,foodInclusions:["Rice: Steamed Rice"],...(choices.length ? {foodChoiceGroups:choices} : {}),expectedRevision:7});expect(api.legacy).not.toHaveBeenCalled();
 });
 
 it.each(["Minimum guests", "Maximum guests"])("controls %s against business capacity and saves valid edits",async(label)=>{
@@ -813,19 +708,29 @@ it.each(["Minimum guests", "Maximum guests"])("controls %s against business capa
  fireEvent.change(input,{target:{value:""}});expect(input).toHaveValue("");next();
  expect(screen.getByRole("heading",{name:"Step 2: Pricing & capacity"})).toBeVisible();
  fireEvent.change(input,{target:{value:"20"}});expect(input).toHaveValue("20");
- next();next();next();fireEvent.click(screen.getByRole("button",{name:"Save changes"}));
- fireEvent.click(within(screen.getByRole("dialog",{name:"FEASTA Confirmation"})).getByRole("button",{name:"Save changes"}));
+ next();next();next();fireEvent.click(screen.getByRole("button",{name:"Save as Draft"}));
+ fireEvent.click(within(screen.getByRole("dialog",{name:"FEASTA Confirmation"})).getByRole("button",{name:"Save as Draft"}));
  await waitFor(()=>expect(api.update).toHaveBeenCalledTimes(1));
  expect(api.update.mock.calls[0][0]).toMatchObject({minimumGuests:label === "Minimum guests" ? 20 : 10,maximumGuests:label === "Maximum guests" ? 20 : 50,
   serviceOptions:{drop_off:{price:100,includedServices:["Delivery"],equipmentInclusions:["Tier equipment"]}},equipmentInclusions:["Shared warmer"],occasionIds:["birthday","wedding"]});
 });
-it("enforces the 400 ceiling and revalidates maximum when minimum changes",()=>{
+it("enforces the 400 ceiling, requires maximum guests strictly greater than minimum, and shows a single error",()=>{
  render(<ProviderPackageForm {...props} maxGuestsPerEvent={500} initialPackage={packageValue}/>);next();
  const min=screen.getByLabelText(/Minimum guests/);const max=screen.getByLabelText(/Maximum guests/);
  fireEvent.change(max,{target:{value:"401"}});expect(max).toHaveValue("50");
  fireEvent.change(max,{target:{value:"400"}});expect(max).toHaveValue("400");
- fireEvent.change(min,{target:{value:"400"}});fireEvent.change(max,{target:{value:"399"}});
- expect(max).toHaveAttribute("aria-invalid","true");next();expect(api.update).not.toHaveBeenCalled();
+ // Minimum cannot equal ceiling 400 because maximum must be higher.
+ fireEvent.change(min,{target:{value:"400"}});expect(min).toHaveValue("10");expect(min).toHaveAttribute("aria-invalid","true");
+ // Equal minimum and maximum (e.g., 20 and 20) must be rejected.
+ fireEvent.change(min,{target:{value:"20"}});fireEvent.change(max,{target:{value:"20"}});
+ expect(max).toHaveAttribute("aria-invalid","true");
+ expect(screen.getAllByText("Must be higher than minimum guests.")).toHaveLength(1);
+ next();expect(screen.getByRole("heading",{name:"Step 2: Pricing & capacity"})).toBeVisible();expect(api.update).not.toHaveBeenCalled();
+ // 399 and 399 rejected, 399 and 400 accepted.
+ fireEvent.change(min,{target:{value:"399"}});fireEvent.change(max,{target:{value:"399"}});
+ expect(max).toHaveAttribute("aria-invalid","true");
+ expect(screen.queryByText(/from 400 to 400/)).not.toBeInTheDocument();
+ next();expect(screen.getByRole("heading",{name:"Step 2: Pricing & capacity"})).toBeVisible();
  fireEvent.change(max,{target:{value:"400"}});expect(max).toHaveAttribute("aria-invalid","false");next();
  expect(screen.getByRole("heading",{name:"Step 3: Food menu"})).toBeVisible();
 });

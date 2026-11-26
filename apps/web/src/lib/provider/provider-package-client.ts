@@ -69,6 +69,8 @@ export type ProviderPackageInput = {
   paymentPolicy:
     ProviderPackagePaymentPolicy;
 
+  fullPaymentAllowed?: boolean;
+
   depositPercentage: number;
 
   balanceDueDaysBeforeEvent?:
@@ -90,6 +92,7 @@ export type ProviderPackage = {
   offerStructure?: "fixed" | "customizable" | "individual";
   packageStyle?: string;
   v2?: ProviderPackageV2;
+  maxDropOffOrderQuantity?: number;
   pricingModel?: "per_pax" | "per_bundle";
   id: string;
   providerId: string;
@@ -106,6 +109,8 @@ export type ProviderPackage = {
 
   paymentPolicy:
     ProviderPackagePaymentPolicy | null;
+
+  fullPaymentAllowed?: boolean;
 
   depositPercentage: number;
 
@@ -193,6 +198,7 @@ export async function createProviderPackage(
 export async function updateProviderPackage(
   packageId: string,
   input: ProviderPackageInput,
+  expectedStatus: "draft" | "published" = "draft",
 ): Promise<PackageMutationResponse> {
   await requireProviderAuthUser();
 
@@ -209,13 +215,14 @@ export async function updateProviderPackage(
         input,
       ),
     },
+    expectedStatus,
   );
 }
 
 const publicationKeys = new Map<string, string>();
 export async function publishProviderPackage(
   packageId: string,
-  v2?: ProviderPackageV2,
+  v2?: Pick<ProviderPackageV2, "revision">,
 ): Promise<PackageMutationResponse> {
   await requireProviderAuthUser();
 
@@ -286,6 +293,10 @@ function normalizePackageInput(
 
     paymentPolicy:
       input.paymentPolicy,
+    ...(input.paymentPolicy === "deposit_then_balance" &&
+      input.fullPaymentAllowed !== undefined
+      ? {fullPaymentAllowed: input.fullPaymentAllowed}
+      : {}),
 
     depositPercentage:
       input.depositPercentage,
@@ -410,12 +421,20 @@ function parseProviderPackage(
   let balanceDueDaysBeforeEvent:
     number | null = null;
 
+  const fullPaymentAllowed =
+    data.fullPaymentAllowed === undefined
+      ? undefined
+      : typeof data.fullPaymentAllowed === "boolean"
+        ? data.fullPaymentAllowed
+        : (() => { throw invalidPackageRecord(); })();
+
   if (
     paymentPolicy ===
     "full_payment"
   ) {
     if (
       depositPercentage !== 100 ||
+      fullPaymentAllowed === false ||
       (
         data.balanceDueDaysBeforeEvent !==
           undefined &&
@@ -466,6 +485,7 @@ function parseProviderPackage(
       ? {packageStyle: data.packageStyle} : {}),
     ...(v2 ? {v2} : {}),
     id,
+    ...(typeof data.maxDropOffOrderQuantity === "number" ? {maxDropOffOrderQuantity: data.maxDropOffOrderQuantity} : {}),
     ...(data.pricingModel === "per_pax" || data.pricingModel === "per_bundle" ? {pricingModel: data.pricingModel} : {}),
 
     providerId:
@@ -513,6 +533,9 @@ function parseProviderPackage(
       ),
 
     paymentPolicy,
+    ...(paymentPolicy === "deposit_then_balance" && fullPaymentAllowed !== undefined
+      ? {fullPaymentAllowed}
+      : {}),
 
     depositPercentage,
 
@@ -580,6 +603,7 @@ async function callPackageMutation(
     | "publishProviderPackage"
     | "archiveProviderPackage",
   data: Record<string, unknown>,
+  expectedStatus?: "draft" | "published" | "archived",
 ): Promise<PackageMutationResponse> {
   const callable = httpsCallable<
     Record<string, unknown>,
@@ -592,8 +616,16 @@ async function callPackageMutation(
   const response =
     await callable(data);
 
-  validatePackageMutationResponse(response.data, name === "publishProviderPackage" ? "published" :
-    name === "archiveProviderPackage" ? "archived" : "draft", data.packageId);
+  validatePackageMutationResponse(
+    response.data,
+    expectedStatus ??
+      (name === "publishProviderPackage"
+        ? "published"
+        : name === "archiveProviderPackage"
+          ? "archived"
+          : "draft"),
+    data.packageId,
+  );
   return response.data;
 }
 

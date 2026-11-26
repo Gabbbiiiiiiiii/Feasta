@@ -36,6 +36,7 @@ import {
   assertPackageMatchesProviderCapabilities,
   assertPackageOfferConfigured,
   assertPackagePaymentTermsWithinPolicy,
+  assertStrictPackageGuestRange,
   authorizeProviderForPackageManagement,
   parseCanonicalPackageWrite,
   verifyPackageImages,
@@ -57,6 +58,7 @@ const ALLOWED_FIELDS = [
   "serviceOptions",
   "themeOptions",
   "paymentPolicy",
+  "fullPaymentAllowed",
   "depositPercentage",
   "balanceDueDaysBeforeEvent",
   "downPaymentPercentage",
@@ -115,6 +117,9 @@ export const createProviderPackage = onCall(
       validated,
     );
     assertPackageOfferConfigured(
+      validated,
+    );
+    assertStrictPackageGuestRange(
       validated,
     );
 
@@ -267,6 +272,10 @@ export const createProviderPackage = onCall(
             balanceDueHoursBeforeEvent: validated.paymentPolicy === "deposit_then_balance" ? BALANCE_DUE_HOURS_BEFORE_EVENT : null,
             paymentPolicy:
               validated.paymentPolicy,
+            ...(validated.paymentPolicy === "deposit_then_balance" &&
+              validated.fullPaymentAllowed !== undefined
+              ? {fullPaymentAllowed: validated.fullPaymentAllowed}
+              : {}),
 
             depositPercentage:
               validated

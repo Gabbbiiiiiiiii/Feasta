@@ -71,6 +71,54 @@ const refundStageLabels = [
 String refundPercentage(int basisPoints) =>
     '${(basisPoints / 100).toStringAsFixed(2).replaceFirst(RegExp(r'\.?0+$'), '')}%';
 
+String formatCancellationCutoffDuration(int totalHours) {
+  final safe = totalHours > 0 ? totalHours : 0;
+  final days = safe ~/ 24;
+  final hours = safe % 24;
+  final parts = <String>[];
+  if (days > 0) parts.add('$days ${days == 1 ? 'day' : 'days'}');
+  if (hours > 0 || parts.isEmpty) {
+    parts.add('$hours ${hours == 1 ? 'hour' : 'hours'}');
+  }
+  return parts.join(' ');
+}
+
+class CancellationCutoffDisclosure {
+  const CancellationCutoffDisclosure({
+    required this.sourceKind,
+    required this.cutoffHoursBeforeEvent,
+    this.guidanceNote,
+  });
+
+  final String sourceKind;
+  final int cutoffHoursBeforeEvent;
+  final String? guidanceNote;
+
+  factory CancellationCutoffDisclosure.fromJson(Object? value) {
+    if (value is! Map) _invalid();
+    final allowed = {'sourceKind', 'cutoffHoursBeforeEvent', 'guidanceNote'};
+    if (value.keys.any((k) => !allowed.contains(k))) _invalid();
+    final source = value['sourceKind'];
+    final hours = value['cutoffHoursBeforeEvent'];
+    final note = value['guidanceNote'];
+    if (!['admin_default', 'provider_custom'].contains(source) ||
+        hours is! int ||
+        hours < 1 ||
+        hours > 24 * 365 ||
+        (note != null && (note is! String || note.length > 1000))) {
+      _invalid();
+    }
+    final trimmed = note is String && note.trim().isNotEmpty
+        ? note.trim()
+        : null;
+    return CancellationCutoffDisclosure(
+      sourceKind: source as String,
+      cutoffHoursBeforeEvent: hours,
+      guidanceNote: trimmed,
+    );
+  }
+}
+
 class RefundRule {
   const RefundRule(this.stage, this.refundBasisPoints);
   final String stage;
@@ -86,17 +134,27 @@ class BookingRefundPolicy {
     this.policyVersion,
     this.rules,
     this.terms,
+    this.cancellationCutoff,
   );
   final String providerId, providerName, effectivePolicyKey, sourceKind;
   final int policyVersion;
   final List<RefundRule> rules;
   final String? terms;
+  final CancellationCutoffDisclosure? cancellationCutoff;
+
+  int get beforeCutoffRefundBasisPoints => rules
+      .firstWhere(
+        (rule) => rule.stage == 'preparation_not_started',
+        orElse: () => const RefundRule('preparation_not_started', 0),
+      )
+      .refundBasisPoints;
+
   Map<String, String> get acknowledgement => Map.unmodifiable({
     'providerId': providerId,
     'effectivePolicyKey': effectivePolicyKey,
   });
   factory BookingRefundPolicy.fromJson(Object? value) {
-    final v = _record(value, {
+    const requiredFields = {
       'providerId',
       'providerName',
       'effectivePolicyKey',
@@ -104,7 +162,16 @@ class BookingRefundPolicy {
       'policyVersion',
       'rules',
       'terms',
-    });
+    };
+    const optionalFields = {'cancellationCutoff'};
+    if (value is! Map ||
+        !requiredFields.every(value.containsKey) ||
+        value.keys.any(
+          (k) => !requiredFields.contains(k) && !optionalFields.contains(k),
+        )) {
+      _invalid();
+    }
+    final v = value;
     final id = v['providerId'],
         name = v['providerName'],
         key = v['effectivePolicyKey'],
@@ -151,6 +218,9 @@ class BookingRefundPolicy {
       }
       rules[stage] = RefundRule(stage, rate);
     }
+    final cutoff = v['cancellationCutoff'] != null
+        ? CancellationCutoffDisclosure.fromJson(v['cancellationCutoff'])
+        : null;
     return BookingRefundPolicy._(
       id,
       name,
@@ -159,6 +229,7 @@ class BookingRefundPolicy {
       version,
       List.unmodifiable(refundStages.map((s) => rules[s]!)),
       terms as String?,
+      cutoff,
     );
   }
 }

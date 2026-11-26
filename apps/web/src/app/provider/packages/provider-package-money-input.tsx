@@ -6,8 +6,8 @@ import {isPackageMoneyEdit, packageMoneyCentavos} from "@/lib/provider/package-p
 
 const INVALID_MONEY = "Use digits and one decimal point, with at most two decimal places. Exponents and signs are not allowed.";
 
-export function ProviderPackageMoneyInput({value, error, disabled, onChange, readOnly = false, description}: {
-  value: string; error?: string; disabled?: boolean; readOnly?: boolean; description?: string;
+export function ProviderPackageMoneyInput({value, error, disabled, onChange, readOnly = false, description, required}: {
+  value: string; error?: string; disabled?: boolean; readOnly?: boolean; description?: string; required?: boolean;
   onChange: (value: string, error?: string) => void;
 }) {
   const id = useId();
@@ -43,7 +43,7 @@ export function ProviderPackageMoneyInput({value, error, disabled, onChange, rea
     <span aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2">₱</span>
     <Input className="pl-7" ref={input} type="text" inputMode="decimal" autoComplete="off" spellCheck={false}
       value={compositionText ?? display} onFocus={() => setFocused(true)} disabled={disabled} readOnly={readOnly} aria-invalid={Boolean(validation)}
-      aria-describedby={id} onBeforeInput={(event) => rememberSelection(event.currentTarget)}
+      aria-required={required} aria-describedby={id} onBeforeInput={(event) => rememberSelection(event.currentTarget)}
       onPaste={(event) => rememberSelection(event.currentTarget)}
       onSelect={(event) => { if (!composing.current) rememberSelection(event.currentTarget); }}
       onCompositionStart={(event) => {

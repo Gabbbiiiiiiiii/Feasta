@@ -138,7 +138,9 @@ class BookingPreparationPrice extends StatelessWidget {
                         child: Text(
                           package.paymentPolicy == 'full_payment'
                               ? 'Full payment'
-                              : 'Deposit + balance',
+                              : package.fullPaymentAllowed == true
+                              ? 'Down Payment & Full Payment'
+                              : 'Down Payment',
                           style: Theme.of(context).textTheme.labelLarge
                               ?.copyWith(
                                 color: AppColors.primaryStrong,
@@ -166,6 +168,11 @@ class BookingPreparationPrice extends StatelessWidget {
                             ? 'Pay ${package.depositPercentage!.toStringAsFixed(2).replaceFirst(RegExp(r"\.?0+$"), "")}% first, then the remaining balance'
                             : 'Pay a deposit first, then the remaining balance',
                       ),
+                      if (package.fullPaymentAllowed == true)
+                        const _PaymentTermFact(
+                          label: 'Full payment',
+                          detail: 'Customers may also pay 100% upfront',
+                        ),
                       if (package.paymentTermsSchemaVersion == 2)
                         const _PaymentTermFact(
                           label: 'Balance due',

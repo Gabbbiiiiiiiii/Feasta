@@ -59,6 +59,10 @@ class BookingAgreement {
   bool get depositEligible => _data['depositEligible'] as bool;
   String? get eligibilityReason => _data['eligibilityReason'] as String?;
   int get gross => _data['grossAmountInCentavos'] as int;
+  int? get serviceSubtotal => _data['serviceSubtotalInCentavos'] as int?;
+  int? get platformFee => _data['platformFeeInCentavos'] as int?;
+  int? get platformCommissionRateBps =>
+      _data['platformCommissionRateBps'] as int?;
   int get upfront => _data['requiredUpfrontAmountInCentavos'] as int;
   int get remaining => _data['remainingBalanceInCentavos'] as int;
   Map<String, int>? get allocation =>
@@ -83,6 +87,9 @@ class BookingAgreement {
     'hardPaymentDeadlineAt',
     'preparationStartsAt',
     'grossAmountInCentavos',
+    'serviceSubtotalInCentavos',
+    'platformFeeInCentavos',
+    'platformCommissionRateBps',
     'requiredUpfrontAmountInCentavos',
     'remainingBalanceInCentavos',
     'depositEligible',
@@ -148,6 +155,25 @@ class BookingAgreement {
     final upfront = data['requiredUpfrontAmountInCentavos'] as int;
     final remaining = data['remainingBalanceInCentavos'] as int;
     if (gross <= 0 || upfront <= 0 || upfront + remaining != gross) _invalid();
+
+    final hasFeeBreakdown =
+        data.containsKey('serviceSubtotalInCentavos') ||
+        data.containsKey('platformFeeInCentavos') ||
+        data.containsKey('platformCommissionRateBps');
+    if (hasFeeBreakdown) {
+      final subtotal = data['serviceSubtotalInCentavos'];
+      final fee = data['platformFeeInCentavos'];
+      final rateBps = data['platformCommissionRateBps'];
+      if (!_money(subtotal) ||
+          (subtotal as int) <= 0 ||
+          !_money(fee) ||
+          rateBps is! int ||
+          rateBps <= 0 ||
+          rateBps > 10000 ||
+          subtotal + (fee as int) != gross) {
+        _invalid();
+      }
+    }
     DateTime parseTime(String field) {
       final v = data[field];
       if (v is! String) _invalid();
@@ -244,6 +270,18 @@ String agreementMoney(int centavos) {
     (m) => '${m[1]},',
   );
   return 'PHP $whole.${(centavos % 100).toString().padLeft(2, '0')}';
+}
+
+String formatCommissionRateBps(int rateBps) {
+  final percent = rateBps / 100;
+  if (percent == percent.roundToDouble()) {
+    return '${percent.toInt()}%';
+  }
+  final formatted = percent
+      .toStringAsFixed(2)
+      .replaceFirst(RegExp(r'0+$'), '')
+      .replaceFirst(RegExp(r'\.$'), '');
+  return '$formatted%';
 }
 
 String agreementTime(DateTime instant) {

@@ -94,6 +94,30 @@ async function loadRefreshAuthority(
     refuse("PACKAGE_DISCOVERY_REFRESH_REQUIRED");
   }
 
+  const categoriesSnap = await tx.get(
+    db.collection("serviceCategories").where("status", "==", "active").limit(101)
+  );
+  if (categoriesSnap.size > 100) {
+    refuse("PACKAGE_DISCOVERY_REFRESH_REQUIRED");
+  }
+  const activeCategories = categoriesSnap.docs
+    .map((doc) => {
+      const row = doc.data();
+      if (!row || row.code !== doc.id ||
+          !isServiceCategoryCode(row.code) ||
+          !["catering", "addon"].includes(row.serviceType)) {
+        return null;
+      }
+      return row.code as string;
+    })
+    .filter((code): code is string => code !== null);
+  for (const code of input.categoryCodes) {
+    if (!activeCategories.includes(code)) activeCategories.push(code);
+  }
+  if (activeCategories.length < 1) {
+    refuse("PACKAGE_DISCOVERY_REFRESH_REQUIRED");
+  }
+
   const occasionSnap = await tx.get(
     db.collection("occasions").where("active", "==", true).limit(1001)
   );
@@ -115,7 +139,7 @@ async function loadRefreshAuthority(
     catalog: [...byId.values()],
     catalogRevision: input.catalogRevision,
     maxSpecificOccasions: policy.maxSpecificOccasions as number,
-    approvedActiveCategoryCodes: [...input.categoryCodes],
+    approvedActiveCategoryCodes: activeCategories,
   };
 }
 
@@ -226,6 +250,7 @@ export async function activateRoutineOccasion(
         catalogRevision: authority.catalogRevision,
         maxSpecificOccasions: authority.maxSpecificOccasions,
         approvedActiveCategoryCodes: authority.approvedActiveCategoryCodes,
+        skipUnavailablePackages: true,
       });
     } catch {
       refuse("PACKAGE_DISCOVERY_REFRESH_REQUIRED");
@@ -438,6 +463,7 @@ export async function inspectRoutineOccasionActivation(
             catalogRevision: authority.catalogRevision,
             maxSpecificOccasions: authority.maxSpecificOccasions,
             approvedActiveCategoryCodes: authority.approvedActiveCategoryCodes,
+            skipUnavailablePackages: true,
           });
           affectedPackages = refreshPlan.filter((item) => item.changed).length;
           check("PACKAGE_DISCOVERY_REFRESH_REQUIRED", true,
@@ -578,6 +604,7 @@ export async function repairPublishedPackageDiscovery(actorUid: string) {
       maxSpecificOccasions: policy.maxSpecificOccasions as number,
       approvedActiveCategoryCodes: activeCategories,
       onlyStale: true,
+      skipUnavailablePackages: true,
     });
 
     const now = new Date();

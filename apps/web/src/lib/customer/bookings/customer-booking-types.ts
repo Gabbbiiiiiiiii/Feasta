@@ -37,6 +37,7 @@ export type CustomerRemainingBalanceStatus =
   | "paid"
   | "cancelled";
 export type CustomerBookingProviderRequest = {
+  arrangedPayment?: import("@/lib/payments/arranged-payment-view").ArrangedPaymentView | null;
   serviceVat?: import("./customer-booking-service-vat").CustomerBookingServiceVat;
   specialOffer?: ReturnType<typeof import("./customer-booking-service-vat").specialOfferBreakdown>;
   lifecycle?: import("@/lib/presentation/booking-lifecycle").LifecycleEvidence;
@@ -59,6 +60,10 @@ export type CustomerBookingProviderRequest = {
   services: CustomerBookingService[];
 
   amount: number;
+  serviceSubtotalInCentavos?: number | null;
+  platformFeeInCentavos?: number | null;
+  platformCommissionRateBps?: number | null;
+  platformCommissionModel?: string | null;
   downPaymentAmount: number;
   downPaymentPercentage: number;
   remainingBalance: number;
@@ -91,6 +96,7 @@ export type CustomerBookingProviderRequest = {
   expiresAt: string | null;
   /** Validated frozen V4 deadline; absent on historical or conflicting records. */
   initialPaymentDeadlineAt?: string | null;
+  cancellationCutoff?: import("@/lib/provider/cancellation-cutoff-view").BookingCancellationCutoffView | null;
 
   reviewStatus: "not_submitted" | "submitted" | "unavailable";
 };

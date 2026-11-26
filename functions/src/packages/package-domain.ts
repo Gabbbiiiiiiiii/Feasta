@@ -83,6 +83,8 @@ export type PackageInput = {
   paymentPolicy:
     PackagePaymentPolicy | null;
 
+  fullPaymentAllowed?: boolean;
+
   depositPercentage: number;
 
   balanceDueDaysBeforeEvent:
@@ -515,6 +517,17 @@ export function parsePackageInput(
   };
 }
 
+export function assertStrictPackageGuestRange(
+  packageInput: Pick<PackageInput, "minimumGuests" | "maximumGuests">,
+): void {
+  if (packageInput.maximumGuests <= packageInput.minimumGuests) {
+    throw new HttpsError(
+      "invalid-argument",
+      "Maximum guests must be greater than minimum guests.",
+    );
+  }
+}
+
 export function assertCanonicalPackageServiceCategory(
   packageInput: PackageInput,
 ): asserts packageInput is PackageInput & {
@@ -655,6 +668,20 @@ export function assertDraftPackage(
     throw new HttpsError(
       "failed-precondition",
       "Only draft packages can be edited using this operation.",
+    );
+  }
+}
+
+export function assertEditablePackage(
+  packageRecord: AuthorizedPackage,
+): void {
+  if (
+    packageRecord.status !== "draft" &&
+    packageRecord.status !== "published"
+  ) {
+    throw new HttpsError(
+      "failed-precondition",
+      "Only draft or published packages can be edited using this operation.",
     );
   }
 }
@@ -1049,6 +1076,7 @@ function parsePackagePaymentTerms(
 ): {
   paymentPolicy:
     PackagePaymentPolicy | null;
+  fullPaymentAllowed?: boolean;
   depositPercentage: number;
   balanceDueDaysBeforeEvent:
     number | null;
@@ -1100,9 +1128,25 @@ function parsePackagePaymentTerms(
   }
 
   if (
+    data.fullPaymentAllowed !== undefined &&
+    typeof data.fullPaymentAllowed !== "boolean"
+  ) {
+    throw new HttpsError(
+      "invalid-argument",
+      "Full-payment availability must be a boolean.",
+    );
+  }
+
+  if (
     paymentPolicy ===
     "full_payment"
   ) {
+    if (data.fullPaymentAllowed === false) {
+      throw new HttpsError(
+        "invalid-argument",
+        "Full-payment packages must allow full payment.",
+      );
+    }
     const depositPercentage =
       requiredPercentage(
         data.depositPercentage,
@@ -1232,6 +1276,9 @@ function parsePackagePaymentTerms(
 
   return {
     paymentPolicy,
+    ...(typeof data.fullPaymentAllowed === "boolean"
+      ? {fullPaymentAllowed: data.fullPaymentAllowed}
+      : {}),
     depositPercentage,
     balanceDueDaysBeforeEvent,
     downPaymentPercentage:

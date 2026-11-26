@@ -3,6 +3,9 @@ import {HttpsError} from "firebase-functions/v2/https";
 import {
   buildPackagePaymentTermsSnapshot,
 } from "../payments/package-payment-terms.js";
+import {
+  computeCustomerPaidPlatformFeeInCentavos,
+} from "../payments/platform-commission-policy.js";
 
 import {
   requireNewBookingCanonicalPaymentTerms,
@@ -17,6 +20,9 @@ export type MixedCateringFinancialItem = {
   kind: "catering_package";
   providerId: string;
   packageId: string;
+  serviceSubtotalInCentavos?: number;
+  platformFeeInCentavos?: number;
+  platformCommissionRateBps?: number;
   grossAmountInCentavos: number;
   packagePaymentTerms: NewBookingCanonicalPaymentTerms;
 };
@@ -25,6 +31,9 @@ export type MixedMarketplaceFinancialItem = {
   kind: "marketplace_service";
   providerId: string;
   serviceId: string;
+  serviceSubtotalInCentavos?: number;
+  platformFeeInCentavos?: number;
+  platformCommissionRateBps?: number;
   grossAmountInCentavos: number;
   requiredUpfrontAmountInCentavos: number;
   paymentPolicy: "full_payment";
@@ -89,9 +98,18 @@ function addSafe(left: number, right: number): number {
  */
 export function prepareMixedProviderFinancials(
   rows: readonly TrustedMixedProviderRow[],
+  options?: {platformCommissionRateBps?: number},
 ): PreparedMixedFinancials {
   if (!Array.isArray(rows) || rows.length < 1 || rows.length > 4) {
     return reject("Mixed financial selection is invalid.");
+  }
+
+  const rateBps = options?.platformCommissionRateBps;
+  if (
+    rateBps !== undefined &&
+    (!Number.isSafeInteger(rateBps) || rateBps <= 0 || rateBps > 10_000)
+  ) {
+    return reject("Platform commission rate is invalid.");
   }
 
   const seen = new Set<string>();
@@ -120,9 +138,15 @@ export function prepareMixedProviderFinancials(
         return reject("Catering financial linkage is invalid.");
       }
 
-      const grossAmountInCentavos = toCentavos(
+      const serviceSubtotalInCentavos = toCentavos(
         row.resolved.basePrice,
       );
+      const platformFeeInCentavos = rateBps !== undefined
+        ? computeCustomerPaidPlatformFeeInCentavos(serviceSubtotalInCentavos, rateBps)
+        : undefined;
+      const grossAmountInCentavos = platformFeeInCentavos !== undefined
+        ? addSafe(serviceSubtotalInCentavos, platformFeeInCentavos)
+        : serviceSubtotalInCentavos;
 
       const packagePaymentTerms =
         requireNewBookingCanonicalPaymentTerms(
@@ -138,6 +162,13 @@ export function prepareMixedProviderFinancials(
         kind: "catering_package",
         providerId: row.providerId,
         packageId: row.resolved.packageId,
+        ...(platformFeeInCentavos !== undefined
+          ? {
+              serviceSubtotalInCentavos,
+              platformFeeInCentavos,
+              platformCommissionRateBps: rateBps!,
+            }
+          : {}),
         grossAmountInCentavos,
         packagePaymentTerms,
       });
@@ -160,7 +191,13 @@ export function prepareMixedProviderFinancials(
       return reject("Marketplace financial linkage is invalid.");
     }
 
-    const grossAmountInCentavos = row.service.priceInCentavos;
+    const serviceSubtotalInCentavos = row.service.priceInCentavos;
+    const platformFeeInCentavos = rateBps !== undefined
+      ? computeCustomerPaidPlatformFeeInCentavos(serviceSubtotalInCentavos, rateBps)
+      : undefined;
+    const grossAmountInCentavos = platformFeeInCentavos !== undefined
+      ? addSafe(serviceSubtotalInCentavos, platformFeeInCentavos)
+      : serviceSubtotalInCentavos;
 
     marketplaceSubtotalInCentavos = addSafe(
       marketplaceSubtotalInCentavos,
@@ -171,6 +208,13 @@ export function prepareMixedProviderFinancials(
       kind: "marketplace_service",
       providerId: row.providerId,
       serviceId: row.service.serviceId,
+      ...(platformFeeInCentavos !== undefined
+        ? {
+            serviceSubtotalInCentavos,
+            platformFeeInCentavos,
+            platformCommissionRateBps: rateBps!,
+          }
+        : {}),
       grossAmountInCentavos,
       requiredUpfrontAmountInCentavos: grossAmountInCentavos,
       paymentPolicy: "full_payment",

@@ -30,6 +30,7 @@ const SAFE_DOCUMENT_ID = /^[A-Za-z0-9_-]{8,160}$/u;
 const SAFE_IDEMPOTENCY_KEY = /^[A-Za-z0-9:_-]{8,200}$/u;
 
 const CANCELLATION_REASON_CODES = new Set<CustomerCancellationReasonCode>([
+  "CANCELLATION_CUTOFF_PASSED",
   "EVENT_ENDED",
   "SCHEDULE_RECONCILIATION_REQUIRED",
   "ALLOWED",
@@ -89,6 +90,8 @@ export type CustomerCancellationProjection = {
 
 export type CustomerCancellationOptions = {
   eligibilityExpiresInMs?: number | null;
+  cancellationCutoffAt?: string | null;
+  cancellationCutoffHours?: number | null;
   providerRequestId: string;
   providerRequestStatus?: ProviderRequestStatus;
   cancellationAllowed: boolean;
@@ -253,6 +256,34 @@ function parseOptions(value: unknown, expectedId: string): CustomerCancellationO
   }
   if (record.eligibilityExpiresInMs !== undefined && record.eligibilityExpiresInMs !== null &&
     (!Number.isSafeInteger(record.eligibilityExpiresInMs) || Number(record.eligibilityExpiresInMs) < 0)) throw invalidResponse();
+  let cancellationCutoffAt: string | null | undefined = undefined;
+  if (record.cancellationCutoffAt !== undefined) {
+    if (record.cancellationCutoffAt === null) {
+      cancellationCutoffAt = null;
+    } else if (
+      typeof record.cancellationCutoffAt === "string" &&
+      record.cancellationCutoffAt.length <= 40 &&
+      !Number.isNaN(Date.parse(record.cancellationCutoffAt))
+    ) {
+      cancellationCutoffAt = record.cancellationCutoffAt;
+    } else {
+      throw invalidResponse();
+    }
+  }
+  let cancellationCutoffHours: number | null | undefined = undefined;
+  if (record.cancellationCutoffHours !== undefined) {
+    if (record.cancellationCutoffHours === null) {
+      cancellationCutoffHours = null;
+    } else if (
+      typeof record.cancellationCutoffHours === "number" &&
+      Number.isSafeInteger(record.cancellationCutoffHours) &&
+      record.cancellationCutoffHours >= 1
+    ) {
+      cancellationCutoffHours = record.cancellationCutoffHours;
+    } else {
+      throw invalidResponse();
+    }
+  }
   const shouldAllow = reasonCode === "ALLOWED" ||
     reasonCode === "PAYMENT_RECONCILIATION_REQUIRED" ||
     reasonCode === "LEGACY_MANUAL_REVIEW";
@@ -271,6 +302,8 @@ function parseOptions(value: unknown, expectedId: string): CustomerCancellationO
     providerRequestId,
     cancellationAllowed: record.cancellationAllowed,
     eligibilityExpiresInMs: record.eligibilityExpiresInMs as number | null | undefined,
+    ...(cancellationCutoffAt !== undefined ? {cancellationCutoffAt} : {}),
+    ...(cancellationCutoffHours !== undefined ? {cancellationCutoffHours} : {}),
     providerRequestStatus: record.providerRequestStatus as ProviderRequestStatus | undefined,
     reasonCode,
     activeCancellation,

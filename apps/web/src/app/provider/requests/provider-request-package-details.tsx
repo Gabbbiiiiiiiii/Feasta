@@ -10,27 +10,43 @@ export function ProviderRequestPackageDetails({request}: {request: ProviderReque
   const [expanded, setExpanded] = useState(false);
   const panelId = useId();
   const snapshot = request.packageSnapshot;
-  return <section aria-label="Package & Customization" className="grid min-w-0 gap-5 border-t border-border pt-5 text-sm [overflow-wrap:anywhere]">
-    <div className="grid min-w-0 gap-3">
-      <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Package &amp; Customization</h3>
-      <p className="min-w-0 text-base font-semibold">{request.package?.name ?? "Selected package"}</p>
-      {snapshot?.tier ? <p className="font-medium text-primary">{snapshot.tier}</p> : null}
-      <div className="grid min-w-0 gap-2 rounded-lg bg-muted/30 p-3">
-        <p className="text-xs text-muted-foreground">Saved package subtotal</p>
-        <PriceDisplay amount={snapshot?.price} unknownLabel="Package subtotal not recorded" className="[&>span]:break-normal [&>span]:whitespace-nowrap" />
-        <p className="text-xs text-muted-foreground">{snapshot?.pricingModel ?? "Pricing model not recorded"}<span aria-hidden="true"> · </span>{request.event.guestCount?.toLocaleString("en-PH") ?? "Unrecorded"} guests</p>
-        <p className="text-xs text-muted-foreground">Booking-time package amount. Payment requirements are shown below.</p>
+  return <section aria-label="Package & Customization" className="grid min-w-0 gap-3 text-sm [overflow-wrap:anywhere]">
+    <div className="grid min-w-0 gap-1.5">
+      <div className="flex min-w-0 items-start justify-between gap-3">
+        <p className="min-w-0 text-base font-bold text-foreground">{request.package?.name ?? "Selected package"}</p>
+        {snapshot?.tier ? (
+          <span className="shrink-0 rounded-md bg-muted px-2.5 py-1 text-xs font-semibold text-foreground">
+            {snapshot.tier}
+          </span>
+        ) : null}
       </div>
-      {snapshot?.theme ? <p className="text-muted-foreground">Selected theme: <span className="font-medium text-foreground">{snapshot.theme.name}</span></p> : null}
+      <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-muted-foreground">
+        <PriceDisplay
+          amount={snapshot?.price}
+          unknownLabel="Package subtotal not recorded"
+          className="text-xs font-medium text-muted-foreground [&>span]:break-normal [&>span]:whitespace-nowrap [&>span]:text-xs [&>span]:font-medium [&>span]:text-muted-foreground"
+        />
+        <span aria-hidden="true">·</span>
+        <span>
+          {snapshot?.pricingModel ?? "Pricing model not recorded"}
+          <span aria-hidden="true"> · </span>
+          {request.event.guestCount?.toLocaleString("en-PH") ?? "Unrecorded"} guests
+        </span>
+      </div>
+      {snapshot?.theme ? (
+        <p className="text-xs text-muted-foreground">
+          Selected theme: <span className="font-medium text-foreground">{snapshot.theme.name}</span>
+        </p>
+      ) : null}
     </div>
     <div className="grid min-w-0 gap-3">
-      <button type="button" aria-expanded={expanded} aria-controls={panelId} onClick={() => setExpanded(value => !value)}
-        className="flex min-w-0 items-center justify-between gap-3 rounded-lg border border-border px-3 py-2.5 text-left font-medium text-primary hover:bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+      <button type="button" aria-expanded={expanded} aria-controls={panelId} data-print-hidden="" onClick={() => setExpanded(value => !value)}
+        className="flex min-w-0 items-center justify-between gap-3 rounded-xl border border-border bg-card px-3.5 py-2.5 text-left text-sm font-medium text-foreground transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring print:hidden">
         <span>{expanded ? "Hide package details" : "View full package details"}</span>
-        <ChevronDown aria-hidden="true" className={`size-4 shrink-0 transition-transform motion-reduce:transition-none ${expanded ? "rotate-180" : ""}`} />
+        <ChevronDown aria-hidden="true" className={`size-4 shrink-0 text-muted-foreground transition-transform motion-reduce:transition-none ${expanded ? "rotate-180" : ""}`} />
       </button>
-      <div id={panelId} hidden={!expanded} className="min-w-0">
-        <div className="grid min-w-0 gap-4 border-t border-border pt-4">
+      <div id={panelId} hidden={!expanded} data-print-expand="" className="min-w-0">
+        <div className="grid min-w-0 gap-4 rounded-xl border border-border/80 bg-muted/20 p-3.5">
           {snapshot?.theme ? <section aria-label="Selected theme" className="grid min-w-0 gap-2">
             <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Selected theme</h4>
             {snapshot.theme.images[0] ? <Image src={snapshot.theme.images[0]} alt={`${snapshot.theme.name} — saved theme image`} width={640} height={360} unoptimized className="h-auto max-h-40 w-full rounded-lg object-contain" /> : null}
@@ -38,7 +54,7 @@ export function ProviderRequestPackageDetails({request}: {request: ProviderReque
           </section> : <p className="text-xs text-muted-foreground">Theme details were not recorded for this booking.</p>}
           <section aria-label="Selected dishes" className="grid min-w-0 gap-3">
             <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Selected dishes</h4>
-            {snapshot?.foodChoices.length ? <div className="divide-y divide-border rounded-lg border border-border px-3">{snapshot.foodChoices.map((group, index) => <div key={`${group.title}-${index}`} className="grid min-w-0 gap-2 py-3"><h5 className="font-medium">{group.title}</h5><ul className="flex min-w-0 flex-wrap gap-1.5">{group.dishes.map((dish, dishIndex) => <li key={`${dish}-${dishIndex}`} className="max-w-full rounded-md bg-muted/50 px-2 py-1 text-xs">{dish}</li>)}</ul></div>)}</div>
+            {snapshot?.foodChoices.length ? <div className="divide-y divide-border rounded-lg border border-border bg-card px-3">{snapshot.foodChoices.map((group, index) => <div key={`${group.title}-${index}`} className="grid min-w-0 gap-2 py-3"><h5 className="font-medium">{group.title}</h5><ul className="flex min-w-0 flex-wrap gap-1.5">{group.dishes.map((dish, dishIndex) => <li key={`${dish}-${dishIndex}`} className="max-w-full rounded-md bg-muted/50 px-2 py-1 text-xs">{dish}</li>)}</ul></div>)}</div>
               : <p className="text-xs text-muted-foreground">Dish selections were not recorded in the available booking snapshot.</p>}
           </section>
           <div className="text-xs text-muted-foreground"><p>Read-only booking snapshot</p><p>Package reference: {request.package?.id ?? "Not recorded"}</p></div>

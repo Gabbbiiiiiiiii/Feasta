@@ -8,6 +8,7 @@ import {verifiedPublicPackageV2} from "@/lib/customer/discovery/verified-package
 import {ADDON_PRICING_TYPES, FIRESTORE_COLLECTIONS} from "@feasta/shared-types";
 
 import {normalizePublicPackage} from "@/lib/customer/discovery/public-package-normalization";
+import {loadPublishedPackageCustomOccasions} from "@/lib/customer/discovery/package-custom-occasions-service";
 import {adminDb} from "@/lib/firebase/admin";
 import {providerContentCapabilities} from "@/lib/provider/provider-content-capabilities";
 import {publicMenuImages} from "@/lib/provider/provider-menu";
@@ -73,7 +74,13 @@ export async function getPublicProviderDetail(providerId: string): Promise<Publi
     if (!data ||
         (!v2 && !activeLegacyIds.has(String(data.eventType)))) return [];
     const packageRecord = normalizePublicPackage(document.id, data, providerNames, v2);
-    return packageRecord ? [packageRecord] : [];
+    if (!packageRecord) return [];
+    const usesOther = v2 && packageRecord.occasionScope === "specific" &&
+      (packageRecord.occasionMatchIds ?? (packageRecord.eventType ? [packageRecord.eventType] : [])).includes("other");
+    const customOccasionLabels = usesOther
+      ? await loadPublishedPackageCustomOccasions(provider.id, document.id)
+      : [];
+    return [customOccasionLabels.length > 0 ? {...packageRecord, customOccasionLabels} : packageRecord];
   }));
   const packages = candidates.flat();
 

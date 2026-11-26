@@ -4,6 +4,7 @@ import {paymentDefaultAccountingPlan} from "../payments/payment-default-accounti
 import {buildSuccessfulRefundFinancialLedgerPlan} from "../payments/financial-ledger.js";
 import {buildProviderEarningRefundPlan} from "../provider-finance/provider-earning-domain.js";
 import {settlementIdForEarning} from "../provider-finance/provider-settlement-domain.js";
+import {isDirectProviderSplitRouting} from "../payments/platform-commission-policy.js";
 import {serverTimestamp} from "../shared/timestamps.js";
 import {readRefundAccounting, gatewayRefundIdempotencyKey} from "./refund-accounting-domain.js";
 import {refundOperationKey} from "./refund-accounting.js";
@@ -11,6 +12,7 @@ import {createRefundOperationReservationPlan} from "./refund-operation-plan.js";
 import type {TrustedProviderRequestPaymentSet} from "../payments/provider-request-payment-reader.js";
 import {paymentIdForProviderRequestChoice} from "../payments/payment-obligation.js";
 import {classifyProviderRequestRefundPolicyEvidence, requireRefundEligibilityState} from "../bookings/booking-refund-policy.js";
+import {parseArrangedPaymentOffer} from "../provider-requests/arranged-payment-offer.js";
 
 export const SYSTEM_BALANCE_REFUND_SOURCE = "system_balance_deadline_refund";
 
@@ -27,7 +29,18 @@ export function settledDepositRefundEvidence(input: {
   const financial = request.financialSnapshot as Record<string, unknown> | undefined;
   const terms = financial?.packagePaymentTerms as Record<string, unknown> | undefined;
   const amount = financial?.requiredUpfrontAmountInCentavos;
-  if (terms?.schemaVersion !== 2 || terms.paymentPolicy !== "deposit_then_balance" ||
+  let arrangedAccepted = false;
+  try {
+    const arrangement = parseArrangedPaymentOffer(request.arrangedPaymentOffer);
+    arrangedAccepted = arrangement?.status === "accepted" &&
+      arrangement.upfrontInCentavos === amount &&
+      arrangement.grossInCentavos === financial?.grossAmountInCentavos &&
+      arrangement.grossInCentavos - arrangement.upfrontInCentavos === financial?.remainingBalanceInCentavos;
+  } catch { throw invalid(); }
+  const validTermsPolicy = terms?.schemaVersion === 2 &&
+    (terms.paymentPolicy === "deposit_then_balance" ||
+      (arrangedAccepted && terms.paymentPolicy === "full_payment"));
+  if (!validTermsPolicy ||
     request.initialPaymentId !== paymentId || !initial || initial.status !== "paid" || initial.reconciliationRequired ||
     !Number.isSafeInteger(amount) || (amount as number) <= 0 || initial.amountInCentavos !== amount ||
     initial.currency !== "PHP" || !/^pay_[A-Za-z0-9_]+$/u.test(String(initial.paymongoResourceId)) ||
@@ -56,9 +69,15 @@ export async function preflightPaymentDefaultAccounting(input: {
     db.collection("providerSettlements").doc(settlementIdForEarning(payment.providerEarningId)));
   const earning = earningSnapshot.data();
   const settlement = settlementSnapshot.data();
+  const directSplitSettlement = Boolean(
+    settlement && isDirectProviderSplitRouting(settlement.settlementRoutingMode),
+  );
   if (!earning || (settlement && (settlement.reconciliationRequired || settlement.activePayoutAttemptId != null ||
-    settlement.reservedAmountInCentavos !== 0 || settlement.paidOutAmountInCentavos !== 0 ||
-    !["awaiting_availability", "ready"].includes(String(settlement.status))))) throw invalid();
+    settlement.reservedAmountInCentavos !== 0 ||
+    (directSplitSettlement
+      ? !["paid", "cancelled"].includes(String(settlement.status))
+      : (settlement.paidOutAmountInCentavos !== 0 ||
+        !["awaiting_availability", "ready"].includes(String(settlement.status))))))) throw invalid();
   const allocation = paymentDefaultAllocation(evidence.amountInCentavos);
   const ledger = buildSuccessfulRefundFinancialLedgerPlan({paymentId: evidence.paymentId,
     refundOperationId: "payment_default_preflight", mainEventId: String(request.mainEventId),

@@ -97,9 +97,19 @@ export function specialOfferTotalIsValid(offer: Readonly<Record<string, unknown>
   const subtotal = offer.subtotalInCentavos;
   const total = offer.totalInCentavos;
   const legacyFee = offer.feeInCentavos;
+  const platformFee = offer.platformFeeInCentavos;
   if (typeof subtotal !== "number" || !Number.isSafeInteger(subtotal) || subtotal <= 0 ||
       typeof total !== "number" || !Number.isSafeInteger(total)) return false;
-  if (offer.deliveryIncluded === true) return legacyFee === undefined && total === subtotal;
+  if (offer.deliveryIncluded === true) {
+    if (legacyFee !== undefined) return false;
+    if (platformFee !== undefined) {
+      return typeof platformFee === "number" &&
+        Number.isSafeInteger(platformFee) &&
+        platformFee >= 0 &&
+        total === subtotal + platformFee;
+    }
+    return total === subtotal;
+  }
   return typeof legacyFee === "number" && Number.isSafeInteger(legacyFee) &&
     legacyFee >= 0 && total === subtotal + legacyFee;
 }

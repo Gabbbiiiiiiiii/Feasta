@@ -300,6 +300,7 @@ function CustomerBookingCancellationDialog({
               <CancellationPolicyPanel
                 policy={options.policy}
                 preview={options.refundPreview}
+                cancellationCutoffAt={options.cancellationCutoffAt}
               />
             ) : null}
 
@@ -315,7 +316,10 @@ function CustomerBookingCancellationDialog({
             ) : null}
 
             {!options.cancellationAllowed ? (
-              <UnavailablePanel reasonCode={options.reasonCode} />
+              <UnavailablePanel
+                reasonCode={options.reasonCode}
+                cancellationCutoffAt={options.cancellationCutoffAt}
+              />
             ) : null}
 
             {options.cancellationAllowed && !options.activeCancellation && !submissionComplete ? (
@@ -392,13 +396,37 @@ function ProviderContext({providerName, serviceName}: {providerName: string; ser
   );
 }
 
+function isUnifiedCutoffPolicy(
+  rules: NonNullable<CustomerCancellationOptions["policy"]>["rules"],
+  cancellationCutoffAt?: string | null,
+): boolean {
+  if (!cancellationCutoffAt) return false;
+  const before = rules.find((rule) => rule.stage === "preparation_not_started")?.refundBasisPoints;
+  const prep = rules.find((rule) => rule.stage === "preparation_started")?.refundBasisPoints;
+  const service = rules.find((rule) => rule.stage === "service_started")?.refundBasisPoints;
+  return before !== undefined && service === 0 && (prep === 0 || prep === before);
+}
+
 function CancellationPolicyPanel({
   policy,
   preview,
+  cancellationCutoffAt,
 }: {
   policy: NonNullable<CustomerCancellationOptions["policy"]>;
   preview: CustomerCancellationOptions["refundPreview"];
+  cancellationCutoffAt?: string | null;
 }) {
+  const unified = isUnifiedCutoffPolicy(policy.rules, cancellationCutoffAt);
+  const beforeBps =
+    policy.rules.find((rule) => rule.stage === "preparation_not_started")?.refundBasisPoints ?? 0;
+  const cutoffFormatted = cancellationCutoffAt
+    ? new Intl.DateTimeFormat("en-PH", {
+        dateStyle: "medium",
+        timeStyle: "short",
+        timeZone: "Asia/Manila",
+      }).format(new Date(cancellationCutoffAt))
+    : null;
+
   return (
     <section aria-labelledby="customer-cancellation-policy-heading" className="grid gap-4 rounded-xl border border-border p-4">
       <div>
@@ -410,30 +438,55 @@ function CancellationPolicyPanel({
               Based on the refund policy you accepted when booking this service.
             </p>
             <p className="mt-1 text-xs font-semibold text-muted-foreground">
-              {policy.sourceKind === "package_override" ? "Package-specific policy" : "Provider default policy"} · Version {policy.policyVersion}
+              {policy.sourceKind === "package_override" ? "Package-specific policy" : "Provider refund policy"} · Version {policy.policyVersion}
             </p>
+            {unified && cutoffFormatted ? (
+              <p className="mt-1 text-xs font-semibold text-primary-strong">
+                Cancellation cutoff: {cutoffFormatted}
+              </p>
+            ) : null}
           </div>
         </div>
       </div>
 
-      <dl className="grid gap-2 sm:grid-cols-3">
-        {policy.rules.map((rule) => {
-          const current = preview?.frozenStage === rule.stage;
-          return (
-            <div
-              key={rule.stage}
-              className={cn(
-                "rounded-xl border p-3",
-                current ? "border-primary/30 bg-primary-tint" : "border-border bg-muted/20",
-              )}
-            >
-              <dt className="text-xs font-bold text-muted-foreground">{refundStageLabel(rule.stage)}</dt>
-              <dd className="mt-1 text-xl font-black">{formatBasisPoints(rule.refundBasisPoints)}%</dd>
-              {current ? <dd className="mt-1 text-xs font-bold text-primary">Current recorded stage</dd> : null}
-            </div>
-          );
-        })}
-      </dl>
+      {unified ? (
+        <dl className="grid gap-2 sm:grid-cols-2">
+          <div
+            className={cn(
+              "rounded-xl border p-3",
+              preview ? "border-primary/30 bg-primary-tint" : "border-border bg-muted/20",
+            )}
+          >
+            <dt className="text-xs font-bold text-muted-foreground">Before Cancellation Cutoff</dt>
+            <dd className="mt-1 text-xl font-black">{formatBasisPoints(beforeBps)}%</dd>
+            {preview ? <dd className="mt-1 text-xs font-bold text-primary">Current eligible window</dd> : null}
+          </div>
+          <div className="rounded-xl border border-border bg-muted/20 p-3">
+            <dt className="text-xs font-bold text-muted-foreground">After Cancellation Cutoff</dt>
+            <dd className="mt-1 text-xl font-black">0%</dd>
+            <dd className="mt-1 text-xs font-semibold text-muted-foreground">Cancellation closed</dd>
+          </div>
+        </dl>
+      ) : (
+        <dl className="grid gap-2 sm:grid-cols-3">
+          {policy.rules.map((rule) => {
+            const current = preview?.frozenStage === rule.stage;
+            return (
+              <div
+                key={rule.stage}
+                className={cn(
+                  "rounded-xl border p-3",
+                  current ? "border-primary/30 bg-primary-tint" : "border-border bg-muted/20",
+                )}
+              >
+                <dt className="text-xs font-bold text-muted-foreground">{refundStageLabel(rule.stage)}</dt>
+                <dd className="mt-1 text-xl font-black">{formatBasisPoints(rule.refundBasisPoints)}%</dd>
+                {current ? <dd className="mt-1 text-xs font-bold text-primary">Current recorded stage</dd> : null}
+              </div>
+            );
+          })}
+        </dl>
+      )}
 
       {preview ? (
         <div className="rounded-xl border border-info/20 bg-info-subtle p-4">
@@ -460,10 +513,14 @@ function CancellationPolicyPanel({
             </>
           ) : null}
           <p className="mt-1 text-sm font-semibold text-foreground">
-            Recorded stage: {refundStageLabel(preview.frozenStage)}
+            {unified
+              ? "Eligible window: Before Cancellation Cutoff"
+              : `Recorded stage: ${refundStageLabel(preview.frozenStage)}`}
           </p>
           <p className="mt-2 text-xs leading-5 text-muted-foreground">
-            Based on the agreed policy and current recorded service stage. The final result remains subject to FEASTA&apos;s cancellation workflow.
+            {unified
+              ? "Based on the agreed policy before your cancellation cutoff. The final result remains subject to FEASTA's cancellation workflow."
+              : "Based on the agreed policy and current recorded service stage. The final result remains subject to FEASTA's cancellation workflow."}
           </p>
         </div>
       ) : null}
@@ -499,8 +556,28 @@ function NoticePanel({title, description}: {title: string; description: string})
   );
 }
 
-function UnavailablePanel({reasonCode}: {reasonCode: CustomerCancellationOptions["reasonCode"]}) {
-  const description = reasonCode === "EVENT_ENDED"
+function UnavailablePanel({
+  reasonCode,
+  cancellationCutoffAt,
+}: {
+  reasonCode: CustomerCancellationOptions["reasonCode"];
+  cancellationCutoffAt?: string | null;
+}) {
+  const cutoffFormatted = cancellationCutoffAt
+    ? new Intl.DateTimeFormat("en-PH", {
+        dateStyle: "medium",
+        timeStyle: "short",
+        timeZone: "Asia/Manila",
+      }).format(new Date(cancellationCutoffAt))
+    : null;
+  const title = reasonCode === "CANCELLATION_CUTOFF_PASSED"
+    ? "Cancellation closed \u2014 cutoff passed"
+    : reasonCode === "EVENT_ENDED"
+      ? "Cancellation closed \u2014 event ended"
+      : "Cancellation unavailable";
+  const description = reasonCode === "CANCELLATION_CUTOFF_PASSED"
+    ? `${cutoffFormatted ? `The cancellation cutoff (${cutoffFormatted}) has passed. ` : "The cancellation cutoff date has passed. "}New cancellation requests are no longer accepted. Report an Issue remains available if you need help.`
+    : reasonCode === "EVENT_ENDED"
     ? "New cancellation requests are no longer accepted. Existing requests continue through their normal review and refund workflow. Report an Issue and booking history remain available."
     : reasonCode === "SCHEDULE_RECONCILIATION_REQUIRED"
       ? "The event schedule needs review before a new cancellation request can be accepted. Report an Issue remains available."
@@ -516,7 +593,7 @@ function UnavailablePanel({reasonCode}: {reasonCode: CustomerCancellationOptions
     <div className="flex items-start gap-3 rounded-xl border border-border bg-muted/30 p-4" role="status">
       <ShieldAlert aria-hidden="true" className="mt-0.5 size-5 shrink-0 text-muted-foreground" />
       <div>
-        <p className="font-bold">{reasonCode === "EVENT_ENDED" ? "Cancellation closed \u2014 event ended" : "Cancellation unavailable"}</p>
+        <p className="font-bold">{title}</p>
         <p className="mt-1 text-sm leading-6 text-muted-foreground">{description}</p>
       </div>
     </div>

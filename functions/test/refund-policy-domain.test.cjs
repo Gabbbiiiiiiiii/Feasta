@@ -78,7 +78,7 @@ test("policy validation canonicalizes rule order and trims optional terms", () =
   );
 });
 
-test("policy validation rejects invalid basis points", () => {
+test("policy validation rejects invalid basis points and non-monotonic stages", () => {
   for (const invalid of [-1, 10_001, 5.5, Number.NaN, Number.POSITIVE_INFINITY]) {
     const draft = policyDraft();
     draft.rules[0].refundBasisPoints = invalid;
@@ -87,6 +87,55 @@ test("policy validation rejects invalid basis points", () => {
       () => domain.parseRefundPolicyDraft(draft),
     );
   }
+
+  for (const nonMonotonic of [
+    [2_000, 8_000, 0],
+    [10_000, 0, 5_000],
+    [5_000, 5_000, 6_000],
+  ]) {
+    assertCode(
+      "invalid-argument",
+      () => domain.parseRefundPolicyDraft(policyDraft(nonMonotonic)),
+    );
+  }
+});
+
+test("unified cutoff refund rules align preparation_started with the 24h lead time", () => {
+  assert.deepEqual(
+    domain.buildUnifiedCutoffRefundRules({
+      beforeCutoffBasisPoints: 8_000,
+      effectiveCutoffHoursBeforeEvent: 72,
+    }),
+    [
+      {stage: "preparation_not_started", refundBasisPoints: 8_000},
+      {stage: "preparation_started", refundBasisPoints: 0},
+      {stage: "service_started", refundBasisPoints: 0},
+    ],
+  );
+
+  assert.deepEqual(
+    domain.buildUnifiedCutoffRefundRules({
+      beforeCutoffBasisPoints: 8_000,
+      effectiveCutoffHoursBeforeEvent: 24,
+    }),
+    [
+      {stage: "preparation_not_started", refundBasisPoints: 8_000},
+      {stage: "preparation_started", refundBasisPoints: 0},
+      {stage: "service_started", refundBasisPoints: 0},
+    ],
+  );
+
+  assert.deepEqual(
+    domain.buildUnifiedCutoffRefundRules({
+      beforeCutoffBasisPoints: 8_000,
+      effectiveCutoffHoursBeforeEvent: 12,
+    }),
+    [
+      {stage: "preparation_not_started", refundBasisPoints: 8_000},
+      {stage: "preparation_started", refundBasisPoints: 8_000},
+      {stage: "service_started", refundBasisPoints: 0},
+    ],
+  );
 });
 
 test("policy validation rejects unknown, duplicate, and missing stages", () => {
@@ -229,9 +278,9 @@ test("server versioning starts at one and increments safely", () => {
   );
 });
 
-test("effective policy resolution prefers a canonical package override", () => {
+test("effective policy resolution always uses Provider policy and ignores legacy package overrides", () => {
   const provider = {refundPolicy: storedPolicy(4)};
-  const packageOverride = storedPolicy(7, {
+  const legacyPackageOverride = storedPolicy(7, {
     rules: policyDraft([7_500, 2_500, 0]).rules,
   });
   const resolved = domain.resolveEffectiveRefundPolicy({
@@ -241,7 +290,7 @@ test("effective policy resolution prefers a canonical package override", () => {
       packageId: "package_alpha_001",
       data: {
         providerId: "provider_alpha_001",
-        refundPolicyOverride: packageOverride,
+        refundPolicyOverride: legacyPackageOverride,
       },
     },
   });
@@ -249,13 +298,13 @@ test("effective policy resolution prefers a canonical package override", () => {
   assert.equal(resolved.status, "resolved");
   assert.equal(
     resolved.effective.source.kind,
-    "package_override",
+    "provider_default",
   );
   assert.equal(
     resolved.effective.effectivePolicyKey,
-    "package_override:package_alpha_001:v7",
+    "provider_default:provider_alpha_001:v4",
   );
-  assert.equal(resolved.effective.policy.policyVersion, 7);
+  assert.equal(resolved.effective.policy.policyVersion, 4);
 });
 
 test("resolution falls back to Provider default for package and add-on requests", () => {

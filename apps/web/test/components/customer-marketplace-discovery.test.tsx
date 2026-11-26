@@ -414,6 +414,10 @@ describe("customer marketplace server query contracts", () => {
     expect(homeService).toContain('.where("status", "==", "published")');
     expect(homeService).toContain('.where("providerPubliclyVisible", "==", true)');
     expect(homeService).toContain(".limit(HOMEPAGE_PACKAGE_LIMIT)");
+    expect(homeService).toContain("verifiedPublicPackageV2");
+    expect(homeService).toMatch(
+      /normalizePublicPackage\(\s*document\.id,\s*data,\s*providerNames,\s*v2/u,
+    );
     expect(homepage).not.toMatch(/rating|five-star|top-rated|completed bookings|response time/iu);
     expect(homepage).not.toMatch(/const\s+(?:providers|packages)\s*=\s*\[/u);
   });

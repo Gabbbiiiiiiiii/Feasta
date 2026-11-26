@@ -43,6 +43,7 @@ export function CustomerBookingPaymentAction({
   const requestLoading =
     paymentRequestId === request.providerRequestId;
 
+  const arrangedAccepted = request.arrangedPayment?.status === "accepted";
   const onlyFullPayment = request.checkoutOptions.length === 1 &&
     request.checkoutOptions[0]?.choice === "full";
 
@@ -59,16 +60,20 @@ export function CustomerBookingPaymentAction({
       ) : null}
       {request.checkoutOptions.length > 1 ? (
         <p className="text-xs leading-5 text-muted-foreground">
-          Choose a deposit or pay the entire service price now.
+          {arrangedAccepted
+            ? "Pay your arranged first payment now or settle the entire service price upfront."
+            : "Choose a deposit or pay the entire service price now."}
         </p>
       ) : null}
-      {request.checkoutOptions.map((option) => <section key={option.choice} aria-label={option.choice === "minimum" ? "Pay deposit" : option.choice === "full" ? "Pay in full" : "Pay remaining balance"} className="grid gap-3 rounded-xl border border-border bg-muted/25 p-4">
-        <h4 className="text-sm font-bold">{option.choice === "minimum" ? "Pay deposit" : option.choice === "full" ? "Pay in full" : "Pay remaining balance"}</h4>
+      {request.checkoutOptions.map((option) => <section key={option.choice} aria-label={option.choice === "minimum" ? (arrangedAccepted ? "Pay arranged first payment" : "Pay deposit") : option.choice === "full" ? "Pay in full" : "Pay remaining balance"} className="grid gap-3 rounded-xl border border-border bg-muted/25 p-4">
+        <h4 className="text-sm font-bold">{option.choice === "minimum" ? (arrangedAccepted ? "Pay arranged first payment" : "Pay deposit") : option.choice === "full" ? "Pay in full" : "Pay remaining balance"}</h4>
         <p className="text-lg font-bold">{formatCurrency(option.amount)}{option.choice === "minimum" ? " now" : ""}</p>
         {option.choice === "minimum" ? <div className="grid gap-1 text-xs text-muted-foreground">
-          <p>{Math.round(request.amount * request.downPaymentPercentage) === Math.round(option.amount * 100)
-            ? String(request.downPaymentPercentage) + "% of the service price"
-            : "Includes the deposit and any services payable upfront."}</p>
+          <p>{arrangedAccepted
+            ? "Agreed first payment under your arranged payment terms."
+            : Math.round(request.amount * request.downPaymentPercentage) === Math.round(option.amount * 100)
+              ? String(request.downPaymentPercentage) + "% of the service price"
+              : "Includes the deposit and any services payable upfront."}</p>
           <p>Remaining after payment: {formatCurrency(presentation.prospectiveBalance ?? 0)}</p>
           {request.remainingBalanceDueAt ? <p>Balance due: {formatCustomerBalanceDeadline(request.remainingBalanceDueAt)}</p> : null}
         </div> : option.choice === "full" ? <p className="text-xs text-muted-foreground">Pay the entire service price now. No remaining balance after this payment.</p> : null}
@@ -84,7 +89,7 @@ export function CustomerBookingPaymentAction({
         onClick={() => void onPay(request.providerRequestId, option.choice)}
       >
         <CreditCard aria-hidden="true" className="size-5" />
-        Pay {option.choice === "remaining_balance" ? "balance " : option.choice === "minimum" ? "deposit " : option.choice === "full" && !onlyFullPayment ? "full " : ""}{formatCurrency(option.amount)}
+        Pay {option.choice === "remaining_balance" ? "balance " : option.choice === "minimum" ? (arrangedAccepted ? "first payment " : "deposit ") : option.choice === "full" && !onlyFullPayment ? "full " : ""}{formatCurrency(option.amount)}
       </Button></section>)}
       <p className="text-xs leading-5 text-muted-foreground">
         You&apos;ll continue to PayMongo. FEASTA will update your booking after the payment is confirmed.

@@ -15,6 +15,13 @@ import {
   bookingPaymentAgreementDisclosure,
   assertBookingPaymentAgreementAcknowledgements,
 } from "./booking-payment-agreement.js";
+import {
+  buildCancellationPolicySnapshot,
+  CANCELLATION_POLICY_SETTINGS_DOC_ID,
+  parseStoredAdminCancellationPolicy,
+  parseStoredProviderCancellationPolicy,
+  resolveEffectiveCancellationPolicy,
+} from "../cancellations/cancellation-policy-domain.js";
 import {createHash} from "node:crypto";
 import {isLegacyOccasionPackage} from "../packages/legacy-occasion-publication-guard.js";
 import {stableOccasionPublicationGeneration} from "../packages/occasion-publication-generation.js";
@@ -69,6 +76,11 @@ import {
 import {
   buildPackagePaymentTermsSnapshot,
 } from "../payments/package-payment-terms.js";
+import {
+  computeCustomerPaidPlatformFeeInCentavos,
+  PLATFORM_COMMISSION_MODEL_CUSTOMER_PAID_FLAT_V1,
+  resolvePlatformCommissionRateBps,
+} from "../payments/platform-commission-policy.js";
 import {
   validateBookingPackage,
   type BookingPackageValidation,
@@ -487,6 +499,16 @@ async function handleBookingSelection(request: CallableRequest, disclosureOnly: 
           REFUND_POLICY_ROLLOUT_DOCUMENT_ID,
         );
 
+      const cancellationPolicyReference = db
+        .collection(COLLECTIONS.appSettings)
+        .doc(
+          CANCELLATION_POLICY_SETTINGS_DOC_ID,
+        );
+
+      const platformSettingsReference = db
+        .collection(COLLECTIONS.appSettings)
+        .doc("platform");
+
       const addonReferences = addonIds.map(
         (addonId) =>
           db
@@ -503,6 +525,8 @@ async function handleBookingSelection(request: CallableRequest, disclosureOnly: 
             cateringProviderSnapshot,
             packageSnapshot,
             refundPolicyRolloutSnapshot,
+            cancellationPolicySettingsSnapshot,
+            platformSettingsSnapshot,
             ...addonSnapshots
           ] = await Promise.all([
             transaction.get(bookingReference),
@@ -514,6 +538,12 @@ async function handleBookingSelection(request: CallableRequest, disclosureOnly: 
             transaction.get(packageReference),
             transaction.get(
               refundPolicyRolloutReference,
+            ),
+            transaction.get(
+              cancellationPolicyReference,
+            ),
+            transaction.get(
+              platformSettingsReference,
             ),
             ...addonReferences.map((reference) =>
               transaction.get(reference),
@@ -1210,21 +1240,73 @@ async function handleBookingSelection(request: CallableRequest, disclosureOnly: 
               ),
             ];
 
+          const platformCommissionRateBps =
+            resolvePlatformCommissionRateBps(
+              platformSettingsSnapshot.exists
+                ? platformSettingsSnapshot.data()
+                : null,
+            );
+
           const cateringSubtotal =
             calculateServiceTotal(
               cateringServices,
             );
 
-          const cateringDownPaymentAmount =
+          const cateringServiceDownPaymentAmount =
             calculateServiceDownPayment(
               cateringServices,
             );
 
-          // Display/compatibility projection of the summed service amounts.
+          const cateringServiceSubtotalCentavos =
+            Math.round(cateringSubtotal * 100);
+          const cateringPlatformFeeCentavos =
+            computeCustomerPaidPlatformFeeInCentavos(
+              cateringServiceSubtotalCentavos,
+              platformCommissionRateBps,
+            );
+          const cateringGrossCentavos =
+            cateringServiceSubtotalCentavos +
+            cateringPlatformFeeCentavos;
+          const cateringGrossAmount =
+            cateringGrossCentavos / 100;
+
+          const cateringRequiredUpfrontCentavos =
+            cateringServiceDownPaymentAmount >= cateringSubtotal
+              ? cateringGrossCentavos
+              : cateringServices.length > 0 &&
+                  cateringServices.every(
+                    (service) =>
+                      service.downPaymentPercentage ===
+                      cateringServices[0].downPaymentPercentage,
+                  )
+                ? Math.round(
+                    (cateringGrossCentavos *
+                      cateringServices[0].downPaymentPercentage) /
+                      100,
+                  )
+                : Math.min(
+                    cateringGrossCentavos,
+                    Math.round(
+                      (cateringGrossCentavos *
+                        Math.round(cateringServiceDownPaymentAmount * 100)) /
+                        cateringServiceSubtotalCentavos,
+                    ),
+                  );
+
+          const cateringDownPaymentAmount =
+            cateringRequiredUpfrontCentavos / 100;
+          const cateringRemainingBalance =
+            (cateringGrossCentavos - cateringRequiredUpfrontCentavos) / 100;
+
+          // Display/compatibility projection of the gross customer-payable amounts.
           // Payment authority remains the financial snapshot in centavos.
-          const cateringDownPaymentPercentage = cateringSubtotal === 0
-            ? 0
-            : roundCurrency((cateringDownPaymentAmount / cateringSubtotal) * 100);
+          const cateringDownPaymentPercentage =
+            cateringGrossCentavos === 0
+              ? 0
+              : roundCurrency(
+                  (cateringRequiredUpfrontCentavos / cateringGrossCentavos) *
+                    100,
+                );
 
           const marketplaceAddOnsTotal =
             calculateServiceTotal(
@@ -1232,12 +1314,6 @@ async function handleBookingSelection(request: CallableRequest, disclosureOnly: 
                 (addon) =>
                   serviceFromAddOn(addon),
               ),
-            );
-
-          const estimatedEventTotal =
-            roundCurrency(
-              cateringSubtotal +
-                marketplaceAddOnsTotal,
             );
 
           const providerRequestIds: string[] =
@@ -1259,6 +1335,43 @@ async function handleBookingSelection(request: CallableRequest, disclosureOnly: 
               .entries(),
           ];
 
+          const marketplaceFinancialsByProvider = new Map(
+            marketplaceRequestEntries.map(([providerId, addons]) => {
+              const services = addons.map(serviceFromAddOn);
+              const serviceSubtotalCentavos = Math.round(
+                calculateServiceTotal(services) * 100,
+              );
+              const platformFeeCentavos =
+                computeCustomerPaidPlatformFeeInCentavos(
+                  serviceSubtotalCentavos,
+                  platformCommissionRateBps,
+                );
+              const grossCentavos =
+                serviceSubtotalCentavos + platformFeeCentavos;
+              return [
+                providerId,
+                {
+                  serviceSubtotalCentavos,
+                  platformFeeCentavos,
+                  grossCentavos,
+                },
+              ];
+            }),
+          );
+
+          const totalMarketplaceGrossAmount = roundCurrency(
+            [...marketplaceFinancialsByProvider.values()].reduce(
+              (sum, item) => sum + item.grossCentavos,
+              0,
+            ) / 100,
+          );
+
+          const estimatedEventTotal =
+            roundCurrency(
+              cateringGrossAmount +
+                totalMarketplaceGrossAmount,
+            );
+
           const agreements = [
             buildBookingPaymentAgreement({customerId: actor.uid, providerId: cateringProviderId,
               providerName: stringValue(cateringProvider.businessName),
@@ -1278,29 +1391,39 @@ async function handleBookingSelection(request: CallableRequest, disclosureOnly: 
                 selectedFoods, selectedDecorations, selectedFurniture},
               eventStartAt: submissionEligibility.eventStartAt,
               eventEndTime: eventEndTime ?? "",
-              grossAmountInCentavos: Math.round(cateringSubtotal * 100),
-              requiredUpfrontAmountInCentavos: Math.round(cateringDownPaymentAmount * 100),
+              grossAmountInCentavos: cateringGrossCentavos,
+              requiredUpfrontAmountInCentavos: cateringRequiredUpfrontCentavos,
+              serviceSubtotalInCentavos: cateringServiceSubtotalCentavos,
+              platformFeeInCentavos: cateringPlatformFeeCentavos,
+              platformCommissionRateBps,
               depositEligible: submissionEligibility.depositEligible,
               eligibilityReason: submissionEligibility.reason,
               paymentPolicy: {packagePaymentTerms, bookingPaymentPolicySnapshot},
               refundPolicy: refundPolicyEvidence.get(cateringProviderId)?.refundPolicySnapshot ?? null}),
-            ...marketplaceRequestEntries.map(([providerId, addons]) => buildBookingPaymentAgreement({
-              customerId: actor.uid, providerId, providerName: marketplaceProviders.get(providerId)!.businessName,
-              serviceNames:
-                addons
-                  .map(serviceFromAddOn)
-                  .map(
-                    (service) =>
-                      service.name,
-                  ),
+            ...marketplaceRequestEntries.map(([providerId, addons]) => {
+              const marketplaceFinancial =
+                marketplaceFinancialsByProvider.get(providerId)!;
+              return buildBookingPaymentAgreement({
+                customerId: actor.uid, providerId, providerName: marketplaceProviders.get(providerId)!.businessName,
+                serviceNames:
+                  addons
+                    .map(serviceFromAddOn)
+                    .map(
+                      (service) =>
+                        service.name,
+                    ),
 
-              serviceTierLabel: null,
-              selection: {services: addons.map(serviceFromAddOn)}, eventStartAt: submissionEligibility.eventStartAt,
-              eventEndTime: eventEndTime ?? "",
-              grossAmountInCentavos: Math.round(calculateServiceTotal(addons.map(serviceFromAddOn)) * 100),
-              requiredUpfrontAmountInCentavos: Math.round(calculateServiceTotal(addons.map(serviceFromAddOn)) * 100),
-              depositEligible: false, paymentPolicy: {paymentPolicy: "full_payment"},
-              refundPolicy: refundPolicyEvidence.get(providerId)?.refundPolicySnapshot ?? null})),
+                serviceTierLabel: null,
+                selection: {services: addons.map(serviceFromAddOn)}, eventStartAt: submissionEligibility.eventStartAt,
+                eventEndTime: eventEndTime ?? "",
+                grossAmountInCentavos: marketplaceFinancial.grossCentavos,
+                requiredUpfrontAmountInCentavos: marketplaceFinancial.grossCentavos,
+                serviceSubtotalInCentavos: marketplaceFinancial.serviceSubtotalCentavos,
+                platformFeeInCentavos: marketplaceFinancial.platformFeeCentavos,
+                platformCommissionRateBps,
+                depositEligible: false, paymentPolicy: {paymentPolicy: "full_payment"},
+                refundPolicy: refundPolicyEvidence.get(providerId)?.refundPolicySnapshot ?? null});
+            }),
           ];
           if (disclosureOnly) {
             recordMaintenanceAdmission(transaction, db);
@@ -1327,6 +1450,23 @@ async function handleBookingSelection(request: CallableRequest, disclosureOnly: 
             ...agreements.find(agreement => agreement.providerId === providerId)!,
             agreedAt: Timestamp.fromDate(submissionTime),
           }});
+
+          const adminCancellationPolicy = parseStoredAdminCancellationPolicy(
+            cancellationPolicySettingsSnapshot.exists
+              ? cancellationPolicySettingsSnapshot.data()
+              : null,
+          );
+          const submittedTimestamp = Timestamp.fromDate(submissionTime);
+          const frozenCancellationSnapshot = (providerData: Record<string, unknown>) =>
+            buildCancellationPolicySnapshot({
+              effective: resolveEffectiveCancellationPolicy(
+                parseStoredProviderCancellationPolicy(providerData.cancellationPolicy),
+                adminCancellationPolicy,
+              ),
+              eventStartAt: submissionEligibility.eventStartAt,
+              submittedAt: submissionTime,
+              capturedAt: submittedTimestamp,
+            });
 
           for (
             const [
@@ -1628,17 +1768,21 @@ async function handleBookingSelection(request: CallableRequest, disclosureOnly: 
                   cateringSubtotal -
                     packagePrice,
                 ),
+              serviceSubtotalInCentavos:
+                cateringServiceSubtotalCentavos,
+              platformFeeInCentavos:
+                cateringPlatformFeeCentavos,
+              platformCommissionRateBps,
+              platformCommissionModel:
+                PLATFORM_COMMISSION_MODEL_CUSTOMER_PAID_FLAT_V1,
               totalAmount:
-                cateringSubtotal,
+                cateringGrossAmount,
               downPaymentPercentage:
                 cateringDownPaymentPercentage,
               downPaymentAmount:
                 cateringDownPaymentAmount,
               remainingBalance:
-                roundCurrency(
-                  cateringSubtotal -
-                    cateringDownPaymentAmount,
-                ),
+                cateringRemainingBalance,
 
               status:
                 "pending_provider_approval",
@@ -1737,16 +1881,20 @@ async function handleBookingSelection(request: CallableRequest, disclosureOnly: 
 
               services: cateringServices,
 
-              amount: cateringSubtotal,
+              serviceSubtotalInCentavos:
+                cateringServiceSubtotalCentavos,
+              platformFeeInCentavos:
+                cateringPlatformFeeCentavos,
+              platformCommissionRateBps,
+              platformCommissionModel:
+                PLATFORM_COMMISSION_MODEL_CUSTOMER_PAID_FLAT_V1,
+              amount: cateringGrossAmount,
               downPaymentPercentage:
                 cateringDownPaymentPercentage,
               downPaymentAmount:
                 cateringDownPaymentAmount,
               remainingBalance:
-                roundCurrency(
-                  cateringSubtotal -
-                    cateringDownPaymentAmount,
-                ),
+                cateringRemainingBalance,
 
               status: "pending",
               paymentStatus: "unpaid",
@@ -1782,6 +1930,7 @@ async function handleBookingSelection(request: CallableRequest, disclosureOnly: 
                 refundPolicyEvidence,
                 cateringProviderId,
               ),
+              cancellationPolicySnapshot: frozenCancellationSnapshot(cateringProvider),
 
               createdAt: serverTimestamp(),
               updatedAt: serverTimestamp(),
@@ -1835,15 +1984,15 @@ async function handleBookingSelection(request: CallableRequest, disclosureOnly: 
                   serviceFromAddOn(addon),
               );
 
-            const amount =
-              calculateServiceTotal(
-                services,
-              );
+            const marketplaceFinancial =
+              marketplaceFinancialsByProvider.get(
+                marketplaceProviderId,
+              )!;
 
-            const providerDownPaymentAmount =
-              calculateServiceDownPayment(
-                services,
-              );
+            const amount =
+              marketplaceFinancial.grossCentavos / 100;
+
+            const providerDownPaymentAmount = amount;
 
             const providerRefundPolicyEvidence =
               requiredRefundPolicyEvidence(
@@ -1897,16 +2046,19 @@ async function handleBookingSelection(request: CallableRequest, disclosureOnly: 
 
                 services,
 
+                serviceSubtotalInCentavos:
+                  marketplaceFinancial.serviceSubtotalCentavos,
+                platformFeeInCentavos:
+                  marketplaceFinancial.platformFeeCentavos,
+                platformCommissionRateBps,
+                platformCommissionModel:
+                  PLATFORM_COMMISSION_MODEL_CUSTOMER_PAID_FLAT_V1,
                 amount,
                 downPaymentPercentage:
                   FULL_PAYMENT_PERCENTAGE,
                 downPaymentAmount:
                   providerDownPaymentAmount,
-                remainingBalance:
-                  roundCurrency(
-                    amount -
-                      providerDownPaymentAmount,
-                  ),
+                remainingBalance: 0,
 
                 status: "pending",
                 paymentStatus: "unpaid",
@@ -1938,6 +2090,7 @@ async function handleBookingSelection(request: CallableRequest, disclosureOnly: 
                 paidAt: null,
 
                 ...providerRefundPolicyEvidence,
+                cancellationPolicySnapshot: frozenCancellationSnapshot(marketplaceProvider.data),
 
                 createdAt: serverTimestamp(),
                 updatedAt: serverTimestamp(),

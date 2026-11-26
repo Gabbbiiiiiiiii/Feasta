@@ -4,10 +4,14 @@ import {FirebaseError} from "firebase/app";
 import {httpsCallable} from "firebase/functions";
 
 import {
+  CANCELLATION_CUTOFF_HOURS_MAX_HARD,
+  CANCELLATION_CUTOFF_HOURS_MIN_HARD,
+  CANCELLATION_POLICY_GUIDANCE_MAX_LENGTH,
   REFUND_BASIS_POINTS_MAX,
   REFUND_BASIS_POINTS_MIN,
   REFUND_ELIGIBILITY_STAGES,
   REFUND_POLICY_TERMS_MAX_LENGTH,
+  type CancellationCutoffDisclosure,
   type RefundEligibilityStage,
 } from "@feasta/shared-types";
 
@@ -28,6 +32,7 @@ export type CustomerRefundPolicyDisclosure = {
     refundBasisPoints: number;
   }[];
   terms: string | null;
+  cancellationCutoff?: CancellationCutoffDisclosure;
 };
 
 export type CustomerRefundPolicyDisclosureResult = {
@@ -148,6 +153,8 @@ function parseDisclosureResponse(
       throw invalidDisclosureResponse();
     }
 
+    const cancellationCutoff = parseOptionalCancellationCutoff(record.cancellationCutoff);
+
     return {
       providerId,
       providerName,
@@ -155,12 +162,49 @@ function parseDisclosureResponse(
       sourceKind,
       rules: parseRules(record.rules),
       terms,
+      ...(cancellationCutoff ? {cancellationCutoff} : {}),
     } satisfies CustomerRefundPolicyDisclosure;
   });
 
   return {
     acknowledgementsRequired: value.acknowledgementsRequired,
     policies,
+  };
+}
+
+function parseOptionalCancellationCutoff(
+  value: unknown,
+): CancellationCutoffDisclosure | undefined {
+  if (value === undefined || value === null) return undefined;
+  const record = requireRecord(value);
+  const sourceKind = record.sourceKind;
+  if (sourceKind !== "admin_default" && sourceKind !== "provider_custom") {
+    throw invalidDisclosureResponse();
+  }
+  const cutoffHoursBeforeEvent = record.cutoffHoursBeforeEvent;
+  if (
+    typeof cutoffHoursBeforeEvent !== "number" ||
+    !Number.isSafeInteger(cutoffHoursBeforeEvent) ||
+    cutoffHoursBeforeEvent < CANCELLATION_CUTOFF_HOURS_MIN_HARD ||
+    cutoffHoursBeforeEvent > CANCELLATION_CUTOFF_HOURS_MAX_HARD
+  ) {
+    throw invalidDisclosureResponse();
+  }
+  const guidanceNote = record.guidanceNote;
+  if (
+    guidanceNote !== undefined &&
+    guidanceNote !== null &&
+    (typeof guidanceNote !== "string" ||
+      guidanceNote.length > CANCELLATION_POLICY_GUIDANCE_MAX_LENGTH)
+  ) {
+    throw invalidDisclosureResponse();
+  }
+  return {
+    sourceKind,
+    cutoffHoursBeforeEvent,
+    guidanceNote: typeof guidanceNote === "string" && guidanceNote.trim()
+      ? guidanceNote.trim()
+      : null,
   };
 }
 

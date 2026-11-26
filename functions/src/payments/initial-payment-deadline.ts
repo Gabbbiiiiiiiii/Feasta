@@ -1,5 +1,6 @@
 import {Timestamp} from "firebase-admin/firestore";
 import {scheduledEventStart, remainingBalanceHardDeadline} from "./canonical-balance-timing.js";
+import {parseArrangedPaymentOffer} from "../provider-requests/arranged-payment-offer.js";
 
 export const HISTORICAL_INITIAL_PAYMENT_HOLD_MS = 24 * 3_600_000;
 export const INITIAL_PAYMENT_DEADLINE_POLICY_VERSION = 4;
@@ -52,7 +53,13 @@ export function originalInitialPaymentDeadline(request: Readonly<Record<string, 
     throw new Error("Initial payment policy is unsupported.");
   }
   if (request.initialPaymentDeadlinePolicyVersion === 4) {
-    const expected = calculateInitialPaymentDeadlineV4({acceptedAt: new Date(accepted), eventStartAt: new Date(eventStart),
+    const arrangement = parseArrangedPaymentOffer(request.arrangedPaymentOffer);
+    if (arrangement?.status === "accepted" && (arrangement.respondedAt?.toMillis() !== accepted ||
+        arrangement.initialDueAt.toMillis() <= accepted || arrangement.initialDueAt.toMillis() >= canonical)) {
+      throw new Error("The arranged initial payment timing is invalid.");
+    }
+    const expected = arrangement?.status === "accepted" ? arrangement.initialDueAt.toDate() :
+      calculateInitialPaymentDeadlineV4({acceptedAt: new Date(accepted), eventStartAt: new Date(eventStart),
       hardDeadlines: [canonical, optional(request.hardPaymentDeadlineAt)].filter(value => value !== Infinity).map(value => new Date(value))});
     if (!(request.initialPaymentDeadlineAt instanceof Timestamp) || request.initialPaymentDeadlineAt.toMillis() !== expected.getTime() ||
       !(request.eventStartAt instanceof Timestamp) || (request.expiresAt != null && optional(request.expiresAt) !== expected.getTime())) {

@@ -17,9 +17,12 @@ export type PublicPackage = {
   balanceDueHoursBeforeEvent?: number | null;
   revision?: number;
   sharedContractVersion?: 2;
+  maxDropOffOrderQuantity?: number;
   pricingModel?: "per_pax" | "per_bundle";
   occasionScope?: "specific" | "all";
   occasionMatchIds?: readonly string[];
+  /** Provider-defined custom occasions shown on provider storefront & package detail only. */
+  customOccasionLabels?: readonly string[];
   equipmentInclusions?: readonly string[];
   foodChoiceGroups?: FoodChoiceGroupV2[];
   foodInclusions?: readonly string[];
@@ -31,6 +34,7 @@ export type PublicPackage = {
   eventType: string | null;
   price: number | null;
   paymentPolicy?: "full_payment" | "deposit_then_balance" | null;
+  fullPaymentAllowed?: boolean | null;
   depositPercentage?: number | null;
   balanceDueDaysBeforeEvent?: number | null;
   serviceOptions?: PackageServiceOptions;

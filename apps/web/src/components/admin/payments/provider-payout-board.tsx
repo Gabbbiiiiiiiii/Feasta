@@ -173,6 +173,14 @@ function ProviderPayoutBoard({
     readyTotalInCentavos / 100,
   );
 
+  const hasLegacyEscrowItems =
+    board.readyToPay.length > 0 ||
+    board.advanceRequests.length > 0 ||
+    board.history.length > 0 ||
+    advanceHistoryRows.length > 0 ||
+    board.companyFloat.availableBalanceInCentavos > 0 ||
+    board.companyFloat.outstandingAdvanceInCentavos > 0;
+
   const openConfirmDialog = (state: ConfirmState) => {
     setActionError(null);
     setPassword("");
@@ -285,14 +293,13 @@ function ProviderPayoutBoard({
             id="provider-payout-board-heading"
             className="text-lg font-black tracking-tight"
           >
-            Provider payouts
+            FEASTA service fees &amp; direct splits
           </h2>
           <p className="mt-1 max-w-3xl text-sm leading-6 text-muted-foreground">
-            Ordinary payouts stay on the completion + 3 banking-day policy.
-            FEASTA commission accrues to a separate wallet; admin may withdraw
-            it or move it into company float for provider advances. Providers may
-            request immediate funding from float, and later booking proceeds repay
-            that float.
+            Customer payments route 100% of the listed package price directly to
+            the provider&apos;s linked payout account upon confirmation (0-day
+            hold). FEASTA does not hold provider funds—this workspace tracks
+            only FEASTA&apos;s platform service fee wallet and withdrawals.
           </p>
         </div>
 
@@ -312,17 +319,18 @@ function ProviderPayoutBoard({
       </div>
 
       <div
-        className="flex items-start gap-2.5 rounded-xl border border-warning/30 bg-warning-subtle/70 px-3.5 py-2.5 text-sm text-foreground"
+        className="flex items-start gap-2.5 rounded-xl border border-primary/25 bg-primary-tint/50 px-3.5 py-2.5 text-sm text-foreground"
         role="status"
       >
         <Info
           aria-hidden="true"
-          className="mt-0.5 size-4 shrink-0 text-warning"
+          className="mt-0.5 size-4 shrink-0 text-primary"
         />
         <p className="leading-5">
-          <span className="font-bold text-warning">Mock finance mode:</span>{" "}
-          No real bank transfer is sent. Company float funding, advances, and
-          ordinary releases still require admin password re-authentication.
+          <span className="font-bold text-primary-strong">Direct-to-provider split active:</span>{" "}
+          Provider shares settle directly at checkout confirmation with no Admin
+          custody or 3-day payout hold. Only FEASTA&apos;s dynamic service fee
+          accrues here.
         </p>
       </div>
 
@@ -332,7 +340,7 @@ function ProviderPayoutBoard({
           role="alert"
         >
           <p className="font-bold text-destructive">
-            Provider payout board could not load
+            FEASTA service fee workspace could not load
           </p>
           <p className="mt-1 text-sm text-destructive">
             {error}
@@ -343,10 +351,10 @@ function ProviderPayoutBoard({
       <div className="grid gap-3 rounded-xl border border-border bg-secondary/30 p-4">
         <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
           <div>
-            <h3 className="text-base font-bold">FEASTA commission</h3>
+            <h3 className="text-base font-bold">FEASTA service fee wallet</h3>
             <p className="mt-1 text-sm text-muted-foreground">
-              Accrued from successful customer payments. Withdraw it, or add it
-              to company float for provider advances.
+              Accrued from customer-paid FEASTA service fees on confirmed
+              bookings.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -360,19 +368,21 @@ function ProviderPayoutBoard({
               }
               onClick={() => setWithdrawOpen(true)}
             >
-              Withdraw commission
+              Withdraw service fee
             </Button>
-            <Button
-              type="button"
-              size="compact"
-              disabled={
-                busy ||
-                board.companyCommission.availableBalanceInCentavos <= 0
-              }
-              onClick={() => openConfirmDialog({kind: "transferCommission"})}
-            >
-              Add to company float
-            </Button>
+            {hasLegacyEscrowItems ? (
+              <Button
+                type="button"
+                size="compact"
+                disabled={
+                  busy ||
+                  board.companyCommission.availableBalanceInCentavos <= 0
+                }
+                onClick={() => openConfirmDialog({kind: "transferCommission"})}
+              >
+                Add to company float
+              </Button>
+            ) : null}
           </div>
         </div>
         <div className="grid gap-2 sm:grid-cols-3">
@@ -382,12 +392,15 @@ function ProviderPayoutBoard({
               {board.companyCommission.formattedAvailableBalance}
             </strong>
           </p>
-          <p className="text-sm">
-            Moved to float:{" "}
-            <strong className="tabular-nums">
-              {board.companyCommission.formattedTransferredToFloat}
-            </strong>
-          </p>
+          {board.companyCommission.transferredToFloatInCentavos > 0 ||
+          hasLegacyEscrowItems ? (
+            <p className="text-sm">
+              Moved to float:{" "}
+              <strong className="tabular-nums">
+                {board.companyCommission.formattedTransferredToFloat}
+              </strong>
+            </p>
+          ) : null}
           <p className="text-sm">
             Withdrawn:{" "}
             <strong className="tabular-nums">
@@ -399,7 +412,7 @@ function ProviderPayoutBoard({
 
       <div className="grid gap-3">
         <div className="flex items-center gap-2">
-          <h3 className="text-base font-bold">Commission withdrawal history</h3>
+          <h3 className="text-base font-bold">Service fee withdrawal history</h3>
           <span className="rounded-pill bg-secondary px-2.5 py-0.5 text-xs font-bold tabular-nums text-muted-foreground">
             {commissionWithdrawals.length}
           </span>
@@ -409,13 +422,13 @@ function ProviderPayoutBoard({
             className="rounded-xl border border-dashed border-border bg-secondary/40 px-4 py-5 text-sm text-muted-foreground"
             role="status"
           >
-            No FEASTA commission withdrawals recorded yet.
+            No FEASTA service fee withdrawals recorded yet.
           </p>
         ) : (
           <div className="overflow-x-auto overscroll-x-contain rounded-xl border border-border bg-card">
             <table className="w-full min-w-[36rem] border-collapse text-left text-sm">
               <caption className="sr-only">
-                FEASTA commission withdrawal history
+                FEASTA service fee withdrawal history
               </caption>
               <thead className="border-b border-border bg-secondary text-foreground">
                 <tr>
@@ -495,12 +508,34 @@ function ProviderPayoutBoard({
         )}
       </div>
 
+      {hasLegacyEscrowItems ? (
+        <details className="grid gap-5 rounded-xl border border-border bg-secondary/20 p-4">
+          <summary className="cursor-pointer text-sm font-bold text-foreground">
+            {`Legacy escrow payouts & company float (${board.readyToPay.length} ready · ${board.advanceRequests.length} pending advances)`}
+          </summary>
+          <div className="mt-4 grid gap-5">
+            <div
+              className="flex items-start gap-2.5 rounded-xl border border-warning/30 bg-warning-subtle/70 px-3.5 py-2.5 text-sm text-foreground"
+              role="status"
+            >
+              <Info
+                aria-hidden="true"
+                className="mt-0.5 size-4 shrink-0 text-warning"
+              />
+              <p className="leading-5">
+                <span className="font-bold text-warning">Legacy escrow records only:</span>{" "}
+                New bookings route directly to providers without company float
+                or 3-day payout holds. Re-authentication is still required for
+                historical releases below.
+              </p>
+            </div>
+
       <div className="grid gap-3 rounded-xl border border-border bg-secondary/30 p-4">
         <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
           <div>
             <h3 className="text-base font-bold">Company float</h3>
             <p className="mt-1 text-sm text-muted-foreground">
-              Separate company working capital used only for provider advances.
+              Separate company working capital used only for historical provider advances.
             </p>
           </div>
           <Button
@@ -536,9 +571,7 @@ function ProviderPayoutBoard({
           </span>
         </div>
         <p className="text-sm text-muted-foreground">
-          Only providers who requested immediate funding after customer payment
-          appear here. Approving pays from company float now; later booking
-          proceeds repay company float. Ordinary 3-day payout stays separate.
+          Historical immediate-funding requests from pre-direct escrow bookings.
         </p>
 
         {board.advanceRequests.length === 0 ? (
@@ -940,6 +973,9 @@ function ProviderPayoutBoard({
           </div>
         )}
       </div>
+          </div>
+        </details>
+      ) : null}
 
       <ConfirmationDialog
         open={confirmState !== null}

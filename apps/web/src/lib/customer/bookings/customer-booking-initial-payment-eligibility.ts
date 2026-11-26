@@ -1,8 +1,10 @@
+import {arrangedPaymentView} from "@/lib/payments/arranged-payment-view";
+
 type StoredRecord = Readonly<Record<string, unknown>>;
 type EligibilityProjection =
   | {kind: "legacy"}
   | {kind: "invalid"}
-  | {kind: "canonical"; mode: "minimum_or_full" | "full_only";
+  | {kind: "canonical"; mode: "minimum_or_full" | "minimum_only" | "full_only";
       reason: string; depositMinimumNoticeHours: number | null};
 
 /** Project the server's frozen decision. Never use the browser or checkout clock. */
@@ -11,10 +13,11 @@ export function customerInitialPaymentEligibility(request: StoredRecord): Eligib
     request.bookingPaymentPolicySnapshot == null) return {kind: "legacy"};
   const data = request.initialPaymentEligibility as StoredRecord | null;
   const submissionBased = request.initialPaymentEligibilitySchemaVersion === 2;
+  const isDepositMode = data?.mode === "minimum_or_full" || data?.mode === "minimum_only";
   if ((!submissionBased && request.initialPaymentEligibilitySchemaVersion !== 1) || !data ||
     typeof data !== "object" || Array.isArray(data) ||
-    (data.mode !== "minimum_or_full" && data.mode !== "full_only") ||
-    data.depositEligible !== (data.mode === "minimum_or_full") ||
+    (data.mode !== "minimum_or_full" && data.mode !== "minimum_only" && data.mode !== "full_only") ||
+    data.depositEligible !== isDepositMode ||
     typeof data.depositAllowed !== "boolean" ||
     !["deposit_eligible", "package_full_payment", "deposit_disabled", "short_notice"].includes(String(data.reason)) ||
     (data.reason === "deposit_eligible") !== data.depositEligible ||
@@ -28,6 +31,15 @@ export function customerInitialPaymentEligibility(request: StoredRecord): Eligib
   if (submissionBased && (data.authorityTimeSource !== "booking_submission" ||
     data.depositMinimumNoticeHours !== 72 || data.submittedAt == null || data.evaluatedAt == null)) {
     return {kind: "invalid"};
+  }
+  const arrangement = arrangedPaymentView(request.arrangedPaymentOffer);
+  if (arrangement?.status === "accepted") {
+    const snapshot = request.financialSnapshot as StoredRecord | null;
+    if (!submissionBased || data.depositAllowed !== true ||
+      snapshot?.grossAmountInCentavos !== arrangement.grossInCentavos ||
+      snapshot?.requiredUpfrontAmountInCentavos !== arrangement.upfrontInCentavos ||
+      snapshot?.remainingBalanceInCentavos !== arrangement.grossInCentavos - arrangement.upfrontInCentavos) return {kind: "invalid"};
+    return {kind: "canonical", mode: "minimum_or_full", reason: "arranged_payment", depositMinimumNoticeHours: 72};
   }
   return {kind: "canonical", mode: data.mode, reason: String(data.reason),
     depositMinimumNoticeHours: typeof data.depositMinimumNoticeHours === "number" ? data.depositMinimumNoticeHours : null};

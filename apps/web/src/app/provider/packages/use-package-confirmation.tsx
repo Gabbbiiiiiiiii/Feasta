@@ -1,7 +1,7 @@
 "use client";
 import {useRef, useState} from "react";
 import {ConfirmationDialog} from "@/components/shared/confirmation-dialog";
-type Request = {message: string; supportingText?: string; confirmLabel: string};
+type Request = {message: string; supportingText?: string; confirmLabel: string; destructive?: boolean};
 export function usePackageConfirmation() {
   const [request, setRequest] = useState<Request | null>(null);
   const resolver = useRef<((confirmed: boolean) => void) | null>(null);
@@ -20,7 +20,7 @@ export function usePackageConfirmation() {
   const confirmationDialog = <ConfirmationDialog open={request !== null}
     onOpenChange={(open) => {if (!open) finish(false);}}
     title="FEASTA Confirmation" description={request?.message ?? "Confirm package action"}
-    confirmLabel={request?.confirmLabel} onConfirm={() => finish(true)}
+    confirmLabel={request?.confirmLabel} destructive={request?.destructive} onConfirm={() => finish(true)}
     contentClassName="z-[90]" overlayClassName="z-[80]" stopEscapePropagation
     onCloseAutoFocus={(event) => {event.preventDefault(); opener.current?.focus();}}>
     {request?.supportingText ? <p className="text-sm text-muted-foreground">{request.supportingText}</p> : null}

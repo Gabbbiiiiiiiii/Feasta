@@ -25,6 +25,12 @@ import {
   requireSafeDocumentId,
 } from "../refund-policies/refund-policy-domain.js";
 import {
+  CANCELLATION_POLICY_SETTINGS_DOC_ID,
+  parseStoredAdminCancellationPolicy,
+  parseStoredProviderCancellationPolicy,
+  resolveEffectiveCancellationPolicy,
+} from "../cancellations/cancellation-policy-domain.js";
+import {
   parseBookingRefundPolicyRollout,
   refundPolicyDisclosures,
   resolveBookingRefundPolicies,
@@ -92,6 +98,11 @@ export const getBookingRefundPolicyDisclosures = onCall(
           .doc(
             REFUND_POLICY_ROLLOUT_DOCUMENT_ID,
           );
+        const cancellationPolicyReference = db
+          .collection("appSettings")
+          .doc(
+            CANCELLATION_POLICY_SETTINGS_DOC_ID,
+          );
         const addonReferences = addonIds.map(
           (addonId) =>
             db.collection("addons").doc(addonId),
@@ -101,8 +112,10 @@ export const getBookingRefundPolicyDisclosures = onCall(
               db.collection("packages").doc(packageId),
             )
           : null;
-        const rolloutSnapshot =
-          await transaction.get(rolloutReference);
+        const [rolloutSnapshot, cancellationPolicySnapshot] = await Promise.all([
+          transaction.get(rolloutReference),
+          transaction.get(cancellationPolicyReference),
+        ]);
         const addonSnapshots = await Promise.all(
           addonReferences.map(
             (reference) =>
@@ -233,13 +246,36 @@ export const getBookingRefundPolicyDisclosures = onCall(
             exists: rolloutSnapshot.exists,
             data: rolloutSnapshot.data(),
           });
+        const adminCancellationPolicy =
+          parseStoredAdminCancellationPolicy(
+            cancellationPolicySnapshot.exists
+              ? cancellationPolicySnapshot.data()
+              : null,
+          );
 
         return {
           rolloutMode,
           acknowledgementsRequired:
             rolloutMode === "required",
           policies:
-            refundPolicyDisclosures(policies),
+            refundPolicyDisclosures(policies).map((disclosure) => {
+              const providerData = providers.get(disclosure.providerId);
+              const providerCancellationPolicy = parseStoredProviderCancellationPolicy(
+                providerData?.cancellationPolicy,
+              );
+              const effective = resolveEffectiveCancellationPolicy(
+                providerCancellationPolicy,
+                adminCancellationPolicy,
+              );
+              return {
+                ...disclosure,
+                cancellationCutoff: {
+                  sourceKind: effective.sourceKind,
+                  cutoffHoursBeforeEvent: effective.cutoffHoursBeforeEvent,
+                  guidanceNote: effective.guidanceNote,
+                },
+              };
+            }),
         };
       },
     );

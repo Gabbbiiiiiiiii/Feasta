@@ -104,4 +104,28 @@ void main() {
       isNull,
     );
   });
+
+  test(
+    'customer_paid_flat_v1 computes Provider VAT strictly on provider subtotal',
+    () {
+      final vat = customerBookingVatFromRequest({
+        'amount': 1002,
+        'financialSnapshot': <String, dynamic>{
+          'schemaVersion': 1,
+          'currency': 'PHP',
+          'serviceSubtotalInCentavos': 100000,
+          'grossAmountInCentavos': 100200,
+          'platformCommissionModel': 'customer_paid_flat_v1',
+          'platformCommissionRateBps': 20,
+          'platformCommissionTotalInCentavos': 200,
+          'providerTaxType': 'vat_registered',
+          'providerTaxVerificationStatus': 'verified',
+        },
+      });
+      expect(vat?.taxType, 'vat_registered');
+      expect(vat?.includedVatInCentavos, 10714);
+      expect(vat?.grossInCentavos, 100000);
+      expect(vat?.exclusiveInCentavos, 89286);
+    },
+  );
 }

@@ -170,6 +170,16 @@ class _SpecialRequestFormState extends State<SpecialRequestForm> {
     }
   }
 
+  int get _maxQuantity {
+    final package = widget.package;
+    if (package.pricingModel == null) return 100;
+    final limit = package.maxDropOffOrderQuantity;
+    return package.pricingModel == 'per_bundle' &&
+            limit != null && limit >= 1 && limit <= 100
+        ? limit
+        : 1;
+  }
+
   Future<void> _submit() async {
     if (_busy || !_form.currentState!.validate()) return;
     final date = _date;
@@ -187,7 +197,7 @@ class _SpecialRequestFormState extends State<SpecialRequestForm> {
 
     final data = {
       'packageId': widget.package.id,
-      'quantity': int.parse(_quantity.text.trim()),
+      'quantity': _maxQuantity == 1 ? 1 : int.parse(_quantity.text.trim()),
       'eventDate': calendarDateKey(date),
       'eventTime': _clock(start),
       'address': _address.text.trim(),
@@ -236,11 +246,12 @@ class _SpecialRequestFormState extends State<SpecialRequestForm> {
   Widget build(BuildContext context) {
     final package = widget.package;
     final unitPrice = specialRequestDropOffPrice(package);
-    final quantityText = _quantity.text.trim();
+    final maxQuantity = _maxQuantity;
+    final quantityText = maxQuantity == 1 ? '1' : _quantity.text.trim();
     final quantity = RegExp(r'^[0-9]+$').hasMatch(quantityText)
         ? int.tryParse(quantityText)
         : null;
-    final validQuantity = quantity != null && quantity >= 1 && quantity <= 100;
+    final validQuantity = quantity != null && quantity >= 1 && quantity <= maxQuantity;
     final dateLabel = _date == null
         ? 'Select event date'
         : MaterialLocalizations.of(context).formatFullDate(_date!);
@@ -283,7 +294,7 @@ class _SpecialRequestFormState extends State<SpecialRequestForm> {
                 ),
               ),
               const SizedBox(height: AppSpacing.lg),
-              FeastaTextField(
+              if (maxQuantity > 1) FeastaTextField(
                 label: 'Quantity',
                 controller: _quantity,
                 enabled: !_busy,
@@ -291,11 +302,11 @@ class _SpecialRequestFormState extends State<SpecialRequestForm> {
                 keyboardType: TextInputType.number,
                 inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                 maxLength: 3,
-                helperText: 'Enter a whole quantity from 1 to 100.',
+                helperText: 'Enter a whole quantity from 1 to $maxQuantity.',
                 onChanged: (_) => setState(() {}),
                 validator: (_) => validQuantity
                     ? null
-                    : 'Enter a whole number from 1 to 100.',
+                    : 'Enter a whole number from 1 to $maxQuantity.',
               ),
               const SizedBox(height: AppSpacing.md),
               Text(
@@ -430,7 +441,7 @@ class _SpecialRequestFormState extends State<SpecialRequestForm> {
                   )
                 else
                   Text(
-                    'Enter a whole quantity from 1 to 100.',
+                    'Enter a whole quantity from 1 to $maxQuantity.',
                     style: AppTypography.bodySmall.copyWith(
                       color: AppColors.secondaryTextAccessible,
                     ),
@@ -803,15 +814,36 @@ class _SpecialRequestTrackerState extends State<SpecialRequestTracker> {
                           Map<String, dynamic>.from(offer),
                         )
                         case final fee?)
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: AppSpacing.xs),
-                        child: Text(
-                          'Service charge ${specialRequestMoney(fee / 100)} is deducted from provider proceeds. It is not an additional customer charge.',
-                          style: AppTypography.bodySmall.copyWith(
-                            color: AppColors.secondaryTextAccessible,
+                      if (isCustomerPaidSpecialOffer(
+                        Map<String, dynamic>.from(offer),
+                      ))
+                        _DetailRow(
+                          label: (() {
+                            final rate = customerSpecialOfferCommissionRateBps(
+                              Map<String, dynamic>.from(offer),
+                            );
+                            if (rate == null) return 'FEASTA service fee';
+                            final pct = rate / 100;
+                            final pctText = pct == pct.roundToDouble()
+                                ? pct.toInt().toString()
+                                : pct
+                                      .toStringAsFixed(2)
+                                      .replaceFirst(RegExp(r'0+$'), '')
+                                      .replaceFirst(RegExp(r'\.$'), '');
+                            return 'FEASTA service fee ($pctText%)';
+                          })(),
+                          value: '+${specialRequestMoney(fee / 100)}',
+                        )
+                      else
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: AppSpacing.xs),
+                          child: Text(
+                            'Service charge ${specialRequestMoney(fee / 100)} is deducted from provider proceeds. It is not an additional customer charge.',
+                            style: AppTypography.bodySmall.copyWith(
+                              color: AppColors.secondaryTextAccessible,
+                            ),
                           ),
                         ),
-                      ),
                     _DetailRow(
                       label: 'Total offered',
                       value: specialRequestMoney(

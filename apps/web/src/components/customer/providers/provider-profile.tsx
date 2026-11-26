@@ -324,21 +324,35 @@ export function ProviderProfile({
                     Celebrations this provider has chosen to support publicly.
                   </p>
 
-                  {provider.eventTypes.length > 0 ? (
-                    <ul className="mt-4 flex min-w-0 flex-wrap gap-2">
-                      {provider.eventTypes.map((eventType) => (
-                        <li key={eventType}>
-                          <span className="inline-flex rounded-full border border-feasta-border-soft bg-feasta-canvas px-3.5 py-2 text-sm font-semibold text-feasta-text-secondary">
-                            {humanizeProviderValue(eventType)}
-                          </span>
-                        </li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <OptionalEmptyState className="mt-4">
-                      No supported event types have been publicly listed yet.
-                    </OptionalEmptyState>
-                  )}
+                  {(() => {
+                    const labels: string[] = [];
+                    const seen = new Set<string>();
+                    const add = (label: string) => {
+                      const key = label.trim().toLowerCase();
+                      if (!key || seen.has(key)) return;
+                      seen.add(key);
+                      labels.push(label);
+                    };
+                    for (const eventType of provider.eventTypes) add(humanizeProviderValue(eventType));
+                    for (const pkg of packages) {
+                      for (const label of pkg.customOccasionLabels ?? []) add(label);
+                    }
+                    return labels.length > 0 ? (
+                      <ul className="mt-4 flex min-w-0 flex-wrap gap-2">
+                        {labels.map((label) => (
+                          <li key={label}>
+                            <span className="inline-flex rounded-full border border-feasta-border-soft bg-feasta-canvas px-3.5 py-2 text-sm font-semibold text-feasta-text-secondary">
+                              {label}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <OptionalEmptyState className="mt-4">
+                        No supported event types have been publicly listed yet.
+                      </OptionalEmptyState>
+                    );
+                  })()}
                 </div>
               </div>
             </div>

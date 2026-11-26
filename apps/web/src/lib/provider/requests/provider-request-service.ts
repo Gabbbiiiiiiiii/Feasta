@@ -1,4 +1,6 @@
+import {arrangedPaymentView} from "@/lib/payments/arranged-payment-view";
 import "server-only";
+import {parseBookingCancellationCutoffView} from "../cancellation-cutoff-view";
 import {requestPackageSnapshot} from "./provider-request-package-snapshot";
 import {cateringPaymentPresentation, providerInitialPaymentPresentation} from "./provider-request-payment-presentation";
 import {dashboardMatches, dashboardEventStart, storedDate} from "../dashboard/provider-dashboard-projection";
@@ -239,8 +241,25 @@ function mapProviderRequest(
       160,
     );
 
+  const standardBalanceCutoffMs = storedDate(data.remainingBalanceDueAt)?.getTime() ?? null;
+  const eventStartMs = storedDate(data.eventStartAt)?.getTime() ?? null;
+  const submittedMs = storedDate(data.initialPaymentEligibility?.submittedAt)?.getTime() ?? null;
+
   return {
     initialPaymentPresentation: providerInitialPaymentPresentation(data),
+    arrangedPayment: arrangedPaymentView(data.arrangedPaymentOffer),
+    arrangedBalanceCutoffAt: timestampIso(data.remainingBalanceDueAt),
+    canOfferArrangedPayment: status === "pending" && type === "catering" && Boolean(packageId) &&
+      data.remainingBalanceTimingSchemaVersion === 3 && data.initialPaymentEligibilitySchemaVersion === 2 &&
+      data.bookingPaymentPolicySnapshot?.depositAllowed === true &&
+      eventStartMs !== null && submittedMs !== null &&
+      eventStartMs - submittedMs >= 72 * 3_600_000 &&
+      standardBalanceCutoffMs !== null && standardBalanceCutoffMs > Date.now() &&
+      data.paymentStatus === "unpaid" &&
+      (data.settlementStatus == null || data.settlementStatus === "unpaid") &&
+      data.paymentId == null && data.initialPaymentId == null && data.financialSnapshot == null &&
+      data.activeCancellationRequestId == null && data.approvedCancellationRequestId == null &&
+      data.refundExecutionLock == null && data.reconciliationRequired !== true,
     id: document.id,
 
     mainEventId,
@@ -355,6 +374,11 @@ function mapProviderRequest(
       return providerNetPesosFromRequestData(data, gross).commissionPesos;
     })(),
 
+    isCustomerPaidFee: (() => {
+      const gross = nonNegativeMoney(data.amount);
+      return providerNetPesosFromRequestData(data, gross).isCustomerPaid;
+    })(),
+
     paymentPolicy:
       paymentPolicyFromTerms(
         data.packagePaymentTerms,
@@ -371,6 +395,11 @@ function mapProviderRequest(
       optionalText(
         data.rejectionReason,
         500,
+      ),
+
+    cancellationCutoff:
+      parseBookingCancellationCutoffView(
+        data.cancellationPolicySnapshot,
       ),
 
     createdAt:

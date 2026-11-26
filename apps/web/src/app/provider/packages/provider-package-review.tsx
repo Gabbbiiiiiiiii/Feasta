@@ -19,25 +19,29 @@ function Inclusions({text}: {text: string}) {
 
 export function ProviderPackageReview({name, description, eventType, serviceCategory, pricingModel,
   minimumGuests, maximumGuests, serviceOptions, food, foodChoiceGroups, decor, furniture, services, offerDraft,
-  images, paymentPolicy, depositPercentage}: {
+  images, paymentPolicy, fullPaymentAllowed, depositPercentage, canPublish = false, editingPublished = false}: {
   name: string; description: string; eventType: string; serviceCategory: string;
   pricingModel: "per_pax" | "per_bundle" | "legacy"; minimumGuests: string; maximumGuests: string;
   serviceOptions: PackageServiceOptions; food: string[]; foodChoiceGroups: FoodChoiceGroupV2[]; decor: string; furniture: string; services: string;
   offerDraft: ProviderPackageOfferDraft; images: CatalogImageDraft[];
-  paymentPolicy: string; depositPercentage: string;
+  paymentPolicy: string; fullPaymentAllowed?: boolean; depositPercentage: string;
+  canPublish?: boolean;
+  editingPublished?: boolean;
 }) {
   const dishes = parsePackageDishes(food);
   const groups = Array.from(new Set(dishes.map((dish) => dish.category)));
   return (
     <section aria-label="Package review" className="grid gap-4">
       <p
-  role="note"
-  className="rounded-xl border border-border bg-muted/40 p-3 text-sm text-foreground"
-  >
-    Saving keeps this package as a private draft. Once it has a
-    complete V2 contract and passes publication requirements, you can
-    publish it for customers to discover and book.
-  </p>
+        role="note"
+        className="rounded-xl border border-border bg-muted/40 p-3 text-sm text-foreground"
+      >
+        {editingPublished
+          ? "Review your updated package details below. Saving changes immediately updates your live published package for new bookings. Existing bookings keep their original package details."
+          : canPublish
+            ? "Review your package details below. Save as Draft to keep this package private for later, or Publish Package to make it visible and bookable by customers."
+            : "Review your package details below. Save as Draft to keep this package private until it is ready to publish."}
+      </p>
       <div className="grid items-start gap-4 sm:grid-cols-2">
         <ReviewSection title="Package details"><h4 className="break-words font-bold">{name}</h4><p className="text-sm capitalize">{eventType.replaceAll("_", " ")} · {serviceCategory}</p><p className="whitespace-pre-wrap break-words text-sm text-muted-foreground">{description || "No description added"}</p></ReviewSection>
         <ReviewSection title="Pricing model & capacity"><p className="font-semibold">{pricingModel === "per_pax" ? "Per Pax" : pricingModel === "per_bundle" ? "Per Bundle" : "Legacy fixed price"}</p><p className="text-sm">{minimumGuests}–{maximumGuests} guests</p><p className="text-sm text-muted-foreground">{pricingModel === "per_pax" ? "Each service-tier price is per person." : "One fixed package price within the guest range."}</p></ReviewSection>
@@ -72,7 +76,7 @@ export function ProviderPackageReview({name, description, eventType, serviceCate
         // eslint-disable-next-line @next/next/no-img-element
         <figure key={image.id} className="min-w-0 space-y-1"><img src={image.url} alt={"Package image " + (index + 1)} className="aspect-[4/3] w-full rounded-lg border bg-muted object-contain" /><figcaption className="text-xs text-muted-foreground">{index === 0 ? "Cover image" : `Image ${index + 1}`}</figcaption></figure>
       ))}</div> : <p className="text-sm text-muted-foreground">No images added</p>}</ReviewSection>
-      <ReviewSection title="Payment terms"><p className="text-sm font-semibold">{paymentPolicy === "full_payment" ? "Full Payment (100%)" : "Deposit " + depositPercentage + "% + Remaining Balance"}</p><p className="text-sm text-muted-foreground">{paymentPolicy === "full_payment" ? "The full amount is due after booking acceptance." : "Remaining balance is due 24 hours before the scheduled event start."}</p></ReviewSection>
+      <ReviewSection title="Payment terms"><p className="text-sm font-semibold">{paymentPolicy === "full_payment" ? "Full Payment (100%)" : fullPaymentAllowed !== false ? "Full Payment or Down Payment (" + depositPercentage + "% + Remaining Balance)" : "Down Payment (" + depositPercentage + "% + Remaining Balance)"}</p><p className="text-sm text-muted-foreground">{paymentPolicy === "full_payment" ? "The full amount is due after booking acceptance." : fullPaymentAllowed !== false ? "Customers can pay in full upfront or pay the down payment first with the remaining balance due 24 hours before the scheduled event start." : "Remaining balance is due 24 hours before the scheduled event start. Short-notice bookings under 72 hours still require full payment."}</p></ReviewSection>
     </section>
   );
 }

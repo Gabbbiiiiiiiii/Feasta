@@ -106,7 +106,7 @@ type WorkspaceTabId = "payments" | "payouts";
 
 const WORKSPACE_TABS: readonly {id: WorkspaceTabId; label: string}[] = [
   {id: "payments", label: "Customer payments"},
-  {id: "payouts", label: "Provider payouts"},
+  {id: "payouts", label: "FEASTA service fees"},
 ];
 
 const STATUS_FILTER_LABELS: Record<
@@ -653,7 +653,7 @@ function PaymentMonitoringClient({
       <PageHeading
         eyebrow="Administration"
         title="Payments"
-        description="Monitor customer payments, refunds, and provider payouts."
+        description="Monitor customer payments, refunds, and FEASTA service fees."
         actions={
           <Button asChild variant="secondary" size="compact">
             <Link href="/admin/reports">
@@ -719,7 +719,7 @@ function PaymentMonitoringClient({
             aria-hidden="true"
             className="size-4 shrink-0 text-primary transition-transform duration-fast group-open:rotate-90 motion-reduce:transition-none"
           />
-          <span>How payments, earnings, and payouts work</span>
+          <span>How direct payments, service fees, and refunds work</span>
         </summary>
         <div className="px-3.5 pb-4 pt-1 sm:px-4">
           <PaymentFlowOverview embedded />

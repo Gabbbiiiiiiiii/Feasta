@@ -37,6 +37,7 @@ type Input = {
   refunds: PreparedMultiProviderRefundPolicies;
   guestCount: number;
   eventEndTime: string;
+  platformCommissionRateBps?: number;
 };
 
 export type PreparedMultiProviderAgreements = {
@@ -107,6 +108,7 @@ export function prepareMultiProviderBookingAgreements(
     refunds,
     guestCount,
     eventEndTime,
+    platformCommissionRateBps,
   } = input;
 
   if (
@@ -146,6 +148,7 @@ export function prepareMultiProviderBookingAgreements(
       packageData: row.packageData,
       resolved: row.resolved,
     })),
+    {platformCommissionRateBps},
   );
 
   if (
@@ -264,6 +267,15 @@ export function prepareMultiProviderBookingAgreements(
         eventEndTime,
         grossAmountInCentavos,
         requiredUpfrontAmountInCentavos,
+        ...(financial.serviceSubtotalInCentavos !== undefined &&
+          financial.platformFeeInCentavos !== undefined &&
+          financial.platformCommissionRateBps !== undefined
+          ? {
+              serviceSubtotalInCentavos: financial.serviceSubtotalInCentavos,
+              platformFeeInCentavos: financial.platformFeeInCentavos,
+              platformCommissionRateBps: financial.platformCommissionRateBps,
+            }
+          : {}),
         depositEligible: initial.depositEligible,
         eligibilityReason: initial.reason,
         paymentPolicy: {

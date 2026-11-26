@@ -5,6 +5,7 @@ import {
   getAdminAgreementTypes,
   getAdminBusinessDocumentTypes,
 } from "@/lib/documents/document-catalog-service";
+import {getAdminDefaultCancellationPolicy} from "@/lib/admin/file-maintenance/admin-cancellation-policy-service";
 import {getAdminServiceCategories} from "@/lib/admin/file-maintenance/admin-service-category-service";
 import {requireAdmin} from "@/lib/auth/session";
 
@@ -16,11 +17,13 @@ export default async function AdminFileMaintenancePage() {
     agreements,
     agreementTypes,
     businessDocuments,
+    cancellationPolicy,
   ] = await Promise.all([
     getAdminServiceCategories(),
     getAdminAgreementTemplates(),
     getAdminAgreementTypes(),
     getAdminBusinessDocumentTypes(),
+    getAdminDefaultCancellationPolicy(),
   ]);
 
   return (
@@ -29,6 +32,7 @@ export default async function AdminFileMaintenancePage() {
       initialAgreements={agreements}
       initialAgreementTypes={agreementTypes}
       initialBusinessDocuments={businessDocuments}
+      initialCancellationPolicy={cancellationPolicy}
     />
   );
 }

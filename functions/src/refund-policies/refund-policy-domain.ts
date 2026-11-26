@@ -17,6 +17,41 @@ export type RefundEligibilityStage =
 export const REFUND_BASIS_POINTS_MIN = 0;
 export const REFUND_BASIS_POINTS_MAX = 10_000;
 export const REFUND_POLICY_TERMS_MAX_LENGTH = 4_000;
+export const UNIFIED_PREPARATION_LEAD_TIME_HOURS = 24;
+
+export function buildUnifiedCutoffRefundRules(input: {
+  beforeCutoffBasisPoints: number;
+  effectiveCutoffHoursBeforeEvent: number;
+}): readonly RefundPolicyRule[] {
+  const before = input.beforeCutoffBasisPoints;
+  if (
+    !Number.isSafeInteger(before) ||
+    before < REFUND_BASIS_POINTS_MIN ||
+    before > REFUND_BASIS_POINTS_MAX
+  ) {
+    throw invalidPolicy("Refund policy rule is invalid.");
+  }
+
+  const duringPreparation =
+    input.effectiveCutoffHoursBeforeEvent < UNIFIED_PREPARATION_LEAD_TIME_HOURS
+      ? before
+      : 0;
+
+  return [
+    {
+      stage: "preparation_not_started",
+      refundBasisPoints: before,
+    },
+    {
+      stage: "preparation_started",
+      refundBasisPoints: duringPreparation,
+    },
+    {
+      stage: "service_started",
+      refundBasisPoints: 0,
+    },
+  ];
+}
 
 const SAFE_DOCUMENT_ID = /^[A-Za-z0-9_-]{1,128}$/u;
 const MAX_EFFECTIVE_POLICY_KEY_LENGTH = 180;
@@ -81,6 +116,7 @@ export type EffectiveRefundPolicyResolution =
 
 export function parseRefundPolicyDraft(
   value: unknown,
+  options?: {allowNonMonotonic?: boolean},
 ): RefundPolicyDraft {
   const input = requireRecord(
     value,
@@ -150,6 +186,20 @@ export function parseRefundPolicyDraft(
     },
   );
 
+  if (
+    !options?.allowNonMonotonic &&
+    (
+      rules[0].refundBasisPoints <
+        rules[1].refundBasisPoints ||
+      rules[1].refundBasisPoints <
+        rules[2].refundBasisPoints
+    )
+  ) {
+    throw invalidPolicy(
+      "Refund percentages cannot increase at later stages.",
+    );
+  }
+
   return {
     rules,
     terms: parseTerms(input.terms),
@@ -197,10 +247,13 @@ export function parseStoredRefundPolicy(
   let draft: RefundPolicyDraft;
 
   try {
-    draft = parseRefundPolicyDraft({
-      rules: input.rules,
-      terms: input.terms,
-    });
+    draft = parseRefundPolicyDraft(
+      {
+        rules: input.rules,
+        terms: input.terms,
+      },
+      {allowNonMonotonic: true},
+    );
   } catch {
     throw storedPolicyInvalid(fieldName);
   }
@@ -324,24 +377,11 @@ export function resolveEffectiveRefundPolicy(
         "The package does not belong to the provider.",
       );
     }
-
-    const override =
-      parseStoredRefundPolicy(
-        input.packageRecord.data
-          .refundPolicyOverride,
-        "Package refund policy override",
-      );
-
-    if (override) {
-      return resolvedPolicy({
-        kind: "package_override",
-        sourceId:
-          input.packageRecord.packageId,
-        policy: override,
-      });
-    }
   }
 
+  // One refund policy per Provider: legacy package-level overrides are ignored
+  // for all new disclosures and bookings while existing bookings keep their
+  // frozen refundPolicySnapshot untouched.
   const providerPolicy =
     parseStoredRefundPolicy(
       input.provider.refundPolicy,

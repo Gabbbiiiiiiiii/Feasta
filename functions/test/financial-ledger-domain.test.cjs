@@ -680,3 +680,117 @@ test(
     );
   },
 );
+
+test(
+  "customer_paid_flat_v1 computes dynamic fee, provider-only VAT, and VAT-inclusive FEASTA VAT",
+  () => {
+    // 1. P1,000 subtotal + 0.2% (20 bps) = P1,002 customer total; Non-VAT FEASTA, VAT provider
+    const nonVatFeastaSnapshot = financialSnapshot({
+      serviceSubtotalInCentavos: 100_000,
+      grossAmountInCentavos: 100_200,
+      requiredUpfrontAmountInCentavos: 50_100,
+      remainingBalanceInCentavos: 50_100,
+      requiredUpfrontRateBps: 5_000,
+      platformCommissionModel: "customer_paid_flat_v1",
+      platformCommissionRateBps: 20,
+      platformCommissionTotalInCentavos: 200,
+      platformTaxStatus: "non_vat",
+      platformVatRateBps: 1_200,
+      providerTaxType: "vat_registered",
+      providerTaxVerificationStatus: "verified",
+    });
+
+    const fullNonVatFeasta = buildSuccessfulPaymentFinancialAllocation({
+      providerRequest: providerRequest({
+        financialSnapshot: nonVatFeastaSnapshot,
+      }),
+      paymentAmountInCentavos: 100_200,
+    });
+
+    assert.equal(fullNonVatFeasta.commissionAccruedForPaymentInCentavos, 200);
+    // Provider 12% VAT extracted inclusively ONLY from P1,000.00 (100000 * 12 / 112 = 10714.28 -> 10714)
+    assert.equal(fullNonVatFeasta.providerVatForPaymentInCentavos, 10_714);
+    assert.equal(fullNonVatFeasta.platformVatForPaymentInCentavos, 0);
+    assert.equal(
+      fullNonVatFeasta.grossSettledAfterInCentavos -
+        fullNonVatFeasta.commissionAccruedAfterInCentavos,
+      100_000,
+    );
+
+    // 2. Dynamic 0.1% rate (10 bps): P1,000 + P1 = P1,001; Provider VAT stays P107.14
+    const lowerRateSnapshot = financialSnapshot({
+      serviceSubtotalInCentavos: 100_000,
+      grossAmountInCentavos: 100_100,
+      requiredUpfrontAmountInCentavos: 100_100,
+      remainingBalanceInCentavos: 0,
+      requiredUpfrontRateBps: 10_000,
+      platformCommissionModel: "customer_paid_flat_v1",
+      platformCommissionRateBps: 10,
+      platformCommissionTotalInCentavos: 100,
+      platformTaxStatus: "non_vat",
+      platformVatRateBps: 1_200,
+      providerTaxType: "vat_registered",
+      providerTaxVerificationStatus: "verified",
+    });
+
+    const fullLowerRate = buildSuccessfulPaymentFinancialAllocation({
+      providerRequest: providerRequest({
+        financialSnapshot: lowerRateSnapshot,
+      }),
+      paymentAmountInCentavos: 100_100,
+    });
+
+    assert.equal(fullLowerRate.commissionAccruedForPaymentInCentavos, 100);
+    assert.equal(fullLowerRate.providerVatForPaymentInCentavos, 10_714);
+    assert.equal(fullLowerRate.platformVatForPaymentInCentavos, 0);
+
+    // 3. VAT-registered FEASTA: 12% VAT extracted INCLUSIVELY from P2.00 fee (200 * 12 / 112 = 21.43 -> 21)
+    const vatFeastaSnapshot = {
+      ...nonVatFeastaSnapshot,
+      platformTaxStatus: "vat_registered",
+    };
+
+    const fullVatFeasta = buildSuccessfulPaymentFinancialAllocation({
+      providerRequest: providerRequest({
+        financialSnapshot: vatFeastaSnapshot,
+      }),
+      paymentAmountInCentavos: 100_200,
+    });
+
+    assert.equal(fullVatFeasta.commissionAccruedForPaymentInCentavos, 200);
+    assert.equal(fullVatFeasta.providerVatForPaymentInCentavos, 10_714);
+    assert.equal(fullVatFeasta.platformVatForPaymentInCentavos, 21);
+
+    // 4. 50% proportional deposit (P501) + balance (P501) reconciles exactly to full payment
+    const deposit = buildSuccessfulPaymentFinancialAllocation({
+      providerRequest: providerRequest({
+        financialSnapshot: vatFeastaSnapshot,
+      }),
+      paymentAmountInCentavos: 50_100,
+    });
+
+    const balance = buildSuccessfulPaymentFinancialAllocation({
+      providerRequest: providerRequest({
+        financialSnapshot: vatFeastaSnapshot,
+        grossSettledAmountInCentavos: 50_100,
+      }),
+      paymentAmountInCentavos: 50_100,
+    });
+
+    assert.equal(
+      deposit.commissionAccruedForPaymentInCentavos +
+        balance.commissionAccruedForPaymentInCentavos,
+      200,
+    );
+    assert.equal(
+      deposit.providerVatForPaymentInCentavos +
+        balance.providerVatForPaymentInCentavos,
+      10_714,
+    );
+    assert.equal(
+      deposit.platformVatForPaymentInCentavos +
+        balance.platformVatForPaymentInCentavos,
+      21,
+    );
+  },
+);

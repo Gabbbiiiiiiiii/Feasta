@@ -7,6 +7,7 @@ import Link from "next/link";
 import {useId, useRef, useState, type FormEvent} from "react";
 
 import {BookingPaymentAgreementReview} from "@/components/customer/bookings/booking-payment-agreement-review";
+import {PreBookingCancellationCutoffNotice} from "@/components/customer/bookings/cancellation-cutoff-notice";
 import {CustomerEventAddressMap, type EventMapCoordinates} from "@/components/customer/bookings/customer-event-address-map";
 import {ProviderDatePicker} from "@/components/customer/bookings/provider-date-picker";
 import {CustomerAuthLink} from "@/components/customer/layout/customer-auth-provider";
@@ -21,12 +22,6 @@ import type {ActiveOccasionOption} from "@/lib/customer/planning/active-occasion
 type Review = {
   agreements: BookingAgreementDisclosure[];
   refundPolicies: CustomerRefundPolicyDisclosureResult;
-};
-
-const refundStageLabels = {
-  preparation_not_started: "Before preparation starts",
-  preparation_started: "After preparation starts",
-  service_started: "After service starts",
 };
 
 export function MediaPackageBooking({
@@ -293,21 +288,31 @@ export function MediaPackageBooking({
               </div>
               {review && (
                 <>
-                  {review.refundPolicies.policies.map((policy) => (
-                    <section key={policy.providerId} className="grid gap-2 rounded-xl border border-border p-4 text-sm"
-                      aria-label="Cancellation and refunds">
-                      <h3 className="font-extrabold">Cancellation and refunds</h3>
-                      {policy.rules.map((rule) => <p key={rule.stage}>
-                        {refundStageLabels[rule.stage]} · {rule.refundBasisPoints / 100}% refundable
-                      </p>)}
-                      {policy.terms && <p className="whitespace-pre-wrap break-words">{policy.terms}</p>}
-                      <label className="flex items-start gap-2">
-                        <input type="checkbox" className="mt-1" checked={refundAccepted} disabled={busy}
-                          onChange={(change) => setRefundAccepted(change.target.checked)} />
-                        I agree to the cancellation and refund policy.
-                      </label>
-                    </section>
-                  ))}
+                  {review.refundPolicies.policies.map((policy) => {
+                    const beforeBps =
+                      policy.rules.find((rule) => rule.stage === "preparation_not_started")
+                        ?.refundBasisPoints ?? 0;
+                    return (
+                      <section key={policy.providerId} className="grid gap-2 rounded-xl border border-border p-4 text-sm"
+                        aria-label="Cancellation and refunds">
+                        <h3 className="font-extrabold">Cancellation and refunds</h3>
+                        {policy.cancellationCutoff ? (
+                          <PreBookingCancellationCutoffNotice
+                            cutoff={policy.cancellationCutoff}
+                            eventDate={eventDate}
+                          />
+                        ) : null}
+                        <p>Before cancellation cutoff · {beforeBps / 100}% refundable</p>
+                        <p>After cancellation cutoff · 0% refundable (Cancellation closed)</p>
+                        {policy.terms && <p className="whitespace-pre-wrap break-words">{policy.terms}</p>}
+                        <label className="flex items-start gap-2">
+                          <input type="checkbox" className="mt-1" checked={refundAccepted} disabled={busy}
+                            onChange={(change) => setRefundAccepted(change.target.checked)} />
+                          I agree to the cancellation and refund policy.
+                        </label>
+                      </section>
+                    );
+                  })}
                   <BookingPaymentAgreementReview
                     agreements={review.agreements}
                     acknowledged={agreementKey === null ? {} : {[providerId]: agreementKey}}

@@ -84,7 +84,12 @@ export interface FoodChoiceGroupV2 {
     selectionCount: number;
     options: FoodChoiceOptionV2[];
 }
+export declare const MAX_DROP_OFF_ORDER_QUANTITY = 100;
+export declare function isDropOffOrderQuantity(value: unknown): value is number;
+/** Legacy offers retain the previous Special Request quantity limit. */
+export declare function dropOffOrderLimit(pricingModel: unknown, configuredLimit: unknown): number;
 export interface OfferV2 {
+    maxDropOffOrderQuantity?: number;
     offerSchemaVersion: 2;
     serviceOptions: Partial<Record<Tier, ServiceOptionV2>>;
     serviceInclusions: string[];
@@ -286,7 +291,12 @@ export interface IndividualFoodDraftV2 {
     name: string;
     servingOptions: IndividualServingDraftV2[];
 }
+export declare const MAX_PRIVATE_PACKAGE_OCCASIONS = 10;
+export declare const MAX_PRIVATE_OCCASION_LENGTH = 60;
+export declare function privateOccasionKey(value: string): string;
+export declare function parsePrivatePackageOccasions(value: unknown): string[];
 export interface PackageEditorProgressV2 {
+    privateOccasionLabels?: string[];
     name?: string;
     description?: string;
     serviceCategoryCode?: string;
@@ -298,6 +308,7 @@ export interface PackageEditorProgressV2 {
         occasionIds?: string[];
     };
     pricingModel?: 'legacy' | 'per_pax' | 'per_bundle';
+    maxDropOffOrderQuantityText?: string;
     priceText?: string;
     minimumGuestsText?: string;
     maximumGuestsText?: string;
@@ -325,6 +336,7 @@ export interface PackageEditorProgressV2 {
     }[];
     marketingAssetIds?: string[];
     paymentPolicy?: 'full_payment' | 'deposit_then_balance';
+    fullPaymentAllowed?: boolean;
     depositPercentageText?: string;
 }
 export interface PackageEditorDraftV2 {
@@ -381,6 +393,7 @@ export interface ExistingPackageWriteInput {
         imageUrls: readonly string[];
     }[];
     paymentPolicy: 'full_payment' | 'deposit_then_balance';
+    fullPaymentAllowed?: boolean;
     depositPercentage: number;
     balanceDueDaysBeforeEvent?: number | null;
     downPaymentPercentage?: number;
@@ -415,6 +428,7 @@ export interface IndividualCanonicalDraftPricingV1 {
 export type PackageV2Write = Omit<ExistingPackageWriteInput, 'eventType' | 'serviceOptions' | 'serviceInclusions' | 'decorInclusions' | 'furnitureInclusions' | 'foodInclusions' | 'price' | 'pricingModel'> & WritableOccasionV2 & OfferV2 & {
     offerStructure?: 'fixed' | 'customizable' | 'individual';
     packageStyle?: string;
+    privateOccasionLabels?: string[];
 };
 export type CreateProviderPackageV2Request = PackageV2Write & {
     sharedContractVersion: 2;

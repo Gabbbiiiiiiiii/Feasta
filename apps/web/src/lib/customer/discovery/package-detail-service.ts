@@ -15,6 +15,7 @@ import {
   normalizePublicPackage,
   normalizePublicPackageCustomization,
 } from "./public-package-normalization";
+import {loadPublishedPackageCustomOccasions} from "./package-custom-occasions-service";
 
 export async function getPublicPackageDetail(
   packageId: string,
@@ -113,8 +114,16 @@ export async function getPublicPackageDetail(
     return null;
   }
 
+  const usesOther = v2 && packageRecord.occasionScope === "specific" &&
+    (packageRecord.occasionMatchIds ?? (packageRecord.eventType ? [packageRecord.eventType] : [])).includes("other");
+  const customOccasionLabels = usesOther
+    ? await loadPublishedPackageCustomOccasions(provider.id, packageSnapshot.id)
+    : [];
+
   return {
-    packageRecord,
+    packageRecord: customOccasionLabels.length > 0
+      ? {...packageRecord, customOccasionLabels}
+      : packageRecord,
     provider,
     customization:
       normalizePublicPackageCustomization(

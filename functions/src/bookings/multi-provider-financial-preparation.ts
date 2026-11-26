@@ -3,6 +3,9 @@ import {
   buildPackagePaymentTermsSnapshot,
 } from "../payments/package-payment-terms.js";
 import {
+  computeCustomerPaidPlatformFeeInCentavos,
+} from "../payments/platform-commission-policy.js";
+import {
   requireNewBookingCanonicalPaymentTerms,
   type NewBookingCanonicalPaymentTerms,
 } from "./canonical-booking-payment-policy.js";
@@ -28,6 +31,9 @@ export type FinancialPreparationEntry = {
 export type PreparedMultiProviderFinancialItem = {
   providerId: string;
   packageId: string;
+  serviceSubtotalInCentavos?: number;
+  platformFeeInCentavos?: number;
+  platformCommissionRateBps?: number;
   grossAmountInCentavos: number;
   packagePaymentTerms: NewBookingCanonicalPaymentTerms;
 };
@@ -69,6 +75,7 @@ function amountToCentavos(amount: number): number {
 
 export function prepareMultiProviderFinancials(
   entries: readonly FinancialPreparationEntry[],
+  options?: {platformCommissionRateBps?: number},
 ): PreparedMultiProviderFinancials {
   if (
     !Array.isArray(entries) ||
@@ -76,6 +83,14 @@ export function prepareMultiProviderFinancials(
     entries.length > 4
   ) {
     return reject("Multi-provider financial selection is invalid.");
+  }
+
+  const rateBps = options?.platformCommissionRateBps;
+  if (
+    rateBps !== undefined &&
+    (!Number.isSafeInteger(rateBps) || rateBps <= 0 || rateBps > 10_000)
+  ) {
+    return reject("Platform commission rate is invalid.");
   }
 
   const providerIds = new Set<string>();
@@ -102,9 +117,19 @@ export function prepareMultiProviderFinancials(
 
     providerIds.add(entry.providerId);
 
-    const grossAmountInCentavos = amountToCentavos(
+    const serviceSubtotalInCentavos = amountToCentavos(
       entry.resolved.basePrice,
     );
+    const platformFeeInCentavos = rateBps !== undefined
+      ? computeCustomerPaidPlatformFeeInCentavos(serviceSubtotalInCentavos, rateBps)
+      : undefined;
+    const grossAmountInCentavos = platformFeeInCentavos !== undefined
+      ? serviceSubtotalInCentavos + platformFeeInCentavos
+      : serviceSubtotalInCentavos;
+
+    if (!Number.isSafeInteger(grossAmountInCentavos)) {
+      return reject("Multi-provider financial total is invalid.");
+    }
 
     // Reuse FEASTA's canonical payment-term authority unchanged.
     const packagePaymentTerms =
@@ -124,6 +149,13 @@ export function prepareMultiProviderFinancials(
     items.push({
       providerId: entry.providerId,
       packageId: entry.packageId,
+      ...(platformFeeInCentavos !== undefined
+        ? {
+            serviceSubtotalInCentavos,
+            platformFeeInCentavos,
+            platformCommissionRateBps: rateBps!,
+          }
+        : {}),
       grossAmountInCentavos,
       packagePaymentTerms,
     });

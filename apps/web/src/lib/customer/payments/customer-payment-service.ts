@@ -325,10 +325,18 @@ export async function getCustomerPaymentReceipt(
     refundedAmountInCentavos,
   );
 
+  const receiptCommissionModel =
+    (providerRequest.financialSnapshot &&
+    typeof providerRequest.financialSnapshot === "object"
+      ? (providerRequest.financialSnapshot as Record<string, unknown>)
+          .platformCommissionModel
+      : undefined) ?? providerRequest.platformCommissionModel;
+
   const chargeBreakdown = customerPaymentChargeBreakdown(
     payment,
     paymentId,
     amountPaidInCentavos,
+    receiptCommissionModel,
   );
 
   const services =
@@ -1035,10 +1043,18 @@ function mapPaymentDocument(
         refundedAmountInCentavos
       : 0;
 
+  const paymentCommissionModel =
+    (providerRequestData.financialSnapshot &&
+    typeof providerRequestData.financialSnapshot === "object"
+      ? (providerRequestData.financialSnapshot as Record<string, unknown>)
+          .platformCommissionModel
+      : undefined) ?? providerRequestData.platformCommissionModel;
+
   const chargeBreakdown = customerPaymentChargeBreakdown(
     data,
     canonicalPaymentId,
     amountInCentavos,
+    paymentCommissionModel,
   );
   const platformChargeInCentavos =
     chargeBreakdown.status === "available"

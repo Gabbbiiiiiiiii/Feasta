@@ -8,10 +8,14 @@ import {
 } from "../payments/package-payment-terms.js";
 
 import {
-  DEFAULT_PLATFORM_COMMISSION_MODEL,
   DEFAULT_PLATFORM_COMMISSION_RATE_BPS,
+  PAYMENT_SETTLEMENT_ROUTING_DIRECT_SPLIT_V1,
+  PLATFORM_COMMISSION_MODEL_CUSTOMER_PAID_FLAT_V1,
+  PLATFORM_COMMISSION_MODEL_TIERED_CAPPED_2PCT_V1,
   computeTieredCappedCommissionInCentavos,
+  isCustomerPaidCommissionModel,
   parsePlatformCommissionModel,
+  type PaymentSettlementRoutingMode,
   type PlatformCommissionModel,
 } from "../payments/platform-commission-policy.js";
 
@@ -41,6 +45,8 @@ type ProviderRequestFinancialSnapshot = {
   packagePaymentTerms:
     PackagePaymentTermsSnapshot | null;
 
+  serviceSubtotalInCentavos?: number;
+
   grossAmountInCentavos: number;
 
   requiredUpfrontAmountInCentavos:
@@ -57,6 +63,9 @@ type ProviderRequestFinancialSnapshot = {
 
   platformCommissionModel:
     PlatformCommissionModel;
+
+  settlementRoutingMode?:
+    PaymentSettlementRoutingMode;
 
   platformCommissionTotalInCentavos:
     number;
@@ -157,38 +166,78 @@ export function buildProviderRequestFinancialSnapshot(
   const platformSettings =
     input.platformSettings ?? {};
 
-  const platformCommissionModel =
+  const requestCommissionModel =
     parsePlatformCommissionModel(
-      platformSettings
-        .platformCommissionModel,
-    ) ??
-    DEFAULT_PLATFORM_COMMISSION_MODEL;
-
-  /*
-   * Tiered capped policy uses the configured base
-   * rate from platform financial settings. Caps
-   * remain fixed. Existing booking snapshots stay
-   * frozen and are not recalculated.
-   */
-  const configuredCommissionRateBps =
-    basisPointRate(
-      platformSettings
-        .platformCommissionRateBps,
-      DEFAULT_PLATFORM_COMMISSION_RATE_BPS,
+      input.providerRequest.platformCommissionModel,
     );
 
-  const platformCommissionRateBps =
-    configuredCommissionRateBps > 0 &&
-    configuredCommissionRateBps <=
-      BASIS_POINTS_SCALE
-      ? configuredCommissionRateBps
-      : DEFAULT_PLATFORM_COMMISSION_RATE_BPS;
+  let platformCommissionModel: PlatformCommissionModel;
+  let settlementRoutingMode: PaymentSettlementRoutingMode | undefined;
+  let platformCommissionRateBps: number;
+  let platformCommissionTotalInCentavos: number;
+  let serviceSubtotalInCentavos: number | undefined;
 
-  const platformCommissionTotalInCentavos =
-    computeTieredCappedCommissionInCentavos(
-      grossAmountInCentavos,
-      platformCommissionRateBps,
-    );
+  if (isCustomerPaidCommissionModel(requestCommissionModel)) {
+    const subtotal = input.providerRequest.serviceSubtotalInCentavos;
+    const fee = input.providerRequest.platformFeeInCentavos;
+    const frozenRateBps = input.providerRequest.platformCommissionRateBps;
+
+    if (
+      typeof subtotal !== "number" ||
+      !Number.isSafeInteger(subtotal) ||
+      subtotal <= 0 ||
+      typeof fee !== "number" ||
+      !Number.isSafeInteger(fee) ||
+      fee < 0 ||
+      subtotal + fee !== grossAmountInCentavos ||
+      typeof frozenRateBps !== "number" ||
+      !Number.isSafeInteger(frozenRateBps) ||
+      frozenRateBps <= 0 ||
+      frozenRateBps > BASIS_POINTS_SCALE
+    ) {
+      throw new HttpsError(
+        "failed-precondition",
+        "The provider-request customer-paid fee breakdown is invalid.",
+      );
+    }
+
+    platformCommissionModel =
+      PLATFORM_COMMISSION_MODEL_CUSTOMER_PAID_FLAT_V1;
+    settlementRoutingMode =
+      PAYMENT_SETTLEMENT_ROUTING_DIRECT_SPLIT_V1;
+    platformCommissionRateBps = frozenRateBps;
+    platformCommissionTotalInCentavos = fee;
+    serviceSubtotalInCentavos = subtotal;
+  } else {
+    /*
+     * Legacy provider-deducted requests submitted before
+     * customer_paid_flat_v1 do not carry a submission-time fee
+     * breakdown. Preserve their agreed gross total without adding
+     * an unexpected customer surcharge on acceptance.
+     */
+    platformCommissionModel =
+      PLATFORM_COMMISSION_MODEL_TIERED_CAPPED_2PCT_V1;
+
+    const configuredCommissionRateBps =
+      basisPointRate(
+        platformSettings
+          .platformCommissionRateBps,
+        DEFAULT_PLATFORM_COMMISSION_RATE_BPS,
+      );
+
+    platformCommissionRateBps =
+      configuredCommissionRateBps > 0 &&
+      configuredCommissionRateBps <=
+        BASIS_POINTS_SCALE
+        ? configuredCommissionRateBps
+        : DEFAULT_PLATFORM_COMMISSION_RATE_BPS;
+
+    platformCommissionTotalInCentavos =
+      computeTieredCappedCommissionInCentavos(
+        grossAmountInCentavos,
+        platformCommissionRateBps,
+      );
+  }
 
   const platformTaxStatus =
     taxStatus(
@@ -229,6 +278,10 @@ export function buildProviderRequestFinancialSnapshot(
 
     packagePaymentTerms,
 
+    ...(serviceSubtotalInCentavos !== undefined
+      ? {serviceSubtotalInCentavos}
+      : {}),
+
     grossAmountInCentavos,
 
     requiredUpfrontAmountInCentavos,
@@ -240,6 +293,10 @@ export function buildProviderRequestFinancialSnapshot(
     platformCommissionRateBps,
 
     platformCommissionModel,
+
+    ...(settlementRoutingMode !== undefined
+      ? {settlementRoutingMode}
+      : {}),
 
     platformCommissionTotalInCentavos,
 

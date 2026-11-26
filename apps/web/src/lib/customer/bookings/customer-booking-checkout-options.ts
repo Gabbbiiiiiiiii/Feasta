@@ -41,13 +41,15 @@ export function customerBookingCheckoutOptions(
   const partial = upfront > 0 && upfront < gross;
   const eligibility = customerInitialPaymentEligibility(request);
   const minimumAvailable = eligibility.kind === "legacy" ||
-    (eligibility.kind === "canonical" && eligibility.mode === "minimum_or_full");
+    (eligibility.kind === "canonical" && (eligibility.mode === "minimum_or_full" || eligibility.mode === "minimum_only"));
+  const fullAvailable = eligibility.kind === "legacy" ||
+    (eligibility.kind === "canonical" && eligibility.mode !== "minimum_only");
   if (initialAbsent) {
     if (request.paymentId != null || request.remainingBalancePaymentId != null ||
       request.settlementSchemaVersion != null || request.settlementStatus != null ||
       !initialEligible(request, mainEventStatus)) return [];
     if (eligibility.kind === "invalid") return [];
-    return partial && minimumAvailable ? [option("minimum", upfront), option("full", gross)] : [option("full", gross)];
+    return partial && minimumAvailable ? (fullAvailable ? [option("minimum", upfront), option("full", gross)] : [option("minimum", upfront)]) : [option("full", gross)];
   }
 
   if ((choice !== "minimum" && choice !== "full") ||
@@ -72,7 +74,8 @@ export function customerBookingCheckoutOptions(
   if (balanceId != null || !initialEligible(request, mainEventStatus) ||
     request.grossSettledAmountInCentavos !== 0 || request.outstandingAmountInCentavos !== gross ||
     !["unpaid", "initial_payment_processing"].includes(String(request.settlementStatus))) return [];
-  if (eligibility.kind === "invalid" || (choice === "minimum" && !minimumAvailable)) return [];
+  if (eligibility.kind === "invalid" || (choice === "minimum" && !minimumAvailable) ||
+    (choice === "full" && !fullAvailable)) return [];
   return [option(choice, choice === "minimum" ? upfront : gross)];
 }
 

@@ -36,8 +36,12 @@ export type ProviderRequestService = {
 };
 
 export type ProviderRequestListItem = {
+  arrangedPayment?: import("@/lib/payments/arranged-payment-view").ArrangedPaymentView | null;
+  canOfferArrangedPayment?: boolean;
+  arrangedBalanceCutoffAt?: string | null;
   packageSnapshot?: import("./provider-request-package-snapshot").RequestPackageSnapshot;
   initialPaymentPresentation?: ProviderInitialPaymentPresentation;
+  cancellationCutoff?: import("../cancellation-cutoff-view").BookingCancellationCutoffView | null;
   bookingReference?: string | null;
   responseUnavailableReason?: string | null;
   id: string;
@@ -65,6 +69,8 @@ export type ProviderRequestListItem = {
   providerNetAmount: number;
 
   commissionAmount: number;
+
+  isCustomerPaidFee?: boolean;
 
   paymentPolicy:
     | "full_payment"

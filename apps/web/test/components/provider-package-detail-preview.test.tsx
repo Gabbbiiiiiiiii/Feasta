@@ -44,7 +44,7 @@ it("shows the complete saved overview, tiers, inclusions, themes and payment ter
     services.forEach((service) => expect(tier.getByText(service)).toBeVisible());
   }
   expect(details.queryByRole("region", {name: "Buffet Setup"})).not.toBeInTheDocument();
-  for (const value of ["Roast chicken", "Flowers", "Dining tables", "Coordination", "Garden party", "Green and white", "Deposit", "Balance due", "Short notice", "Pay 30% first, then the remaining balance", "Remaining balance is due 7 days before the event", "Under 72 hours: full payment required"]) {
+  for (const value of ["Roast chicken", "Flowers", "Dining tables", "Coordination", "Garden party", "Green and white", "Down payment", "Balance due", "Short notice", "Pay 30% first, then the remaining balance", "Remaining balance is due 7 days before the event", "Under 72 hours: full payment required"]) {
     expect(details.getByText(value)).toBeVisible();
   }
   expect(dialog.querySelector("input,select,textarea,form")).toBeNull();

@@ -7,6 +7,7 @@ import {acceptProviderRequest, rejectProviderRequest} from "@/lib/provider/reque
 import {providerRequestAcceptanceDescription, ProviderRequestActionError} from "@/lib/provider/requests/provider-request-acceptance-copy";
 import {DataTable, FilterToolbar, CursorPagination, DetailDrawer, ManagementConfirmationModal, ManagementModal, type DataTableColumn} from "@/components/data";
 import {ApplicationErrorState} from "@/components/feedback/application-states";
+import {DetailReviewLoadingSkeleton} from "@/components/feedback/detail-review-loading-skeleton";
 import {PageHeading} from "@/components/layout/page-heading";
 import {StatusBadge} from "@/components/shared/status-badge";
 import {Button} from "@/components/ui/button";
@@ -61,6 +62,20 @@ export function ProviderRequestsClient({initialPage, initialFilters, initialDeta
       if (token === detailGeneration.current) setSelectedRequest(detail);
     } catch {if (token === detailGeneration.current) setDetailError("This booking request could not be loaded. Please refresh or try again.");}
     finally {if (token === detailGeneration.current) setDetailLoading(false);}
+  }
+  async function refreshRequest(id: string) {
+    const token = ++detailGeneration.current;
+    try {
+      const detail = await loadProviderRequestDetailAction(id);
+      if (token !== detailGeneration.current) return;
+      setSelectedRequest(detail);
+      setPage(current => ({
+        ...current,
+        requests: current.requests.map(item => item.id === detail.id ? detail : item),
+      }));
+    } catch {
+      if (token === detailGeneration.current) setDetailError("This booking request could not be refreshed. Please reload.");
+    }
   }
   async function handleAccept(): Promise<void> {
     if (
@@ -196,8 +211,8 @@ export function ProviderRequestsClient({initialPage, initialFilters, initialDeta
       pageLabel={`Page ${pageNumber}${page.hasMore ? " · More history available" : " · End of results"}`}
       onNext={cursor => void loadPage({...filters, cursor}, [...history, filters.cursor ?? "first"], pageNumber + 1)}
       onPrevious={cursor => void loadPage({...filters, cursor: cursor === "first" ? null : cursor}, history.slice(0, -1), Math.max(1, pageNumber - 1))} />
-      {detailOpen && !selectedRequest ? <DetailDrawer open onOpenChange={open => {if (!open) {detailGeneration.current++; setDetailOpen(false);}}} title="Request details" description="Review the customer's event requirements before responding.">
-        {detailLoading ? <p role="status">Loading request details…</p> : <ApplicationErrorState kind="load" description={detailError ?? "This request could not be loaded."} onRetry={() => detailId && void openRequest(detailId)} />}
+      {detailOpen && !selectedRequest ? <DetailDrawer open fullScreen backLabel="Back to Requests" onOpenChange={open => {if (!open) {detailGeneration.current++; setDetailOpen(false);}}} title="Request details" description="Review the customer's event requirements before responding.">
+        {detailLoading ? <DetailReviewLoadingSkeleton label="Loading request details…" /> : <ApplicationErrorState kind="load" description={detailError ?? "This request could not be loaded."} onRetry={() => detailId && void openRequest(detailId)} />}
       </DetailDrawer> : null}
       <ProviderRequestDetailDrawer
         request={selectedRequest}
@@ -205,6 +220,7 @@ export function ProviderRequestsClient({initialPage, initialFilters, initialDeta
           selectedRequest !== null
         }
         actionPending={actionPending}
+        onArrangementUpdated={selectedRequest ? () => void refreshRequest(selectedRequest.id) : undefined}
         onAccept={() => {
           setActionError(null);
           setPayoutSetupRequired(false);

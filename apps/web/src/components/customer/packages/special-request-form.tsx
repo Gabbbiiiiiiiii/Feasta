@@ -12,10 +12,11 @@ import {auth, functions, initializeBrowserAppCheck} from "@/lib/firebase/client"
 const money = new Intl.NumberFormat("en-PH", {style: "currency", currency: "PHP"});
 const inputClass = "mt-1 block w-full rounded-lg border border-feasta-border-soft p-2";
 
-export function SpecialRequestForm({packageId, providerId, price}: {
+export function SpecialRequestForm({packageId, providerId, price, maxQuantity}: {
   packageId: string;
   providerId: string;
   price: number;
+  maxQuantity: number;
 }) {
   const [calendarContainer, setCalendarContainer] = useState<HTMLDivElement | null>(null);
   const [open, setOpen] = useState(false);
@@ -26,8 +27,9 @@ export function SpecialRequestForm({packageId, providerId, price}: {
   const [reference, setReference] = useState("");
   const attempt = useRef<{payload: string; id: string} | null>(null);
   const pending = useRef(false);
-  const count = Number(quantity);
-  const validQuantity = /^\d+$/.test(quantity) && Number.isInteger(count) && count >= 1 && count <= 100;
+  const quantityText = maxQuantity === 1 ? "1" : quantity;
+  const count = Number(quantityText);
+  const validQuantity = /^\d+$/.test(quantityText) && Number.isInteger(count) && count >= 1 && count <= maxQuantity;
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -107,10 +109,11 @@ export function SpecialRequestForm({packageId, providerId, price}: {
               }
             }}>
               <fieldset className="space-y-3" disabled={busy}>
-                <label className="block">Quantity
+                {maxQuantity > 1 && <label className="block">Quantity
                   <input className={inputClass} inputMode="numeric" pattern="[0-9]+" required maxLength={3}
                     value={quantity} onChange={event => setQuantity(event.target.value)} />
-                </label>
+                  <span className="text-sm text-muted-foreground">Up to {maxQuantity} per order.</span>
+                </label>}
                 <div>
                   <p className="mb-1">Event date</p>
                   <ProviderDatePicker providerId={providerId} value={draft.eventDate ?? ""}
@@ -138,7 +141,7 @@ export function SpecialRequestForm({packageId, providerId, price}: {
               </fieldset>
               <p>Published unit price {money.format(price)}</p>
               {validQuantity ? <p className="font-semibold">Estimated subtotal {money.format(price * count)}</p>
-                : <p className="text-sm">Enter a whole quantity from 1 to 100.</p>}
+                : <p className="text-sm">Enter a whole quantity from 1 to {maxQuantity}.</p>}
               <p className="text-sm">Delivery is included. The provider will review your request. Submitting does not reserve the date or charge you.</p>
               {error && <p className="text-sm text-red-700" role="alert">{error} {!auth.currentUser && <Link href="/login">Sign in</Link>}</p>}
               <DialogFooter>
