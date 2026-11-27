@@ -11,16 +11,15 @@ export default function AdminReviewsLoading() {
       <PageHeading
         eyebrow="Administration"
         title="Review Management"
-        description="Monitor verified customer feedback, provider replies, reports, and moderation decisions."
+        description="Monitor verified customer reviews and manage review visibility."
       />
 
       <section
-        className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5"
+        className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"
         aria-label="Loading review statistics"
       >
         <SummaryCard label="Total Reviews" loading />
         <SummaryCard label="Published" loading />
-        <SummaryCard label="Reported" loading />
         <SummaryCard label="Hidden" loading />
         <SummaryCard label="Average Rating" loading />
       </section>

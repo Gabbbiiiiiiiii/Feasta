@@ -9,6 +9,11 @@ import {
   FIRESTORE_COLLECTIONS,
 } from "@feasta/shared-types";
 
+import {
+  formatAuditAction,
+  formatAuditRecordType,
+  isMeaningfulAuditLog,
+} from "@/lib/admin/audit-logs/admin-audit-log-normalization";
 import { adminDb } from "@/lib/firebase/admin";
 import { normalizeLedgerRow } from "@/lib/admin/reports/admin-financial-report-service";
 
@@ -42,6 +47,8 @@ export type AdminDashboardData = {
     feastaRevenueInCentavos: number;
     totalUsers: number;
     totalBookings: number;
+    activeBookings: number;
+    completedBookings: number;
     verificationQueue: number;
     revenueLast30DaysInCentavos: number;
     customerAccounts: number;
@@ -55,11 +62,33 @@ export type AdminDashboardData = {
     RevenuePoint[]
   >;
 
+  providerPerformance: {
+    activeProvidersCount: number;
+    mostBookedProvider: {
+      id: string;
+      businessName: string;
+      totalBookings: number;
+      completedBookings: number;
+      href: string;
+    } | null;
+    highestRatedProvider: {
+      id: string;
+      businessName: string;
+      ratingAverage: number;
+      reviewCount: number;
+      href: string;
+    } | null;
+  };
+
   topProviders: Array<{
     id: string;
     businessName: string;
     serviceType: string;
+    serviceCategory: string;
+    totalBookings: number;
     completedBookings: number;
+    ratingAverage: number;
+    reviewCount: number;
     href: string;
   }>;
 
@@ -73,9 +102,12 @@ export type AdminDashboardData = {
   recentActivities: Array<{
     id: string;
     action: string;
+    actionLabel: string;
     entity: string;
+    entityLabel: string;
     actorName: string;
     createdAt: Date | null;
+    href: string;
   }>;
 };
 
@@ -344,65 +376,255 @@ async function getRevenueByRange(): Promise<
   };
 }
 
-/** Rank completed provider engagements once per Main Event, not stale counters. */
-async function getTopProviders(): Promise<AdminDashboardData["topProviders"]> {
-  const [providers, completedRequests] = await Promise.all([
+function nonNegativeFloat(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0
+    ? value
+    : 0;
+}
+
+function nonNegativeInt(value: unknown): number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0
+    ? value
+    : 0;
+}
+
+function formatFallbackCategory(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed || trimmed.toLowerCase() === "provider") return "Uncategorized";
+  if (trimmed.toLowerCase() === "both") return "Catering & Add-on";
+  if (trimmed.toLowerCase() === "addon") return "Add-on";
+  return trimmed
+    .replaceAll("_", " ")
+    .replaceAll("-", " ")
+    .replace(/\b\w/gu, (character) => character.toUpperCase());
+}
+
+/** Rank active providers by distinct completed events, total bookings, and customer rating. */
+async function getProviderPerformanceData(): Promise<{
+  providerPerformance: AdminDashboardData["providerPerformance"];
+  topProviders: AdminDashboardData["topProviders"];
+}> {
+  const [providers, allRequests, categoriesSnapshot] = await Promise.all([
     adminDb.collection(FIRESTORE_COLLECTIONS.providers)
       .where("isActive", "==", true)
-      .select("businessName", "providerServiceType", "ownerId")
+      .select(
+        "businessName",
+        "providerServiceType",
+        "providerCategory",
+        "serviceCategories",
+        "ownerId",
+        "ratingAverage",
+        "reviewCount",
+        "isDeleted",
+      )
       .get(),
     adminDb.collection(FIRESTORE_COLLECTIONS.providerRequests)
-      .where("status", "==", "completed")
-      .select("providerId", "mainEventId")
+      .select("providerId", "mainEventId", "status")
+      .get(),
+    adminDb.collection("serviceCategories")
+      .select("code", "name")
       .get(),
   ]);
-  const eventsByProvider = new Map<string, Set<string>>();
-  for (const document of completedRequests.docs) {
+
+  const categoryLabels = new Map<string, string>();
+  for (const doc of categoriesSnapshot.docs) {
+    const data = doc.data();
+    const code = stringValue(data.code, doc.id);
+    const name = stringValue(data.name, "");
+    if (code && name) {
+      categoryLabels.set(code, name);
+      categoryLabels.set(doc.id, name);
+    }
+  }
+
+  const completedEventsByProvider = new Map<string, Set<string>>();
+  const totalRequestsByProvider = new Map<string, number>();
+
+  for (const document of allRequests.docs) {
     const data = document.data();
     const providerId = stringValue(data.providerId, "");
+    if (!providerId) continue;
+
+    const status = stringValue(data.status, "");
     const mainEventId = stringValue(data.mainEventId, "");
-    if (!providerId || !mainEventId) continue;
-    const events = eventsByProvider.get(providerId) ?? new Set<string>();
-    events.add(mainEventId);
-    eventsByProvider.set(providerId, events);
+
+    if (status === "completed") {
+      if (mainEventId) {
+        const events = completedEventsByProvider.get(providerId) ?? new Set<string>();
+        events.add(mainEventId);
+        completedEventsByProvider.set(providerId, events);
+      }
+      totalRequestsByProvider.set(
+        providerId,
+        (totalRequestsByProvider.get(providerId) ?? 0) + 1,
+      );
+    } else if (status && status !== "draft") {
+      totalRequestsByProvider.set(
+        providerId,
+        (totalRequestsByProvider.get(providerId) ?? 0) + 1,
+      );
+    }
   }
-  const ranked = providers.docs.map((document) => {
-    const data = document.data();
-    return {
-      id: document.id,
-      ownerId: stringValue(data.ownerId, ""),
-      businessName: stringValue(data.businessName, "Unnamed provider"),
-      serviceType: stringValue(data.providerServiceType, "provider"),
-      completedBookings: eventsByProvider.get(document.id)?.size ?? 0,
-    };
-  }).filter((provider) => provider.completedBookings > 0)
-    .sort((left, right) => right.completedBookings - left.completedBookings ||
-      left.businessName.localeCompare(right.businessName) || left.id.localeCompare(right.id))
+
+  const activeProviders = providers.docs
+    .filter((document) => document.data().isDeleted !== true)
+    .map((document) => {
+      const data = document.data();
+      const rawCategories = Array.isArray(data.serviceCategories)
+        ? data.serviceCategories
+            .map((item) => stringValue(item, ""))
+            .filter(Boolean)
+        : [];
+      const primaryCategory = stringValue(data.providerCategory, "");
+      const categoryCodes = [
+        ...new Set([
+          ...(primaryCategory ? [primaryCategory] : []),
+          ...rawCategories,
+        ]),
+      ];
+      const serviceType = stringValue(data.providerServiceType, "provider");
+      const serviceCategory =
+        categoryCodes.length > 0
+          ? categoryCodes
+              .map((code) => categoryLabels.get(code) ?? formatFallbackCategory(code))
+              .join(", ")
+          : formatFallbackCategory(serviceType);
+
+      const completedBookings = completedEventsByProvider.get(document.id)?.size ?? 0;
+      const totalBookings = Math.max(
+        completedBookings,
+        totalRequestsByProvider.get(document.id) ?? 0,
+      );
+
+      return {
+        id: document.id,
+        ownerId: stringValue(data.ownerId, ""),
+        businessName: stringValue(data.businessName, "Unnamed provider"),
+        serviceType,
+        serviceCategory,
+        totalBookings,
+        completedBookings,
+        ratingAverage: nonNegativeFloat(data.ratingAverage),
+        reviewCount: nonNegativeInt(data.reviewCount),
+      };
+    });
+
+  const ranked = activeProviders
+    .filter((provider) => provider.completedBookings > 0)
+    .sort((left, right) =>
+      right.completedBookings - left.completedBookings ||
+      right.totalBookings - left.totalBookings ||
+      right.ratingAverage - left.ratingAverage ||
+      left.businessName.localeCompare(right.businessName) ||
+      left.id.localeCompare(right.id),
+    )
     .slice(0, 5);
 
-  return Promise.all(ranked.map(async ({ ownerId, ...provider }) => {
-    // The verification page's selected parameter identifies an application,
-    // which is a different document from the provider profile.
-    const applications = await adminDb.collection(FIRESTORE_COLLECTIONS.providerVerifications)
-      .where("providerId", "==", provider.id)
-      .select("ownerId", "updatedAt", "createdAt")
-      .get();
-    const latest = applications.docs.filter((document) => {
-      const applicationOwner = stringValue(document.data().ownerId, "");
-      return /^[A-Za-z0-9_-]{1,150}$/u.test(document.id) &&
-        (!applicationOwner || applicationOwner === ownerId);
-    }).sort((left, right) => {
-      const date = (document: typeof left) =>
-        timestampToDate(document.data().updatedAt ?? document.data().createdAt)?.getTime() ?? 0;
-      return date(right) - date(left) || left.id.localeCompare(right.id);
-    })[0];
-    return {
-      ...provider,
-      href: latest
-        ? "/admin/providers?selected=" + encodeURIComponent(latest.id)
-        : "/admin/providers?q=" + encodeURIComponent(provider.businessName),
-    };
-  }));
+  // If no provider has completed events yet, show active providers with bookings or reviews.
+  const displayCandidates =
+    ranked.length > 0
+      ? ranked
+      : activeProviders
+          .filter((provider) => provider.totalBookings > 0 || provider.reviewCount > 0)
+          .sort((left, right) =>
+            right.totalBookings - left.totalBookings ||
+            right.ratingAverage - left.ratingAverage ||
+            left.businessName.localeCompare(right.businessName) ||
+            left.id.localeCompare(right.id),
+          )
+          .slice(0, 5);
+
+  const mostBookedCandidate = [...activeProviders]
+    .filter((provider) => provider.totalBookings > 0)
+    .sort((left, right) =>
+      right.totalBookings - left.totalBookings ||
+      right.completedBookings - left.completedBookings ||
+      right.ratingAverage - left.ratingAverage ||
+      left.businessName.localeCompare(right.businessName),
+    )[0] ?? null;
+
+  const highestRatedCandidate = [...activeProviders]
+    .filter((provider) => provider.reviewCount > 0 && provider.ratingAverage > 0)
+    .sort((left, right) =>
+      right.ratingAverage - left.ratingAverage ||
+      right.reviewCount - left.reviewCount ||
+      right.completedBookings - left.completedBookings ||
+      left.businessName.localeCompare(right.businessName),
+    )[0] ?? null;
+
+  const uniqueForHref = new Map<string, (typeof activeProviders)[number]>();
+  for (const item of displayCandidates) uniqueForHref.set(item.id, item);
+  if (mostBookedCandidate) uniqueForHref.set(mostBookedCandidate.id, mostBookedCandidate);
+  if (highestRatedCandidate) uniqueForHref.set(highestRatedCandidate.id, highestRatedCandidate);
+
+  const hrefByProviderId = new Map<string, string>();
+  await Promise.all(
+    [...uniqueForHref.values()].map(async ({ id, ownerId, businessName }) => {
+      const applications = await adminDb.collection(FIRESTORE_COLLECTIONS.providerVerifications)
+        .where("providerId", "==", id)
+        .select("ownerId", "updatedAt", "createdAt")
+        .get();
+      const latest = applications.docs
+        .filter((document) => {
+          const applicationOwner = stringValue(document.data().ownerId, "");
+          return (
+            /^[A-Za-z0-9_-]{1,150}$/u.test(document.id) &&
+            (!applicationOwner || applicationOwner === ownerId)
+          );
+        })
+        .sort((left, right) => {
+          const date = (document: typeof left) =>
+            timestampToDate(document.data().updatedAt ?? document.data().createdAt)?.getTime() ?? 0;
+          return date(right) - date(left) || left.id.localeCompare(right.id);
+        })[0];
+
+      hrefByProviderId.set(
+        id,
+        latest
+          ? "/admin/providers?selected=" + encodeURIComponent(latest.id)
+          : "/admin/providers?q=" + encodeURIComponent(businessName),
+      );
+    }),
+  );
+
+  const resolveHref = (provider: { id: string; businessName: string }) =>
+    hrefByProviderId.get(provider.id) ??
+    "/admin/providers?q=" + encodeURIComponent(provider.businessName);
+
+  return {
+    providerPerformance: {
+      activeProvidersCount: activeProviders.length,
+      mostBookedProvider: mostBookedCandidate
+        ? {
+            id: mostBookedCandidate.id,
+            businessName: mostBookedCandidate.businessName,
+            totalBookings: mostBookedCandidate.totalBookings,
+            completedBookings: mostBookedCandidate.completedBookings,
+            href: resolveHref(mostBookedCandidate),
+          }
+        : null,
+      highestRatedProvider: highestRatedCandidate
+        ? {
+            id: highestRatedCandidate.id,
+            businessName: highestRatedCandidate.businessName,
+            ratingAverage: highestRatedCandidate.ratingAverage,
+            reviewCount: highestRatedCandidate.reviewCount,
+            href: resolveHref(highestRatedCandidate),
+          }
+        : null,
+    },
+    topProviders: displayCandidates.map((provider) => ({
+      id: provider.id,
+      businessName: provider.businessName,
+      serviceType: provider.serviceType,
+      serviceCategory: provider.serviceCategory,
+      totalBookings: provider.totalBookings,
+      completedBookings: provider.completedBookings,
+      ratingAverage: provider.ratingAverage,
+      reviewCount: provider.reviewCount,
+      href: resolveHref(provider),
+    })),
+  };
 }
 
 export async function getAdminFeastaRevenueInCentavos(): Promise<number> {
@@ -443,11 +665,41 @@ export async function getAdminFeastaRevenueInCentavos(): Promise<number> {
   return commissionAccrued - commissionReversed - adjustment + defaultFee;
 }
 
+const NON_DRAFT_BOOKING_STATUSES = [
+  "pending_provider_approval",
+  "needs_provider_replacement",
+  "waiting_for_down_payment",
+  "confirmed",
+  "in_progress",
+  "completed",
+  "cancelled",
+  "expired",
+];
+
+const ACTIVE_BOOKING_STATUSES = [
+  "pending_provider_approval",
+  "needs_provider_replacement",
+  "waiting_for_down_payment",
+  "confirmed",
+  "in_progress",
+];
+
+function formatActorNameFromUserDoc(data: Record<string, unknown> | undefined): string {
+  if (!data) return "";
+  const first = stringValue(data.firstName, "");
+  const last = stringValue(data.lastName, "");
+  const full = `${first} ${last}`.trim();
+  if (full) return full;
+  return stringValue(data.displayName, "") || stringValue(data.email, "");
+}
+
 export async function getAdminDashboardData(): Promise<AdminDashboardData> {
   const [
     settingsSnapshot,
     feastaRevenueInCentavos,
     totalBookingsSnapshot,
+    activeBookingsSnapshot,
+    completedBookingsSnapshot,
     customersSnapshot,
     providersSnapshot,
     submittedApprovalsSnapshot,
@@ -455,7 +707,7 @@ export async function getAdminDashboardData(): Promise<AdminDashboardData> {
     openComplaintsSnapshot,
     pendingPaymentsSnapshot,
     failedExpiredPaymentsSnapshot,
-    topProviders,
+    providerData,
     reportedReviewsSnapshot,
     activitiesSnapshot,
     revenueByRange,
@@ -469,6 +721,15 @@ export async function getAdminDashboardData(): Promise<AdminDashboardData> {
 
     getAdminFeastaRevenueInCentavos(),
     adminDb.collection(FIRESTORE_COLLECTIONS.mainEvents)
+      .where("status", "in", NON_DRAFT_BOOKING_STATUSES)
+      .count()
+      .get(),
+    adminDb.collection(FIRESTORE_COLLECTIONS.mainEvents)
+      .where("status", "in", ACTIVE_BOOKING_STATUSES)
+      .count()
+      .get(),
+    adminDb.collection(FIRESTORE_COLLECTIONS.mainEvents)
+      .where("status", "==", "completed")
       .count()
       .get(),
 
@@ -489,7 +750,6 @@ export async function getAdminDashboardData(): Promise<AdminDashboardData> {
       .where("role", "==", "provider")
       .count()
       .get(),
-
 
     adminDb.collection(FIRESTORE_COLLECTIONS.providerVerifications)
       .where("status", "==", "submitted")
@@ -538,7 +798,7 @@ export async function getAdminDashboardData(): Promise<AdminDashboardData> {
       .count()
       .get(),
 
-    getTopProviders(),
+    getProviderPerformanceData(),
     adminDb.collection(FIRESTORE_COLLECTIONS.reviews)
       .where("isDeleted", "==", false)
       .where("isReported", "==", true)
@@ -548,7 +808,7 @@ export async function getAdminDashboardData(): Promise<AdminDashboardData> {
     adminDb
       .collection(FIRESTORE_COLLECTIONS.adminLogs)
       .orderBy("createdAt", "desc")
-      .limit(8)
+      .limit(40)
       .get(),
 
     getRevenueByRange(),
@@ -557,13 +817,55 @@ export async function getAdminDashboardData(): Promise<AdminDashboardData> {
   const settings =
     settingsSnapshot.data() ?? {};
 
-
-
   const customerAccounts =
     customersSnapshot.data().count;
 
   const providerAccounts =
     providersSnapshot.data().count;
+
+  const meaningfulActivityDocs = activitiesSnapshot.docs
+    .filter((document) => {
+      const action = stringValue(document.data().action, "");
+      return action ? isMeaningfulAuditLog({ action }) : false;
+    })
+    .slice(0, 6);
+
+  const actorIdsToHydrate = [
+    ...new Set(
+      meaningfulActivityDocs
+        .map((document) => {
+          const data = document.data();
+          const role = stringValue(data.actorRole, "").toLowerCase();
+          const actorId = stringValue(data.actorId, "");
+          if (
+            !actorId ||
+            role === "system" ||
+            actorId === "system" ||
+            !/^[A-Za-z0-9_-]{1,150}$/u.test(actorId)
+          ) {
+            return "";
+          }
+          return actorId;
+        })
+        .filter(Boolean),
+    ),
+  ];
+
+  const actorNamesById = new Map<string, string>();
+  if (actorIdsToHydrate.length > 0) {
+    const snapshots = await Promise.all(
+      actorIdsToHydrate.map(async (actorId) => {
+        const snapshot = await adminDb
+          .collection(FIRESTORE_COLLECTIONS.users)
+          .doc(actorId)
+          .get();
+        return [actorId, formatActorNameFromUserDoc(snapshot.data() as Record<string, unknown> | undefined)] as const;
+      }),
+    );
+    for (const [actorId, actorName] of snapshots) {
+      if (actorName) actorNamesById.set(actorId, actorName);
+    }
+  }
 
   return {
     settings: {
@@ -579,7 +881,7 @@ export async function getAdminDashboardData(): Promise<AdminDashboardData> {
 
       topProvidersTitle: stringValue(
         settings.topProvidersTitle,
-        "Top Providers",
+        "Provider Performance",
       ),
 
       operationsOverviewTitle: stringValue(
@@ -589,7 +891,7 @@ export async function getAdminDashboardData(): Promise<AdminDashboardData> {
 
       recentActivitiesTitle: stringValue(
         settings.recentActivitiesTitle,
-        "Recent Activities",
+        "Recent Activity",
       ),
     },
 
@@ -597,6 +899,8 @@ export async function getAdminDashboardData(): Promise<AdminDashboardData> {
       feastaRevenueInCentavos,
       totalUsers: customerAccounts + providerAccounts,
       totalBookings: totalBookingsSnapshot.data().count,
+      activeBookings: activeBookingsSnapshot.data().count,
+      completedBookings: completedBookingsSnapshot.data().count,
       verificationQueue:
         submittedApprovalsSnapshot.data().count + underReviewApprovalsSnapshot.data().count,
       revenueLast30DaysInCentavos: revenueByRange["1M"].reduce(
@@ -610,7 +914,8 @@ export async function getAdminDashboardData(): Promise<AdminDashboardData> {
 
     revenueByRange,
 
-    topProviders,
+    providerPerformance: providerData.providerPerformance,
+    topProviders: providerData.topProviders,
 
     operationsOverview: {
       pendingProcessingPayments: pendingPaymentsSnapshot.data().count,
@@ -619,32 +924,32 @@ export async function getAdminDashboardData(): Promise<AdminDashboardData> {
       openComplaints: openComplaintsSnapshot.data().count,
     },
 
-    recentActivities:
-      activitiesSnapshot.docs.map((document) => {
-        const data = document.data();
+    recentActivities: meaningfulActivityDocs.map((document) => {
+      const data = document.data();
+      const action = stringValue(data.action, "Administrative activity");
+      const entity = stringValue(
+        data.targetCollection,
+        stringValue(data.entity, "platform"),
+      );
+      const actorId = stringValue(data.actorId, "");
+      const actorRole = stringValue(data.actorRole, "").toLowerCase();
+      const actorName =
+        actorRole === "system" || actorId === "system"
+          ? "FEASTA System"
+          : actorNamesById.get(actorId) ||
+            stringValue(data.actorName, "") ||
+            (actorRole ? actorRole.charAt(0).toUpperCase() + actorRole.slice(1) : "Administrator");
 
-        return {
-          id: document.id,
-
-          action: stringValue(
-            data.action,
-            "Administrative activity",
-          ),
-
-          entity: stringValue(
-            data.entity,
-            "platform",
-          ),
-
-          actorName: stringValue(
-            data.actorName,
-            "Administrator",
-          ),
-
-          createdAt: timestampToDate(
-            data.createdAt,
-          ),
-        };
-      }),
+      return {
+        id: document.id,
+        action,
+        actionLabel: formatAuditAction(action),
+        entity,
+        entityLabel: entity === "platform" ? "Platform" : formatAuditRecordType(entity),
+        actorName,
+        createdAt: timestampToDate(data.createdAt),
+        href: `/admin/audit-logs/${document.id}`,
+      };
+    }),
   };
 }

@@ -163,10 +163,10 @@ describe("/admin/payments redesign contracts", () => {
     expect(reportsLink).toHaveAttribute("href", "/admin/reports");
 
     const infoButton = screen.getByRole("button", {
-      name: "More information about Net customer payments",
+      name: "More information about FEASTA fees available",
     });
     const tooltip = screen.getByRole("tooltip", {
-      name: /includes provider share and FEASTA fee/i,
+      name: /Withdrawable FEASTA platform service fee balance/i,
     });
     expect(infoButton).toHaveAttribute("aria-describedby", tooltip.id);
     expect(tooltip.className).toContain("opacity-0");
@@ -176,7 +176,78 @@ describe("/admin/payments redesign contracts", () => {
     expect(tooltip.className).toContain("opacity-100");
   });
 
-  it("collapses the payment-flow explainer by default and supports keyboard-accessible workspace tabs", async () => {
+  it("toggles money visibility independently on FEASTA fee KPI cards and filters pending payments from the Pending card", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <PaymentMonitoringClient
+        initialPage={basePage}
+        initialAttention={emptyQueue}
+        initialPayoutBoard={{
+          ...populatedBoard,
+          companyCommission: {
+            ...populatedBoard.companyCommission,
+            availableBalanceInCentavos: 43220,
+            withdrawnInCentavos: 120000,
+            formattedAvailableBalance: "₱432.20",
+            formattedWithdrawn: "₱1,200.00",
+          },
+        }}
+      />,
+    );
+
+    const statistics = screen.getByRole("region", {name: "Payment statistics"});
+    const feesCard = within(statistics).getByRole("region", {
+      name: "FEASTA fees available",
+    });
+    const withdrawnCard = within(statistics).getByRole("region", {
+      name: "FEASTA fees withdrawn",
+    });
+    const pendingCard = within(statistics).getByRole("region", {
+      name: "Pending payments",
+    });
+
+    expect(within(feesCard).getByText("₱432.20")).toBeVisible();
+    expect(within(withdrawnCard).getByText("₱1,200.00")).toBeVisible();
+    expect(
+      within(pendingCard).queryByRole("button", {name: /Hide|Show/i}),
+    ).not.toBeInTheDocument();
+
+    const hideFeesButton = within(feesCard).getByRole("button", {
+      name: "Hide FEASTA fees available",
+    });
+    expect(hideFeesButton).toHaveAttribute("aria-pressed", "false");
+    await user.click(hideFeesButton);
+
+    expect(within(feesCard).queryByText("₱432.20")).not.toBeInTheDocument();
+    expect(within(feesCard).getByText("₱••••••")).toBeVisible();
+    expect(within(withdrawnCard).getByText("₱1,200.00")).toBeVisible();
+
+    const showFeesButton = within(feesCard).getByRole("button", {
+      name: "Show FEASTA fees available",
+    });
+    expect(showFeesButton).toHaveAttribute("aria-pressed", "true");
+    await user.click(showFeesButton);
+    expect(within(feesCard).getByText("₱432.20")).toBeVisible();
+
+    const hideWithdrawnButton = within(withdrawnCard).getByRole("button", {
+      name: "Hide FEASTA fees withdrawn",
+    });
+    await user.click(hideWithdrawnButton);
+    expect(within(withdrawnCard).queryByText("₱1,200.00")).not.toBeInTheDocument();
+    expect(within(withdrawnCard).getByText("₱••••••")).toBeVisible();
+
+    await user.click(
+      within(pendingCard).getByRole("button", {name: "View pending payments"}),
+    );
+    await waitFor(() => {
+      expect(mocks.loadPayments).toHaveBeenCalledWith(
+        expect.objectContaining({status: "processing"}),
+      );
+    });
+  });
+
+  it("omits static explainer and legacy payout issues while supporting keyboard-accessible workspace tabs", async () => {
     const user = userEvent.setup();
 
     render(
@@ -187,10 +258,15 @@ describe("/admin/payments redesign contracts", () => {
       />,
     );
 
-    const explainerSummary = screen.getByText(
-      "How direct payments, service fees, and refunds work",
-    );
-    expect(explainerSummary.closest("details")).not.toHaveAttribute("open");
+    expect(
+      screen.queryByText("How direct payments, service fees, and refunds work"),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(/Showing \d+ payment/i),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("heading", {name: "Provider payout issues"}),
+    ).not.toBeInTheDocument();
 
     const tablist = screen.getByRole("tablist", {
       name: "Payments workspace views",
@@ -204,19 +280,48 @@ describe("/admin/payments redesign contracts", () => {
 
     expect(paymentsTab).toHaveAttribute("aria-selected", "true");
     expect(payoutsTab).toHaveAttribute("aria-selected", "false");
-    expect(within(payoutsTab).getByText("1 ready")).toBeVisible();
+    expect(within(payoutsTab).queryByText("1 ready")).not.toBeInTheDocument();
 
     paymentsTab.focus();
     await user.keyboard("{ArrowRight}");
     expect(payoutsTab).toHaveFocus();
     expect(payoutsTab).toHaveAttribute("aria-selected", "true");
     expect(
-      screen.getByRole("heading", {name: "FEASTA service fees & direct splits"}),
+      screen.getByRole("heading", {name: "FEASTA service fees"}),
     ).toBeVisible();
+    expect(
+      screen.queryByText(/Direct-to-provider split active/i),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("heading", {name: "Provider payout issues"}),
+    ).not.toBeInTheDocument();
 
     await user.keyboard("{ArrowLeft}");
     expect(paymentsTab).toHaveFocus();
     expect(paymentsTab).toHaveAttribute("aria-selected", "true");
+  });
+
+  it("shows only database-present payment statuses when availableStatuses is provided", () => {
+    render(
+      <PaymentMonitoringClient
+        initialPage={{
+          ...basePage,
+          statistics: {
+            ...basePage.statistics,
+            availableStatuses: ["paid", "partially_refunded"],
+          },
+        }}
+        initialAttention={emptyQueue}
+        initialPayoutBoard={populatedBoard}
+      />,
+    );
+
+    const paymentStatus = screen.getByRole("combobox", {name: "Payment status"});
+    expect(
+      within(paymentStatus)
+        .getAllByRole("option")
+        .map((option) => option.textContent?.trim()),
+    ).toEqual(["All statuses", "Paid", "Partially refunded"]);
   });
 
   it("formats active filter labels without exposing raw snake_case enum values", async () => {
@@ -243,9 +348,7 @@ describe("/admin/payments redesign contracts", () => {
     expect(screen.queryByText(/partially_refunded/)).not.toBeInTheDocument();
   });
 
-  it("uses an accessible ConfirmationDialog instead of window.confirm for payout setup repair", async () => {
-    const user = userEvent.setup();
-    const confirmSpy = vi.spyOn(window, "confirm");
+  it("hides the legacy Provider payout issues panel even when legacy attention items exist", () => {
     const ambiguousItem: AdminFinanceAttentionItem = {
       id: "ambiguous_payout_setup:provider_12345678",
       kind: "ambiguous_payout_setup",
@@ -271,65 +374,39 @@ describe("/admin/payments redesign contracts", () => {
       />,
     );
 
-    await user.click(
-      screen.getByRole("button", {name: "Repair payout setup"}),
-    );
-    expect(confirmSpy).not.toHaveBeenCalled();
-
-    const dialog = screen.getByRole("dialog", {
-      name: "Repair this Provider payout setup?",
-    });
-    expect(dialog).toBeVisible();
-
-    await user.click(within(dialog).getByRole("button", {name: "Cancel"}));
-    expect(mocks.repairSetup).not.toHaveBeenCalled();
-
-    await user.click(
-      screen.getByRole("button", {name: "Repair payout setup"}),
-    );
-    const reopenedDialog = screen.getByRole("dialog", {
-      name: "Repair this Provider payout setup?",
-    });
-    await user.click(
-      within(reopenedDialog).getByRole("button", {
-        name: "Repair payout setup",
-      }),
-    );
-
-    await waitFor(() => {
-      expect(mocks.repairSetup).toHaveBeenCalledWith({
-        providerId: "provider_12345678",
-        expectedUpdatedAtMillis: 1795053600000,
-      });
-    });
-    confirmSpy.mockRestore();
+    expect(
+      screen.queryByRole("heading", {name: "Provider payout issues"}),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", {name: "Repair payout setup"}),
+    ).not.toBeInTheDocument();
   });
 
-  it("renders human-readable transport block messages and ready total in ProviderPayoutBoard", async () => {
-    const user = userEvent.setup();
+  it("hides legacy escrow payouts and company float in ProviderPayoutBoard", () => {
     render(
       <ProviderPayoutBoard
         board={populatedBoard}
         loading={false}
-        releasingId={null}
         onRefresh={vi.fn()}
         onReleased={vi.fn()}
-        onReleaseStart={vi.fn()}
-        onReleaseEnd={vi.fn()}
       />,
     );
 
-    await user.click(screen.getByText(/Legacy escrow payouts & company float/i));
-    expect(screen.getByText("Total ready: ₱900.00")).toBeVisible();
     expect(
-      screen.getByText(/Application payout transfers are disabled/i),
+      screen.getByRole("heading", {name: "FEASTA service fee wallet"}),
     ).toBeVisible();
+    expect(
+      screen.queryByText(/Legacy escrow payouts & company float/i),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", {name: "Add to company float"}),
+    ).not.toBeInTheDocument();
     expect(
       screen.queryByText(/platform_disbursements_disabled/),
     ).not.toBeInTheDocument();
   });
 
-  it("surfaces refunded amounts on mobile payment cards without redundant gateway rows", () => {
+  it("surfaces FEASTA fee and refunded amounts on mobile payment cards without redundant gateway rows", () => {
     render(
       <PaymentMobileCard
         payment={samplePayment}
@@ -337,6 +414,8 @@ describe("/admin/payments redesign contracts", () => {
       />,
     );
 
+    expect(screen.getByText("FEASTA fee ₱2,000.00")).toBeVisible();
+    expect(screen.queryByText(/Commission ₱/i)).not.toBeInTheDocument();
     expect(screen.getByText("Refunded ₱5,000.00")).toBeVisible();
     expect(screen.queryByText("Processed by")).not.toBeInTheDocument();
   });

@@ -274,7 +274,7 @@ it("retries the failed announcements page with its filters, cursor, and history"
   await user.click(screen.getByRole("button", {name: "Next"}));
   expect(await screen.findByText("Read failed")).toBeVisible();
   expect(screen.queryByText("No announcements yet")).not.toBeInTheDocument();
-  expect(screen.getByText("Showing 1 announcement")).toBeVisible();
+  expect(screen.getByText("Page 1")).toBeVisible();
   const failedRequest = actions.load.mock.calls[1][0];
   expect(failedRequest).toMatchObject({status: "draft", cursor: "announcements-page-2"});
   await user.click(screen.getByRole("button", {name: "Try again"}));

@@ -14,6 +14,8 @@ import {
 } from "firebase-admin/firestore";
 
 import {adminDb} from "@/lib/firebase/admin";
+import {countFirestoreQuery} from "@/lib/firebase/count-query";
+import {computeTotalPages} from "@/lib/pagination";
 import {normalizePublicProvider} from "@/lib/customer/providers/provider-normalization";
 import {
   isMediaPackageCategory,
@@ -62,6 +64,8 @@ export async function getPublicPackagePage(
     .orderBy("createdAt", "desc")
     .orderBy(FieldPath.documentId(), "desc");
 
+  const countQuery = query;
+
   if (cursor) {
     const timestamp = new Timestamp(
       cursor.createdAtSeconds,
@@ -78,7 +82,10 @@ export async function getPublicPackagePage(
     query = query.limit(PACKAGE_CANDIDATE_READ_LIMIT);
   }
 
-  const snapshot = await query.get();
+  const [snapshot, totalCount] = await Promise.all([
+    query.get(),
+    countFirestoreQuery(countQuery),
+  ]);
   const publicCandidates = (await normalizePackageCandidates(snapshot.docs)).filter(({packageRecord: p}) =>
     filters.eventType === "all" || (p.occasionMatchIds ?? [p.eventType]).includes(filters.eventType));
   const previousDirection = cursor?.direction === "previous";
@@ -97,6 +104,9 @@ export async function getPublicPackagePage(
     (hasPrevious ? snapshot.docs[0] ?? null : null);
   const nextAnchor = selected.at(-1)?.document ??
     (hasNext ? snapshot.docs.at(-1) ?? null : null);
+  const currentPage = !hasPrevious
+    ? 1
+    : cursor?.page ?? (previousDirection ? 1 : 2);
 
   const cateringPackages = selected.map((candidate) => candidate.packageRecord);
   // Media addons (photographer/videographer) live in `addons`, not `packages`.
@@ -108,12 +118,15 @@ export async function getPublicPackagePage(
   return {
     packages: [...cateringPackages, ...mediaPackages],
     previousCursor: hasPrevious && previousAnchor
-      ? encodePackageCursor("previous", previousAnchor)
+      ? encodePackageCursor("previous", previousAnchor, Math.max(1, currentPage - 1))
       : null,
     nextCursor: hasNext && nextAnchor
-      ? encodePackageCursor("next", nextAnchor)
+      ? encodePackageCursor("next", nextAnchor, currentPage + 1)
       : null,
     pageSize: safePageSize,
+    currentPage,
+    totalCount,
+    totalPages: computeTotalPages(totalCount, safePageSize),
   };
 }
 
@@ -326,6 +339,7 @@ async function normalizePackageCandidates(
 function encodePackageCursor(
   direction: PackageCursor["direction"],
   document: QueryDocumentSnapshot<DocumentData>,
+  page?: number,
 ): string | null {
   const createdAt = document.data().createdAt;
   if (!(createdAt instanceof Timestamp)) return null;
@@ -334,6 +348,9 @@ function encodePackageCursor(
     createdAtSeconds: createdAt.seconds,
     createdAtNanoseconds: createdAt.nanoseconds,
     packageId: document.id,
+    ...(typeof page === "number" && Number.isSafeInteger(page) && page >= 1
+      ? {page}
+      : {}),
   } satisfies PackageCursor), "utf8").toString("base64url");
 }
 
@@ -355,7 +372,18 @@ function decodePackageCursor(value: string | null): PackageCursor | null {
       typeof decoded.packageId !== "string" ||
       !/^[A-Za-z0-9_-]{1,128}$/u.test(decoded.packageId)
     ) return null;
-    return decoded as PackageCursor;
+    const page = typeof decoded.page === "number" &&
+      Number.isSafeInteger(decoded.page) &&
+      decoded.page >= 1
+      ? decoded.page
+      : undefined;
+    return {
+      direction: decoded.direction,
+      createdAtSeconds: decoded.createdAtSeconds,
+      createdAtNanoseconds: decoded.createdAtNanoseconds,
+      packageId: decoded.packageId,
+      ...(page !== undefined ? {page} : {}),
+    };
   } catch {
     return null;
   }

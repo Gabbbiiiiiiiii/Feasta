@@ -56,6 +56,7 @@ export type PayMongoPaymentEvent = {
    * authority.
    */
   gatewayFeeInCentavos: number | null;
+  paymentMethodType: "card" | "gcash" | "paymaya" | null;
 };
 
 export type PayMongoRefundEvent = {
@@ -226,6 +227,8 @@ export function parsePayMongoWebhookEvent(
 
   let gatewayFeeInCentavos:
     number | null = null;
+  let paymentMethodType: "card" | "gcash" | "paymaya" | null =
+    optionalPaymentMethodType(metadata.feasta_sandbox_method);
 
   const paymentIds = new Set<string>();
   const paymentIntentIds = new Set<string>();
@@ -258,6 +261,8 @@ export function parsePayMongoWebhookEvent(
       amountInCentavos = first.amount;
       currencyValue = first.currency;
       gatewayResourceId = requireString(paid[0].id, "payment id");
+      paymentMethodType =
+        optionalSourcePaymentMethodType(first.source) ?? paymentMethodType;
       for (const value of paid) {
         const data = requireRecord(value.attributes, "payment attributes");
         if (value.type !== "payment" || data.amount !== amountInCentavos ||
@@ -295,6 +300,8 @@ export function parsePayMongoWebhookEvent(
     if (attributes.status !== undefined && attributes.status !== "paid") {
       throw new Error("Payment success status is invalid.");
     }
+    paymentMethodType =
+      optionalSourcePaymentMethodType(attributes.source) ?? paymentMethodType;
     const evidence =
       paymentEvidence(
         resource.id,
@@ -338,7 +345,29 @@ export function parsePayMongoWebhookEvent(
     paymentIntentIds: [...paymentIntentIds],
     successfulPayments,
     gatewayFeeInCentavos,
+    paymentMethodType,
   };
+}
+
+function optionalPaymentMethodType(
+  value: unknown,
+): "card" | "gcash" | "paymaya" | null {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim().toLowerCase();
+  return normalized === "card" ||
+    normalized === "gcash" ||
+    normalized === "paymaya"
+    ? normalized
+    : null;
+}
+
+function optionalSourcePaymentMethodType(
+  source: unknown,
+): "card" | "gcash" | "paymaya" | null {
+  if (typeof source !== "object" || source === null || Array.isArray(source)) {
+    return null;
+  }
+  return optionalPaymentMethodType((source as Record<string, unknown>).type);
 }
 
 function optionalGatewayId(value: unknown): string | null {

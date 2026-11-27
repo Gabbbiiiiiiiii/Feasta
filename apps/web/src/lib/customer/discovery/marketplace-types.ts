@@ -90,6 +90,9 @@ export type PackageDiscoveryPage = {
   previousCursor: string | null;
   nextCursor: string | null;
   pageSize: number;
+  currentPage?: number;
+  totalCount?: number | null;
+  totalPages?: number | null;
 };
 
 export type PackageCursor = {
@@ -97,6 +100,7 @@ export type PackageCursor = {
   createdAtSeconds: number;
   createdAtNanoseconds: number;
   packageId: string;
+  page?: number;
 };
 
 export type CustomerMarketplaceHome = {

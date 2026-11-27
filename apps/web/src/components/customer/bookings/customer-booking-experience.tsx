@@ -46,6 +46,7 @@ import {
 import {CustomerBookingDetailsDrawer} from "@/components/customer/bookings/customer-booking-details-drawer";
 import {CustomerBookingMobileCard} from "@/components/customer/bookings/customer-booking-mobile-card";
 import {CursorPagination} from "@/components/data/cursor-pagination";
+import {formatPageLabel} from "@/lib/pagination";
 import {DataTable, type DataTableColumn} from "@/components/data/data-table";
 import {SummaryCard} from "@/components/data/summary-card";
 import {useLiveSearch} from "@/lib/search/use-live-search";
@@ -536,7 +537,7 @@ function CustomerBookingExperience({initialPage}: CustomerBookingExperienceProps
           nextCursor={page.nextCursor}
           onPrevious={handlePreviousPage}
           onNext={handleNextPage}
-          pageLabel={`Page ${pageNumber}`}
+          pageLabel={formatPageLabel(pageNumber, page.totalPages, {hasMore: page.hasMore})}
           loading={isPending}
         />
       ) : null}

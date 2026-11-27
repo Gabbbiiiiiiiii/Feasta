@@ -17,12 +17,15 @@ import type {
   AdminReviewDetails,
   AdminReviewDetailsResult,
   AdminReviewFilters,
+  AdminReviewModerationStatus,
   AdminReviewPage,
+  AdminReviewRatingFilter,
   AdminReviewSortField,
   AdminReviewStatistics,
 } from "@/lib/admin/reviews/admin-review-types";
 import {requireAdmin} from "@/lib/auth/session";
 import {adminDb} from "@/lib/firebase/admin";
+import {computeTotalPages} from "@/lib/pagination";
 
 const COLLECTIONS = {
   reviews: "reviews",
@@ -39,14 +42,8 @@ const SEARCH_RESULT_LIMIT = 100;
 const FILTER_SCAN_BATCH_SIZE = 30;
 const FILTER_SCAN_LIMIT = 300;
 const DETAIL_HISTORY_LIMIT = 25;
-const STATISTICS_CACHE_MS = 30 * 1000;
 const MANILA_OFFSET_MS = 8 * 60 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
-
-let reviewStatisticsCache: {
-  expiresAt: number;
-  promise: Promise<AdminReviewStatistics>;
-} | null = null;
 
 type NormalizedFilters = Omit<AdminReviewFilters, "cursor"> & {
   cursor: string | null;
@@ -94,6 +91,8 @@ export async function getAdminReviewPage(
       statistics: await statisticsPromise,
       nextCursor: null,
       hasMore: false,
+      totalCount: reviews.length,
+      totalPages: 1,
     };
   }
 
@@ -161,13 +160,31 @@ export async function getAdminReviewPage(
     ? visible.at(-1)?.document ?? null
     : lastScanned;
 
+  const statistics = await statisticsPromise;
+  let totalCount: number | null = null;
+  if (filters.rating === "all" && filters.date === "all") {
+    if (filters.status === "all" && filters.report === "all") {
+      totalCount = statistics.totalCount;
+    } else if (filters.report === "all" && filters.status === "published") {
+      totalCount = statistics.publishedCount;
+    } else if (filters.report === "all" && filters.status === "hidden") {
+      totalCount = statistics.hiddenCount;
+    } else if (filters.status === "all" && filters.report === "reported") {
+      totalCount = statistics.reportedCount;
+    } else if (filters.status === "all" && filters.report === "not_reported") {
+      totalCount = Math.max(0, statistics.totalCount - statistics.reportedCount);
+    }
+  }
+
   return {
     reviews: visible.map(({review}) => review),
-    statistics: await statisticsPromise,
+    statistics,
     nextCursor: hasMore && lastDocument
       ? encodeCursor(lastDocument, filters.sortField)
       : null,
     hasMore,
+    totalCount,
+    totalPages: computeTotalPages(totalCount, filters.pageSize),
   };
 }
 
@@ -369,40 +386,61 @@ function compareReviews(
   ) * multiplier;
 }
 
-async function queryAdminReviewStatistics(): Promise<AdminReviewStatistics> {
+async function getAdminReviewStatistics(): Promise<AdminReviewStatistics> {
   const reviews = adminDb.collection(COLLECTIONS.reviews);
   const active = reviews.where("isDeleted", "==", false);
   const published = active.where("isVisible", "==", true);
-  const [total, publishedCount, reported, hidden, average] = await Promise.all([
+  const [
+    total,
+    publishedCountSnapshot,
+    reported,
+    hiddenSnapshot,
+    average,
+    rating5,
+    rating4,
+    rating3,
+    rating2,
+    rating1,
+  ] = await Promise.all([
     active.count().get(),
     published.count().get(),
     active.where("isReported", "==", true).count().get(),
     active.where("isVisible", "==", false).count().get(),
     published.aggregate({rating: AggregateField.average("rating")}).get(),
+    active.where("rating", "==", 5).count().get(),
+    active.where("rating", "==", 4).count().get(),
+    active.where("rating", "==", 3).count().get(),
+    active.where("rating", "==", 2).count().get(),
+    active.where("rating", "==", 1).count().get(),
   ]);
+
+  const publishedCount = publishedCountSnapshot.data().count;
+  const hiddenCount = hiddenSnapshot.data().count;
+
+  const availableStatuses: AdminReviewModerationStatus[] = [];
+  if (publishedCount > 0) availableStatuses.push("published");
+  if (hiddenCount > 0) availableStatuses.push("hidden");
+
+  const ratingCounts: Array<[Exclude<AdminReviewRatingFilter, "all">, number]> = [
+    ["5", rating5.data().count],
+    ["4", rating4.data().count],
+    ["3", rating3.data().count],
+    ["2", rating2.data().count],
+    ["1", rating1.data().count],
+  ];
+  const availableRatings = ratingCounts
+    .filter(([, count]) => count > 0)
+    .map(([rating]) => rating);
+
   return {
     totalCount: total.data().count,
-    publishedCount: publishedCount.data().count,
+    publishedCount,
     reportedCount: reported.data().count,
-    hiddenCount: hidden.data().count,
+    hiddenCount,
     averageRating: roundRating(aggregateNumber(average.data().rating)),
+    availableStatuses,
+    availableRatings,
   };
-}
-
-function getAdminReviewStatistics(): Promise<AdminReviewStatistics> {
-  const now = Date.now();
-  if (reviewStatisticsCache && reviewStatisticsCache.expiresAt > now) {
-    return reviewStatisticsCache.promise;
-  }
-  const promise = queryAdminReviewStatistics();
-  reviewStatisticsCache = {
-    expiresAt: now + STATISTICS_CACHE_MS,
-    promise,
-  };
-  void promise.catch(() => {
-    if (reviewStatisticsCache?.promise === promise) reviewStatisticsCache = null;
-  });
-  return promise;
 }
 
 function mapAuditEntry(

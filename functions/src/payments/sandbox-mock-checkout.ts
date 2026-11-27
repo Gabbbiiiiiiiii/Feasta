@@ -328,6 +328,9 @@ export function buildSyntheticSandboxWebhookPayload(input: {
                     payment_intent_id: paymentIntentId,
                     paid_at: paidAtSeconds,
                     fee: 0,
+                    source: {
+                      type: input.paymentMethod,
+                    },
                   },
                 },
               ],

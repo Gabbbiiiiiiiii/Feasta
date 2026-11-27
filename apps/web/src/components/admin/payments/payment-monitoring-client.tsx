@@ -1,13 +1,10 @@
 "use client";
 
 import {
+  ArrowDownToLine,
   ArrowUpRight,
-  ChevronRight,
-  CircleAlert,
   Clock3,
   CreditCard,
-  PhilippinePeso,
-  RotateCcw,
   Wallet,
 } from "lucide-react";
 import Link from "next/link";
@@ -23,12 +20,6 @@ import {
 } from "react";
 
 import {
-  repairAmbiguousProviderPayoutSetup,
-  retryFailedProviderDisbursement,
-} from "@/lib/admin/payments/admin-payment-client";
-
-import {
-  loadAdminFinanceAttentionQueueAction,
   loadAdminPaymentDetailsAction,
   loadAdminPaymentsAction,
   loadAdminProviderPayoutBoardAction,
@@ -36,10 +27,6 @@ import {
 import {
   PaymentDetailsDrawer,
 } from "@/components/admin/payments/payment-details-drawer";
-import {
-  PaymentFinanceAttention,
-  canRetryFailedDisbursement,
-} from "@/components/admin/payments/payment-finance-attention";
 import {
   ProviderPayoutBoard,
 } from "@/components/admin/payments/provider-payout-board";
@@ -62,6 +49,7 @@ import {
 import {
   CursorPagination,
 } from "@/components/data/cursor-pagination";
+import {formatPageLabel} from "@/lib/pagination";
 import {
   DataTable,
   type DataTableColumn,
@@ -73,13 +61,11 @@ import {
 import {
   SummaryCard,
 } from "@/components/data/summary-card";
-import {ConfirmationDialog} from "@/components/shared/confirmation-dialog";
 import {PageHeading} from "@/components/layout/page-heading";
-import {PaymentFlowOverview} from "@/components/shared/payment-flow-overview";
 import {Button} from "@/components/ui/button";
 import {Select} from "@/components/ui/select";
+import {SensitiveAmount} from "@/components/ui/sensitive-amount";
 import type {
-  AdminFinanceAttentionItem,
   AdminFinanceAttentionQueue,
   AdminPayment,
   AdminPaymentDateFilter,
@@ -88,6 +74,7 @@ import type {
   AdminPaymentPage,
   AdminPaymentSortDirection,
   AdminPaymentSortField,
+  AdminPaymentStatus,
   AdminPaymentStatusFilter,
   AdminPaymentTypeFilter,
   AdminProviderPayoutBoard,
@@ -97,7 +84,7 @@ import {cn} from "@/lib/utils";
 type PaymentMonitoringClientProps = {
   initialPage: AdminPaymentPage;
 
-  initialAttention: AdminFinanceAttentionQueue;
+  initialAttention?: AdminFinanceAttentionQueue;
 
   initialPayoutBoard: AdminProviderPayoutBoard;
 };
@@ -107,6 +94,16 @@ type WorkspaceTabId = "payments" | "payouts";
 const WORKSPACE_TABS: readonly {id: WorkspaceTabId; label: string}[] = [
   {id: "payments", label: "Customer payments"},
   {id: "payouts", label: "FEASTA service fees"},
+];
+
+const PAYMENT_STATUS_ORDER: readonly AdminPaymentStatus[] = [
+  "pending",
+  "processing",
+  "paid",
+  "failed",
+  "expired",
+  "refunded",
+  "partially_refunded",
 ];
 
 const STATUS_FILTER_LABELS: Record<
@@ -138,7 +135,6 @@ const FIRST_PAGE_CURSOR = "__first_page__";
 
 function PaymentMonitoringClient({
   initialPage,
-  initialAttention,
   initialPayoutBoard,
 }: PaymentMonitoringClientProps) {
   const [activeTab, setActiveTab] =
@@ -147,33 +143,12 @@ function PaymentMonitoringClient({
   const [page, setPage] =
     useState<AdminPaymentPage>(initialPage);
 
-  const [attentionQueue, setAttentionQueue] =
-    useState<AdminFinanceAttentionQueue>(initialAttention);
-
-  const [attentionLoading, setAttentionLoading] = useState(false);
-
-  const [attentionError, setAttentionError] = useState<string>();
-
   const [payoutBoard, setPayoutBoard] =
     useState<AdminProviderPayoutBoard>(initialPayoutBoard);
 
   const [payoutBoardLoading, setPayoutBoardLoading] = useState(false);
 
   const [payoutBoardError, setPayoutBoardError] = useState<string>();
-
-  const [releasingPayoutId, setReleasingPayoutId] =
-    useState<string | null>(null);
-
-  const [repairTarget, setRepairTarget] =
-    useState<AdminFinanceAttentionItem | null>(null);
-
-  const [repairingAttentionId, setRepairingAttentionId] =
-    useState<string | null>(null);
-
-  const [retryTarget, setRetryTarget] =
-    useState<AdminFinanceAttentionItem | null>(null);
-  const [retryingAttentionId, setRetryingAttentionId] =
-    useState<string | null>(null);
 
   const [filters, setFilters] =
     useState<AdminPaymentFilters>(DEFAULT_FILTERS);
@@ -201,17 +176,11 @@ function PaymentMonitoringClient({
 
   const pageRequestId = useRef(0);
   const detailsRequestId = useRef(0);
-  const attentionRequestId = useRef(0);
   const payoutBoardRequestId = useRef(0);
   const tabRefs = useRef<Record<WorkspaceTabId, HTMLButtonElement | null>>({
     payments: null,
     payouts: null,
   });
-
-  const hasUrgentAttention =
-    attentionQueue.items.length > 0 ||
-    Boolean(attentionError) ||
-    attentionLoading;
 
   const loadPage = useCallback(
     (
@@ -251,34 +220,6 @@ function PaymentMonitoringClient({
     [],
   );
 
-  const refreshFinanceAttention = useCallback(() => {
-    const requestId = ++attentionRequestId.current;
-
-    setAttentionLoading(true);
-    setAttentionError(undefined);
-
-    void loadAdminFinanceAttentionQueueAction()
-      .then((result) => {
-        if (attentionRequestId.current !== requestId) {
-          return;
-        }
-
-        setAttentionQueue(result);
-      })
-      .catch((error: unknown) => {
-        if (attentionRequestId.current !== requestId) {
-          return;
-        }
-
-        setAttentionError(errorMessage(error));
-      })
-      .finally(() => {
-        if (attentionRequestId.current === requestId) {
-          setAttentionLoading(false);
-        }
-      });
-  }, []);
-
   const refreshProviderPayoutBoard = useCallback(() => {
     const requestId = ++payoutBoardRequestId.current;
 
@@ -306,105 +247,6 @@ function PaymentMonitoringClient({
         }
       });
   }, []);
-
-  const requestRepairPayoutSetup = useCallback(
-    (item: AdminFinanceAttentionItem) => {
-      if (
-        item.kind !== "ambiguous_payout_setup" ||
-        item.recordState !== "valid" ||
-        !item.providerId ||
-        !item.expectedUpdatedAtMillis
-      ) {
-        setAttentionError(
-          "This payout setup issue is no longer safe to repair. Refresh Provider payout issues.",
-        );
-        return;
-      }
-
-      setAttentionError(undefined);
-      setRepairTarget(item);
-    },
-    [],
-  );
-
-  const confirmRepairPayoutSetup = async () => {
-    const current = attentionQueue.items.find(
-      (item) => item.id === repairTarget?.id,
-    );
-    if (
-      !current ||
-      current.kind !== "ambiguous_payout_setup" ||
-      current.recordState !== "valid" ||
-      !current.providerId ||
-      !current.expectedUpdatedAtMillis ||
-      repairingAttentionId ||
-      retryingAttentionId
-    ) {
-      setAttentionError(
-        "This payout setup issue is no longer safe to repair. Refresh Provider payout issues.",
-      );
-      setRepairTarget(null);
-      return;
-    }
-
-    const requestId = ++attentionRequestId.current;
-    setRepairingAttentionId(current.id);
-    setAttentionError(undefined);
-
-    try {
-      await repairAmbiguousProviderPayoutSetup({
-        providerId: current.providerId,
-        expectedUpdatedAtMillis: current.expectedUpdatedAtMillis,
-      });
-
-      const refreshed = await loadAdminFinanceAttentionQueueAction();
-      if (attentionRequestId.current === requestId) {
-        setAttentionQueue(refreshed);
-      }
-    } catch (error: unknown) {
-      setAttentionError(errorMessage(error));
-    } finally {
-      setRepairingAttentionId(null);
-      setRepairTarget(null);
-    }
-  };
-
-  const retryFailedPayout = async () => {
-    const current = attentionQueue.items.find(
-      (item) => item.id === retryTarget?.id,
-    );
-    if (
-      !current ||
-      !canRetryFailedDisbursement(current) ||
-      !current.providerDisbursementId ||
-      repairingAttentionId ||
-      retryingAttentionId
-    ) {
-      setAttentionError(
-        "This payout changed or is no longer safe to retry. Refresh Provider payout issues.",
-      );
-      setRetryTarget(null);
-      return;
-    }
-    const requestId = ++attentionRequestId.current;
-    setAttentionLoading(false);
-    setRetryingAttentionId(current.id);
-    setAttentionError(undefined);
-    try {
-      await retryFailedProviderDisbursement({
-        providerDisbursementId: current.providerDisbursementId,
-      });
-      const refreshed = await loadAdminFinanceAttentionQueueAction();
-      if (attentionRequestId.current === requestId) {
-        setAttentionQueue(refreshed);
-      }
-    } catch (error: unknown) {
-      setAttentionError(errorMessage(error));
-    } finally {
-      setRetryingAttentionId(null);
-      setRetryTarget(null);
-    }
-  };
 
   const applyFilters = useCallback(
     (changes: Partial<AdminPaymentFilters>) => {
@@ -550,7 +392,7 @@ function PaymentMonitoringClient({
             </span>
             {payment.formattedCommissionAmount ? (
               <p className="mt-0.5 whitespace-nowrap text-xs tabular-nums text-muted-foreground">
-                Commission {payment.formattedCommissionAmount}
+                FEASTA fee {payment.formattedCommissionAmount}
               </p>
             ) : null}
             {payment.refundedAmountFormatted ? (
@@ -630,30 +472,20 @@ function PaymentMonitoringClient({
     loadPage(filters, currentCursor, cursorHistory);
   };
 
-  const attentionSection = (
-    <PaymentFinanceAttention
-      statistics={page.statistics}
-      queue={attentionQueue}
-      embedded={!hasUrgentAttention}
-      retryingItemId={retryingAttentionId}
-      onRetryFailedDisbursement={(item) => {
-        if (canRetryFailedDisbursement(item)) setRetryTarget(item);
-      }}
-      loading={attentionLoading}
-      error={attentionError}
-      repairingItemId={repairingAttentionId}
-      onRefresh={refreshFinanceAttention}
-      onViewPayment={openPaymentDetails}
-      onRepairPayoutSetup={requestRepairPayoutSetup}
-    />
-  );
+  const availablePaymentStatuses =
+    page.statistics.availableStatuses ?? PAYMENT_STATUS_ORDER;
+
+  const pendingFilterStatus: AdminPaymentStatusFilter =
+    availablePaymentStatuses.includes("processing")
+      ? "processing"
+      : "pending";
 
   return (
     <div className="grid min-w-0 gap-6">
       <PageHeading
         eyebrow="Administration"
         title="Payments"
-        description="Monitor customer payments, refunds, and FEASTA service fees."
+        description="Monitor customer payments and manage FEASTA service fees."
         actions={
           <Button asChild variant="secondary" size="compact">
             <Link href="/admin/reports">
@@ -665,18 +497,31 @@ function PaymentMonitoringClient({
       />
 
       <section
-        className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"
+        className="grid gap-4 sm:grid-cols-3"
         aria-label="Payment statistics"
       >
         <SummaryCard
-          label="Net customer payments"
-          tooltip="Customer funds kept after refunds — includes provider share and FEASTA fee."
+          label="FEASTA fees available"
+          tooltip="Withdrawable FEASTA platform service fee balance."
           value={
-            <span className="tabular-nums">
-              {page.statistics.confirmedVolumeFormatted}
-            </span>
+            <SensitiveAmount
+              label="FEASTA fees available"
+              value={payoutBoard.companyCommission.formattedAvailableBalance}
+            />
           }
-          icon={<PhilippinePeso className="size-5" />}
+          icon={<Wallet className="size-5" />}
+        />
+
+        <SummaryCard
+          label="FEASTA fees withdrawn"
+          tooltip="Total FEASTA service fees already withdrawn."
+          value={
+            <SensitiveAmount
+              label="FEASTA fees withdrawn"
+              value={payoutBoard.companyCommission.formattedWithdrawn}
+            />
+          }
+          icon={<ArrowDownToLine className="size-5" />}
         />
 
         <SummaryCard
@@ -687,46 +532,23 @@ function PaymentMonitoringClient({
               {page.statistics.pendingProcessingCount}
             </span>
           }
+          supportingMetric={
+            page.statistics.pendingProcessingCount > 0 ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveTab("payments");
+                  applyFilters({status: pendingFilterStatus});
+                }}
+                className="font-semibold text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              >
+                View pending payments
+              </button>
+            ) : undefined
+          }
           icon={<Clock3 className="size-5" />}
         />
-
-        <SummaryCard
-          label="Failed payments"
-          tooltip="Customer charges that did not complete."
-          value={
-            <span className="tabular-nums">
-              {page.statistics.failedPaymentCount}
-            </span>
-          }
-          icon={<CircleAlert className="size-5" />}
-        />
-
-        <SummaryCard
-          label="Refunded amount"
-          tooltip="Completed full and partial customer refunds."
-          value={
-            <span className="tabular-nums">
-              {page.statistics.refundedAmountFormatted}
-            </span>
-          }
-          icon={<RotateCcw className="size-5" />}
-        />
       </section>
-
-      <details className="group rounded-xl border border-border/80 bg-secondary/50 transition-colors duration-fast open:bg-secondary/35">
-        <summary className="flex cursor-pointer list-none items-center gap-2 px-3.5 py-2.5 text-sm font-semibold text-muted-foreground hover:text-foreground sm:px-4 [&::-webkit-details-marker]:hidden">
-          <ChevronRight
-            aria-hidden="true"
-            className="size-4 shrink-0 text-primary transition-transform duration-fast group-open:rotate-90 motion-reduce:transition-none"
-          />
-          <span>How direct payments, service fees, and refunds work</span>
-        </summary>
-        <div className="px-3.5 pb-4 pt-1 sm:px-4">
-          <PaymentFlowOverview embedded />
-        </div>
-      </details>
-
-      {hasUrgentAttention ? attentionSection : null}
 
       <section
         className="min-w-0 overflow-hidden rounded-card border border-border bg-card shadow-card"
@@ -739,8 +561,6 @@ function PaymentMonitoringClient({
         >
           {WORKSPACE_TABS.map((tab, index) => {
             const selected = activeTab === tab.id;
-            const readyCount =
-              tab.id === "payouts" ? payoutBoard.readyToPay.length : 0;
             const TabIcon = tab.id === "payments" ? CreditCard : Wallet;
 
             return (
@@ -766,11 +586,6 @@ function PaymentMonitoringClient({
               >
                 <TabIcon aria-hidden="true" className="size-4 shrink-0" />
                 <span>{tab.label}</span>
-                {readyCount > 0 ? (
-                  <span className="rounded-pill bg-primary-tint px-2 py-0.5 text-xs font-bold tabular-nums text-primary-strong">
-                    {readyCount} ready
-                  </span>
-                ) : null}
                 <span
                   aria-hidden="true"
                   className={cn(
@@ -819,13 +634,17 @@ function PaymentMonitoringClient({
                   }
                 >
                   <option value="all">All statuses</option>
-                  <option value="pending">Pending</option>
-                  <option value="processing">Processing</option>
-                  <option value="paid">Paid</option>
-                  <option value="failed">Failed</option>
-                  <option value="expired">Expired</option>
-                  <option value="refunded">Refunded</option>
-                  <option value="partially_refunded">Partially refunded</option>
+                  {filters.status !== "all" &&
+                  !availablePaymentStatuses.includes(filters.status) ? (
+                    <option value={filters.status} disabled>
+                      {STATUS_FILTER_LABELS[filters.status]} (no matching records)
+                    </option>
+                  ) : null}
+                  {availablePaymentStatuses.map((status) => (
+                    <option key={status} value={status}>
+                      {STATUS_FILTER_LABELS[status]}
+                    </option>
+                  ))}
                 </FilterSelect>
 
                 <FilterSelect
@@ -877,21 +696,6 @@ function PaymentMonitoringClient({
               </>
             }
           />
-
-          <div className="flex flex-wrap items-center justify-between gap-2 text-xs font-medium text-muted-foreground">
-            <p className="tabular-nums">
-              Showing {page.payments.length}{" "}
-              {page.payments.length === 1 ? "payment" : "payments"} on page{" "}
-              {cursorHistory.length}
-            </p>
-            <p>
-              Sorted by{" "}
-              {filters.sortField === "amountInCentavos"
-                ? "original amount"
-                : "date"}{" "}
-              ({filters.sortDirection === "ascending" ? "lowest / oldest" : "highest / newest"})
-            </p>
-          </div>
 
           <DataTable
             columns={columns}
@@ -955,7 +759,7 @@ function PaymentMonitoringClient({
             previousCursor={previousCursor}
             nextCursor={page.hasMore ? page.nextCursor : null}
             loading={isPending}
-            pageLabel={`Page ${cursorHistory.length}`}
+            pageLabel={formatPageLabel(cursorHistory.length, page.totalPages, {hasMore: page.hasMore})}
             onPrevious={() => {
               if (cursorHistory.length <= 1) {
                 return;
@@ -987,52 +791,12 @@ function PaymentMonitoringClient({
             board={payoutBoard}
             loading={payoutBoardLoading}
             error={payoutBoardError}
-            releasingId={releasingPayoutId}
             embedded
             onRefresh={refreshProviderPayoutBoard}
-            onReleased={() => {
-              refreshProviderPayoutBoard();
-              refreshFinanceAttention();
-            }}
-            onReleaseStart={setReleasingPayoutId}
-            onReleaseEnd={() => setReleasingPayoutId(null)}
+            onReleased={refreshProviderPayoutBoard}
           />
-
-          {!hasUrgentAttention ? attentionSection : null}
         </div>
       </section>
-
-      <ConfirmationDialog
-        open={retryTarget !== null}
-        onOpenChange={(open) => {
-          if (!open) setRetryTarget(null);
-        }}
-        title="Retry failed Provider payout?"
-        description="This retry prepares financial revalidation. A new payout attempt is created only after financial revalidation succeeds."
-        confirmLabel="Prepare payout retry"
-        loading={retryingAttentionId !== null}
-        onConfirm={retryFailedPayout}
-      />
-
-      <ConfirmationDialog
-        open={repairTarget !== null}
-        onOpenChange={(open) => {
-          if (!open && repairingAttentionId === null) setRepairTarget(null);
-        }}
-        title="Repair this Provider payout setup?"
-        description={
-          repairTarget?.providerId
-            ? `Continue only after confirming no matching PayMongo test payout account exists for provider ${repairTarget.providerId}. This does not make the provider payout-ready — it only allows a safe payout setup retry.`
-            : "Continue only after confirming no matching PayMongo test payout account exists. This does not make the provider payout-ready — it only allows a safe payout setup retry."
-        }
-        confirmLabel={
-          repairingAttentionId !== null
-            ? "Repairing..."
-            : "Repair payout setup"
-        }
-        loading={repairingAttentionId !== null}
-        onConfirm={confirmRepairPayoutSetup}
-      />
 
       <PaymentDetailsDrawer
         payment={selectedPayment}

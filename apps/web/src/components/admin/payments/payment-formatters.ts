@@ -33,6 +33,18 @@ const paymentGatewayLabels: Record<
   paymongo: "Payment service",
 };
 
+const paymentMethodLabels: Record<string, string> = {
+  gcash: "GCash",
+  card: "Card",
+  paymaya: "Maya",
+  maya: "Maya",
+  grab_pay: "GrabPay",
+  billease: "BillEase",
+  dob: "Online banking",
+  dob_ubp: "UnionBank Online",
+  brankas: "Online banking",
+};
+
 export function formatPaymentDate(
   value: string | null,
 ): string {
@@ -77,6 +89,7 @@ export function formatPaymentTableDateParts(
     time: manilaTableTimeFormatter.format(parsed),
   };
 }
+
 /** Use paymentChoice for new records; preserve legacy payment labels. */
 export function formatAdminPaymentPurpose(
   payment: {
@@ -86,6 +99,7 @@ export function formatAdminPaymentPurpose(
 ): string {
   return formatPaymentPurpose(payment);
 }
+
 export function formatPaymentType(
   type: AdminPaymentType,
 ): string {
@@ -96,6 +110,21 @@ export function formatPaymentGateway(
   gateway: AdminPaymentGateway,
 ): string {
   return paymentGatewayLabels[gateway];
+}
+
+export function formatPaymentMethod(
+  method: string | null | undefined,
+): string | null {
+  const normalized = method?.trim().toLowerCase();
+  if (!normalized) return null;
+  if (paymentMethodLabels[normalized]) {
+    return paymentMethodLabels[normalized];
+  }
+  return normalized
+    .split(/[_\s-]+/u)
+    .filter(Boolean)
+    .map((part) => part[0].toUpperCase() + part.slice(1))
+    .join(" ");
 }
 
 export function paymentBookingLabel(input: {

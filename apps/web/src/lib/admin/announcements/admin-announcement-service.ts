@@ -29,6 +29,7 @@ import type {
 } from "@/lib/admin/announcements/admin-announcement-types";
 import {requireAdmin} from "@/lib/auth/session";
 import {adminDb} from "@/lib/firebase/admin";
+import {computeTotalPages} from "@/lib/pagination";
 
 const ANNOUNCEMENTS_COLLECTION = "announcements";
 const ADMIN_LOGS_COLLECTION = "adminLogs";
@@ -119,11 +120,22 @@ export async function getAdminAnnouncementPage(
     ? visible.at(-1)?.document ?? null
     : lastScanned;
 
+  const statistics = await statisticsPromise;
+  let totalCount: number | null = null;
+  if (!filters.search && filters.audience === "all") {
+    if (filters.status === "all") totalCount = statistics.totalCount;
+    else if (filters.status === "draft") totalCount = statistics.draftCount;
+    else if (filters.status === "published") totalCount = statistics.publishedCount;
+    else if (filters.status === "archived") totalCount = statistics.archivedCount;
+  }
+
   return {
     announcements: visible.map(({announcement}) => announcement),
-    statistics: await statisticsPromise,
+    statistics,
     nextCursor: hasMore && cursorDocument ? encodeCursor(cursorDocument) : null,
     hasMore,
+    totalCount,
+    totalPages: computeTotalPages(totalCount, filters.pageSize),
   };
 }
 

@@ -28,7 +28,6 @@ export type VerificationApplicationStatus =
 
 export const verificationQueueStatuses = [
   "all",
-  "pending",
   "draft",
   "submitted",
   "under_review",
@@ -36,7 +35,7 @@ export const verificationQueueStatuses = [
   "approved",
   "rejected",
   "suspended",
-] as const;
+] as const satisfies readonly ("all" | ProviderVerificationStatus)[];
 
 export type VerificationQueueStatus =
   (typeof verificationQueueStatuses)[number];
@@ -54,9 +53,7 @@ export type VerificationQueueServiceType =
 export type ProviderVerificationQueueFilters = {
   search: string;
   status: VerificationQueueStatus;
-  serviceType: VerificationQueueServiceType;
-  from: string;
-  to: string;
+  serviceCategory: string;
   cursor: string | null;
   direction: "next" | "previous";
 };
@@ -67,7 +64,7 @@ export type ProviderVerificationQueueItem = {
   businessName: string;
   ownerName: string;
   email: string;
-  providerServiceType: string;
+  serviceCategories: readonly string[];
   taxVerificationStatus: "not_submitted" | "pending" | "verified" | "rejected";
   submittedAt: string;
   status: Exclude<VerificationQueueStatus, "all">;
@@ -78,6 +75,9 @@ export type ProviderVerificationQueuePage = {
   previousCursor: string | null;
   nextCursor: string | null;
   pageSize: number;
+  currentPage?: number;
+  totalCount?: number | null;
+  totalPages?: number | null;
 };
 
 export type ProviderVerificationQueueSummary = {
@@ -85,6 +85,7 @@ export type ProviderVerificationQueueSummary = {
   underReview: number;
   approvedToday: number;
   needsResubmission: number;
+  availableStatuses: readonly ProviderVerificationStatus[];
 };
 
 export type ProviderVerificationReviewDocument = {

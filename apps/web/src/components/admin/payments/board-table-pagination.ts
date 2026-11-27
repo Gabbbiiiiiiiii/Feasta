@@ -7,6 +7,8 @@ export function paginateBoardRows<T>(
 ): {
   pageRows: T[];
   safePageIndex: number;
+  pageNumber: number;
+  totalPages: number;
   previousCursor: number | null;
   nextCursor: number | null;
   pageLabel: string;
@@ -20,11 +22,13 @@ export function paginateBoardRows<T>(
   return {
     pageRows,
     safePageIndex,
+    pageNumber: safePageIndex + 1,
+    totalPages: pageCount,
     previousCursor: safePageIndex > 0 ? safePageIndex - 1 : null,
     nextCursor: safePageIndex + 1 < pageCount ? safePageIndex + 1 : null,
     pageLabel:
       rows.length === 0
         ? "No rows to show"
-        : `Showing ${start + 1}-${end} of ${rows.length}`,
+        : `Page ${safePageIndex + 1} of ${pageCount} · Showing ${start + 1}-${end} of ${rows.length}`,
   };
 }

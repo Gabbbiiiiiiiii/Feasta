@@ -98,6 +98,8 @@ export type AdminReviewStatistics = {
   reportedCount: number;
   hiddenCount: number;
   averageRating: number;
+  availableStatuses?: AdminReviewModerationStatus[];
+  availableRatings?: Array<Exclude<AdminReviewRatingFilter, "all">>;
 };
 
 export type AdminReviewPage = {
@@ -105,6 +107,8 @@ export type AdminReviewPage = {
   statistics: AdminReviewStatistics;
   nextCursor: string | null;
   hasMore: boolean;
+  totalCount?: number | null;
+  totalPages?: number | null;
 };
 
 export type AdminReviewAuditEntry = {

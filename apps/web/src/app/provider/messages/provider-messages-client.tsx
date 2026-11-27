@@ -17,6 +17,7 @@ import {
 } from "react";
 
 import {CursorPagination} from "@/components/data";
+import {formatPageLabel} from "@/lib/pagination";
 import {PageHeading} from "@/components/layout/page-heading";
 import {Badge} from "@/components/ui/badge";
 import {Button} from "@/components/ui/button";
@@ -463,7 +464,7 @@ function ProviderMessagesWorkspace({
                 previousCursor={previousRoomCursor}
                 nextCursor={roomPage.nextCursor}
                 loading={roomsLoading}
-                pageLabel={`Conversation page ${roomPageNumber}`}
+                pageLabel={formatPageLabel(roomPageNumber, roomPage.totalPages, {prefix: "Conversation page", hasMore: roomPage.hasMore})}
                 onPrevious={(cursor) => {
                   const history = roomCursorHistory.slice(0, -1);
                   void loadRoomPage(

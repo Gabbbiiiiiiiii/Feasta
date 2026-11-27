@@ -169,7 +169,7 @@ describe("provider reviews workspace", () => {
         cursor: null,
       });
     });
-    expect(await screen.findByText("Page 1")).toBeVisible();
+    expect(await screen.findByText("Page 1 of 1")).toBeVisible();
   });
 
   it("uses opaque filter-scoped cursor history for Next and Previous", async () => {
@@ -193,7 +193,7 @@ describe("provider reviews workspace", () => {
       pageSize: 10,
       cursor: null,
     }));
-    expect(await screen.findByText("Page 1")).toBeVisible();
+    expect(await screen.findByText("Page 1 of 1")).toBeVisible();
   });
 
   it("renders provider-safe desktop rows and mobile review cards", () => {

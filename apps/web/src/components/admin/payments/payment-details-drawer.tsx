@@ -1,6 +1,7 @@
 "use client";
 
-import {ChevronRight} from "lucide-react";
+import {ArrowUpRight, ChevronRight} from "lucide-react";
+import Link from "next/link";
 import type {
   ReactNode,
 } from "react";
@@ -11,6 +12,7 @@ import {
 } from "@/components/admin/payments/payment-issue-badges";
 import {
   formatPaymentDate,
+  formatPaymentMethod,
   formatAdminPaymentPurpose,
   paymentBookingLabel,
 } from "@/components/admin/payments/payment-formatters";
@@ -73,6 +75,16 @@ function PaymentDetailsDrawer({
       }
       footer={
         <>
+          {visiblePayment?.bookingCode ? (
+            <Button asChild variant="secondary" size="compact">
+              <Link
+                href={`/admin/bookings?search=${encodeURIComponent(visiblePayment.bookingCode)}`}
+              >
+                <span>Open booking</span>
+                <ArrowUpRight aria-hidden="true" className="size-4" />
+              </Link>
+            </Button>
+          ) : null}
           <Button
             type="button"
             variant="secondary"
@@ -125,6 +137,7 @@ function PaymentDetailsContent({
   details: AdminPaymentDetails;
 }) {
   const {payment} = details;
+  const paymentMethodLabel = formatPaymentMethod(payment.paymentMethodType);
 
   const timeline = [
     {label: "Created", value: payment.createdAt},
@@ -167,7 +180,7 @@ function PaymentDetailsContent({
 
           {payment.formattedCommissionAmount ? (
             <p className="mt-1 text-sm font-semibold tabular-nums text-muted-foreground">
-              FEASTA commission {payment.formattedCommissionAmount}
+              FEASTA fee {payment.formattedCommissionAmount}
             </p>
           ) : null}
 
@@ -175,6 +188,11 @@ function PaymentDetailsContent({
             <span className="rounded-md bg-card px-2 py-0.5 font-semibold text-foreground ring-1 ring-border">
               {formatAdminPaymentPurpose(payment)}
             </span>
+            {paymentMethodLabel ? (
+              <span className="rounded-md bg-card px-2 py-0.5 font-semibold text-foreground ring-1 ring-border">
+                {paymentMethodLabel}
+              </span>
+            ) : null}
             <span>
               Last updated: {formatPaymentDate(payment.updatedAt)}
             </span>
@@ -260,10 +278,10 @@ function PaymentDetailsContent({
         </p>
       </DetailsSection>
 
-      <DetailsSection title="Provider payout">
+      <DetailsSection title="Provider share">
         <DetailsGrid>
           <DetailField
-            label="Provider earning"
+            label="Provider share"
             value={
               details.providerFinance.earning.formattedEarningAmount ??
               "Not recorded"
@@ -271,7 +289,7 @@ function PaymentDetailsContent({
             numeric
           />
           <DetailField
-            label="Provider paid out"
+            label="Settled to provider"
             value={
               details.providerFinance.settlement.formattedPaidOutAmount ??
               "Not recorded"

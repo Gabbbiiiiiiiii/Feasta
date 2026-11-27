@@ -671,7 +671,7 @@ function DishList({initialLibrary}: {initialLibrary: Library}) {
         <div className="flex flex-wrap items-center gap-3">
           <p role="status" className="text-sm text-muted-foreground">
             {showPagination
-              ? `Showing ${start + 1}–${end} of ${dishCount}${filterContext}`
+              ? `Page ${currentPage} of ${pageCount} · Showing ${start + 1}–${end} of ${dishCount}${filterContext}`
               : `Showing ${totalDishes > 0 && !filterName && !query ? "all " : ""}${dishCount}${filterContext}`}
           </p>
           {showPagination && <Select aria-label="Dishes per page" className="w-auto" value={pageSize}

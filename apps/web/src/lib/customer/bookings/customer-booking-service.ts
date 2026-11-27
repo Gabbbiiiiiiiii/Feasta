@@ -63,6 +63,8 @@ import {
 } from "@/lib/customer/bookings/customer-booking-status";
 import {requireCustomer} from "@/lib/auth/session";
 import {adminDb} from "@/lib/firebase/admin";
+import {countFirestoreQuery} from "@/lib/firebase/count-query";
+import {computeTotalPages} from "@/lib/pagination";
 
 const COLLECTIONS = {
   mainEvents: "mainEvents",
@@ -149,6 +151,8 @@ async function getOwnedCustomerBookingResults(
       bookings,
       nextCursor: null,
       hasMore: false,
+      totalCount: bookings.length,
+      totalPages: 1,
     };
   }
 
@@ -168,6 +172,7 @@ async function getOwnedCustomerBookingResults(
     .orderBy("createdAt", "desc")
     .orderBy(FieldPath.documentId(), "desc");
 
+  const countQuery = query;
   const cursor = decodeCursor(filters.cursor);
 
   if (cursor) {
@@ -229,12 +234,15 @@ async function getOwnedCustomerBookingResults(
           ? encodeCursor(lastDocument)
           : null,
       hasMore,
+      totalCount: !cursor && !hasMore ? documents.length : null,
+      totalPages: !cursor && !hasMore ? 1 : null,
     };
   }
 
-  const snapshot = await query
-    .limit(filters.pageSize + 1)
-    .get();
+  const [snapshot, totalCount] = await Promise.all([
+    query.limit(filters.pageSize + 1).get(),
+    countFirestoreQuery(countQuery),
+  ]);
 
   const hasMore = snapshot.docs.length > filters.pageSize;
   const documents = hasMore
@@ -249,6 +257,8 @@ async function getOwnedCustomerBookingResults(
         ? encodeCursor(lastDocument)
         : null,
     hasMore,
+    totalCount,
+    totalPages: computeTotalPages(totalCount, filters.pageSize),
   };
 }
 

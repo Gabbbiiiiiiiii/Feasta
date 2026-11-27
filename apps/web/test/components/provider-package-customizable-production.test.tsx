@@ -62,6 +62,14 @@ it.each(["per_pax", "per_bundle"] as const)("creates Fixed %s through V2 with cl
  fireEvent.click(await picker.findByRole("checkbox", {name: "Select all Chicken"}));
  fireEvent.click(picker.getByRole("button", {name: "Add 1 selected dish"}));
  next();next();
+ const review = within(screen.getByRole("region", {name: "Package review"}));
+ expect(review.getByRole("heading", {name: "Pricing, capacity & service tiers"})).toBeVisible();
+ if (pricingModel === "per_bundle") {
+  expect(review.getByText("Max quantity per order (Drop-Off)")).toBeVisible();
+  expect(review.getByText("Up to 5 packages")).toBeVisible();
+ } else {
+  expect(review.queryByText(/Max quantity per order/i)).not.toBeInTheDocument();
+ }
  fireEvent.click(screen.getByRole("button",{name:"Save as Draft"}));
  fireEvent.click(within(screen.getByRole("dialog",{name:"FEASTA Confirmation"})).getByRole("button",{name:"Save as Draft"}));
  await waitFor(()=>expect(api.create).toHaveBeenCalledTimes(1));

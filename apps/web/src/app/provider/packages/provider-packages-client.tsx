@@ -701,7 +701,7 @@ export function ProviderPackagesClient({
                   Previous
                 </Button>
                 <span className="text-sm font-medium">
-                  {currentPackagePage} / {totalPackagePages}
+                  Page {currentPackagePage} of {totalPackagePages}
                 </span>
                 <Button
                   type="button"

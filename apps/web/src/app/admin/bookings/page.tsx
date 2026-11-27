@@ -6,10 +6,22 @@ import {
 } from "@/lib/admin/bookings/admin-booking-service";
 import {getAdminCancellationQueue} from "@/lib/admin/cancellations/admin-cancellation-service";
 
-export default async function AdminBookingsPage() {
+type AdminBookingsPageProps = {
+  searchParams?: Promise<{search?: string | string[]}>;
+};
+
+export default async function AdminBookingsPage({
+  searchParams,
+}: AdminBookingsPageProps = {}) {
+  const resolvedParams = searchParams ? await searchParams : undefined;
+  const rawSearch = Array.isArray(resolvedParams?.search)
+    ? resolvedParams.search[0]
+    : resolvedParams?.search;
+  const initialSearch = typeof rawSearch === "string" ? rawSearch.trim() : "";
+
   const [initialPage, initialCancellationQueue] = await Promise.all([
     getAdminBookingPage({
-      search: "",
+      search: initialSearch,
       status: "all",
       paymentStatus: "all",
       eventDateFrom: "",
@@ -25,6 +37,7 @@ export default async function AdminBookingsPage() {
   return (
     <BookingMonitoringClient
       initialPage={initialPage}
+      initialSearch={initialSearch}
       initialEventDateFrom=""
       initialEventDateTo=""
       initialCancellationQueue={initialCancellationQueue}

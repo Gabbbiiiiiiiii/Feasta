@@ -10,6 +10,7 @@ import {
   type DataTableColumn,
 } from "@/components/data";
 import {PageHeading} from "@/components/layout/page-heading";
+import {formatPageLabel} from "@/lib/pagination";
 import {emptyRatingStarClassName, filledRatingStarClassName, ratingBarClassName} from "@/components/ui/rating-styles";
 import {Badge} from "@/components/ui/badge";
 import {Button} from "@/components/ui/button";
@@ -281,7 +282,7 @@ export function ProviderReviewsClient({
         previousCursor={previousCursor}
         nextCursor={page.nextCursor}
         loading={loading}
-        pageLabel={`Page ${pageNumber}`}
+        pageLabel={formatPageLabel(pageNumber, page.totalPages, {hasMore: page.hasMore})}
         onPrevious={(cursor) => {
           const nextHistory = cursorHistory.slice(0, -1);
           const nextCursor = cursor === FIRST_PAGE_CURSOR ? null : cursor;

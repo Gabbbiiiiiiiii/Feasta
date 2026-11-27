@@ -6,6 +6,7 @@ import {useRouter} from "next/navigation";
 import {acceptProviderRequest, rejectProviderRequest} from "@/lib/provider/requests/provider-request-client";
 import {providerRequestAcceptanceDescription, ProviderRequestActionError} from "@/lib/provider/requests/provider-request-acceptance-copy";
 import {DataTable, FilterToolbar, CursorPagination, DetailDrawer, ManagementConfirmationModal, ManagementModal, type DataTableColumn} from "@/components/data";
+import {formatPageLabel} from "@/lib/pagination";
 import {ApplicationErrorState} from "@/components/feedback/application-states";
 import {DetailReviewLoadingSkeleton} from "@/components/feedback/detail-review-loading-skeleton";
 import {PageHeading} from "@/components/layout/page-heading";
@@ -208,7 +209,7 @@ export function ProviderRequestsClient({initialPage, initialFilters, initialDeta
       emptyDescription={page.hasMore ? "Choose Next to continue searching older requests." : "Try another search or choose All to view request history."}
       renderMobileRow={request => <article className="grid gap-3 rounded-card border border-border bg-card p-4 shadow-card"><div className="flex flex-wrap justify-between gap-2"><h2 className="break-words font-semibold">{request.customer.name}</h2><StatusBadge status={request.status} label={requestStatusLabel(request.status)} /></div><p className="capitalize">{request.event.eventType.replaceAll("_", " ")}</p><p className="text-sm text-muted-foreground">{formatDate(request.event.eventDate)}</p><Button variant="secondary" size="compact" aria-label={`View Details for ${request.customer.name}`} onClick={() => void openRequest(request.id)}>View Details</Button></article>} />
     <CursorPagination previousCursor={history.at(-1) ?? null} nextCursor={page.nextCursor} loading={loading}
-      pageLabel={`Page ${pageNumber}${page.hasMore ? " · More history available" : " · End of results"}`}
+      pageLabel={formatPageLabel(pageNumber, page.totalPages, {hasMore: page.hasMore})}
       onNext={cursor => void loadPage({...filters, cursor}, [...history, filters.cursor ?? "first"], pageNumber + 1)}
       onPrevious={cursor => void loadPage({...filters, cursor: cursor === "first" ? null : cursor}, history.slice(0, -1), Math.max(1, pageNumber - 1))} />
       {detailOpen && !selectedRequest ? <DetailDrawer open fullScreen backLabel="Back to Requests" onOpenChange={open => {if (!open) {detailGeneration.current++; setDetailOpen(false);}}} title="Request details" description="Review the customer's event requirements before responding.">

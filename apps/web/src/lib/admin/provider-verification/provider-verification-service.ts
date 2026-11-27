@@ -18,6 +18,8 @@ import {
 
 import { requireAdmin } from "@/lib/auth/session";
 import { adminDb } from "@/lib/firebase/admin";
+import { countFirestoreQuery } from "@/lib/firebase/count-query";
+import { computeTotalPages } from "@/lib/pagination";
 import { verificationQueueStatuses } from "./provider-verification-types";
 import type {
   ProviderVerificationApplication,
@@ -43,7 +45,10 @@ import {resolveVerificationDocumentPolicy} from "@feasta/shared-types/documents"
 
 const applicationLimit = 50;
 export const verificationQueuePageSize = 20;
-const queueStatuses = verificationQueueStatuses.filter((status) => status !== "all");
+const queueStatuses = verificationQueueStatuses.filter(
+  (status): status is Exclude<ProviderVerificationQueueFilters["status"], "all"> =>
+    status !== "all",
+);
 
 function normalizeSearchToken(value: string): string {
   return value
@@ -57,22 +62,22 @@ function normalizeSearchToken(value: string): string {
 function queueStatus(
   value: unknown,
 ): Exclude<ProviderVerificationQueueFilters["status"], "all"> {
-  return parseProviderVerificationStatusStrict(value) ?? "pending";
+  return parseProviderVerificationStatusStrict(value) ?? "draft";
 }
 
-function parseQueueDate(value: string, endOfDay = false): Timestamp | null {
-  if (!/^\d{4}-\d{2}-\d{2}$/u.test(value)) return null;
-  const date = new Date(`${value}T${endOfDay ? "23:59:59.999" : "00:00:00.000"}Z`);
-  return Number.isNaN(date.getTime()) ? null : Timestamp.fromDate(date);
-}
+type QueueCursor = {createdAtMillis: number; id: string; page?: number};
 
-type QueueCursor = {createdAtMillis: number; id: string};
-
-function encodeQueueCursor(snapshot: QueryDocumentSnapshot<DocumentData>): string {
+function encodeQueueCursor(
+  snapshot: QueryDocumentSnapshot<DocumentData>,
+  page?: number,
+): string {
   const createdAt = getDate(snapshot.data().createdAt);
   const payload: QueueCursor = {
     createdAtMillis: createdAt?.getTime() ?? 0,
     id: snapshot.id,
+    ...(typeof page === "number" && Number.isSafeInteger(page) && page >= 1
+      ? {page}
+      : {}),
   };
   return Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
 }
@@ -83,6 +88,11 @@ function decodeQueueCursor(value: string | null): QueueCursor | null {
     const parsed = JSON.parse(
       Buffer.from(value, "base64url").toString("utf8"),
     ) as Partial<QueueCursor>;
+    const page = typeof parsed.page === "number" &&
+      Number.isSafeInteger(parsed.page) &&
+      parsed.page >= 1
+      ? parsed.page
+      : undefined;
     return typeof parsed.createdAtMillis === "number" &&
       Number.isSafeInteger(parsed.createdAtMillis) &&
       typeof parsed.id === "string" &&
@@ -90,6 +100,7 @@ function decodeQueueCursor(value: string | null): QueueCursor | null {
       ? {
           createdAtMillis: parsed.createdAtMillis,
           id: parsed.id,
+          ...(page !== undefined ? {page} : {}),
         }
       : null;
   } catch {
@@ -468,33 +479,20 @@ export async function getProviderVerificationQueue(
 ): Promise<ProviderVerificationQueuePage> {
   await requireAdmin();
 
-  let query: Query<DocumentData> = adminDb
+  let baseQuery: Query<DocumentData> = adminDb
     .collection("providerVerifications");
-  query = filters.status === "all"
-    ? query.where("status", "in", queueStatuses)
-    : query.where("status", "==", filters.status);
-
-  if (filters.serviceType !== "all") {
-    query = query.where(
-      "providerServiceType",
-      "==",
-      filters.serviceType,
-    );
-  }
+  baseQuery = filters.status === "all"
+    ? baseQuery.where("status", "in", queueStatuses)
+    : baseQuery.where("status", "==", filters.status);
 
   const searchToken = normalizeSearchToken(filters.search);
   // Stored prefixes begin at two characters. One character is not a token,
   // and scanning a fixed 200-row window would omit later matches.
   if (searchToken.length >= 2) {
-    query = query.where("searchTokens", "array-contains", searchToken);
+    baseQuery = baseQuery.where("searchTokens", "array-contains", searchToken);
   }
 
-  const from = parseQueueDate(filters.from);
-  const to = parseQueueDate(filters.to, true);
-  if (from) query = query.where("createdAt", ">=", from);
-  if (to) query = query.where("createdAt", "<=", to);
-
-  query = query
+  baseQuery = baseQuery
     .orderBy("createdAt", "desc")
     .orderBy(FieldPath.documentId(), "desc");
 
@@ -502,26 +500,133 @@ export async function getProviderVerificationQueue(
   if (filters.cursor && !cursor) {
     throw new Error("The verification queue cursor is invalid.");
   }
-  if (cursor) {
-    const values = [
-      Timestamp.fromMillis(cursor.createdAtMillis),
-      cursor.id,
-    ] as const;
-    query = filters.direction === "previous"
-      ? query.endBefore(...values).limitToLast(verificationQueuePageSize + 1)
-      : query.startAfter(...values).limit(verificationQueuePageSize + 1);
-  } else {
-    query = query.limit(verificationQueuePageSize + 1);
-  }
 
-  const snapshot = await query.get();
-  let documents = [...snapshot.docs];
-  const hasExtra = documents.length > verificationQueuePageSize;
-  if (hasExtra) {
-    if (filters.direction === "previous") {
-      documents = documents.slice(1);
+  let documents: QueryDocumentSnapshot<DocumentData>[] = [];
+  let hasExtra = false;
+  let totalCount: number | null = null;
+
+  if (filters.serviceCategory === "all") {
+    let query = baseQuery;
+    if (cursor) {
+      const values = [
+        Timestamp.fromMillis(cursor.createdAtMillis),
+        cursor.id,
+      ] as const;
+      query = filters.direction === "previous"
+        ? query.endBefore(...values).limitToLast(verificationQueuePageSize + 1)
+        : query.startAfter(...values).limit(verificationQueuePageSize + 1);
     } else {
-      documents = documents.slice(0, verificationQueuePageSize);
+      query = query.limit(verificationQueuePageSize + 1);
+    }
+
+    const [snapshot, counted] = await Promise.all([
+      query.get(),
+      countFirestoreQuery(baseQuery),
+    ]);
+    totalCount = counted;
+    documents = [...snapshot.docs];
+    hasExtra = documents.length > verificationQueuePageSize;
+    if (hasExtra) {
+      if (filters.direction === "previous") {
+        documents = documents.slice(1);
+      } else {
+        documents = documents.slice(0, verificationQueuePageSize);
+      }
+    }
+  } else {
+    const [byCategories, byPrimary] = await Promise.all([
+      adminDb
+        .collection("providers")
+        .where("serviceCategories", "array-contains", filters.serviceCategory)
+        .get(),
+      adminDb
+        .collection("providers")
+        .where("providerCategory", "==", filters.serviceCategory)
+        .get(),
+    ]);
+    const matchingProviderIds = new Set<string>([
+      ...byCategories.docs.map((doc) => doc.id),
+      ...byPrimary.docs.map((doc) => doc.id),
+    ]);
+
+    if (matchingProviderIds.size === 0) {
+      return {
+        items: [],
+        previousCursor: null,
+        nextCursor: null,
+        pageSize: verificationQueuePageSize,
+        currentPage: 1,
+        totalCount: 0,
+        totalPages: 1,
+      };
+    }
+
+    const batchSize = 50;
+    const maxBatches = 10;
+    let batchCursor = cursor;
+    let collected: QueryDocumentSnapshot<DocumentData>[] = [];
+
+    for (let batch = 0; batch < maxBatches; batch += 1) {
+      let query = baseQuery;
+      if (batchCursor) {
+        const values = [
+          Timestamp.fromMillis(batchCursor.createdAtMillis),
+          batchCursor.id,
+        ] as const;
+        query = filters.direction === "previous"
+          ? query.endBefore(...values).limitToLast(batchSize)
+          : query.startAfter(...values).limit(batchSize);
+      } else {
+        query = query.limit(batchSize);
+      }
+
+      const snapshot = await query.get();
+      if (snapshot.docs.length === 0) break;
+
+      const batchMatches = snapshot.docs.filter((doc) =>
+        matchingProviderIds.has(getString(doc.data().providerId)),
+      );
+      collected = filters.direction === "previous"
+        ? [...batchMatches, ...collected]
+        : [...collected, ...batchMatches];
+
+      if (collected.length > verificationQueuePageSize || snapshot.docs.length < batchSize) {
+        break;
+      }
+
+      const edgeDoc = filters.direction === "previous"
+        ? snapshot.docs[0]
+        : snapshot.docs.at(-1);
+      if (!edgeDoc) break;
+      const edgeCreatedAt = getDate(edgeDoc.data().createdAt);
+      batchCursor = {
+        createdAtMillis: edgeCreatedAt?.getTime() ?? 0,
+        id: edgeDoc.id,
+      };
+    }
+
+    hasExtra = collected.length > verificationQueuePageSize;
+    if (hasExtra) {
+      documents = filters.direction === "previous"
+        ? collected.slice(collected.length - verificationQueuePageSize)
+        : collected.slice(0, verificationQueuePageSize);
+    } else {
+      documents = collected;
+    }
+
+    if (!cursor && !hasExtra) {
+      totalCount = collected.length;
+    } else if (typeof (baseQuery as {select?: unknown}).select === "function") {
+      try {
+        const countScan = await baseQuery.select("providerId").limit(500).get();
+        if (countScan.docs.length < 500) {
+          totalCount = countScan.docs.filter((doc) =>
+            matchingProviderIds.has(getString(doc.data().providerId)),
+          ).length;
+        }
+      } catch {
+        totalCount = null;
+      }
     }
   }
 
@@ -592,6 +697,17 @@ export async function getProviderVerificationQueue(
       getString(data.ownerFirstName ?? owner.firstName),
       getString(data.ownerLastName ?? owner.lastName),
     ].filter(Boolean).join(" ") || "Unnamed owner";
+    const providerCategories = stringList(
+      provider.serviceCategories ?? data.serviceCategories,
+    );
+    const primaryCategory = getString(
+      provider.providerCategory ?? data.providerCategory,
+    );
+    const serviceCategories = providerCategories.length > 0
+      ? providerCategories
+      : primaryCategory
+        ? [primaryCategory]
+        : [];
     return {
       id: document.id,
       providerId,
@@ -604,10 +720,7 @@ export async function getProviderVerificationQueue(
         data.businessEmail ?? provider.businessEmail ?? owner.email,
         "Not provided",
       ),
-      providerServiceType: getString(
-        data.providerServiceType ?? provider.providerServiceType,
-        "provider",
-      ),
+      serviceCategories,
       submittedAt: formatDate(data.submittedAt ?? data.createdAt),
       status: queueStatus(data.status),
       taxVerificationStatus: taxByProviderId.get(providerId) ?? "not_submitted",
@@ -616,19 +729,33 @@ export async function getProviderVerificationQueue(
 
   const first = documents[0];
   const last = documents.at(-1);
-  return {
-    items,
-    previousCursor: first && (
+  const hasPrevious = Boolean(
+    first && (
       filters.direction === "previous"
         ? hasExtra
         : filters.cursor != null
-    ) ? encodeQueueCursor(first) : null,
-    nextCursor: last && (
+    ),
+  );
+  const hasNext = Boolean(
+    last && (
       filters.direction === "previous" ? filters.cursor != null : hasExtra
-    )
-      ? encodeQueueCursor(last)
+    ),
+  );
+  const currentPage = !hasPrevious
+    ? 1
+    : cursor?.page ?? (filters.direction === "previous" ? 1 : 2);
+  return {
+    items,
+    previousCursor: hasPrevious && first
+      ? encodeQueueCursor(first, Math.max(1, currentPage - 1))
+      : null,
+    nextCursor: hasNext && last
+      ? encodeQueueCursor(last, currentPage + 1)
       : null,
     pageSize: verificationQueuePageSize,
+    currentPage,
+    totalCount,
+    totalPages: computeTotalPages(totalCount, verificationQueuePageSize),
   };
 }
 
@@ -643,25 +770,47 @@ export async function getProviderVerificationQueueSummary(): Promise<
     now.getUTCDate(),
   ) - (8 * 60 * 60 * 1000));
   const collection = adminDb.collection("providerVerifications");
-  const [submitted, underReview, approvedToday, needsResubmission] =
-    await Promise.all([
-      collection.where("status", "==", "submitted").count().get(),
-      collection.where("status", "==", "under_review").count().get(),
-      collection
-        .where("status", "==", "approved")
-        .where("approvedAt", ">=", Timestamp.fromDate(approvedTodayStart))
-        .count()
-        .get(),
-      collection
-        .where("status", "==", "resubmission_required")
-        .count()
-        .get(),
-    ]);
-  return {
+  const [
+    draft,
+    submitted,
+    underReview,
+    resubmissionRequired,
+    approved,
+    approvedToday,
+    rejected,
+    suspended,
+  ] = await Promise.all([
+    collection.where("status", "==", "draft").count().get(),
+    collection.where("status", "==", "submitted").count().get(),
+    collection.where("status", "==", "under_review").count().get(),
+    collection
+      .where("status", "==", "resubmission_required")
+      .count()
+      .get(),
+    collection.where("status", "==", "approved").count().get(),
+    collection
+      .where("status", "==", "approved")
+      .where("approvedAt", ">=", Timestamp.fromDate(approvedTodayStart))
+      .count()
+      .get(),
+    collection.where("status", "==", "rejected").count().get(),
+    collection.where("status", "==", "suspended").count().get(),
+  ]);
+  const statusCounts = {
+    draft: draft.data().count,
     submitted: submitted.data().count,
-    underReview: underReview.data().count,
+    under_review: underReview.data().count,
+    resubmission_required: resubmissionRequired.data().count,
+    approved: approved.data().count,
+    rejected: rejected.data().count,
+    suspended: suspended.data().count,
+  };
+  return {
+    submitted: statusCounts.submitted,
+    underReview: statusCounts.under_review,
     approvedToday: approvedToday.data().count,
-    needsResubmission: needsResubmission.data().count,
+    needsResubmission: statusCounts.resubmission_required,
+    availableStatuses: queueStatuses.filter((status) => statusCounts[status] > 0),
   };
 }
 

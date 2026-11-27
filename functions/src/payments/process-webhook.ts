@@ -954,6 +954,7 @@ export async function processPayMongoWebhook(
           event.gatewayFeeInCentavos,
           timestamp,
           payment,
+          event.paymentMethodType,
         );
 
       if (financialLedgerPlan) {
@@ -1498,6 +1499,7 @@ function createPaymentUpdate(
     typeof serverTimestamp
   >,
   currentPayment: Record<string, unknown>,
+  paymentMethodType: "card" | "gcash" | "paymaya" | null = null,
 ): Record<string, unknown> {
   const update: Record<string, unknown> = {
     status,
@@ -1516,6 +1518,9 @@ function createPaymentUpdate(
     update.paidAt = timestamp;
     update.failedAt = null;
     update.expiredAt = null;
+    if (paymentMethodType !== null) {
+      update.paymentMethodType = paymentMethodType;
+    }
 
     /*
      * P12 gateway processing-fee evidence.

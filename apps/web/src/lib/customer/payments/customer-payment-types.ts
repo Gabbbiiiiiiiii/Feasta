@@ -83,6 +83,8 @@ export type CustomerPaymentPage = {
 
   nextCursor: string | null;
   hasMore: boolean;
+  totalCount?: number | null;
+  totalPages?: number | null;
 };
 
 

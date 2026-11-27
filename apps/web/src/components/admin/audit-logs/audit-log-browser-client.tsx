@@ -3,10 +3,10 @@
 import Link from "next/link";
 import {
   Activity,
-  CircleCheckBig,
+  CalendarClock,
+  CircleDollarSign,
   ExternalLink,
   ShieldCheck,
-  TriangleAlert,
 } from "lucide-react";
 import {
   useCallback,
@@ -18,6 +18,7 @@ import {
 
 import {loadAdminAuditLogsAction} from "@/app/admin/audit-logs/actions";
 import {CursorPagination} from "@/components/data/cursor-pagination";
+import {formatPageLabel} from "@/lib/pagination";
 import {DataTable, type DataTableColumn} from "@/components/data/data-table";
 import {
   DetailFieldItem,
@@ -30,12 +31,22 @@ import {PageHeading} from "@/components/layout/page-heading";
 import {Badge, type BadgeProps} from "@/components/ui/badge";
 import {Button} from "@/components/ui/button";
 import {Select} from "@/components/ui/select";
+import {
+  classifyAuditCategory,
+  formatAuditAction,
+  formatAuditCategory,
+  formatAuditRecordType,
+  isMeaningfulAuditLog,
+} from "@/lib/admin/audit-logs/admin-audit-log-normalization";
 import type {
   AdminAuditLog,
+  AdminAuditLogCategory,
+  AdminAuditLogCategoryFilter,
   AdminAuditLogFilterOptions,
   AdminAuditLogFilters,
   AdminAuditLogPage,
 } from "@/lib/admin/audit-logs/admin-audit-log-types";
+import {cn} from "@/lib/utils";
 
 type AuditLogBrowserClientProps = {
   initialPage: AdminAuditLogPage;
@@ -43,6 +54,7 @@ type AuditLogBrowserClientProps = {
 
 const DEFAULT_FILTERS: AdminAuditLogFilters = {
   search: "",
+  category: "all",
   action: "all",
   actorRole: "all",
   source: "all",
@@ -52,6 +64,17 @@ const DEFAULT_FILTERS: AdminAuditLogFilters = {
   pageSize: 20,
   cursor: null,
 };
+
+const CATEGORY_TABS: ReadonlyArray<{
+  id: AdminAuditLogCategoryFilter;
+  label: string;
+}> = [
+  {id: "all", label: "All activity"},
+  {id: "admin", label: "Admin actions"},
+  {id: "money", label: "Payments & refunds"},
+  {id: "bookings", label: "Bookings & disputes"},
+  {id: "security", label: "Account & security"},
+];
 
 function AuditLogBrowserClient({
   initialPage,
@@ -131,23 +154,33 @@ function AuditLogBrowserClient({
       {
         id: "event",
         header: "Action",
-        cell: (auditLog) => (
-          <div className="grid min-w-44 gap-2">
-            <Link
-              href={`/admin/audit-logs/${auditLog.id}`}
-              className="font-bold text-primary-strong hover:underline"
-            >
-              {humanize(auditLog.action)}
-            </Link>
-
-          </div>
-        ),
+        cell: (auditLog) => {
+          const category = resolveCategory(auditLog);
+          return (
+            <div className="grid min-w-48 gap-1.5">
+              <Link
+                href={`/admin/audit-logs/${auditLog.id}`}
+                className="font-bold text-primary-strong hover:underline"
+              >
+                {formatAuditAction(auditLog.action)}
+              </Link>
+              <Badge className="w-fit" tone={categoryTone(category)}>
+                {formatAuditCategory(category)}
+              </Badge>
+            </div>
+          );
+        },
       },
       {
         id: "actor",
-        header: "Admin / user",
+        header: "Performed by",
         cell: (auditLog) => (
-          <div className="grid gap-2">
+          <div className="grid gap-1">
+            {auditLog.actorName ? (
+              <span className="font-semibold text-foreground">
+                {auditLog.actorName}
+              </span>
+            ) : null}
             <Badge className="w-fit" tone="neutral">
               {humanize(auditLog.actorRole)}
             </Badge>
@@ -156,52 +189,49 @@ function AuditLogBrowserClient({
       },
       {
         id: "target",
-        header: "Affected item",
+        header: "Affected record",
         cell: (auditLog) => (
-          <div className="grid gap-1">
-            <span className="font-semibold">
-              {humanize(auditLog.targetCollection)}
-            </span>
-
-          </div>
-        ),
-      },
-      {
-        id: "source",
-        header: "Result",
-        cell: (auditLog) => (
-          <div className="grid gap-2">
-            {auditLog.outcome ? (
-              <Badge className="w-fit" tone={outcomeTone(auditLog.outcome)}>
-                {humanize(auditLog.outcome)}
-              </Badge>
-            ) : (
-              <span className="text-xs text-muted-foreground">
-                Result not recorded
-              </span>
-            )}
-          </div>
+          <span className="font-semibold">
+            {formatAuditRecordType(auditLog.targetCollection)}
+          </span>
         ),
       },
       {
         id: "summary",
-        header: "Details",
+        header: "Summary",
         cell: (auditLog) => (
-          <p className="max-w-xs break-words text-muted-foreground">
-            {auditLog.summary}
-          </p>
+          <div className="grid max-w-sm gap-1.5">
+            <p className="break-words text-muted-foreground">
+              {auditLog.summary}
+            </p>
+            {auditLog.outcome ? (
+              <Badge className="w-fit" tone={outcomeTone(auditLog.outcome)}>
+                {humanize(auditLog.outcome)}
+              </Badge>
+            ) : null}
+          </div>
         ),
       },
     ],
     [],
   );
 
+  const categoryCounts = page.summary.categoryCounts ?? {
+    admin: page.summary.adminActionCount ?? 0,
+    money: 0,
+    bookings: 0,
+    security: 0,
+  };
+  const bookingsAndSecurityCount =
+    categoryCounts.bookings + categoryCounts.security;
+  const activeCategory: AdminAuditLogCategoryFilter = filters.category ?? "all";
+
   return (
     <div className="grid min-w-0 gap-6">
       <PageHeading
         eyebrow="Administration"
         title="Activity logs"
-        description="Review administrator and system activity."
+        description="Track meaningful state, payment, moderation, and security events across FEASTA."
       />
 
       <section
@@ -210,33 +240,72 @@ function AuditLogBrowserClient({
       >
         <SummaryCard
           label="Recent activities"
+          tooltip={`Recorded state, payment, moderation, and security events in the latest ${page.summary.windowLimit} log entries.`}
           value={page.summary.windowCount}
+          supportingMetric="Excludes background tasks"
           icon={<Activity />}
-
         />
         <SummaryCard
-          label="Admins active"
-          value={page.summary.adminActorCount}
+          label="Admin actions"
+          tooltip="Provider verifications, review moderation, announcements, settings, and catalog updates."
+          value={categoryCounts.admin}
+          supportingMetric="Approvals, moderation & settings"
           icon={<ShieldCheck />}
-
         />
         <SummaryCard
-          label="Successful actions"
-          value={page.summary.succeededOutcomeCount}
-          icon={<CircleCheckBig />}
-
+          label="Payments & refunds"
+          tooltip="Customer payments, FEASTA fee withdrawals, refunds, and balance deadline actions."
+          value={categoryCounts.money}
+          supportingMetric="Transactions, fees & refunds"
+          icon={<CircleDollarSign />}
         />
         <SummaryCard
-          label="Failed actions"
-          value={page.summary.attentionOutcomeCount}
-          icon={<TriangleAlert />}
-
+          label="Bookings & security"
+          tooltip="Booking lifecycle actions, cancellations, complaints, and account security events."
+          value={bookingsAndSecurityCount}
+          supportingMetric={`${categoryCounts.bookings} bookings · ${categoryCounts.security} security`}
+          icon={<CalendarClock />}
         />
       </section>
 
       <p className="-mt-2 text-sm text-muted-foreground">
-        Counts cover the latest {page.summary.windowLimit} activities.
+        Counts cover the latest {page.summary.windowLimit} activities (background syncs and automatic timer ticks are hidden).
       </p>
+
+      <div
+        role="tablist"
+        aria-label="Activity categories"
+        className="flex flex-wrap gap-1 border-b border-border"
+      >
+        {CATEGORY_TABS.map((tab) => {
+          const selected = activeCategory === tab.id;
+          return (
+            <button
+              key={tab.id}
+              type="button"
+              role="tab"
+              aria-selected={selected}
+              disabled={isPending}
+              onClick={() => applyFilters({category: tab.id})}
+              className={cn(
+                "relative inline-flex min-h-11 items-center gap-2 whitespace-nowrap px-3 py-2 text-sm font-bold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-60",
+                selected
+                  ? "text-primary"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              <span>{tab.label}</span>
+              <span
+                aria-hidden="true"
+                className={cn(
+                  "absolute bottom-0 left-3 right-3 h-0.5 rounded-t-full transition-colors",
+                  selected ? "bg-primary" : "bg-transparent",
+                )}
+              />
+            </button>
+          );
+        })}
+      </div>
 
       <FilterToolbar
         onSearchInvalidate={() => {
@@ -249,13 +318,19 @@ function AuditLogBrowserClient({
         activeFilters={activeFilters}
         loading={isPending}
         searchLabel="Search activities"
-        searchPlaceholder="Search activity or reference"
+        searchPlaceholder="Search action, user ID, or record ID"
         filterControls={
           <>
             <FilterSelect
               label="Action"
               value={filters.action}
-              options={withSelected(filterOptions.actions, filters.action)}
+              options={withSelected(
+                filterOptions.actions.filter((action) =>
+                  isMeaningfulAuditLog({action}),
+                ),
+                filters.action,
+              )}
+              formatOption={formatAuditAction}
               onChange={(action) => applyFilters({action})}
               disabled={isPending}
             />
@@ -274,6 +349,7 @@ function AuditLogBrowserClient({
                 filterOptions.targetCollections,
                 filters.targetCollection,
               )}
+              formatOption={formatAuditRecordType}
               onChange={(targetCollection) =>
                 applyFilters({targetCollection})
               }
@@ -358,11 +434,11 @@ function AuditLogBrowserClient({
               : "Try changing the search, date range, or filters."
             : "Activities will appear here when an administrator or the system makes a change."
         }
-        rowActionsLabel="Details"
+        rowActionsLabel="Actions"
         rowActions={(auditLog) => (
           <Button asChild variant="secondary" size="compact">
             <Link href={`/admin/audit-logs/${auditLog.id}`}>
-              View details
+              View
               <ExternalLink aria-hidden="true" className="size-4" />
             </Link>
           </Button>
@@ -392,7 +468,7 @@ function AuditLogBrowserClient({
             const history = [...cursorHistory, cursor];
             loadPage(filters, cursor, history);
           }}
-          pageLabel={pageLabel(page)}
+          pageLabel={pageLabel(page, cursorHistory.length)}
           loading={isPending}
         />
       ) : null}
@@ -401,11 +477,14 @@ function AuditLogBrowserClient({
 }
 
 function AuditLogMobileCard({auditLog}: {auditLog: AdminAuditLog}) {
+  const category = resolveCategory(auditLog);
   return (
     <article className="grid gap-4 rounded-card border border-border bg-card p-4 shadow-card">
       <div className="grid gap-2">
         <div className="flex flex-wrap gap-2">
-          <Badge tone="info">{humanize(auditLog.action)}</Badge>
+          <Badge tone={categoryTone(category)}>
+            {formatAuditCategory(category)}
+          </Badge>
           <Badge tone="neutral">{humanize(auditLog.actorRole)}</Badge>
           {auditLog.outcome ? (
             <Badge tone={outcomeTone(auditLog.outcome)}>
@@ -413,14 +492,24 @@ function AuditLogMobileCard({auditLog}: {auditLog: AdminAuditLog}) {
             </Badge>
           ) : null}
         </div>
-        <p className="font-bold">{formatDate(auditLog.createdAt)}</p>
-
+        <p className="font-bold text-primary-strong">
+          {formatAuditAction(auditLog.action)}
+        </p>
+        <p className="text-xs text-muted-foreground">
+          {formatDate(auditLog.createdAt)}
+        </p>
       </div>
 
       <DetailFieldList columns={1}>
+        {auditLog.actorName ? (
+          <DetailFieldItem
+            label="Performed by"
+            value={auditLog.actorName}
+          />
+        ) : null}
         <DetailFieldItem
-          label="Affected item"
-          value={humanize(auditLog.targetCollection)}
+          label="Affected record"
+          value={formatAuditRecordType(auditLog.targetCollection)}
         />
         <DetailFieldItem
           label="Summary"
@@ -442,12 +531,14 @@ function FilterSelect({
   label,
   value,
   options,
+  formatOption = humanize,
   onChange,
   disabled,
 }: {
   label: string;
   value: string;
   options: string[];
+  formatOption?: (value: string) => string;
   onChange: (value: string) => void;
   disabled: boolean;
 }) {
@@ -463,7 +554,7 @@ function FilterSelect({
         <option value="all">All {label.toLocaleLowerCase("en-PH")}s</option>
         {options.map((option) => (
           <option key={option} value={option}>
-            {humanize(option)}
+            {formatOption(option)}
           </option>
         ))}
       </Select>
@@ -503,29 +594,52 @@ function withSelected(options: string[], selected: string): string[] {
 function auditLogFilterLabels(filters: AdminAuditLogFilters): string[] {
   const labels: string[] = [];
   if (filters.search) labels.push(`Search: ${filters.search}`);
+  if (filters.category && filters.category !== "all") {
+    labels.push(`Category: ${formatAuditCategory(filters.category)}`);
+  }
   if (filters.action !== "all") {
-    labels.push(`Action: ${humanize(filters.action)}`);
+    labels.push(`Action: ${formatAuditAction(filters.action)}`);
   }
   if (filters.actorRole !== "all") {
-    labels.push(`Actor role: ${humanize(filters.actorRole)}`);
+    labels.push(`User role: ${humanize(filters.actorRole)}`);
   }
   if (filters.source !== "all") {
     labels.push(`Source: ${humanize(filters.source)}`);
   }
   if (filters.targetCollection !== "all") {
-    labels.push(`Record type: ${humanize(filters.targetCollection)}`);
+    labels.push(`Record type: ${formatAuditRecordType(filters.targetCollection)}`);
   }
   if (filters.fromDate) labels.push(`From: ${filters.fromDate}`);
   if (filters.toDate) labels.push(`To: ${filters.toDate}`);
   return labels;
 }
 
-function pageLabel(page: AdminAuditLogPage): string {
-  const count = page.auditLogs.length;
-  const noun = count === 1 ? "event" : "events";
-  return page.scan.filtered
-    ? `Showing ${count} ${noun} from ${page.scan.scannedCount} scanned`
-    : `Showing ${count} audit ${noun}`;
+function resolveCategory(auditLog: AdminAuditLog): AdminAuditLogCategory {
+  return (
+    auditLog.category ??
+    classifyAuditCategory({
+      action: auditLog.action,
+      actorRole: auditLog.actorRole,
+      targetCollection: auditLog.targetCollection,
+    })
+  );
+}
+
+function categoryTone(category: AdminAuditLogCategory): BadgeProps["tone"] {
+  switch (category) {
+    case "admin":
+      return "info";
+    case "money":
+      return "success";
+    case "security":
+      return "warning";
+    case "bookings":
+      return "neutral";
+  }
+}
+
+function pageLabel(page: AdminAuditLogPage, pageNumber: number): string {
+  return formatPageLabel(pageNumber, page.totalPages, {hasMore: page.hasMore});
 }
 
 function formatDate(value: string | null): string {

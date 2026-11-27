@@ -18,6 +18,8 @@ import {
 
 import {requireApprovedProvider} from "@/lib/auth/session";
 import {adminDb} from "@/lib/firebase/admin";
+import {countFirestoreQuery} from "@/lib/firebase/count-query";
+import {computeTotalPages} from "@/lib/pagination";
 import {isChatLifecycleEligible} from "@/lib/messaging/chat-lifecycle";
 import {normalizeChatMessage} from "@/lib/messaging/message-normalization";
 
@@ -91,6 +93,8 @@ export async function getProviderChatRoomPage(
     .orderBy("lastMessageAt", "desc")
     .orderBy(FieldPath.documentId(), "desc");
 
+  const countQuery = query;
+
   if (cursor) {
     query = query.startAfter(
       Timestamp.fromMillis(cursor.milliseconds),
@@ -98,7 +102,10 @@ export async function getProviderChatRoomPage(
     );
   }
 
-  const snapshot = await query.limit(pageSize + 1).get();
+  const [snapshot, totalCount] = await Promise.all([
+    query.limit(pageSize + 1).get(),
+    countFirestoreQuery(countQuery),
+  ]);
   const hasMore = snapshot.docs.length > pageSize;
   const documents = hasMore
     ? snapshot.docs.slice(0, pageSize)
@@ -131,6 +138,8 @@ export async function getProviderChatRoomPage(
     nextCursor,
     hasMore: nextCursor !== null,
     skippedMalformedCount,
+    totalCount,
+    totalPages: computeTotalPages(totalCount, pageSize),
   };
 }
 

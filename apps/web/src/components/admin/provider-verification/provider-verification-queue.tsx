@@ -20,13 +20,13 @@ import {
   SummaryCard,
   type DataTableColumn,
 } from "@/components/data";
+import {formatPageLabel} from "@/lib/pagination";
 import {loadProviderVerificationQueueAction} from "@/app/admin/providers/actions";
 import {useAdminAutoRefresh} from "@/lib/admin/use-admin-auto-refresh";
 import {providerVerificationLabel} from "@/lib/admin/provider-verification/provider-verification-labels";
 import {PageHeading} from "@/components/layout/page-heading";
 import {ProviderVerificationReviewPanel} from "@/components/admin/provider-verification/provider-verification-review-panel";
 import {StatusBadge} from "@/components/shared/status-badge";
-import {PhilippineDateInput} from "@/components/forms/philippine-date-input";
 import {Button} from "@/components/ui/button";
 import {Select} from "@/components/ui/select";
 import type {
@@ -37,7 +37,10 @@ import type {
   ProviderVerificationReviewDetail,
 } from "@/lib/admin/provider-verification/provider-verification-types";
 
-import type {ServiceCategoryOption} from "@/lib/service-categories/service-category-types";
+import {
+  serviceCategoryName,
+  type ServiceCategoryOption,
+} from "@/lib/service-categories/service-category-types";
 
 type ProviderVerificationQueueProps = {
   page: ProviderVerificationQueuePage;
@@ -47,47 +50,64 @@ type ProviderVerificationQueueProps = {
   serviceCategoryOptions: readonly ServiceCategoryOption[];
 };
 
-const columns: readonly DataTableColumn<ProviderVerificationQueueItem>[] = [
-  {
-    id: "businessName",
-    header: "Provider",
-    cell: (item) => (
-      <div className="min-w-0">
-        <p className="break-words font-bold">{item.businessName}</p>
-        <p className="mt-1 break-all text-sm text-muted-foreground">
-          {item.email}
-        </p>
-      </div>
-    ),
-  },
-  {
-    id: "ownerName",
-    header: "Owner",
-    cell: (item) => <span className="break-words">{item.ownerName}</span>,
-  },
-  {
-    id: "serviceType",
-    header: "Service type",
-    cell: (item) => (
-      <span className="capitalize">{item.providerServiceType}</span>
-    ),
-  },
-  {
-    id: "submittedAt",
-    header: "Submitted",
-    cell: (item) => item.submittedAt,
-  },
-  {
-    id: "status",
-    header: "Business status",
-    cell: (item) => <StatusBadge status={item.status} label={providerVerificationLabel(item.status)} />,
-  },
-  {
-    id: "taxVerificationStatus",
-    header: "Tax status",
-    cell: (item) => <TaxStatusIndicator status={item.taxVerificationStatus} />,
-  },
-];
+function formatServiceCategories(
+  categories: readonly string[],
+  options: readonly ServiceCategoryOption[],
+): string {
+  return categories.length > 0
+    ? categories
+        .map((code) => serviceCategoryName(code, options))
+        .join(", ")
+    : "Not configured";
+}
+
+function buildColumns(
+  serviceCategoryOptions: readonly ServiceCategoryOption[],
+): readonly DataTableColumn<ProviderVerificationQueueItem>[] {
+  return [
+    {
+      id: "businessName",
+      header: "Provider",
+      cell: (item) => (
+        <div className="min-w-0">
+          <p className="break-words font-bold">{item.businessName}</p>
+          <p className="mt-1 break-all text-sm text-muted-foreground">
+            {item.email}
+          </p>
+        </div>
+      ),
+    },
+    {
+      id: "ownerName",
+      header: "Owner",
+      cell: (item) => <span className="break-words">{item.ownerName}</span>,
+    },
+    {
+      id: "serviceCategory",
+      header: "Service category",
+      cell: (item) => (
+        <span className="break-words">
+          {formatServiceCategories(item.serviceCategories, serviceCategoryOptions)}
+        </span>
+      ),
+    },
+    {
+      id: "submittedAt",
+      header: "Submitted",
+      cell: (item) => item.submittedAt,
+    },
+    {
+      id: "status",
+      header: "Business status",
+      cell: (item) => <StatusBadge status={item.status} label={providerVerificationLabel(item.status)} />,
+    },
+    {
+      id: "taxVerificationStatus",
+      header: "Tax status",
+      cell: (item) => <TaxStatusIndicator status={item.taxVerificationStatus} />,
+    },
+  ];
+}
 
 function ProviderVerificationQueue({
   page: initialPage,
@@ -125,15 +145,23 @@ function ProviderVerificationQueue({
     if (isCurrent() && version === searchGeneration.current) setData(current => ({...next, selected: next.selected ?? current.selected}));
   }, JSON.stringify({filters, selected: selected?.id}), isPending || reviewBusy || reviewLoading || search.trim() !== filters.search.trim());
 
+  const columns = useMemo(
+    () => buildColumns(serviceCategoryOptions),
+    [serviceCategoryOptions],
+  );
+
+  const activeServiceCategories = useMemo(
+    () => serviceCategoryOptions.filter((category) => category.status === "active"),
+    [serviceCategoryOptions],
+  );
+
   const activeFilters = useMemo(() => [
     ...(filters.search ? [`Search: ${filters.search}`] : []),
     ...(filters.status !== "all" ? [`Status: ${providerVerificationLabel(filters.status)}`] : []),
-    ...(filters.serviceType !== "all"
-      ? [`Service: ${filters.serviceType}`]
+    ...(filters.serviceCategory !== "all"
+      ? [`Category: ${serviceCategoryName(filters.serviceCategory, serviceCategoryOptions)}`]
       : []),
-    ...(filters.from ? [`From: ${filters.from}`] : []),
-    ...(filters.to ? [`To: ${filters.to}`] : []),
-  ], [filters]);
+  ], [filters, serviceCategoryOptions]);
 
   const navigate = (
     updates: Record<string, string | null>,
@@ -312,6 +340,7 @@ function ProviderVerificationQueue({
           navigate({
             q: null,
             status: null,
+            serviceCategory: null,
             serviceType: null,
             from: null,
             to: null,
@@ -338,60 +367,51 @@ function ProviderVerificationQueue({
                 })}
               >
                 <option value="all">All verification statuses</option>
-                <option value="pending">Pending</option>
-                <option value="draft">Draft</option>
-                <option value="submitted">Submitted</option>
-                <option value="under_review">Under review</option>
-                <option value="approved">Approved</option>
-                <option value="resubmission_required">
-                  Updated documents needed
-                </option>
-                <option value="rejected">Rejected</option>
-                <option value="suspended">Suspended</option>
+                {filters.status !== "all" &&
+                  !summary.availableStatuses.includes(filters.status) ? (
+                    <option value={filters.status} disabled>
+                      {providerVerificationLabel(filters.status)} (none)
+                    </option>
+                  ) : null}
+                {summary.availableStatuses.map((status) => (
+                  <option key={status} value={status}>
+                    {providerVerificationLabel(status)}
+                  </option>
+                ))}
               </Select>
             </label>
             <label className="grid gap-1 text-sm font-semibold">
-              Service type
+              Service category
               <Select
-                aria-label="Provider service type"
-                value={filters.serviceType}
+                aria-label="Service category"
+                value={filters.serviceCategory}
                 disabled={isPending}
                 onChange={(event) => navigate({
-                  serviceType: event.currentTarget.value === "all"
+                  serviceCategory: event.currentTarget.value === "all"
                     ? null
                     : event.currentTarget.value,
+                  serviceType: null,
                   selected: null,
                 })}
               >
-                <option value="all">All service types</option>
-                <option value="catering">Catering</option>
-                <option value="addon">Add-on</option>
-                <option value="both">Both</option>
+                <option value="all">All service categories</option>
+                {filters.serviceCategory !== "all" &&
+                  !activeServiceCategories.some(
+                    (category) => category.code === filters.serviceCategory,
+                  ) ? (
+                    <option value={filters.serviceCategory}>
+                      {serviceCategoryName(
+                        filters.serviceCategory,
+                        serviceCategoryOptions,
+                      )}
+                    </option>
+                  ) : null}
+                {activeServiceCategories.map((category) => (
+                  <option key={category.code} value={category.code}>
+                    {category.name}
+                  </option>
+                ))}
               </Select>
-            </label>
-            <label className="grid gap-1 text-sm font-semibold">
-              Application from
-              <PhilippineDateInput
-                aria-label="Application from"
-                value={filters.from}
-                disabled={isPending}
-                onChange={(event) => navigate({
-                  from: event.currentTarget.value || null,
-                  selected: null,
-                })}
-              />
-            </label>
-            <label className="grid gap-1 text-sm font-semibold">
-              Application to
-              <PhilippineDateInput
-                aria-label="Application to"
-                value={filters.to}
-                disabled={isPending}
-                onChange={(event) => navigate({
-                  to: event.currentTarget.value || null,
-                  selected: null,
-                })}
-              />
             </label>
           </>
         }
@@ -438,9 +458,11 @@ function ProviderVerificationQueue({
             </div>
             <DetailFieldList columns={2}>
               <DetailFieldItem
-                label="Service type"
-                value={item.providerServiceType}
-                valueClassName="capitalize"
+                label="Service category"
+                value={formatServiceCategories(
+                  item.serviceCategories,
+                  serviceCategoryOptions,
+                )}
               />
               <DetailFieldItem
                 label="Submitted"
@@ -475,7 +497,7 @@ function ProviderVerificationQueue({
         previousCursor={page.previousCursor}
         nextCursor={page.nextCursor}
         loading={isPending}
-        pageLabel={`Showing up to ${page.pageSize} applications`}
+        pageLabel={formatPageLabel(page.currentPage ?? 1, page.totalPages, {hasMore: page.nextCursor !== null})}
         onPrevious={(cursor) => navigate({
           cursor,
           direction: "previous",
@@ -495,12 +517,27 @@ function ProviderVerificationQueue({
             closeApplicationReview();
           }
         }}
+        fullScreen
+        backLabel="Back to Provider Verification"
         title={
           selected?.business.name ??
           reviewTarget?.businessName ??
           "Provider verification"
         }
         description="Provider application review"
+        headerMeta={
+          selected ? (
+            <>
+              <StatusBadge
+                status={selected.status}
+                label={providerVerificationLabel(selected.status)}
+              />
+              <span className="text-xs text-muted-foreground">
+                Submitted {selected.submittedAt}
+              </span>
+            </>
+          ) : undefined
+        }
       >
         {reviewLoading ? (
           <div

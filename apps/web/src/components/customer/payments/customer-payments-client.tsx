@@ -14,6 +14,7 @@ import {
   type CustomerPaymentReturnState,
 } from "@/components/customer/payments/customer-payment-return-panel";
 import {CursorPagination} from "@/components/data/cursor-pagination";
+import {formatPageLabel} from "@/lib/pagination";
 import {FilterToolbar} from "@/components/data/filter-toolbar";
 import {SummaryCard} from "@/components/data/summary-card";
 import {ApplicationEmptyState} from "@/components/feedback/application-states";
@@ -374,7 +375,7 @@ export function CustomerPaymentsClient({
         previousCursor={previousCursor}
         nextCursor={page.nextCursor}
         loading={isPending}
-        pageLabel={`Page ${currentIndex + 1}`}
+        pageLabel={formatPageLabel(currentIndex + 1, page.totalPages, {hasMore: page.hasMore})}
         onPrevious={() => {
           const history = cursorHistory.slice(0, -1);
           load(submittedSearch, status, history.at(-1) ?? null, history);

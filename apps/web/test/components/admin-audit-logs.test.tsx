@@ -17,6 +17,10 @@ import {
 
 import {
   adminAuditLogMatchesFilters,
+  classifyAuditCategory,
+  formatAuditAction,
+  formatAuditRecordType,
+  isMeaningfulAuditLog,
   normalizeAdminAuditLogFilters,
   normalizeAdminAuditLogRecord,
 } from "@/lib/admin/audit-logs/admin-audit-log-normalization";
@@ -44,12 +48,13 @@ const auditLogFixture: AdminAuditLog = {
   createdAt: "2026-08-07T02:30:00.000Z",
   action: "provider_verification_approved",
   actorId: "admin_01",
+  actorName: "FEASTA Admin",
   actorRole: "admin",
   targetCollection: "providers",
   targetId: "provider_01",
   source: "admin_web",
   correlationId: "correlation_01",
-  outcome: "succeeded",
+  outcome: null,
   reasonCode: null,
   summary: "Changed: Verification Status",
 };
@@ -64,14 +69,25 @@ function pageFixture(
       windowLimit: 100,
       windowCount: auditLogs.length,
       adminActorCount: auditLogs.length,
-      succeededOutcomeCount: auditLogs.length,
+      adminActionCount: auditLogs.length,
+      userActionCount: 0,
+      providerActionCount: 0,
+      customerActionCount: 0,
+      systemActionCount: 0,
+      categoryCounts: {
+        admin: auditLogs.length,
+        money: 0,
+        bookings: 0,
+        security: 0,
+      },
+      succeededOutcomeCount: 0,
       attentionOutcomeCount: 0,
     },
     filterOptions: {
       actions: ["provider_verification_approved"],
       actorRoles: ["admin", "provider"],
       sources: ["admin_web", "cloud_function"],
-      targetCollections: ["providers", "users"],
+      targetCollections: ["mainEvents", "providers", "users"],
     },
     nextCursor: null,
     hasMore: false,
@@ -98,6 +114,23 @@ describe("Admin audit log browser", () => {
       screen.getByRole("heading", {name: "Activity logs"}),
     ).toBeVisible();
     expect(screen.getByText("Recent activities")).toBeVisible();
+    expect(screen.getByRole("region", {name: "Admin actions"})).toBeVisible();
+    expect(screen.getByRole("region", {name: "Payments & refunds"})).toBeVisible();
+    expect(screen.getByRole("region", {name: "Bookings & security"})).toBeVisible();
+    expect(screen.getByRole("tab", {name: "All activity"})).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    expect(screen.queryByText(/governance/iu)).not.toBeInTheDocument();
+    expect(screen.queryByText(/active admin/iu)).not.toBeInTheDocument();
+    expect(screen.queryByText("Successful actions")).not.toBeInTheDocument();
+    expect(screen.queryByText("Failed actions")).not.toBeInTheDocument();
+    expect(screen.queryByText("Result not recorded")).not.toBeInTheDocument();
+    expect(screen.getAllByText("FEASTA Admin").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Approved provider verification").length).toBeGreaterThan(0);
+    expect(
+      screen.getByRole("option", {name: "Bookings"}),
+    ).toHaveValue("mainEvents");
     expect(
       screen.getByText(/Counts cover the latest/u),
     ).toBeVisible();
@@ -172,6 +205,16 @@ describe("Admin audit log browser", () => {
         expect.objectContaining({
           actorRole: "provider",
           pageSize: 20,
+          cursor: null,
+        }),
+      );
+    });
+
+    await user.click(screen.getByRole("tab", {name: "Payments & refunds"}));
+    await waitFor(() => {
+      expect(mocks.load).toHaveBeenCalledWith(
+        expect.objectContaining({
+          category: "money",
           cursor: null,
         }),
       );
@@ -393,6 +436,95 @@ describe("Audit log normalization and filtering", () => {
         }),
       ),
     ).toBe(false);
+  });
+
+  it("excludes noisy internal events and keeps meaningful state, money, and security changes", () => {
+    for (const noisyAction of [
+      "booking.completion_automatic",
+      "booking.service_start_automatic",
+      "booking.preparation_automatic",
+      "payment.checkout_attempt_created",
+      "payment.checkout_attempt_retry",
+      "payment.checkout_attempt_ambiguous",
+      "payment.checkout_outcome_unknown",
+      "provider_availability_settings_updated",
+      "refund_calculation.created",
+      "account_email_synchronized",
+      "customer_preferences_updated",
+      "announcement_created",
+      "provider_onboarding_draft_saved",
+    ]) {
+      expect(isMeaningfulAuditLog({action: noisyAction})).toBe(false);
+    }
+
+    for (const meaningfulAction of [
+      "provider_verification_approved",
+      "booking.submitted",
+      "payment_webhook",
+      "refund_execution.failed",
+      "user_account_blocked",
+      "announcement_published",
+      "review_hidden",
+      "complaint_resolve",
+    ]) {
+      expect(isMeaningfulAuditLog({action: meaningfulAction})).toBe(true);
+    }
+
+    expect(
+      classifyAuditCategory({
+        action: "payment_webhook",
+        actorRole: "system",
+        targetCollection: "payments",
+      }),
+    ).toBe("money");
+    expect(
+      classifyAuditCategory({
+        action: "user_account_blocked",
+        actorRole: "admin",
+        targetCollection: "users",
+      }),
+    ).toBe("security");
+    expect(
+      classifyAuditCategory({
+        action: "provider_verification_approved",
+        actorRole: "admin",
+        targetCollection: "providers",
+      }),
+    ).toBe("admin");
+    expect(
+      classifyAuditCategory({
+        action: "booking.submitted",
+        actorRole: "customer",
+        targetCollection: "mainEvents",
+      }),
+    ).toBe("bookings");
+
+    expect(formatAuditAction("provider_verification_approved")).toBe(
+      "Approved provider verification",
+    );
+    expect(formatAuditAction("payment.remaining_balance_enforcement")).toBe(
+      "Enforced balance deadline",
+    );
+
+    const transitioned = normalizeAdminAuditLogRecord("transition_01", {
+      action: "provider_verification_approved",
+      actorId: "admin_01",
+      actorRole: "admin",
+      targetCollection: "providers",
+      targetId: "provider_01",
+      before: {status: "submitted"},
+      after: {status: "approved"},
+    });
+    expect(transitioned.auditLog.summary).toBe("Status: Submitted → Approved");
+  });
+
+  it("formats Firestore collection names into readable FEASTA record types", () => {
+    expect(formatAuditRecordType("mainEvents")).toBe("Bookings");
+    expect(formatAuditRecordType("providerRequests")).toBe("Service bookings");
+    expect(formatAuditRecordType("companyCommissionMockWithdrawals")).toBe(
+      "FEASTA fee withdrawals",
+    );
+    expect(formatAuditRecordType("Not recorded")).toBe("Not recorded");
   });
 
   it("rejects inverted Manila date ranges", () => {

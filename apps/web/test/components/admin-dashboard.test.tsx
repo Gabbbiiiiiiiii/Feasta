@@ -107,11 +107,12 @@ beforeEach(() => {
 afterEach(() => vi.useRealTimers());
 
 describe("Admin dashboard financial and population metrics", () => {
-  it("uses the recorded PHP500 fee from a PHP10,000 payment and counts all customers, providers and events", async () => {
+  it("uses the recorded PHP500 fee from a PHP10,000 payment and counts all customers, providers and non-draft events", async () => {
+    database.rows.mainEvents.push({ status: "draft" });
     const dashboard = await getAdminDashboardData();
     expect(dashboard.statistics).toEqual({
-      feastaRevenueInCentavos: 50000, totalUsers: 4, totalBookings: 3, verificationQueue: 2,
-      revenueLast30DaysInCentavos: 50000, customerAccounts: 2, providerAccounts: 2,
+      feastaRevenueInCentavos: 50000, totalUsers: 4, totalBookings: 3, activeBookings: 1, completedBookings: 1,
+      verificationQueue: 2, revenueLast30DaysInCentavos: 50000, customerAccounts: 2, providerAccounts: 2,
       submittedApprovals: 1, underReviewApprovals: 1,
     });
     expect(dashboard.operationsOverview).toMatchObject({
@@ -182,30 +183,35 @@ describe("Admin dashboard financial and population metrics", () => {
     await expect(getAdminDashboardData()).rejects.toThrow("invalid financial ledger entry");
   });
 
-  it("renders four linked cards without the FEASTA revenue chart", async () => {
+  it("renders four linked cards without the FEASTA revenue chart or operations overview", async () => {
     database.rows.financialLedgerEntries.push(entry("earlier-fee", "2026-09-01T00:00:00Z", 625025));
     render(await AdminPage());
     const summary = screen.getByRole("region", { name: "Platform summary" });
     expect(within(summary).getAllByRole("region")).toHaveLength(4);
-    expect(within(summary).getByText("2 customers / 2 providers")).toBeInTheDocument();
+    expect(within(summary).getByText("2 customers · 2 providers")).toBeInTheDocument();
     const bookings = within(summary).getByRole("link", { name: /Total bookings/ });
     expect(within(bookings).getByText("3")).toBeInTheDocument();
-    expect(bookings).toHaveTextContent("View bookings by status");
-    expect(within(summary).getByText("1 submitted / 1 under review")).toBeInTheDocument();
+    expect(bookings).toHaveTextContent("1 active · 1 completed");
+    expect(within(summary).getByText("1 submitted · 1 under review")).toBeInTheDocument();
     expect(within(summary).queryByRole("link", { name: /FEASTA Revenue/i })).not.toBeInTheDocument();
     expect(within(summary).getByRole("link", { name: /Total users/ })).toHaveAttribute("href", "/admin/users");
     expect(bookings).toHaveAttribute("href", "/admin/bookings");
     expect(within(summary).getByRole("link", { name: /Pending provider verifications/ })).toHaveAttribute("href", "/admin/providers");
     expect(within(summary).getByRole("link", { name: /Open complaints/i })).toHaveAttribute("href", "/admin/complaints");
     expect(screen.queryByText("FEASTA Revenue")).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Operations Overview" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "1M" })).not.toBeInTheDocument();
     expect(screen.queryByTestId("revenue-axis")).not.toBeInTheDocument();
   });
 
-  it("ranks active providers by distinct completed events and links their actual verification application", async () => {
+  it("ranks active providers by distinct completed events, resolves categories and ratings, and renders Provider Performance", async () => {
+    database.rows.serviceCategories = [
+      { id: "catering", code: "catering", name: "Catering" },
+      { id: "decor", code: "decor", name: "Event Styling" },
+    ];
     database.rows.providers = [
-      { id: "provider-a", ownerId: "owner-a", businessName: "Alpha Catering", providerServiceType: "catering", isActive: true, completedBookings: 999 },
-      { id: "provider-b", ownerId: "owner-b", businessName: "Beta Events", providerServiceType: "decorations", isActive: true },
+      { id: "provider-a", ownerId: "owner-a", businessName: "Alpha Catering", providerCategory: "catering", providerServiceType: "catering", isActive: true, ratingAverage: 4.9, reviewCount: 4, completedBookings: 999 },
+      { id: "provider-b", ownerId: "owner-b", businessName: "Beta Events", providerCategory: "decor", providerServiceType: "decorations", isActive: true, ratingAverage: 4.5, reviewCount: 2 },
       { id: "inactive", businessName: "Inactive", isActive: false },
       { id: "no-completions", businessName: "No completions", isActive: true, completedBookings: 99999 },
     ];
@@ -228,9 +234,18 @@ describe("Admin dashboard financial and population metrics", () => {
       { id: "provider-b", completedBookings: 2, href: "/admin/providers?selected=application-b-current" },
       { id: "provider-a", completedBookings: 1, href: "/admin/providers?q=Alpha%20Catering" },
     ]);
+    expect(dashboard.providerPerformance.activeProvidersCount).toBe(3);
+    expect(dashboard.providerPerformance.highestRatedProvider?.id).toBe("provider-a");
+
     render(await AdminPage());
-    expect(screen.queryByRole("heading", { name: "Top Providers" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("link", {name: "View all providers"})).not.toBeInTheDocument();
+    const panel = screen.getByRole("region", { name: "Provider Performance" });
+    expect(within(panel).getByRole("heading", { name: "Provider Performance" })).toBeInTheDocument();
+    expect(within(panel).getByRole("link", { name: "View full report" })).toHaveAttribute("href", "/admin/reports");
+    expect(within(panel).getAllByText("Beta Events").length).toBeGreaterThan(0);
+    expect(within(panel).getAllByText("Alpha Catering").length).toBeGreaterThan(0);
+    expect(within(panel).getByText("Event Styling")).toBeInTheDocument();
+    expect(within(panel).getByText("Catering")).toBeInTheDocument();
+    expect(within(panel).getAllByText("4.9").length).toBeGreaterThan(0);
   });
 
   it("limits the provider ranking to five with deterministic ties", async () => {
@@ -246,37 +261,33 @@ describe("Admin dashboard financial and population metrics", () => {
     ]);
   });
 
-  it("replaces quick actions with live operations counts without verification or booking overview", async () => {
-    database.rows.reviews = [
-      { isReported: true, isDeleted: false },
-      { isReported: true, isDeleted: true },
-      { isReported: false, isDeleted: false },
-    ];
+  it("replaces operations overview with cleaned recent activity and preserves keyboard order", async () => {
+    database.rows.users.push({ id: "admin-1", role: "admin", firstName: "Gabby", lastName: "Admin" });
     database.rows.complaints = [{ status: "submitted" }, { status: "escalated" }, { status: "resolved" }];
-    database.rows.appSettings = [{ id: "adminDashboard", quickActionsTitle: "Quick Actions" }];
-    database.rows.adminLogs = [{ id: "log", action: "user_account_enabled", actorName: "Test Admin", entity: "user", createdAt: new Date() }];
-    const dashboard = await getAdminDashboardData();
-    expect(dashboard.operationsOverview).toEqual({
-      pendingProcessingPayments: 1, failedExpiredPayments: 1, reportedReviews: 1, openComplaints: 2,
-    });
+    database.rows.adminLogs = [
+      { id: "noisy-log", action: "booking.service_start_automatic", actorId: "system", actorRole: "system", targetCollection: "providerRequests", createdAt: new Date() },
+      { id: "log-1", action: "provider_verification_approved", actorId: "admin-1", actorRole: "admin", targetCollection: "providers", createdAt: new Date() },
+    ];
     const user = userEvent.setup();
     render(await AdminPage());
-    const operations = screen.getByRole("region", { name: "Operations Overview" });
-    expect(within(operations).getAllByRole("link")).toHaveLength(3);
-    expect(within(operations).getByRole("link", { name: "Pending payments: 1" })).toHaveAttribute("href", "/admin/payments");
-    expect(within(operations).getByRole("link", { name: "Reported reviews: 1" })).toHaveAttribute("href", "/admin/reviews");
-    expect(within(operations).queryByRole("link", { name: /Open complaints/i })).not.toBeInTheDocument();
+
+    expect(screen.queryByRole("region", { name: "Operations Overview" })).not.toBeInTheDocument();
+    expect(screen.queryByText(/Reported reviews/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Quick Actions/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Platform Health" })).not.toBeInTheDocument();
+
     const summary = screen.getByRole("region", { name: "Platform summary" });
     const complaintLink = within(summary).getByRole("link", { name: /Open complaints/i });
     expect(complaintLink).toHaveAttribute("href", "/admin/complaints");
     expect(within(complaintLink).getByText("2")).toBeInTheDocument();
     expect(complaintLink.querySelector(".border-amber-300")).not.toBeNull();
-    expect(within(operations).queryByText(/provider|booking/i)).not.toBeInTheDocument();
-    expect(screen.queryByText("Quick Actions")).not.toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: /Booking Overview/i })).not.toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Recent Activities" })).toBeInTheDocument();
-    expect(screen.getByText("User account enabled")).toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: "Platform Health" })).not.toBeInTheDocument();
+
+    const activityPanel = screen.getByRole("region", { name: "Recent Activity" });
+    expect(within(activityPanel).getByRole("link", { name: "View all" })).toHaveAttribute("href", "/admin/audit-logs");
+    expect(within(activityPanel).getByText("Approved provider verification")).toBeInTheDocument();
+    expect(within(activityPanel).getByText("Gabby Admin · Providers")).toBeInTheDocument();
+    expect(within(activityPanel).queryByText(/service start automatic/i)).not.toBeInTheDocument();
+
     for (let i = 0; i < 4; i++) await user.tab();
     expect(complaintLink).toHaveFocus();
   });

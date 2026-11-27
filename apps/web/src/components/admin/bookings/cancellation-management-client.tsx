@@ -1,18 +1,21 @@
 "use client";
 
-import {Eye} from "lucide-react";
-import {useMemo, useRef, useState, type ReactNode} from "react";
+import {Eye, Search} from "lucide-react";
+import {useEffect, useMemo, useRef, useState, type ReactNode} from "react";
 import {refundCheckFeedback, refundInspectionFeedback, refundReviewFeedback, refundCheckFailedFeedback, RefundCheckNeedsReviewError, refundCheckScope, savedRefundPresentation, manualRefundStatusCheckAvailable, type RefundCheckFeedback} from "@/lib/admin/cancellations/admin-refund-check-presentation";
 
 import {useAdminAutoRefresh} from "@/lib/admin/use-admin-auto-refresh";
 import {adminBookingPaymentLabel, adminProviderRequestLabel} from "@/lib/admin/bookings/admin-booking-labels";
 import {loadAdminCancellationQueueAction} from "@/app/admin/bookings/actions";
-import {DataTable, DetailDrawer, type DataTableColumn} from "@/components/data";
+import {CursorPagination, DataTable, DetailDrawer, type DataTableColumn} from "@/components/data";
 import {feastaToast} from "@/components/feedback/toast";
 import {ConfirmationDialog} from "@/components/shared/confirmation-dialog";
 import {StatusBadge} from "@/components/shared/status-badge";
 import {Button} from "@/components/ui/button";
+import {Input} from "@/components/ui/input";
 import {Textarea} from "@/components/ui/textarea";
+import {formatPageLabel} from "@/lib/pagination";
+import {cn} from "@/lib/utils";
 import {
   approveCancellation,
   createCancellationActionKey,
@@ -27,15 +30,35 @@ import type {
 } from "@/lib/admin/cancellations/admin-cancellation-types";
 
 type DecisionAction = "approve" | "reject" | "process" | "retry" | null;
+type CancellationQueueFilter = "pending" | "resolved" | "all";
+
+const CANCELLATIONS_PAGE_SIZE = 10;
+
+export function countPendingCancellations(
+  items: readonly AdminCancellationQueueItem[],
+): number {
+  return items.filter((item) => !isResolvedCancellation(item)).length;
+}
 
 export function CancellationManagementClient({
   initialQueue,
   onUpdated,
+  onPendingCountChange,
+  embedded = false,
 }: {
   initialQueue: AdminCancellationQueue;
   onUpdated?: () => Promise<void>;
+  onPendingCountChange?: (count: number) => void;
+  embedded?: boolean;
 }) {
   const [queue, setQueue] = useState(initialQueue);
+  const [filter, setFilter] = useState<CancellationQueueFilter>(() =>
+    initialQueue.items.some((item) => !isResolvedCancellation(item))
+      ? "pending"
+      : "all",
+  );
+  const [searchValue, setSearchValue] = useState("");
+  const [pageNumber, setPageNumber] = useState(1);
   const [selected, setSelected] = useState<AdminCancellationQueueItem | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [action, setAction] = useState<DecisionAction>(null);
@@ -46,6 +69,47 @@ export function CancellationManagementClient({
   const [checkingRefund, setCheckingRefund] = useState(false);
   const checkInFlight = useRef(false);
   const actionKeys = useRef(new Map<string, string>());
+
+  const pendingCount = useMemo(
+    () => countPendingCancellations(queue.items),
+    [queue.items],
+  );
+  const resolvedCount = queue.items.length - pendingCount;
+
+  useEffect(() => {
+    onPendingCountChange?.(pendingCount);
+  }, [onPendingCountChange, pendingCount]);
+
+  const filteredItems = useMemo(() => {
+    const query = searchValue.trim().toLocaleLowerCase("en-PH");
+    return queue.items.filter((item) => {
+      const resolved = isResolvedCancellation(item);
+      if (filter === "pending" && resolved) return false;
+      if (filter === "resolved" && !resolved) return false;
+      if (!query) return true;
+      return [
+        item.bookingCode,
+        item.providerName,
+        item.customerName,
+        item.customerEmail ?? "",
+        cancellationLabel(item.cancellationStatus),
+        refundStatusTitle(item),
+      ]
+        .join(" ")
+        .toLocaleLowerCase("en-PH")
+        .includes(query);
+    });
+  }, [filter, queue.items, searchValue]);
+
+  const totalPages = Math.max(
+    1,
+    Math.ceil(filteredItems.length / CANCELLATIONS_PAGE_SIZE),
+  );
+  const safePageNumber = Math.min(pageNumber, totalPages);
+  const visibleItems = useMemo(() => {
+    const start = (safePageNumber - 1) * CANCELLATIONS_PAGE_SIZE;
+    return filteredItems.slice(start, start + CANCELLATIONS_PAGE_SIZE);
+  }, [filteredItems, safePageNumber]);
 
   useAdminAutoRefresh(async (isCurrent) => {
     const next = await loadAdminCancellationQueueAction();
@@ -183,16 +247,100 @@ export function CancellationManagementClient({
 
   const normalizedReason = rejectionReason.trim().replace(/\s+/gu, " ");
 
+  const filterOptions: ReadonlyArray<{
+    id: CancellationQueueFilter;
+    label: string;
+    count: number;
+  }> = [
+    {id: "pending", label: "Needs review", count: pendingCount},
+    {id: "resolved", label: "Resolved", count: resolvedCount},
+    {id: "all", label: "All", count: queue.items.length},
+  ];
+
+  const emptyState = queue.items.length === 0
+    ? {
+        title: "No cancellations found",
+        description: "Provider-service cancellation requests will appear here for Admin review.",
+      }
+    : filter === "pending" && !searchValue.trim()
+      ? {
+          title: "No cancellations need review",
+          description: "All recorded cancellation requests have been resolved. Switch to Resolved or All to inspect past outcomes.",
+        }
+      : {
+          title: "No matching cancellations",
+          description: "Try a different filter or search term.",
+        };
+
   return (
     <section className="grid min-w-0 gap-4" aria-labelledby="cancellation-queue-heading">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h2 id="cancellation-queue-heading" className="text-2xl font-black">Cancellations &amp; refunds</h2>
+          <h2 id="cancellation-queue-heading" className={embedded ? "text-xl font-bold" : "text-2xl font-black"}>Cancellations &amp; refunds</h2>
           <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
             Review pending decisions and view recorded cancellation and refund outcomes.
           </p>
         </div>
       </div>
+
+      {queue.items.length > 0 ? (
+        <div className="flex flex-col gap-3 rounded-xl border border-border/80 bg-secondary/35 p-3 sm:flex-row sm:items-center sm:justify-between">
+          <div
+            className="flex flex-wrap items-center gap-2"
+            role="group"
+            aria-label="Filter cancellations"
+          >
+            {filterOptions.map((option) => {
+              const active = filter === option.id;
+              return (
+                <button
+                  key={option.id}
+                  type="button"
+                  aria-pressed={active}
+                  onClick={() => {
+                    setFilter(option.id);
+                    setPageNumber(1);
+                  }}
+                  className={cn(
+                    "inline-flex min-h-9 items-center gap-1.5 rounded-pill px-3.5 py-1.5 text-xs font-bold transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+                    active
+                      ? "bg-primary text-primary-foreground shadow-sm"
+                      : "border border-border bg-card text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  <span>{option.label}</span>{" "}
+                  <span
+                    className={cn(
+                      "tabular-nums",
+                      active ? "text-primary-foreground/90" : "text-muted-foreground",
+                    )}
+                  >
+                    ({option.count})
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="relative w-full sm:max-w-xs">
+            <Search
+              aria-hidden="true"
+              className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
+            />
+            <Input
+              type="search"
+              aria-label="Search cancellations"
+              placeholder="Search booking, customer, or provider"
+              value={searchValue}
+              onChange={(event) => {
+                setSearchValue(event.target.value);
+                setPageNumber(1);
+              }}
+              className="h-9 bg-card pl-9 text-sm"
+            />
+          </div>
+        </div>
+      ) : null}
 
       {queue.skippedMalformedCount > 0 ? (
         <p className="rounded-lg border border-warning bg-warning-subtle p-3 text-sm" role="status">
@@ -202,15 +350,15 @@ export function CancellationManagementClient({
 
       <DataTable
         columns={columns}
-        rows={queue.items}
+        rows={visibleItems}
         getRowId={(item) => item.cancellationRequestId}
         caption="Provider-service cancellation queue"
         className="[&_table]:min-w-[72rem] [&_th]:px-3 [&_td]:px-3"
         loading={loading}
         error={error}
         onRetry={() => void refresh(selected?.cancellationRequestId)}
-        emptyTitle="No cancellations found"
-        emptyDescription="Provider-service cancellation requests will appear here for Admin review."
+        emptyTitle={emptyState.title}
+        emptyDescription={emptyState.description}
         rowActionsLabel="Details"
         rowActions={(item) => (
           <Button
@@ -237,6 +385,17 @@ export function CancellationManagementClient({
           </article>
         )}
       />
+
+      {filteredItems.length > 0 ? (
+        <CursorPagination
+          previousCursor={safePageNumber > 1 ? safePageNumber - 1 : null}
+          nextCursor={safePageNumber < totalPages ? safePageNumber + 1 : null}
+          onPrevious={(previousPage) => setPageNumber(previousPage)}
+          onNext={(nextPage) => setPageNumber(nextPage)}
+          pageLabel={formatPageLabel(safePageNumber, totalPages)}
+          loading={loading}
+        />
+      ) : null}
 
       <CancellationDrawer
         item={selected}

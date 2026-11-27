@@ -58,7 +58,7 @@ function PaymentMobileCard({
           </p>
           {payment.formattedCommissionAmount ? (
             <p className="mt-0.5 text-xs font-semibold tabular-nums text-muted-foreground">
-              Commission {payment.formattedCommissionAmount}
+              FEASTA fee {payment.formattedCommissionAmount}
             </p>
           ) : null}
           {payment.refundedAmountFormatted ? (

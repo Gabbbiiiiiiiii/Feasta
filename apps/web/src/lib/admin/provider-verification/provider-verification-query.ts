@@ -1,27 +1,32 @@
 import {
-  verificationQueueServiceTypes,
   verificationQueueStatuses,
   type ProviderVerificationQueueFilters,
-  type VerificationQueueServiceType,
   type VerificationQueueStatus,
 } from "./provider-verification-types.ts";
 
 type SearchValue = string | string[] | undefined;
 type QueueSearchParams = Record<string, SearchValue>;
 
+const SERVICE_CATEGORY_CODE_PATTERN = /^[a-z0-9]+(?:_[a-z0-9]+)*$/u;
+
 function first(value: SearchValue): string {
   return Array.isArray(value) ? value[0] ?? "" : value ?? "";
 }
 
-function validDate(value: string): string {
-  return /^\d{4}-\d{2}-\d{2}$/u.test(value) ? value : "";
+function validServiceCategory(value: string): string {
+  const normalized = value.trim().toLowerCase();
+  return normalized.length >= 2 &&
+    normalized.length <= 100 &&
+    SERVICE_CATEGORY_CODE_PATTERN.test(normalized)
+    ? normalized
+    : "all";
 }
 
 export function parseProviderVerificationQueueFilters(
   searchParams: QueueSearchParams,
 ): ProviderVerificationQueueFilters {
   const statusValue = first(searchParams.status);
-  const serviceTypeValue = first(searchParams.serviceType);
+  const serviceCategoryValue = first(searchParams.serviceCategory);
   const direction = first(searchParams.direction);
   return {
     search: first(searchParams.q).trim().slice(0, 80),
@@ -30,13 +35,7 @@ export function parseProviderVerificationQueueFilters(
     ).includes(statusValue)
       ? statusValue as VerificationQueueStatus
       : "all",
-    serviceType: (
-      verificationQueueServiceTypes as readonly string[]
-    ).includes(serviceTypeValue)
-      ? serviceTypeValue as VerificationQueueServiceType
-      : "all",
-    from: validDate(first(searchParams.from)),
-    to: validDate(first(searchParams.to)),
+    serviceCategory: validServiceCategory(serviceCategoryValue),
     cursor: first(searchParams.cursor).slice(0, 500) || null,
     direction: direction === "previous" ? "previous" : "next",
   };

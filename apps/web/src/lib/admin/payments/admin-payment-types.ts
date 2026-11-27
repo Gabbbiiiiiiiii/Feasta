@@ -91,6 +91,7 @@ export type AdminPayment = {
   paymentType: AdminPaymentType;
   /** Distinguishes upfront full payment from minimum deposit. Null for legacy records. */
   paymentChoice?: "minimum" | "full" | "remaining_balance" | null;
+  paymentMethodType?: string | null;
   gateway: AdminPaymentGateway;
   status: AdminPaymentStatus;
 
@@ -123,6 +124,7 @@ export type AdminPaymentStatistics = {
   failedPayoutCount: number;
   reconciliationRequiredCount: number;
   refundedAmountInCentavos: number | null;
+  availableStatuses?: AdminPaymentStatus[];
 
   confirmedVolumeFormatted: string;
   refundedAmountFormatted: string;
@@ -149,6 +151,8 @@ export type AdminPaymentPage = {
 
   nextCursor: string | null;
   hasMore: boolean;
+  totalCount?: number | null;
+  totalPages?: number | null;
 };
 
 export type AdminFinanceAttentionKind =

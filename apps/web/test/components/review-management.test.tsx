@@ -42,14 +42,14 @@ const review: AdminReview = {
   providerOwnerId: "owner-one",
   rating: 5,
   comment: "The catering team was professional and the food was excellent.",
-  providerReply: "Thank you for celebrating with us.",
-  providerReplyAt: "2026-07-31T03:00:00.000Z",
+  providerReply: null,
+  providerReplyAt: null,
   moderationStatus: "published",
   moderationReason: null,
   moderatedAt: null,
   moderatedBy: null,
   isVisible: true,
-  isReported: true,
+  isReported: false,
   isDeleted: false,
   createdAt: "2026-07-31T02:00:00.000Z",
   updatedAt: "2026-07-31T03:00:00.000Z",
@@ -58,11 +58,13 @@ const review: AdminReview = {
 const page: AdminReviewPage = {
   reviews: [review],
   statistics: {
-    totalCount: 1,
+    totalCount: 2,
     publishedCount: 1,
-    reportedCount: 1,
-    hiddenCount: 0,
+    reportedCount: 0,
+    hiddenCount: 1,
     averageRating: 5,
+    availableStatuses: ["published", "hidden"],
+    availableRatings: ["5", "1"],
   },
   nextCursor: null,
   hasMore: false,
@@ -74,7 +76,7 @@ const details: AdminReviewDetails = {
     exists: true,
     id: "booking-one",
     bookingCode: "BK-001",
-    eventType: "Wedding",
+    eventType: "wedding_reception",
     eventDate: "2026-07-30T00:00:00.000Z",
     status: "completed",
   },
@@ -104,17 +106,37 @@ describe("admin review management", () => {
     });
   });
 
-  it("renders review statistics and verified review context", () => {
+  it("renders relevant KPI cards, database-driven filters, and verified review context", () => {
     render(<ReviewManagementClient initialPage={page} />);
 
     expect(screen.getByRole("heading", {name: "Review Management"}))
       .toBeInTheDocument();
-    expect(screen.getByLabelText("Total Reviews")).toHaveTextContent("1");
+    expect(screen.getByLabelText("Total Reviews")).toHaveTextContent("2");
+    expect(screen.getByLabelText("Published")).toHaveTextContent("1");
+    expect(screen.getByLabelText("Hidden")).toHaveTextContent("1");
     expect(screen.getByLabelText("Average Rating")).toHaveTextContent("5.0 / 5");
+    expect(screen.queryByLabelText("Reported")).not.toBeInTheDocument();
+    expect(screen.queryByRole("combobox", {name: "Report status"}))
+      .not.toBeInTheDocument();
+
     expect(screen.getAllByText("Maria Santos").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Ormoc Celebration Catering").length)
       .toBeGreaterThan(0);
-    expect(screen.getAllByText("Reported").length).toBeGreaterThan(0);
+    expect(screen.queryByText("No reply")).not.toBeInTheDocument();
+
+    const statusOptions = Array.from(
+      (screen.getByRole("combobox", {name: "Moderation status"}) as HTMLSelectElement).options,
+    ).map((option) => option.value);
+    expect(statusOptions).toEqual(["all", "published", "hidden"]);
+
+    const ratingOptions = Array.from(
+      (screen.getByRole("combobox", {name: "Rating"}) as HTMLSelectElement).options,
+    ).map((option) => [option.value, option.textContent]);
+    expect(ratingOptions).toEqual([
+      ["all", "All ratings"],
+      ["5", "5 stars"],
+      ["1", "1 star"],
+    ]);
   });
 
   it("loads bounded server results when a moderation filter changes", async () => {
@@ -135,18 +157,26 @@ describe("admin review management", () => {
     ));
   });
 
-  it("requires a reason and sends a replay-safe hide decision", async () => {
+  it("opens details with booking shortcut, hides empty provider reply, and sends a replay-safe hide decision", async () => {
     const user = userEvent.setup();
     render(<ReviewManagementClient initialPage={page} />);
 
     await user.click(screen.getAllByRole("button", {name: "Review"})[0]);
     await screen.findByText("Review parties");
 
+    expect(screen.getByText("Wedding Reception")).toBeInTheDocument();
+    expect(screen.getByText("Completed")).toBeInTheDocument();
+    expect(screen.queryByText("The provider has not replied.")).not.toBeInTheDocument();
+    expect(screen.queryByText("Support references")).not.toBeInTheDocument();
+
+    const bookingLink = screen.getByRole("link", {name: "Open booking"});
+    expect(bookingLink).toHaveAttribute("href", "/admin/bookings?search=BK-001");
+
     const hide = screen.getByRole("button", {name: /hide review/i});
     expect(hide).toBeDisabled();
 
     fireEvent.change(screen.getByRole("textbox", {
-    name: /^Reason for hiding/u,
+      name: /^Reason for hiding/u,
     }), {
       target: {value: "The review contains prohibited personal information."},
     });
@@ -165,7 +195,7 @@ describe("admin review management", () => {
     );
   });
 
-  it("renders an honest empty state", () => {
+  it("renders an honest empty state with no hardcoded filter values", () => {
     render(<ReviewManagementClient initialPage={{
       ...page,
       reviews: [],
@@ -175,10 +205,23 @@ describe("admin review management", () => {
         reportedCount: 0,
         hiddenCount: 0,
         averageRating: 0,
+        availableStatuses: [],
+        availableRatings: [],
       },
     }} />);
 
     expect(screen.getByText("No reviews found")).toBeInTheDocument();
     expect(screen.getByText(/No review records match/u)).toBeInTheDocument();
+    expect(screen.getByLabelText("Average Rating")).toHaveTextContent("—");
+
+    const statusOptions = Array.from(
+      (screen.getByRole("combobox", {name: "Moderation status"}) as HTMLSelectElement).options,
+    ).map((option) => option.value);
+    expect(statusOptions).toEqual(["all"]);
+
+    const ratingOptions = Array.from(
+      (screen.getByRole("combobox", {name: "Rating"}) as HTMLSelectElement).options,
+    ).map((option) => option.value);
+    expect(ratingOptions).toEqual(["all"]);
   });
 });

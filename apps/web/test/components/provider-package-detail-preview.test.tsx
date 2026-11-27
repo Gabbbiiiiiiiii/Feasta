@@ -88,3 +88,12 @@ it.each([
     expect(within(dialog).getByText("Under 72 hours: full payment required")).toBeVisible();
   }
 });
+it("shows max quantity per order for per-bundle drop-off packages only", async () => {
+  const {dialog} = await open({pricingModel: "per_bundle", maxDropOffOrderQuantity: 4});
+  const details = within(dialog);
+  const dropOff = within(details.getByRole("region", {name: "Drop-Off Catering"}));
+  expect(dropOff.getByText(/Max quantity per order:/i)).toBeVisible();
+  expect(dropOff.getByText(/Up to 4 packages/)).toBeVisible();
+  const fullService = within(details.getByRole("region", {name: "Full-Service Catering"}));
+  expect(fullService.queryByText(/Max quantity per order/i)).not.toBeInTheDocument();
+});

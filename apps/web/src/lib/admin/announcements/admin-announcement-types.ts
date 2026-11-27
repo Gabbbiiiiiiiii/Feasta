@@ -44,6 +44,8 @@ export type AdminAnnouncementPage = {
   statistics: AdminAnnouncementStatistics;
   nextCursor: string | null;
   hasMore: boolean;
+  totalCount?: number | null;
+  totalPages?: number | null;
 };
 
 export type AnnouncementDraftInput = {

@@ -11,6 +11,8 @@ import {
 import {getServiceCategoryOptions} from "@/lib/service-categories/service-category-service";
 
 import {adminDb} from "@/lib/firebase/admin";
+import {countFirestoreQuery} from "@/lib/firebase/count-query";
+import {computeTotalPages} from "@/lib/pagination";
 
 import {normalizePublicProvider} from "./provider-normalization";
 import {normalizedSearchToken} from "./provider-query";
@@ -38,7 +40,15 @@ export async function getPublicProviderPage(
     catalog.some((option) => option.code === code && option.status === "active"),
   );
   if (requestedCategories.length && (!categories.length || requestedCategories.length > 30)) {
-    return {providers: [], previousCursor: null, nextCursor: null, pageSize: safePageSize};
+    return {
+      providers: [],
+      previousCursor: null,
+      nextCursor: null,
+      pageSize: safePageSize,
+      currentPage: 1,
+      totalCount: 0,
+      totalPages: 1,
+    };
   }
   // Ten categories keep even the full search + service query within Firestore's
   // 100 DNF filter/order terms. At most three bounded reads use existing indexes.
@@ -47,7 +57,7 @@ export async function getPublicProviderPage(
     groups.push(categories.slice(offset, offset + 10));
   }
   if (!groups.length) groups.push([]);
-  const snapshots = await Promise.all(groups.map(async (categoryGroup) => {
+  const groupResults = await Promise.all(groups.map(async (categoryGroup) => {
     let query: Query<DocumentData> = adminDb
       .collection(FIRESTORE_COLLECTIONS.providers)
       .where("verificationStatus", "==", "approved")
@@ -80,6 +90,8 @@ export async function getPublicProviderPage(
       .orderBy("favoriteCount", "desc")
       .orderBy(FieldPath.documentId(), "desc");
 
+    const countQuery = query;
+
     if (cursor) {
       query = cursor.direction === "previous"
         ? query
@@ -92,9 +104,17 @@ export async function getPublicProviderPage(
       query = query.limit(safePageSize + 1);
     }
 
-
-    return query.get();
+    const [snapshot, count] = await Promise.all([
+      query.get(),
+      countFirestoreQuery(countQuery),
+    ]);
+    return {snapshot, count};
   }));
+  const snapshots = groupResults.map((result) => result.snapshot);
+  const groupCounts = groupResults.map((result) => result.count);
+  const totalCount = groupCounts.every((count): count is number => count !== null)
+    ? groupCounts.reduce((sum, count) => sum + count, 0)
+    : null;
   const documents = [...new Map(snapshots.flatMap((snapshot) =>
     snapshot.docs.map((document) => [document.id, document] as const),
   )).values()].sort((left, right) =>
@@ -139,27 +159,37 @@ export async function getPublicProviderPage(
   const hasNext = cursor?.direction === "previous"
     ? true
     : hasDirectionalExtra;
+  const currentPage = !hasPrevious
+    ? 1
+    : cursor?.page ?? (cursor?.direction === "previous" ? 1 : 2);
 
   return {
     providers,
     previousCursor: hasPrevious && firstDocument
-      ? encodeDocumentCursor("previous", firstDocument)
+      ? encodeDocumentCursor("previous", firstDocument, Math.max(1, currentPage - 1))
       : null,
     nextCursor: hasNext && lastDocument
-      ? encodeDocumentCursor("next", lastDocument)
+      ? encodeDocumentCursor("next", lastDocument, currentPage + 1)
       : null,
     pageSize: safePageSize,
+    currentPage,
+    totalCount,
+    totalPages: computeTotalPages(totalCount, safePageSize),
   };
 }
 
 function encodeDocumentCursor(
   direction: ProviderCursor["direction"],
   document: QueryDocumentSnapshot<DocumentData>,
+  page?: number,
 ): string {
   return Buffer.from(JSON.stringify({
     direction,
     favoriteCount: nonnegativeNumber(document.data().favoriteCount),
     providerId: document.id,
+    ...(typeof page === "number" && Number.isSafeInteger(page) && page >= 1
+      ? {page}
+      : {}),
   } satisfies ProviderCursor), "utf8").toString("base64url");
 }
 
@@ -175,10 +205,16 @@ function decodeProviderCursor(value: string | null): ProviderCursor | null {
       typeof decoded.providerId !== "string" ||
       !/^[A-Za-z0-9_-]{1,128}$/u.test(decoded.providerId)
     ) return null;
+    const page = typeof decoded.page === "number" &&
+      Number.isSafeInteger(decoded.page) &&
+      decoded.page >= 1
+      ? decoded.page
+      : undefined;
     return {
       direction: decoded.direction,
       favoriteCount: decoded.favoriteCount,
       providerId: decoded.providerId,
+      ...(page !== undefined ? {page} : {}),
     };
   } catch {
     return null;

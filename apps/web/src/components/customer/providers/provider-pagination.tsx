@@ -5,6 +5,7 @@ import {
 import Link from "next/link";
 
 import {providerDiscoveryHref} from "@/lib/customer/providers/provider-query";
+import {formatPageLabel} from "@/lib/pagination";
 import type {
   ProviderDiscoveryFilters,
   ProviderDiscoveryPage,
@@ -31,7 +32,9 @@ export function ProviderPagination({
           className="text-sm font-bold text-foreground"
           aria-live="polite"
         >
-          Continue exploring
+          {formatPageLabel(page.currentPage ?? 1, page.totalPages, {
+            hasMore: page.nextCursor !== null,
+          })}
         </p>
 
         <p className="mt-0.5 text-xs leading-5 text-feasta-text-secondary">

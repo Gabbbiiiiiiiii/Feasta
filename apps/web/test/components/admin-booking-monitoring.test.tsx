@@ -76,8 +76,12 @@ describe("booking status filters", () => {
     }} />);
     const paymentSelect = screen.getByLabelText("Payment status");
     const options = Array.from(paymentSelect.querySelectorAll("option"));
-    expect(options.map((option) => option.textContent)).toEqual([
-      "All payment statuses",
+    expect(options.find((option) => option.value === "all")?.hidden).toBe(true);
+    expect(
+      options
+        .filter((option) => !option.hidden)
+        .map((option) => option.textContent),
+    ).toEqual([
       "Unpaid",
       "Partially paid",
       "Paid",
@@ -151,7 +155,8 @@ it("keeps combined filters, unsent search text and current data through refresh 
   mocks.load.mockRejectedValueOnce(new Error("offline"));
   await act(async () => {await vi.advanceTimersByTimeAsync(5_000);});
   expect(screen.queryByRole("alert")).not.toBeInTheDocument();
-  expect(screen.getByText("Net amount paid")).toBeInTheDocument();
+  expect(screen.getByText("Total bookings")).toBeInTheDocument();
+  expect(within(screen.getByRole("region", {name: "Booking statistics"})).queryByText("Net amount paid")).not.toBeInTheDocument();
 });
 
 it("preserves pagination and the open drawer while polling and clears the cursor on filter changes", async () => {
@@ -396,4 +401,58 @@ it("renders booking status badges as compact single-line rounded badges with con
     "title",
     "Provider replacement needed — at least one provider request was rejected or expired.",
   );
+});
+
+it("separates Bookings and Cancellations & refunds into tabs with a pending review count", () => {
+  render(
+    <BookingMonitoringClient
+      initialPage={{...page, bookings: [booking]}}
+      initialCancellationQueue={{
+        skippedMalformedCount: 0,
+        items: [
+          {
+            cancellationRequestId: "cancellation_pending_01",
+            providerRequestId: "provider_request_01",
+            bookingCode: "BK-PEND-01",
+            providerName: "Test Catering",
+            customerName: "Ana Reyes",
+            customerEmail: "ana@example.test",
+            providerRequestStatus: "confirmed",
+            cancellationStatus: "submitted",
+            policyEvidenceStatus: "policy_backed",
+            frozenStage: "preparation_not_started",
+            customerReason: "Schedule changed.",
+            decisionReason: null,
+            calculationStatus: "pending_backend_calculation",
+            refundAmountInCentavos: null,
+            completedRefundAmountInCentavos: null,
+            currency: null,
+            paymentStatus: "paid",
+            operationStatus: null,
+            refundProgress: "none",
+            reconciliationRequired: false,
+            refundAutomaticCheckState: null,
+            canApprove: true,
+            canReject: true,
+            canProcessRefund: false,
+            canRetryRefund: false,
+            submittedAt: "2026-10-01T00:00:00Z",
+            updatedAt: "2026-10-01T00:00:00Z",
+          },
+        ],
+      }}
+    />,
+  );
+
+  const bookingsTab = screen.getByRole("tab", {name: /Bookings/});
+  const cancellationsTab = screen.getByRole("tab", {
+    name: /Cancellations & refunds.*1 need review/,
+  });
+  expect(bookingsTab).toHaveAttribute("aria-selected", "true");
+  expect(cancellationsTab).toHaveAttribute("aria-selected", "false");
+
+  fireEvent.click(cancellationsTab);
+  expect(cancellationsTab).toHaveAttribute("aria-selected", "true");
+  expect(screen.getByRole("heading", {name: "Cancellations & refunds"})).toBeVisible();
+  expect(screen.getAllByText("BK-PEND-01").length).toBeGreaterThan(0);
 });

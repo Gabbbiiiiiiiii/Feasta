@@ -435,7 +435,7 @@ describe("customer payments", () => {
     );
 
     fireEvent.click(await screen.findByRole("button", {name: "Next"}));
-    expect(await screen.findByText("Page 2")).toBeVisible();
+    expect(await screen.findByText("Page 2 of 2")).toBeVisible();
     fireEvent.click(screen.getByRole("button", {name: "Recheck payment"}));
 
     await waitFor(() => expect(mocks.loadPayments).toHaveBeenLastCalledWith({
@@ -444,7 +444,7 @@ describe("customer payments", () => {
       pageSize: 10,
       cursor: "cursor-page-2",
     }));
-    expect(screen.getByText("Page 2")).toBeVisible();
+    expect(screen.getByText("Page 2 of 2")).toBeVisible();
   });
 
   it("does not let an older reconciliation overwrite a newer filtered page", async () => {

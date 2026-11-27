@@ -26,6 +26,7 @@ import {
   updateAnnouncementAction,
 } from "@/app/admin/announcements/actions";
 import {CursorPagination} from "@/components/data/cursor-pagination";
+import {formatPageLabel} from "@/lib/pagination";
 import {DataTable, type DataTableColumn} from "@/components/data/data-table";
 import {DetailDrawer} from "@/components/data/detail-drawer";
 import {
@@ -352,7 +353,7 @@ function AnnouncementManagementClient({
             const history = [...cursorHistory, cursor];
             loadPage(filters, cursor, history);
           }}
-          pageLabel={`Showing ${page.announcements.length} announcement${page.announcements.length === 1 ? "" : "s"}`}
+          pageLabel={formatPageLabel(cursorHistory.length, page.totalPages, {hasMore: page.hasMore})}
           loading={isPending}
         />
       ) : null}

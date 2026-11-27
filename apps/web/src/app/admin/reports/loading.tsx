@@ -1,6 +1,6 @@
 import {
-  SummaryCard,
-} from "@/components/data/summary-card";
+  TableLoadingSkeleton,
+} from "@/components/feedback/application-states";
 import {
   LoadingSkeleton,
 } from "@/components/feedback/loading";
@@ -14,29 +14,43 @@ export default function AdminReportsLoading() {
       <PageHeading
         eyebrow="Administration"
         title="Reports"
-        description="Review bookings, customer payments, FEASTA revenue, and provider activity."
+        description="Generate, export to PDF, and print structured FEASTA administrative reports."
       />
-      <LoadingSkeleton
-        className="h-48 w-full rounded-card"
-        label="Loading report controls"
-      />
-      <section
-        className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"
-        aria-label="Loading executive report metrics"
-      >
-        {[
-          "Total bookings",
-          "Confirmed bookings",
-          "Completed events",
-          "Cancellation rate",
-          "Active customers",
-          "Active providers",
-          "Currently paid amount",
-          "Average paid payment",
-        ].map((label) => (
-          <SummaryCard key={label} label={label} loading />
-        ))}
-      </section>
+
+      <div className="overflow-hidden rounded-card border border-border bg-card shadow-card">
+        <div className="flex gap-6 border-b border-border px-5 py-3">
+          {[
+            "FEASTA Service Fees",
+            "Fee Withdrawals",
+            "Bookings & Cancellations",
+            "Provider Performance",
+            "Users Directory",
+          ].map((label) => (
+            <LoadingSkeleton
+              key={label}
+              className="h-6 w-32"
+              label={`Loading ${label} tab`}
+            />
+          ))}
+        </div>
+
+        <div className="grid gap-5 p-4 sm:p-5">
+          <LoadingSkeleton
+            className="h-24 w-full rounded-xl"
+            label="Loading report filters"
+          />
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            {[1, 2, 3, 4].map((slot) => (
+              <LoadingSkeleton
+                key={slot}
+                className="h-20 w-full rounded-xl"
+                label="Loading summary metric"
+              />
+            ))}
+          </div>
+          <TableLoadingSkeleton caption="Loading report table" />
+        </div>
+      </div>
     </div>
   );
 }

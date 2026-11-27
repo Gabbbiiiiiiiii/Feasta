@@ -38,9 +38,7 @@ vi.mock(
 const filters: ProviderVerificationQueueFilters = {
   search: "",
   status: "all",
-  serviceType: "all",
-  from: "",
-  to: "",
+  serviceCategory: "all",
   cursor: null,
   direction: "next",
 };
@@ -52,7 +50,7 @@ const page: ProviderVerificationQueuePage = {
     businessName: "A very long FEASTA catering provider business name",
     ownerName: "Ada Lovelace",
     email: "provider@feasta.test",
-    providerServiceType: "catering",
+    serviceCategories: ["catering_service"],
     submittedAt: "Jul 28, 2026",
     status: "submitted",
     taxVerificationStatus: "not_submitted",
@@ -145,16 +143,22 @@ const selected: ProviderVerificationReviewDetail = {
 
 import {TEST_SERVICE_CATEGORY_OPTIONS} from "../fixtures/service-category-options";
 
+const defaultAvailableStatuses = [
+  "submitted",
+  "under_review",
+  "approved",
+] as const;
+
 beforeEach(() => {
   queueLoad.mockReset().mockResolvedValue({page, selected: null,
-    summary: {submitted: 1, underReview: 0, approvedToday: 0, needsResubmission: 0}});
+    summary: {submitted: 1, underReview: 0, approvedToday: 0, needsResubmission: 0, availableStatuses: defaultAvailableStatuses}});
 });
 afterEach(() => vi.useRealTimers());
 
 it("keeps Submitted and Under review distinct and preserves remarks while automatically refreshing", async () => {
   vi.useFakeTimers();
   render(<ProviderVerificationQueue page={page} filters={filters}
-    summary={{submitted: 2, underReview: 3, approvedToday: 1, needsResubmission: 0}}
+    summary={{submitted: 2, underReview: 3, approvedToday: 1, needsResubmission: 0, availableStatuses: defaultAvailableStatuses}}
     selected={selected} serviceCategoryOptions={TEST_SERVICE_CATEGORY_OPTIONS} />);
   fireEvent.change(screen.getByLabelText("Admin remarks"), {target: {value: "Review in progress; retain these notes."}});
   await act(async () => {await vi.advanceTimersByTimeAsync(5_000);});
@@ -168,7 +172,7 @@ describe("provider restoration", () => {
   beforeEach(() => {vi.mocked(reviewProviderVerification).mockReset(); refresh.mockReset();});
   function show(status: ProviderVerificationReviewDetail["status"]) {
     render(<ProviderVerificationQueue page={page} filters={filters}
-      summary={{submitted: 0, underReview: 0, approvedToday: 0, needsResubmission: 0}}
+      summary={{submitted: 0, underReview: 0, approvedToday: 0, needsResubmission: 0, availableStatuses: defaultAvailableStatuses}}
       selected={{...selected, status}} serviceCategoryOptions={TEST_SERVICE_CATEGORY_OPTIONS} />);
   }
   it("offers restore only for suspended providers and requires a reason", () => {
@@ -186,7 +190,7 @@ describe("provider restoration", () => {
   });
   it("displays optional pending permits independently of required and one-of labels", () => {
     render(<ProviderVerificationQueue page={page} filters={filters}
-      summary={{submitted: 0, underReview: 0, approvedToday: 0, needsResubmission: 0}}
+      summary={{submitted: 0, underReview: 0, approvedToday: 0, needsResubmission: 0, availableStatuses: defaultAvailableStatuses}}
       selected={{...selected, status: "suspended", documents: [
         {...selected.documents[0], id: "mayors", title: "Mayor's permit", isRequired: false, requirementKind: "optional"},
         {...selected.documents[0], id: "sanitary", title: "Sanitary permit", isRequired: true, requirementKind: "required"},
@@ -201,7 +205,7 @@ describe("provider restoration", () => {
   });
   it("sends only trusted decision inputs and refreshes after success", async () => {
     queueLoad.mockResolvedValueOnce({page, selected: {...selected, status: "approved"},
-      summary: {submitted: 0, underReview: 0, approvedToday: 1, needsResubmission: 0}});
+      summary: {submitted: 0, underReview: 0, approvedToday: 1, needsResubmission: 0, availableStatuses: ["approved"]}});
     vi.mocked(reviewProviderVerification).mockResolvedValue({success: true, verificationId: selected.id,
       providerId: selected.providerId, previousStatus: "suspended", status: "approved", idempotentReplay: false});
     show("suspended");
@@ -238,7 +242,7 @@ describe("provider verification queue", () => {
       <ProviderVerificationQueue
         page={page}
         filters={filters}
-        summary={{submitted: 2, underReview: 3, approvedToday: 1, needsResubmission: 1}}
+        summary={{submitted: 2, underReview: 3, approvedToday: 1, needsResubmission: 1, availableStatuses: ["draft", "submitted", "under_review", "approved"]}}
         selected={null}
       serviceCategoryOptions={TEST_SERVICE_CATEGORY_OPTIONS}
       />,
@@ -254,13 +258,19 @@ describe("provider verification queue", () => {
       name: "Verification status",
     })).toBeInTheDocument();
     expect(screen.getByRole("option", { name: "Draft" })).toBeInTheDocument();
-    expect(screen.getByRole("option", { name: "Pending" })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: "Pending" })).not.toBeInTheDocument();
     expect(screen.getByRole("combobox", {
-      name: "Provider service type",
+      name: "Service category",
     })).toBeInTheDocument();
+    expect(screen.queryByRole("combobox", {
+      name: "Provider service type",
+    })).not.toBeInTheDocument();
     expect(screen.getByRole("table", {
       name: "Provider verification",
     })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "Service category" })).toBeInTheDocument();
+    expect(screen.queryByRole("columnheader", { name: "Service type" })).not.toBeInTheDocument();
+    expect(screen.getAllByText("Catering Service").length).toBeGreaterThan(0);
     expect(screen.getAllByLabelText("Status: Submitted").length).toBeGreaterThan(0);
     expect(screen.getByRole("navigation", {
       name: "Table pagination",
@@ -276,6 +286,7 @@ describe("provider verification queue", () => {
         underReview: 0,
         approvedToday: 0,
         needsResubmission: 0,
+        availableStatuses: defaultAvailableStatuses,
       },
     });
 
@@ -288,6 +299,7 @@ describe("provider verification queue", () => {
           underReview: 0,
           approvedToday: 0,
           needsResubmission: 0,
+          availableStatuses: defaultAvailableStatuses,
         }}
         selected={null}
         serviceCategoryOptions={
@@ -346,7 +358,7 @@ describe("provider verification queue", () => {
       <ProviderVerificationQueue
         page={page}
         filters={filters}
-        summary={{submitted: 2, underReview: 3, approvedToday: 1, needsResubmission: 1}}
+        summary={{submitted: 2, underReview: 3, approvedToday: 1, needsResubmission: 1, availableStatuses: defaultAvailableStatuses}}
         selected={null}
       serviceCategoryOptions={TEST_SERVICE_CATEGORY_OPTIONS}
       />,
@@ -364,37 +376,42 @@ describe("provider verification queue", () => {
     );
 
     fireEvent.change(screen.getByRole("combobox", {
-      name: "Provider service type",
-    }), {target: {value: "addon"}});
+      name: "Service category",
+    }), {target: {value: "photographer"}});
     expect(push).toHaveBeenCalledWith(
-      expect.stringContaining("serviceType=addon"),
+      expect.stringContaining("serviceCategory=photographer"),
     );
 
-    fireEvent.change(screen.getByLabelText("Application from"), {
-      target: {value: "2026-07-01"},
-    });
-    expect(push).toHaveBeenCalledWith(
-      expect.stringContaining("from=2026-07-01"),
-    );
+    expect(screen.queryByLabelText("Application from")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Application to")).not.toBeInTheDocument();
   });
 
-  it("offers every verification status and clears the status and cursor when returning to all", () => {
+  it("offers only database-backed verification statuses and clears status and cursor when returning to all", () => {
     query = "status=approved&cursor=old-page&direction=next&selected=verification-one";
     render(<ProviderVerificationQueue
       page={page} filters={{...filters, status: "approved", cursor: "old-page"}}
-      summary={{submitted: 2, underReview: 3, approvedToday: 1, needsResubmission: 1}}
+      summary={{submitted: 1, underReview: 1, approvedToday: 0, needsResubmission: 0, availableStatuses: ["submitted", "under_review", "approved"]}}
       selected={null} serviceCategoryOptions={TEST_SERVICE_CATEGORY_OPTIONS}
     />);
     const statusSelect = screen.getByRole("combobox", { name: "Verification status" });
     expect(within(statusSelect).getAllByRole("option").map((option) => (option as HTMLOptionElement).value)).toEqual([
-      "all", "pending", "draft", "submitted", "under_review", "approved", "resubmission_required", "rejected", "suspended",
+      "all", "submitted", "under_review", "approved",
     ]);
     fireEvent.change(statusSelect, { target: { value: "all" } });
     expect(push).toHaveBeenLastCalledWith("/admin/providers?");
-    fireEvent.change(statusSelect, { target: { value: "draft" } });
-    expect(push).toHaveBeenLastCalledWith("/admin/providers?status=draft");
-    fireEvent.change(statusSelect, { target: { value: "pending" } });
-    expect(push).toHaveBeenLastCalledWith("/admin/providers?status=pending");
+    fireEvent.change(statusSelect, { target: { value: "submitted" } });
+    expect(push).toHaveBeenLastCalledWith("/admin/providers?status=submitted");
+  });
+
+  it("shows a disabled fallback option if the active URL status no longer has database records", () => {
+    render(<ProviderVerificationQueue
+      page={{...page, items: []}} filters={{...filters, status: "suspended"}}
+      summary={{submitted: 1, underReview: 0, approvedToday: 0, needsResubmission: 0, availableStatuses: ["submitted", "approved"]}}
+      selected={null} serviceCategoryOptions={TEST_SERVICE_CATEGORY_OPTIONS}
+    />);
+    const statusSelect = screen.getByRole("combobox", { name: "Verification status" });
+    const fallback = within(statusSelect).getByRole("option", { name: "Suspended (none)" }) as HTMLOptionElement;
+    expect(fallback.disabled).toBe(true);
   });
 
   it("provides a mobile-safe card and focus-managed detail drawer", () => {
@@ -402,7 +419,7 @@ describe("provider verification queue", () => {
       <ProviderVerificationQueue
         page={page}
         filters={filters}
-        summary={{submitted: 2, underReview: 3, approvedToday: 1, needsResubmission: 1}}
+        summary={{submitted: 2, underReview: 3, approvedToday: 1, needsResubmission: 1, availableStatuses: defaultAvailableStatuses}}
         selected={selected}
       serviceCategoryOptions={TEST_SERVICE_CATEGORY_OPTIONS}
       />,
@@ -417,10 +434,12 @@ describe("provider verification queue", () => {
       name: "A very long FEASTA catering provider business name",
     });
     expect(dialog).toHaveClass(
-      "w-[min(100vw,32rem)]",
-      "max-w-[100vw]",
-      "overflow-x-hidden",
+      "w-screen",
+      "max-w-none",
+      "h-dvh",
+      "overflow-hidden",
     );
+    expect(within(dialog).getByRole("button", {name: "Back to Provider Verification"})).toBeInTheDocument();
     expect(within(dialog).getByText("Ada Lovelace")).toBeInTheDocument();
     expect(within(dialog).getByRole("link", {name: "View document"}))
       .toHaveAttribute("href", selected.documents[0].viewPath);
@@ -433,7 +452,7 @@ describe("provider verification queue", () => {
       <ProviderVerificationQueue
         page={{...page, items: []}}
         filters={{...filters, search: "missing"}}
-        summary={{submitted: 0, underReview: 0, approvedToday: 0, needsResubmission: 0}}
+        summary={{submitted: 0, underReview: 0, approvedToday: 0, needsResubmission: 0, availableStatuses: []}}
         selected={null}
       serviceCategoryOptions={TEST_SERVICE_CATEGORY_OPTIONS}
       />,
@@ -455,7 +474,7 @@ describe("provider verification queue", () => {
       <ProviderVerificationQueue
         page={page}
         filters={filters}
-        summary={{submitted: 1, underReview: 0, approvedToday: 0, needsResubmission: 0}}
+        summary={{submitted: 1, underReview: 0, approvedToday: 0, needsResubmission: 0, availableStatuses: defaultAvailableStatuses}}
         selected={selected}
       serviceCategoryOptions={TEST_SERVICE_CATEGORY_OPTIONS}
       />,
@@ -499,6 +518,7 @@ describe("provider verification queue", () => {
           underReview: 0,
           approvedToday: 0,
           needsResubmission: 0,
+          availableStatuses: defaultAvailableStatuses,
         }}
         selected={{
           ...selected,
@@ -632,6 +652,7 @@ describe("provider verification queue", () => {
           underReview: 0,
           approvedToday: 0,
           needsResubmission: 0,
+          availableStatuses: defaultAvailableStatuses,
         }}
         selected={{
           ...selected,
@@ -717,7 +738,7 @@ describe("provider verification queue", () => {
       <ProviderVerificationQueue
         page={page}
         filters={filters}
-        summary={{submitted: 0, underReview: 1, approvedToday: 0, needsResubmission: 0}}
+        summary={{submitted: 0, underReview: 1, approvedToday: 0, needsResubmission: 0, availableStatuses: defaultAvailableStatuses}}
         selected={{...selected, status: "under_review"}}
       serviceCategoryOptions={TEST_SERVICE_CATEGORY_OPTIONS}
       />,
@@ -751,7 +772,7 @@ describe.each([360, 390, 768, 1024, 1440])(
         <ProviderVerificationQueue
           page={page}
           filters={filters}
-          summary={{submitted: 2, underReview: 3, approvedToday: 1, needsResubmission: 1}}
+          summary={{submitted: 2, underReview: 3, approvedToday: 1, needsResubmission: 1, availableStatuses: defaultAvailableStatuses}}
           selected={null}
         serviceCategoryOptions={TEST_SERVICE_CATEGORY_OPTIONS}
         />,

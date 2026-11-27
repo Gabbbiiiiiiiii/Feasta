@@ -2,12 +2,14 @@
 
 import {
   AlertTriangle,
+  ArrowUpRight,
+  CheckCircle2,
   Eye,
-  FileWarning,
-  MessageSquareWarning,
+  Inbox,
   SearchCheck,
   ShieldCheck,
 } from "lucide-react";
+import Link from "next/link";
 import {
   useCallback,
   useEffect,
@@ -17,6 +19,11 @@ import {
   useTransition,
 } from "react";
 
+import type {
+  ComplaintPriority,
+  ComplaintStatus,
+} from "@feasta/shared-types";
+
 import {
   loadAdminComplaintsAction,
   manageAdminComplaintAction,
@@ -24,6 +31,7 @@ import {
 import {
   CursorPagination,
 } from "@/components/data/cursor-pagination";
+import {formatPageLabel} from "@/lib/pagination";
 import {
   DataTable,
   type DataTableColumn,
@@ -82,6 +90,24 @@ const DEFAULT_FILTERS: AdminComplaintFilters = {
   priority: "all",
   pageSize: 10,
   cursor: null,
+};
+
+const COMPLAINT_STATUS_LABELS: Record<ComplaintStatus, string> = {
+  submitted: "Submitted",
+  under_review: "Under review",
+  awaiting_customer: "Awaiting customer",
+  awaiting_provider: "Awaiting provider",
+  escalated: "Escalated",
+  resolved: "Resolved",
+  dismissed: "Dismissed",
+  closed: "Closed",
+};
+
+const COMPLAINT_PRIORITY_LABELS: Record<ComplaintPriority, string> = {
+  low: "Low",
+  normal: "Normal",
+  high: "High",
+  urgent: "Urgent",
 };
 
 const decisionLabels: Record<
@@ -473,12 +499,24 @@ function ComplaintManagementClient({
       [],
     );
 
-  const openComplaintCount =
-    page.statistics.submitted +
+  const pendingTriageCount = page.statistics.submitted;
+  const inProgressCount =
     page.statistics.underReview +
-    page.statistics
-      .awaitingResponse +
-    page.statistics.escalated;
+    page.statistics.awaitingResponse;
+  const escalatedCount = page.statistics.escalated;
+  const resolvedClosedCount =
+    page.statistics.resolved +
+    page.statistics.dismissed +
+    page.statistics.closed;
+
+  const availableStatuses =
+    page.statistics.availableStatuses ??
+    initialPage.statistics.availableStatuses ??
+    [];
+  const availablePriorities =
+    page.statistics.availablePriorities ??
+    initialPage.statistics.availablePriorities ??
+    [];
 
   const publicResponseRequired =
     decision !==
@@ -498,7 +536,7 @@ function ComplaintManagementClient({
       <PageHeading
         eyebrow="Administration"
         title="Complaints"
-        description="Review and resolve customer and provider complaints."
+        description="Review and resolve customer complaints."
       />
 
       <section
@@ -506,42 +544,61 @@ function ComplaintManagementClient({
         aria-label="Complaint statistics"
       >
         <SummaryCard
-          label="All complaints"
-          value={
-            page.statistics
-              .totalComplaints
+          label="Pending triage"
+          tooltip="New complaints waiting for an admin to start reviewing."
+          value={pendingTriageCount}
+          supportingMetric={
+            pendingTriageCount > 0 ? (
+              <button
+                type="button"
+                disabled={isPending}
+                onClick={() => applyFilters({status: "submitted"})}
+                className="font-semibold text-primary underline underline-offset-4 hover:text-primary/80 disabled:opacity-60"
+              >
+                View pending triage
+              </button>
+            ) : (
+              "No unreviewed cases"
+            )
           }
-          icon={
-            <MessageSquareWarning />
-          }
+          icon={<Inbox />}
         />
 
         <SummaryCard
-          label="Open cases"
-          value={
-            openComplaintCount
-          }
-          icon={<FileWarning />}
-        />
-
-        <SummaryCard
-          label="Under review"
-          value={
-            page.statistics
-              .underReview
-          }
+          label="In progress"
+          tooltip="Complaints currently under review or awaiting a customer or provider response."
+          value={inProgressCount}
+          supportingMetric={`${page.statistics.underReview} under review · ${page.statistics.awaitingResponse} awaiting reply`}
           icon={<SearchCheck />}
         />
 
         <SummaryCard
           label="Escalated"
-          value={
-            page.statistics
-              .escalated
+          tooltip="Disputes escalated for priority administrative review."
+          value={escalatedCount}
+          supportingMetric={
+            escalatedCount > 0 ? (
+              <button
+                type="button"
+                disabled={isPending}
+                onClick={() => applyFilters({status: "escalated"})}
+                className="font-semibold text-primary underline underline-offset-4 hover:text-primary/80 disabled:opacity-60"
+              >
+                View escalated
+              </button>
+            ) : (
+              "No escalated cases"
+            )
           }
-          icon={
-            <AlertTriangle />
-          }
+          icon={<AlertTriangle />}
+        />
+
+        <SummaryCard
+          label="Resolved & closed"
+          tooltip="Complaints that have been resolved, dismissed, or closed."
+          value={resolvedClosedCount}
+          supportingMetric={`${page.statistics.totalComplaints} total recorded`}
+          icon={<CheckCircle2 />}
         />
       </section>
 
@@ -570,7 +627,7 @@ function ComplaintManagementClient({
         }
         loading={isPending}
         searchLabel="Search complaints"
-        searchPlaceholder="Search ID, complainant, category, or description"
+        searchPlaceholder="Search booking code, complainant, category, or description"
         filterControls={
           <>
             <label className="grid gap-2 text-sm font-bold">
@@ -598,30 +655,17 @@ function ComplaintManagementClient({
                 <option value="all">
                   All statuses
                 </option>
-                <option value="submitted">
-                  Submitted
-                </option>
-                <option value="under_review">
-                  Under review
-                </option>
-                <option value="awaiting_customer">
-                  Awaiting customer
-                </option>
-                <option value="awaiting_provider">
-                  Awaiting provider
-                </option>
-                <option value="escalated">
-                  Escalated
-                </option>
-                <option value="resolved">
-                  Resolved
-                </option>
-                <option value="dismissed">
-                  Dismissed
-                </option>
-                <option value="closed">
-                  Closed
-                </option>
+                {filters.status !== "all" &&
+                !availableStatuses.includes(filters.status) ? (
+                  <option value={filters.status} disabled>
+                    {COMPLAINT_STATUS_LABELS[filters.status]} (no matching records)
+                  </option>
+                ) : null}
+                {availableStatuses.map((statusOption) => (
+                  <option key={statusOption} value={statusOption}>
+                    {COMPLAINT_STATUS_LABELS[statusOption]}
+                  </option>
+                ))}
               </Select>
             </label>
 
@@ -650,18 +694,17 @@ function ComplaintManagementClient({
                 <option value="all">
                   All priorities
                 </option>
-                <option value="low">
-                  Low
-                </option>
-                <option value="normal">
-                  Normal
-                </option>
-                <option value="high">
-                  High
-                </option>
-                <option value="urgent">
-                  Urgent
-                </option>
+                {filters.priority !== "all" &&
+                !availablePriorities.includes(filters.priority) ? (
+                  <option value={filters.priority} disabled>
+                    {COMPLAINT_PRIORITY_LABELS[filters.priority]} (no matching records)
+                  </option>
+                ) : null}
+                {availablePriorities.map((priorityOption) => (
+                  <option key={priorityOption} value={priorityOption}>
+                    {COMPLAINT_PRIORITY_LABELS[priorityOption]}
+                  </option>
+                ))}
               </Select>
             </label>
           </>
@@ -689,7 +732,7 @@ function ComplaintManagementClient({
         emptyDescription={
           activeFilters.length > 0
             ? "Try changing your search or clearing a filter."
-            : "Customer and provider complaints will appear here after submission."
+            : "Customer complaints will appear here after submission."
         }
         rowActionsLabel="Details"
         rowActions={(
@@ -764,12 +807,7 @@ function ComplaintManagementClient({
               history,
             );
           }}
-          pageLabel={`Showing ${page.complaints.length} complaint${
-            page.complaints
-              .length === 1
-              ? ""
-              : "s"
-          }`}
+          pageLabel={formatPageLabel(cursorHistory.length, page.totalPages, {hasMore: page.hasMore})}
           loading={isPending}
         />
       ) : null}
@@ -783,16 +821,28 @@ function ComplaintManagementClient({
         description="Review the complaint, people involved, and steps taken to resolve it."
         footer={
           selected ? (
-            <Button
-              type="button"
-              className="w-full"
-              onClick={
-                openDecision
-              }
-            >
-              <ShieldCheck aria-hidden="true" />
-              Manage complaint
-            </Button>
+            <div className="grid w-full gap-2">
+              {selected.bookingCode ? (
+                <Button asChild variant="secondary" className="w-full">
+                  <Link
+                    href={`/admin/bookings?search=${encodeURIComponent(selected.bookingCode)}`}
+                  >
+                    <span>Open booking</span>
+                    <ArrowUpRight aria-hidden="true" className="size-4" />
+                  </Link>
+                </Button>
+              ) : null}
+              <Button
+                type="button"
+                className="w-full"
+                onClick={
+                  openDecision
+                }
+              >
+                <ShieldCheck aria-hidden="true" />
+                Manage complaint
+              </Button>
+            </div>
           ) : undefined
         }
       >
@@ -812,7 +862,11 @@ function ComplaintManagementClient({
             handleDecisionOpenChange
           }
           title="Manage complaint"
-          description={`Save a decision for complaint ${selected.id}.`}
+          description={
+            selected.bookingCode
+              ? `Save a decision for the complaint on booking ${selected.bookingCode}.`
+              : "Save a decision for this complaint."
+          }
           confirmLabel={
             decisionLabels[
               decision
@@ -1042,10 +1096,21 @@ function ComplaintDetails({
       />
 
 
-      {complaint.bookingId || complaint.providerRequestId ? (
-        <DetailSection title="Related booking" rows={[
-          ["Report scope", complaint.providerRequestId ? "Provider request" : "Event-level report"],
-        ]} />
+      {complaint.bookingId || complaint.bookingCode || complaint.providerRequestId ? (
+        <DetailSection
+          title="Related booking"
+          rows={[
+            ...(complaint.bookingCode
+              ? ([["Booking code", complaint.bookingCode]] as const)
+              : []),
+            [
+              "Report scope",
+              complaint.providerRequestId
+                ? "Provider request"
+                : "Event-level report",
+            ],
+          ]}
+        />
       ) : null}
 
       {complaint.providerId ? (
@@ -1111,15 +1176,31 @@ function ComplaintDetails({
               (
                 evidenceUrl,
                 index,
-              ) => (
-                <li
-                  key={`${evidenceUrl}-${index}`}
-                  className="rounded-lg border border-border p-3 text-sm"
-                >
-                  Evidence item{" "}
-                  {index + 1}
-                </li>
-              ),
+              ) => {
+                const safeHref = safeEvidenceHref(evidenceUrl);
+                return (
+                  <li
+                    key={`${evidenceUrl}-${index}`}
+                    className="rounded-lg border border-border p-3 text-sm"
+                  >
+                    {safeHref ? (
+                      <a
+                        href={safeHref}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex w-full items-center justify-between gap-2 font-semibold text-primary underline underline-offset-4 hover:text-primary/80"
+                      >
+                        <span>Open evidence item {index + 1}</span>
+                        <ArrowUpRight aria-hidden="true" className="size-4 shrink-0" />
+                      </a>
+                    ) : (
+                      <span className="text-muted-foreground">
+                        Evidence item {index + 1} (link unavailable)
+                      </span>
+                    )}
+                  </li>
+                );
+              },
             )}
           </ul>
         ) : (
@@ -1398,6 +1479,20 @@ function formatDate(
         "Asia/Manila",
     },
   ).format(date);
+}
+
+function safeEvidenceHref(
+  value: string,
+): string | null {
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === "https:" ||
+      parsed.protocol === "http:"
+      ? parsed.toString()
+      : null;
+  } catch {
+    return null;
+  }
 }
 
 function errorMessage(

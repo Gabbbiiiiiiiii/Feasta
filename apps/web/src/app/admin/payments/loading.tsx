@@ -17,17 +17,16 @@ export default function AdminPaymentsLoading() {
       <PageHeading
         eyebrow="Administration"
         title="Payments"
-        description="Monitor customer payments, refunds, and provider payouts."
+        description="Monitor customer payments, refunds, and FEASTA service fees."
       />
 
       <section
-        className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"
+        className="grid gap-4 sm:grid-cols-3"
         aria-label="Loading payment statistics"
       >
-        <SummaryCard label="Net customer payments" loading />
+        <SummaryCard label="FEASTA fees available" loading />
+        <SummaryCard label="FEASTA fees withdrawn" loading />
         <SummaryCard label="Pending payments" loading />
-        <SummaryCard label="Failed payments" loading />
-        <SummaryCard label="Refunded amount" loading />
       </section>
 
       <div className="overflow-hidden rounded-card border border-border bg-card shadow-card">
@@ -38,7 +37,7 @@ export default function AdminPaymentsLoading() {
           />
           <LoadingSkeleton
             className="h-6 w-36"
-            label="Loading Provider payouts tab"
+            label="Loading FEASTA service fees tab"
           />
         </div>
 

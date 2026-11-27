@@ -5,6 +5,7 @@ import {
 import Link from "next/link";
 
 import {packageDiscoveryHref} from "@/lib/customer/discovery/package-query";
+import {formatPageLabel} from "@/lib/pagination";
 import type {
   PackageDiscoveryFilters,
   PackageDiscoveryPage,
@@ -27,8 +28,10 @@ export function PackagePagination({
       className="flex flex-col gap-4 rounded-[22px] border border-feasta-border-soft bg-white px-5 py-4 shadow-[0_5px_20px_rgb(0_75_59/0.03)] sm:flex-row sm:items-center sm:justify-between sm:px-6"
     >
       <div>
-        <p className="text-sm font-bold text-foreground">
-          Continue exploring
+        <p className="text-sm font-bold text-foreground" aria-live="polite">
+          {formatPageLabel(page.currentPage ?? 1, page.totalPages, {
+            hasMore: page.nextCursor !== null,
+          })}
         </p>
 
         <p className="mt-0.5 text-xs leading-5 text-feasta-text-secondary">

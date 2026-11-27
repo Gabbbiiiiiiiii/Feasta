@@ -26,6 +26,8 @@ import {
 import {
   adminDb,
 } from "@/lib/firebase/admin";
+import {countFirestoreQuery} from "@/lib/firebase/count-query";
+import {computeTotalPages} from "@/lib/pagination";
 import {providerNetPesosFromRequestData} from "@/lib/provider/payments/provider-net-amount";
 
 import type {
@@ -64,6 +66,8 @@ export async function getProviderRequestPage(input: Partial<ProviderRequestFilte
   let base = adminDb.collection(COLLECTIONS.providerRequests).where("providerId", "==", providerId);
   if (filters.status !== "all") base = base.where("status", "==", filters.status === "new" ? "pending" : filters.status);
   base = base.orderBy("createdAt", "desc").orderBy(FieldPath.documentId(), "desc");
+  const canCountDirectly = !filters.search && filters.status !== "new";
+  const totalCountPromise = canCountDirectly ? countFirestoreQuery(base) : Promise.resolve(null);
   const cursor = decodeRequestCursor(filters.cursor, providerId, filters);
   if (cursor) base = base.startAfter(Timestamp.fromMillis(cursor.time), cursor.id);
   let scanQuery = base;
@@ -96,8 +100,10 @@ export async function getProviderRequestPage(input: Partial<ProviderRequestFilte
   const visible = matches.slice(0, PAGE_SIZE);
   const hasMore = matches.length > PAGE_SIZE || !exhausted;
   const next = matches.length > PAGE_SIZE ? visible.at(-1)?.document : last;
+  const totalCount = await totalCountPromise;
   return {requests: visible.map(item => item.request), hasMore, skippedMalformedCount,
-    nextCursor: hasMore && next ? encodeRequestCursor(next, providerId, filters) : null};
+    nextCursor: hasMore && next ? encodeRequestCursor(next, providerId, filters) : null,
+    totalCount, totalPages: computeTotalPages(totalCount, PAGE_SIZE)};
 }
 
 async function requestParents(documents: QueryDocumentSnapshot<DocumentData>[]) {

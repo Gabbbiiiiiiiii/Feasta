@@ -12,6 +12,8 @@ import {
 
 import {requireApprovedProvider} from "@/lib/auth/session";
 import {adminDb} from "@/lib/firebase/admin";
+import {countFirestoreQuery} from "@/lib/firebase/count-query";
+import {computeTotalPages} from "@/lib/pagination";
 
 import type {
   ProviderReview,
@@ -74,6 +76,7 @@ export async function getProviderReviewPage(
     .orderBy("createdAt", "desc")
     .orderBy(FieldPath.documentId(), "desc");
 
+  const countQuery = query;
   const cursor = decodeCursor(filters.cursor, filters.rating);
 
   if (cursor) {
@@ -83,7 +86,10 @@ export async function getProviderReviewPage(
     );
   }
 
-  const snapshot = await query.limit(filters.pageSize + 1).get();
+  const [snapshot, totalCount] = await Promise.all([
+    query.limit(filters.pageSize + 1).get(),
+    countFirestoreQuery(countQuery),
+  ]);
   const queryHasMore = snapshot.docs.length > filters.pageSize;
   const documents = queryHasMore
     ? snapshot.docs.slice(0, filters.pageSize)
@@ -112,6 +118,8 @@ export async function getProviderReviewPage(
     nextCursor,
     hasMore: nextCursor !== null,
     skippedMalformedCount,
+    totalCount,
+    totalPages: computeTotalPages(totalCount, filters.pageSize),
   };
 }
 

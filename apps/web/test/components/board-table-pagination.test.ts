@@ -9,17 +9,18 @@ describe("paginateBoardRows", () => {
     expect(first.pageRows).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
     expect(first.previousCursor).toBeNull();
     expect(first.nextCursor).toBe(1);
-    expect(first.pageLabel).toBe("Showing 1-10 of 25");
+    expect(first.pageLabel).toBe("Page 1 of 3 · Showing 1-10 of 25");
 
     const second = paginateBoardRows(rows, 1, 10);
     expect(second.pageRows).toEqual([11, 12, 13, 14, 15, 16, 17, 18, 19, 20]);
     expect(second.previousCursor).toBe(0);
     expect(second.nextCursor).toBe(2);
+    expect(second.pageLabel).toBe("Page 2 of 3 · Showing 11-20 of 25");
 
     const last = paginateBoardRows(rows, 2, 10);
     expect(last.pageRows).toEqual([21, 22, 23, 24, 25]);
     expect(last.nextCursor).toBeNull();
-    expect(last.pageLabel).toBe("Showing 21-25 of 25");
+    expect(last.pageLabel).toBe("Page 3 of 3 · Showing 21-25 of 25");
   });
 
   it("clamps an out-of-range page index", () => {

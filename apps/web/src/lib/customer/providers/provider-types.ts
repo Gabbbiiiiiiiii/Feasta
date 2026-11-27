@@ -44,6 +44,9 @@ export type ProviderDiscoveryPage = {
   previousCursor: string | null;
   nextCursor: string | null;
   pageSize: number;
+  currentPage?: number;
+  totalCount?: number | null;
+  totalPages?: number | null;
 };
 
 export type ProviderCursorDirection = "next" | "previous";
@@ -52,4 +55,5 @@ export type ProviderCursor = {
   direction: ProviderCursorDirection;
   favoriteCount: number;
   providerId: string;
+  page?: number;
 };

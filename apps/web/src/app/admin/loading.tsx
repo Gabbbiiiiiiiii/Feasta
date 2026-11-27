@@ -33,122 +33,76 @@ export default function AdminDashboardLoading() {
         className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4"
         aria-label="Loading dashboard statistics"
       >
-        <SummaryCard
-          label="Total users"
-          loading
-        />
-
-        <SummaryCard
-          label="Total bookings"
-          loading
-        />
-
-        <SummaryCard
-          label="Pending provider verifications"
-          loading
-        />
+        <SummaryCard label="Total users" loading />
+        <SummaryCard label="Total bookings" loading />
+        <SummaryCard label="Pending provider verifications" loading />
         <SummaryCard label="Open complaints" loading />
       </section>
 
-      <section className="grid gap-4 xl:grid-cols-[minmax(0,2fr)_minmax(18rem,1fr)]">
-        <div className="grid min-w-0 gap-4 rounded-card border border-border bg-card p-5 shadow-card">
+      <section className="grid gap-6 xl:grid-cols-[minmax(0,1.85fr)_minmax(320px,1fr)]">
+        <div className="grid min-w-0 content-start gap-5 rounded-card border border-border bg-card p-5 shadow-card sm:p-6">
           <div className="flex items-center justify-between gap-4">
             <LoadingSkeleton
-              className="h-6 w-40"
-              label="Loading payment volume chart title"
+              className="h-6 w-48"
+              label="Loading provider performance title"
             />
-
             <LoadingSkeleton
-              className="h-10 w-28"
-              label="Loading payment volume range"
+              className="h-9 w-32"
+              label="Loading report action"
             />
           </div>
 
-          <LoadingSkeleton
-            className="h-72 w-full"
-            label="Loading payment volume chart"
-          />
+          <div className="grid gap-3 sm:grid-cols-3">
+            {Array.from({ length: 3 }, (_, index) => (
+              <LoadingSkeleton
+                key={index}
+                className="h-24 w-full rounded-xl"
+                label={`Loading provider summary card ${index + 1}`}
+              />
+            ))}
+          </div>
+
+          <div className="grid gap-3">
+            {Array.from({ length: 5 }, (_, index) => (
+              <LoadingSkeleton
+                key={index}
+                className="h-14 w-full rounded-xl"
+                label={`Loading top provider row ${index + 1}`}
+              />
+            ))}
+          </div>
         </div>
 
-        <div className="grid min-w-0 content-start gap-4 rounded-card border border-border bg-card p-5 shadow-card">
+        <div className="grid min-w-0 content-start gap-4 rounded-card border border-border bg-card p-5 shadow-card sm:p-6">
           <LoadingSkeleton
             className="h-6 w-36"
-            label="Loading top providers title"
+            label="Loading recent activities title"
           />
 
-          {Array.from(
-            { length: 5 },
-            (_, index) => (
-              <div
-                key={index}
-                className="flex items-center gap-3"
-              >
+          {Array.from({ length: 6 }, (_, index) => (
+            <div
+              key={index}
+              className="flex items-start gap-3 border-b border-border pb-3 last:border-0 last:pb-0"
+            >
+              <LoadingSkeleton
+                className="size-9 shrink-0 rounded-full"
+                label={`Loading activity icon ${index + 1}`}
+              />
+
+              <div className="grid min-w-0 flex-1 gap-2">
                 <LoadingSkeleton
-                  className="size-11 shrink-0 rounded-full"
-                  label={`Loading provider ${index + 1}`}
+                  className="h-4 w-3/4"
+                  label="Loading activity action"
                 />
-
-                <div className="grid min-w-0 flex-1 gap-2">
-                  <LoadingSkeleton
-                    className="h-4 w-3/4"
-                    label="Loading provider name"
-                  />
-
-                  <LoadingSkeleton
-                    className="h-3 w-1/2"
-                    label="Loading provider information"
-                  />
-                </div>
+                <LoadingSkeleton
+                  className="h-3 w-1/2"
+                  label="Loading activity detail"
+                />
               </div>
-            ),
-          )}
+            </div>
+          ))}
         </div>
       </section>
-
-      <section className="grid gap-4 lg:grid-cols-2">
-        <DashboardPanelSkeleton
-          title="Loading platform health"
-        />
-
-        <DashboardPanelSkeleton
-          title="Loading recent activities"
-        />
-      </section>
-    </div>
-  );
-}
-
-function DashboardPanelSkeleton({
-  title,
-}: {
-  title: string;
-}) {
-  return (
-    <div className="grid min-w-0 content-start gap-4 rounded-card border border-border bg-card p-5 shadow-card">
-      <LoadingSkeleton
-        className="h-6 w-40"
-        label={title}
-      />
-
-      {Array.from(
-        { length: 4 },
-        (_, index) => (
-          <div
-            key={index}
-            className="grid gap-2 border-b border-border pb-3 last:border-0 last:pb-0"
-          >
-            <LoadingSkeleton
-              className="h-4 w-3/4"
-              label="Loading dashboard record"
-            />
-
-            <LoadingSkeleton
-              className="h-3 w-1/2"
-              label="Loading dashboard detail"
-            />
-          </div>
-        ),
-      )}
     </div>
   );
 }

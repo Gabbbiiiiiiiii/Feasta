@@ -173,4 +173,6 @@ export type AdminUserPage = {
   statistics: AdminUserStatistics;
   nextCursor: string | null;
   hasMore: boolean;
+  totalCount?: number | null;
+  totalPages?: number | null;
 };

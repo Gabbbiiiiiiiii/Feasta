@@ -1626,6 +1626,7 @@ export function ProviderPackageForm({
           [...selectedOccasions.filter(id => !(id === otherOccasion && privateLabels.length > 0)).map(occasionLabel), ...privateLabels.map(label => `${label} (custom)`)].join(", ")}
           serviceCategory={packageCategoryOptions.find((category) => category.code === serviceCategoryCode)?.name ?? ""}
           pricingModel={pricingModel} minimumGuests={minimumGuests} maximumGuests={maximumGuests}
+          maxDropOffOrderQuantity={canSetDropOffLimit && isDropOffOrderQuantity(dropOffLimit) ? dropOffLimit : undefined}
           serviceOptions={offerConfiguration.serviceOptions} food={foodInclusions} foodChoiceGroups={usesV2 ? foodChoiceGroups : []} decor={decorInclusionsText}
           furniture={furnitureInclusionsText} services={serviceInclusionsText} offerDraft={offerDraft}
           images={images} paymentPolicy={paymentPolicy} fullPaymentAllowed={allowFullPayment} depositPercentage={depositPercentage}
@@ -1635,7 +1636,7 @@ export function ProviderPackageForm({
       </div>
       </div>
       <div className={dialogLayout ? "grid shrink-0 gap-3 border-t border-border bg-card px-5 py-4 sm:px-6" : "grid gap-3"}>
-      {step === 4 && (validationError || paymentTermsError || depositError || foodError) ? <p role="alert" className="text-sm text-destructive">{validationError?.message || paymentTermsError || depositError || foodError}</p> : null}
+      {step === 4 && (validationError || paymentTermsError || depositError || foodError || dropOffLimitError) ? <p role="alert" className="text-sm text-destructive">{validationError?.message || paymentTermsError || depositError || foodError || dropOffLimitError}</p> : null}
       {step === 4 && publishBlockedReason ? <p role="status" className="text-xs text-muted-foreground">{publishBlockedReason}</p> : null}
       {savedOnDevice ? <p role="status" className="text-xs text-muted-foreground">
         Package details saved on this device. Reopen New package to continue. Selected images need to be added again after a reload.

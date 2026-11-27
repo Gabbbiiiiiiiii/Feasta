@@ -170,6 +170,8 @@ export type CustomerBookingPage = {
 
   nextCursor: string | null;
   hasMore: boolean;
+  totalCount?: number | null;
+  totalPages?: number | null;
 };
 
 export type CustomerBookingResults = {
@@ -177,6 +179,8 @@ export type CustomerBookingResults = {
 
   nextCursor: string | null;
   hasMore: boolean;
+  totalCount?: number | null;
+  totalPages?: number | null;
 };
 
 export type CustomerBookingDetails = {

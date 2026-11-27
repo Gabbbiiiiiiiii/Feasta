@@ -1,31 +1,16 @@
 import {
-  AdminReportsExecutiveClient,
-} from "@/components/admin/reports/admin-reports-executive-client";
+  AdminReportsWorkspaceClient,
+} from "@/components/admin/reports/admin-reports-workspace-client";
 import {
-  getAdminReport,
-} from "@/lib/admin/reports/admin-report-service";
-import {
-  DEFAULT_ADMIN_REPORT_FILTERS,
-} from "@/lib/admin/reports/admin-report-types";
-import {
-  getServiceCategoryOptions,
-} from "@/lib/service-categories/service-category-service";
+  getInitialAdminReportsModule,
+} from "@/lib/admin/reports/admin-report-modules-service";
 
 export default async function AdminReportsPage() {
-  const [
-    initialReport,
-    serviceCategoryOptions,
-  ] = await Promise.all([
-    getAdminReport(
-      DEFAULT_ADMIN_REPORT_FILTERS,
-    ),
-    getServiceCategoryOptions(),
-  ]);
+  const initialServiceFees = await getInitialAdminReportsModule();
 
   return (
-    <AdminReportsExecutiveClient
-      initialReport={initialReport}
-      serviceCategoryOptions={serviceCategoryOptions}
+    <AdminReportsWorkspaceClient
+      initialServiceFees={initialServiceFees}
     />
   );
 }

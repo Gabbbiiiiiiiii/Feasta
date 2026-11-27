@@ -289,7 +289,7 @@ describe("customer booking history and details", () => {
         cursor: "opaque-next-page",
       });
     });
-    expect(await screen.findByText("Page 2")).toBeVisible();
+    expect(await screen.findByText("Page 2 of 2")).toBeVisible();
 
     const previousButton = screen.getByRole("button", {name: /Previous/u});
     await waitFor(() => expect(previousButton).toBeEnabled());

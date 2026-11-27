@@ -28,6 +28,7 @@ import {
   SummaryCard,
   type DataTableColumn,
 } from "@/components/data";
+import {formatPageLabel} from "@/lib/pagination";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
@@ -796,9 +797,7 @@ const confirmAccountAction =
         }
         nextCursor={page.nextCursor}
         loading={isPending}
-        pageLabel={`Showing ${page.users.length} account${
-          page.users.length === 1 ? "" : "s"
-        }`}
+        pageLabel={formatPageLabel(pageHistory.length + 1, page.totalPages, {hasMore: page.hasMore})}
         onPrevious={() => {
           const previousPage =
             pageHistory.at(-1);

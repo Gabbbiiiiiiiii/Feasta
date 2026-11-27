@@ -9,6 +9,12 @@ import {
 import {PageHeading} from "@/components/layout/page-heading";
 import {Badge} from "@/components/ui/badge";
 import {Button} from "@/components/ui/button";
+import {
+  classifyAuditCategory,
+  formatAuditAction,
+  formatAuditCategory,
+  formatAuditRecordType,
+} from "@/lib/admin/audit-logs/admin-audit-log-normalization";
 import {getAdminAuditLogDetail} from "@/lib/admin/audit-logs/admin-audit-log-service";
 import type {AdminAuditLogPreviewField} from "@/lib/admin/audit-logs/admin-audit-log-types";
 import {requireAdmin} from "@/lib/auth/session";
@@ -23,12 +29,34 @@ export default async function AdminAuditLogPage({
   const auditLog = await getAdminAuditLogDetail(auditLogId);
   if (!auditLog) notFound();
 
+  const previewSections = [
+    {title: "Before", fields: auditLog.beforePreview},
+    {title: "After", fields: auditLog.afterPreview},
+    {title: "Additional details", fields: auditLog.metadataPreview},
+  ].filter((section) => section.fields.length > 0);
+
+  const category =
+    auditLog.category ??
+    classifyAuditCategory({
+      action: auditLog.action,
+      actorRole: auditLog.actorRole,
+      targetCollection: auditLog.targetCollection,
+    });
+
+  const actorDisplay = auditLog.actorName
+    ? `${auditLog.actorName} (${humanize(auditLog.actorRole)})`
+    : humanize(auditLog.actorRole);
+
+  const showSeparateDescription =
+    Boolean(auditLog.description) &&
+    auditLog.description !== auditLog.summary;
+
   return (
     <div className="grid gap-6">
       <PageHeading
         eyebrow="Administration"
         title="Activity details"
-        description="Review this activity and its recorded details."
+        description="Review who performed this activity and what changed."
       />
       <Button asChild variant="secondary" size="compact" className="w-fit">
         <Link href="/admin/audit-logs">
@@ -41,10 +69,11 @@ export default async function AdminAuditLogPage({
         aria-labelledby="audit-summary-heading"
       >
         <h2 id="audit-summary-heading" className="text-xl font-bold">
-          Event summary
+          {formatAuditAction(auditLog.action)}
         </h2>
         <div className="mt-4 flex flex-wrap gap-2">
-          <Badge tone="info">{humanize(auditLog.action)}</Badge>
+          <Badge tone="info">{formatAuditCategory(category)}</Badge>
+          <Badge tone="neutral">{humanize(auditLog.actorRole)}</Badge>
           {auditLog.outcome ? (
             <Badge tone={outcomeTone(auditLog.outcome)}>
               {humanize(auditLog.outcome)}
@@ -56,21 +85,23 @@ export default async function AdminAuditLogPage({
             label="Date and time"
             value={formatDate(auditLog.createdAt)}
           />
-          <AuditField label="Action" value={humanize(auditLog.action)} />
+          <AuditField label="Action" value={formatAuditAction(auditLog.action)} />
           <AuditField
-            label="Admin / user"
-            value={humanize(auditLog.actorRole)}
+            label="Performed by"
+            value={actorDisplay}
           />
           <AuditField
-            label="Affected item"
-            value={humanize(auditLog.targetCollection)}
+            label="Affected record"
+            value={formatAuditRecordType(auditLog.targetCollection)}
           />
-          <AuditField
-            label="Result"
-            value={auditLog.outcome ? humanize(auditLog.outcome) : "Not recorded"}
-          />
-          <AuditField label="Details" value={auditLog.summary} wide />
-          {auditLog.description ? (
+          {auditLog.outcome ? (
+            <AuditField
+              label="Result"
+              value={humanize(auditLog.outcome)}
+            />
+          ) : null}
+          <AuditField label="Summary" value={auditLog.summary} wide />
+          {showSeparateDescription && auditLog.description ? (
             <AuditField
               label="Description"
               value={auditLog.description}
@@ -79,31 +110,51 @@ export default async function AdminAuditLogPage({
           ) : null}
         </DetailFieldList>
         <details className="mt-6 rounded-lg border border-border p-4">
-          <summary className="cursor-pointer font-semibold">Support references</summary>
+          <summary className="cursor-pointer font-semibold">Technical references</summary>
           <DetailFieldList className="mt-4">
-            <AuditField label="User reference" value={auditLog.actorId} />
+            <AuditField label="Actor ID" value={auditLog.actorId} />
             <AuditField
-              label="Affected record"
-              value={`${humanize(auditLog.targetCollection)} / ${auditLog.targetId}`}
+              label="Target record"
+              value={`${formatAuditRecordType(auditLog.targetCollection)} / ${auditLog.targetId}`}
             />
-            <AuditField label="Source" value={humanize(auditLog.source)} />
-            <AuditField
-              label="Related reference"
-              value={auditLog.correlationId ?? "Not recorded"}
-            />
-            <AuditField
-              label="Reason code"
-              value={auditLog.reasonCode ? humanize(auditLog.reasonCode) : "Not recorded"}
-            />
+            {auditLog.source !== "Not recorded" ? (
+              <AuditField label="Source" value={humanize(auditLog.source)} />
+            ) : null}
+            {auditLog.correlationId ? (
+              <AuditField
+                label="Correlation ID"
+                value={auditLog.correlationId}
+              />
+            ) : null}
+            {auditLog.reasonCode ? (
+              <AuditField
+                label="Reason code"
+                value={humanize(auditLog.reasonCode)}
+              />
+            ) : null}
           </DetailFieldList>
         </details>
       </section>
 
-      <div className="grid gap-6 xl:grid-cols-3">
-        <PreviewSection title="Before" fields={auditLog.beforePreview} />
-        <PreviewSection title="After" fields={auditLog.afterPreview} />
-        <PreviewSection title="Additional details" fields={auditLog.metadataPreview} />
-      </div>
+      {previewSections.length > 0 ? (
+        <div
+          className={
+            previewSections.length === 1
+              ? "grid gap-6"
+              : previewSections.length === 2
+                ? "grid gap-6 xl:grid-cols-2"
+                : "grid gap-6 xl:grid-cols-3"
+          }
+        >
+          {previewSections.map((section) => (
+            <PreviewSection
+              key={section.title}
+              title={section.title}
+              fields={section.fields}
+            />
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -139,7 +190,7 @@ function PreviewSection({
               value={
                 field.redacted
                   ? "Sensitive value redacted"
-                  : field.value
+                  : formatPreviewValue(field.value)
               }
               muted={field.redacted ? true : undefined}
             />
@@ -152,6 +203,13 @@ function PreviewSection({
       )}
     </section>
   );
+}
+
+function formatPreviewValue(value: string): string {
+  if (value === "true") return "Yes";
+  if (value === "false") return "No";
+  if (value === "null") return "None";
+  return value;
 }
 
 function humanize(value: string): string {

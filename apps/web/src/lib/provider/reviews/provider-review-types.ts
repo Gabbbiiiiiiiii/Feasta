@@ -56,4 +56,6 @@ export type ProviderReviewPage = {
   nextCursor: string | null;
   hasMore: boolean;
   skippedMalformedCount: number;
+  totalCount?: number | null;
+  totalPages?: number | null;
 };

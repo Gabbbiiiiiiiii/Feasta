@@ -17,26 +17,24 @@ test("queue query parameters are typed, bounded, and fail closed", () => {
   assert.deepEqual(parseProviderVerificationQueueFilters({
     q: "  Ada Catering  ",
     status: "submitted",
-    serviceType: "catering",
-    from: "2026-07-01",
-    to: "2026-07-31",
+    serviceCategory: "catering_service",
     cursor: "opaque",
     direction: "previous",
   }), {
     search: "Ada Catering",
     status: "submitted",
-    serviceType: "catering",
-    from: "2026-07-01",
-    to: "2026-07-31",
+    serviceCategory: "catering_service",
     cursor: "opaque",
     direction: "previous",
   });
   assert.equal(parseProviderVerificationQueueFilters({
     status: "approved",
-    serviceType: "venue",
-    from: "not-a-date",
+    serviceCategory: "invalid category!",
     direction: "sideways",
-  }).status, "approved");
+  }).serviceCategory, "all");
+  assert.equal(parseProviderVerificationQueueFilters({
+    status: "pending",
+  }).status, "all");
   assert.equal(selectedVerificationId({selected: "../admin"}), null);
   assert.equal(selectedVerificationId({selected: "verification_01"}), "verification_01");
 });
@@ -51,8 +49,7 @@ test("admin queue retains server authorization and bounded global queries", asyn
   assert.match(service, /verificationQueuePageSize = 20/u);
   assert.match(service, /\.limit\(verificationQueuePageSize \+ 1\)/u);
   assert.match(service, /"searchTokens", "array-contains"/u);
-  assert.match(service, /"providerServiceType"/u);
-  assert.match(service, /"createdAt", ">="/u);
+  assert.match(service, /"serviceCategories", "array-contains"/u);
   assert.match(service, /\.startAfter\(/u);
   assert.match(service, /\.endBefore\(/u);
   assert.doesNotMatch(

@@ -10,6 +10,8 @@ import {
 
 import {
   adminAuditLogMatchesFilters,
+  classifyAuditCategory,
+  isMeaningfulAuditLog,
   normalizeAdminAuditLogFilters,
   normalizeAdminAuditLogRecord,
   timestampMilliseconds,
@@ -25,8 +27,10 @@ import type {
 } from "@/lib/admin/audit-logs/admin-audit-log-types";
 import {requireAdmin} from "@/lib/auth/session";
 import {adminDb} from "@/lib/firebase/admin";
+import {computeTotalPages} from "@/lib/pagination";
 
 const ADMIN_LOGS_COLLECTION = "adminLogs";
+const USERS_COLLECTION = "users";
 const SEARCH_SCAN_LIMIT = 250;
 const SUMMARY_WINDOW_LIMIT = 100;
 const SAFE_DOCUMENT_ID = /^[A-Za-z0-9_-]{1,150}$/u;
@@ -48,7 +52,7 @@ export async function getAdminAuditLogPage(
 
   const filters = normalizeAdminAuditLogFilters(input);
   const filtered = hasActiveFilters(filters);
-  const queryLimit = filtered ? SEARCH_SCAN_LIMIT + 1 : filters.pageSize + 1;
+  const queryLimit = SEARCH_SCAN_LIMIT + 1;
 
   let query: Query<DocumentData> = adminDb
     .collection(ADMIN_LOGS_COLLECTION)
@@ -73,13 +77,14 @@ export async function getAdminAuditLogPage(
       .get(),
   ]);
 
-  const reachedLimit =
-    filtered && pageSnapshot.docs.length > SEARCH_SCAN_LIMIT;
+  const reachedLimit = pageSnapshot.docs.length > SEARCH_SCAN_LIMIT;
   const scannedDocuments = pageSnapshot.docs
-    .slice(0, filtered ? SEARCH_SCAN_LIMIT : filters.pageSize + 1)
+    .slice(0, SEARCH_SCAN_LIMIT)
     .map(normalizeDocument);
-  const matchingDocuments = scannedDocuments.filter(({normalized}) =>
-    adminAuditLogMatchesFilters(normalized, filters),
+  const matchingDocuments = scannedDocuments.filter(
+    ({normalized}) =>
+      isMeaningfulAuditLog(normalized.auditLog) &&
+      adminAuditLogMatchesFilters(normalized, filters),
   );
   const visibleDocuments = matchingDocuments.slice(0, filters.pageSize);
 
@@ -93,20 +98,28 @@ export async function getAdminAuditLogPage(
     ? encodeCursor(cursorDocument.document)
     : null;
 
-  const summaryRecords = summarySnapshot.docs.map(normalizeDocument);
+  const summaryRecords = summarySnapshot.docs
+    .map(normalizeDocument)
+    .filter(({normalized}) => isMeaningfulAuditLog(normalized.auditLog));
+  const hydratedAuditLogs = await hydrateActorNames(
+    visibleDocuments.map(({normalized}) => normalized.auditLog),
+  );
+  const totalCount =
+    !cursor && !reachedLimit
+      ? matchingDocuments.length
+      : null;
 
   return {
-    auditLogs: visibleDocuments.map(({normalized}) => normalized.auditLog),
+    auditLogs: hydratedAuditLogs,
     summary: createSummary(summaryRecords),
     filterOptions: createFilterOptions(summaryRecords),
     nextCursor,
     hasMore: nextCursor !== null,
+    totalCount,
+    totalPages: computeTotalPages(totalCount, filters.pageSize),
     scan: {
-      scannedCount: Math.min(
-        pageSnapshot.docs.length,
-        filtered ? SEARCH_SCAN_LIMIT : filters.pageSize + 1,
-      ),
-      scanLimit: filtered ? SEARCH_SCAN_LIMIT : filters.pageSize + 1,
+      scannedCount: Math.min(pageSnapshot.docs.length, SEARCH_SCAN_LIMIT),
+      scanLimit: SEARCH_SCAN_LIMIT,
       filtered,
       reachedLimit,
     },
@@ -126,10 +139,78 @@ export async function getAdminAuditLogDetail(
     .get();
 
   if (!snapshot.exists) return null;
-  return normalizeAdminAuditLogRecord(
+  const detail = normalizeAdminAuditLogRecord(
     snapshot.id,
     snapshot.data() ?? {},
   ).detail;
+  const [hydrated] = await hydrateActorNames([detail]);
+  return {
+    ...detail,
+    actorName: hydrated?.actorName ?? null,
+  };
+}
+
+async function hydrateActorNames<T extends AdminAuditLog>(
+  auditLogs: T[],
+): Promise<T[]> {
+  if (auditLogs.length === 0) return [];
+
+  const lookupIds = [
+    ...new Set(
+      auditLogs
+        .filter((log) => {
+          const role = log.actorRole.toLocaleLowerCase("en-PH");
+          return (
+            role !== "system" &&
+            log.actorId !== "system" &&
+            log.actorId !== "Not recorded" &&
+            SAFE_DOCUMENT_ID.test(log.actorId)
+          );
+        })
+        .map((log) => log.actorId),
+    ),
+  ];
+
+  const userSnapshots =
+    lookupIds.length > 0
+      ? await adminDb.getAll(
+          ...lookupIds.map((userId) =>
+            adminDb.collection(USERS_COLLECTION).doc(userId),
+          ),
+        )
+      : [];
+
+  const namesById = new Map<string, string>(
+    userSnapshots
+      .filter((snapshot) => snapshot.exists)
+      .map((snapshot) => [snapshot.id, formatUserActorName(snapshot.data() ?? {})])
+      .filter((entry): entry is [string, string] => Boolean(entry[1])),
+  );
+
+  return auditLogs.map((log) => {
+    const role = log.actorRole.toLocaleLowerCase("en-PH");
+    if (role === "system" || log.actorId === "system") {
+      return {...log, actorName: "FEASTA System"};
+    }
+    return {
+      ...log,
+      actorName: namesById.get(log.actorId) ?? null,
+    };
+  });
+}
+
+function formatUserActorName(data: DocumentData): string {
+  const first = typeof data.firstName === "string" ? data.firstName.trim() : "";
+  const last = typeof data.lastName === "string" ? data.lastName.trim() : "";
+  const fullName = `${first} ${last}`.trim();
+  if (fullName) return fullName;
+  if (typeof data.displayName === "string" && data.displayName.trim()) {
+    return data.displayName.trim();
+  }
+  if (typeof data.email === "string" && data.email.trim()) {
+    return data.email.trim();
+  }
+  return "";
 }
 
 function normalizeDocument(
@@ -146,6 +227,7 @@ function hasActiveFilters(
 ): boolean {
   return Boolean(
     filters.search ||
+      filters.category !== "all" ||
       filters.action !== "all" ||
       filters.actorRole !== "all" ||
       filters.source !== "all" ||
@@ -173,6 +255,34 @@ function createSummary(records: AuditLogDocument[]): AdminAuditLogSummary {
     "rejected",
   ]);
 
+  let adminActionCount = 0;
+  let providerActionCount = 0;
+  let customerActionCount = 0;
+  let systemActionCount = 0;
+  const categoryCounts = {
+    admin: 0,
+    money: 0,
+    bookings: 0,
+    security: 0,
+  };
+
+  for (const {normalized} of records) {
+    const role = normalized.auditLog.actorRole.toLocaleLowerCase("en-PH");
+    if (role === "admin") adminActionCount += 1;
+    else if (role === "provider") providerActionCount += 1;
+    else if (role === "customer" || role === "user") customerActionCount += 1;
+    else if (role === "system") systemActionCount += 1;
+
+    const category =
+      normalized.auditLog.category ??
+      classifyAuditCategory({
+        action: normalized.auditLog.action,
+        actorRole: normalized.auditLog.actorRole,
+        targetCollection: normalized.auditLog.targetCollection,
+      });
+    categoryCounts[category] += 1;
+  }
+
   return {
     windowLimit: SUMMARY_WINDOW_LIMIT,
     windowCount: records.length,
@@ -186,6 +296,12 @@ function createSummary(records: AuditLogDocument[]): AdminAuditLogSummary {
         .map(({normalized}) => normalized.auditLog.actorId)
         .filter((actorId) => actorId !== "Not recorded"),
     ).size,
+    adminActionCount,
+    userActionCount: providerActionCount + customerActionCount,
+    providerActionCount,
+    customerActionCount,
+    systemActionCount,
+    categoryCounts,
     succeededOutcomeCount: outcomes.filter(
       (outcome) => outcome !== null && succeeded.has(outcome),
     ).length,

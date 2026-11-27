@@ -15,6 +15,7 @@ export type AdminComplaint = {
   providerName: string | null;
   providerOwnerId: string | null;
   bookingId?: string | null;
+  bookingCode?: string | null;
   providerRequestId?: string | null;
 
   category: string;
@@ -44,6 +45,8 @@ export type AdminComplaintStatistics = {
   resolved: number;
   dismissed: number;
   closed: number;
+  availableStatuses?: ComplaintStatus[];
+  availablePriorities?: ComplaintPriority[];
 };
 
 export type AdminComplaintFilters = {
@@ -59,6 +62,8 @@ export type AdminComplaintPage = {
   statistics: AdminComplaintStatistics;
   nextCursor: string | null;
   hasMore: boolean;
+  totalCount?: number | null;
+  totalPages?: number | null;
 };
 
 export type AdminComplaintDetails = {

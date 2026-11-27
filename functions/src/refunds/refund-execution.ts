@@ -47,6 +47,9 @@ import {
   type PayMongoRefundResource,
 } from "../payments/paymongo-client.js";
 import {
+  isSandboxMockPaymentMode,
+} from "../payments/payment-gateway-mode.js";
+import {
   calculateMainEventRequestSummary,
 } from "../provider-requests/recalculate-main-event-status.js";
 import {
@@ -1753,16 +1756,7 @@ export async function executeRefund(input: {
       );
     }
 
-    if (
-      prepared
-        .amountInCentavos <
-        prepared
-          .originalAmountInCentavos &&
-      prepared.paymentMethodType !==
-        "card" &&
-      prepared.paymentMethodType !==
-        "gcash"
-    ) {
+    if (!isPartialRefundCapabilityConfirmed(prepared)) {
       await recordExecutionFailure({
         ...prepared,
 
@@ -4950,6 +4944,21 @@ function assertGatewayRetryWindow(
       "The prior refund attempt must be reconciled before retry.",
     );
   }
+}
+
+export function isPartialRefundCapabilityConfirmed(input: {
+  amountInCentavos: number;
+  originalAmountInCentavos: number;
+  paymentMethodType: "card" | "gcash" | "paymaya" | null;
+}): boolean {
+  if (input.amountInCentavos >= input.originalAmountInCentavos) {
+    return true;
+  }
+  if (isSandboxMockPaymentMode()) {
+    return true;
+  }
+  return input.paymentMethodType === "card" ||
+    input.paymentMethodType === "gcash";
 }
 
 function paymentMethodType(

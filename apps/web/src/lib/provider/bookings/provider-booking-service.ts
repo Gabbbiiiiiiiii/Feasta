@@ -30,6 +30,8 @@ import {
 
 import {requireApprovedProvider} from "@/lib/auth/session";
 import {adminDb} from "@/lib/firebase/admin";
+import {countFirestoreQuery} from "@/lib/firebase/count-query";
+import {computeTotalPages} from "@/lib/pagination";
 import {providerNetPesosFromRequestData} from "@/lib/provider/payments/provider-net-amount";
 
 import type {
@@ -87,13 +89,15 @@ export async function getProviderBookingPage(input: Partial<ProviderBookingFilte
   const status = bookingView(input.dashboard === "payment" ? "waiting_payment" : input.dashboard === "completed" ? "past" : input.dashboard === "upcoming" ? "upcoming" : filters.status);
   const search = (input.search ?? "").trim().slice(0, 160).toLocaleLowerCase();
   const secondary = input.dashboard === "completed" ? "completed" : input.secondary ?? "all";
-  if (secondary === "disputed") return {bookings: [], hasMore: false, nextCursor: null, skippedMalformedCount: 0};
+  if (secondary === "disputed") return {bookings: [], hasMore: false, nextCursor: null, skippedMalformedCount: 0, totalCount: 0, totalPages: 1};
   const fingerprint = JSON.stringify([providerId, status, search, secondary, input.dateFrom ?? null, input.dateTo ?? null, filters.pageSize]);
   const sortField = status === "upcoming" ? "eventDate" : "createdAt";
   const sortDirection = status === "upcoming" ? "asc" : "desc";
   let query: Query<DocumentData> = adminDb.collection(COLLECTIONS.providerRequests).where("providerId", "==", providerId);
   if (status === "upcoming") query = query.where("status", "in", ["confirmed", "in_progress"]);
   query = query.orderBy(sortField, sortDirection).orderBy(FieldPath.documentId(), sortDirection);
+  const canCountDirectly = (status === "all" || status === "upcoming") && secondary === "all" && !search && !filters.dateFrom && !filters.dateTo;
+  const totalCountPromise = canCountDirectly ? countFirestoreQuery(query) : Promise.resolve(null);
   const cursor = decodeCursor(filters.cursor);
   if (filters.cursor && !cursor) throw new Error("Booking page expired. Start from the first page.");
   if (cursor && cursor.fingerprint !== fingerprint) throw new Error("Booking filters changed. Start from the first page.");
@@ -124,7 +128,8 @@ export async function getProviderBookingPage(input: Partial<ProviderBookingFilte
     query = query.startAfter(lastDocument.data()[sortField], lastDocument.id);
   }
   if (status === "upcoming") bookings.sort((a, b) => bookingScheduledStart(a) - bookingScheduledStart(b) || a.providerRequestId.localeCompare(b.providerRequestId));
-  return {bookings, hasMore, nextCursor: hasMore && lastDocument ? encodeCursor(lastDocument, sortField, fingerprint) : null, skippedMalformedCount};
+  const totalCount = await totalCountPromise;
+  return {bookings, hasMore, nextCursor: hasMore && lastDocument ? encodeCursor(lastDocument, sortField, fingerprint) : null, skippedMalformedCount, totalCount, totalPages: computeTotalPages(totalCount, filters.pageSize)};
 }
 
 export async function getProviderBooking(

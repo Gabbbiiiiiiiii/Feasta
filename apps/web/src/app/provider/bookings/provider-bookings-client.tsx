@@ -13,6 +13,7 @@ import {
   FilterToolbar,
   type DataTableColumn,
 } from "@/components/data";
+import {formatPageLabel} from "@/lib/pagination";
 import {feastaToast} from "@/components/feedback/toast";
 import {PageHeading} from "@/components/layout/page-heading";
 import {ConfirmationDialog} from "@/components/shared/confirmation-dialog";
@@ -360,7 +361,7 @@ export function ProviderBookingsClient({
         previousCursor={previousCursor}
         nextCursor={page.nextCursor}
         loading={loading || Boolean(loadError) || searchValue.trim() !== (filters.search ?? "").trim()}
-        pageLabel={`Page ${pageNumber}`}
+        pageLabel={formatPageLabel(pageNumber, page.totalPages, {hasMore: page.hasMore})}
         onPrevious={(cursor) => {
           const nextHistory = cursorHistory.slice(0, -1);
           const nextCursor = cursor === FIRST_PAGE_CURSOR ? null : cursor;

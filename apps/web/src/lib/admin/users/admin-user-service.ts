@@ -32,6 +32,8 @@ import {
   adminAuth,
   adminDb,
 } from "@/lib/firebase/admin";
+import { countFirestoreQuery } from "@/lib/firebase/count-query";
+import { computeTotalPages } from "@/lib/pagination";
 
 const USERS_COLLECTION = "users";
 const CUSTOMERS_COLLECTION = "customers";
@@ -981,9 +983,12 @@ export async function getAdminUserPage(
       statistics: await statisticsPromise,
       nextCursor: null,
       hasMore: false,
+      totalCount: users.length,
+      totalPages: 1,
     };
   }
 
+  const countQuery = query;
   const cursor = decodeCursor(filters.cursor);
 
   if (cursor) {
@@ -995,9 +1000,10 @@ export async function getAdminUserPage(
     );
   }
 
-  const snapshot = await query
-    .limit(filters.pageSize + 1)
-    .get();
+  const [snapshot, totalCount] = await Promise.all([
+    query.limit(filters.pageSize + 1).get(),
+    countFirestoreQuery(countQuery),
+  ]);
 
   const hasMore =
     snapshot.docs.length > filters.pageSize;
@@ -1025,6 +1031,8 @@ export async function getAdminUserPage(
         ? encodeCursor(lastDocument)
         : null,
     hasMore,
+    totalCount,
+    totalPages: computeTotalPages(totalCount, filters.pageSize),
   };
 }
 

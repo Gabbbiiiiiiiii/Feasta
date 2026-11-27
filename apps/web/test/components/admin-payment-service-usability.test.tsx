@@ -86,6 +86,7 @@ it("page totals include retained principal and completed partial refunds using b
   const result = await load();
   expect(result.statistics.confirmedVolumeInCentavos).toBe(800000);
   expect(result.statistics.refundedAmountInCentavos).toBe(700000);
+  expect(result.statistics.availableStatuses).toEqual(["paid", "refunded", "partially_refunded"]);
   expect(result.payments.find(payment => payment.id === "legacy-refunded")?.refundedAmountFormatted).toMatch(/5,000\.00/);
   expect(result.payments.find(payment => payment.id === "partial")?.refundedAmountFormatted).toMatch(/2,000\.00/);
   expect(database.partialLimits).toEqual([100]);

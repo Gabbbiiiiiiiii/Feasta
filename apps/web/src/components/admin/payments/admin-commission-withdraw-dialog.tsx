@@ -100,7 +100,7 @@ function AdminCommissionWithdrawDialog({
 
   const validateAmount = (): string | null => {
     if (availableAmountInCentavos <= 0) {
-      return "There is no available commission to withdraw.";
+      return "There are no available FEASTA service fees to withdraw.";
     }
 
     if (!Number.isSafeInteger(amountInCentavos) || amountInCentavos <= 0) {
@@ -108,7 +108,7 @@ function AdminCommissionWithdrawDialog({
     }
 
     if (amountInCentavos > availableAmountInCentavos) {
-      return "Withdrawal amount cannot exceed available commission.";
+      return "Withdrawal amount cannot exceed available FEASTA service fees.";
     }
 
     return null;
@@ -214,7 +214,7 @@ function AdminCommissionWithdrawDialog({
       setError(
         actionError instanceof Error
           ? actionError.message
-          : "The commission withdrawal could not be completed.",
+          : "The service fee withdrawal could not be completed.",
       );
     } finally {
       setSubmitting(false);
@@ -227,12 +227,12 @@ function AdminCommissionWithdrawDialog({
         <DialogHeader>
           <DialogTitle>
             {step === "success"
-              ? "Commission withdrawal recorded"
-              : "Withdraw FEASTA commission"}
+              ? "Service fee withdrawal recorded"
+              : "Withdraw FEASTA service fee"}
           </DialogTitle>
           <DialogDescription className="break-words">
             {step === "success"
-              ? "This was a simulated payout. Available commission was deducted."
+              ? "This was a simulated payout. Available FEASTA service fees were deducted."
               : "Simulated cash-out for demo use. Destination details are used once and stored only in masked form."}
           </DialogDescription>
         </DialogHeader>
@@ -269,7 +269,7 @@ function AdminCommissionWithdrawDialog({
                   checked={amountMode === "full"}
                   onChange={() => setAmountMode("full")}
                   className="mt-1"
-                  aria-label="Withdraw all available commission"
+                  aria-label="Withdraw all available FEASTA service fees"
                 />
                 <span>
                   <span className="block font-medium">Withdraw all</span>
@@ -301,7 +301,7 @@ function AdminCommissionWithdrawDialog({
                     value={customPesos}
                     onChange={(event) => setCustomPesos(event.target.value)}
                     placeholder="0.00"
-                    aria-label="Custom commission withdrawal amount in pesos"
+                    aria-label="Custom FEASTA service fee withdrawal amount in pesos"
                   />
                 </span>
               </label>

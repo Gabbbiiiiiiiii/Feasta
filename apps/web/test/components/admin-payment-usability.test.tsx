@@ -187,11 +187,16 @@ it("uses existing references with a simple missing-booking fallback", () => {
   expect(paymentBookingLabel({...payment, bookingCode: "BK-12345678"})).toBe("BK-12345678");
   expect(paymentReferenceLabel(payment)).not.toBe(payment.paymentId);
 });
-it("shows four cards and plain filters without normal internal references", () => {
+it("shows three direct-split cards and plain filters without normal internal references", () => {
   render(<PaymentMonitoringClient initialPage={page} initialAttention={queue} initialPayoutBoard={emptyPayoutBoard} />);
   const statistics = screen.getByRole("region", {name: "Payment statistics"});
-  for (const label of ["Net customer payments", "Pending payments", "Failed payments", "Refunded amount"]) expect(within(statistics).getByText(label)).toBeInTheDocument();
+  for (const label of ["FEASTA fees available", "FEASTA fees withdrawn", "Pending payments"]) expect(within(statistics).getByText(label)).toBeInTheDocument();
+  expect(within(statistics).queryByText("Net customer payments")).not.toBeInTheDocument();
+  expect(within(statistics).queryByText("Failed payments")).not.toBeInTheDocument();
+  expect(within(statistics).queryByText("Needs review")).not.toBeInTheDocument();
+  expect(within(statistics).queryByText("Refunded amount")).not.toBeInTheDocument();
   expect(within(statistics).queryByText("Failed provider payouts")).not.toBeInTheDocument();
+  expect(screen.queryByRole("heading", {name: "Provider payout issues"})).not.toBeInTheDocument();
   const select = screen.getByRole("combobox", {name: "Review status"});
   expect(within(select).getAllByRole("option").map(option => option.textContent?.trim())).toEqual(["All", "Needs review", "No issues"]);
   expect(screen.queryByText(payment.paymentId)).not.toBeInTheDocument();
@@ -200,7 +205,7 @@ it("shows four cards and plain filters without normal internal references", () =
   expect(screen.getByRole("columnheader", {name: "Date"})).toBeInTheDocument();
   expect(screen.getByRole("columnheader", {name: "Issue"})).toBeInTheDocument();
 });
-it("distinguishes original payment amounts from completed refunds", () => {
+it("distinguishes original payment amounts from completed refunds and labels FEASTA fee", () => {
   const refundedPayment: AdminPayment = {
     ...payment,
     status: "refunded",
@@ -227,11 +232,16 @@ it("distinguishes original payment amounts from completed refunds", () => {
   ).toBeInTheDocument();
 
   expect(
-    within(table).getByText("Refunded ₱20,000.00"),
+    within(table).getByText("FEASTA fee ₱2,000.00"),
   ).toBeInTheDocument();
 
-  expect(screen.getByText("Net customer payments"))
-    .toBeInTheDocument();
+  expect(
+    within(table).queryByText(/Commission ₱/i),
+  ).not.toBeInTheDocument();
+
+  expect(
+    within(table).getByText("Refunded ₱20,000.00"),
+  ).toBeInTheDocument();
 });
 it("separates customer and provider into different table columns", () => {
   render(
@@ -298,12 +308,19 @@ it("formats payment dates on two lines in Philippine time", () => {
   expect(within(table).getByText("12:13 PM"))
     .toBeInTheDocument();
 });
-it("keeps platform revenue out of payment monitoring", () => {
+it("keeps platform revenue reports out of payment monitoring while showing available fees", () => {
   render(
     <PaymentMonitoringClient
       initialPage={page}
       initialAttention={queue}
-      initialPayoutBoard={emptyPayoutBoard}
+      initialPayoutBoard={{
+        ...emptyPayoutBoard,
+        companyCommission: {
+          ...emptyPayoutBoard.companyCommission,
+          availableBalanceInCentavos: 125000,
+          formattedAvailableBalance: "₱1,250.00",
+        },
+      }}
     />,
   );
 
@@ -318,18 +335,38 @@ it("keeps platform revenue out of payment monitoring", () => {
     name: "Payment statistics",
   });
 
-  expect(within(statistics).getByText("Net customer payments"))
+  expect(within(statistics).getByText("FEASTA fees available"))
     .toBeInTheDocument();
 
-  expect(within(statistics).getByText("₱20,000.00"))
+  expect(within(statistics).getByText("₱1,250.00"))
     .toBeInTheDocument();
 });
-it("has one overview, a labelled dialog, and collapsed technical history", async () => {
-  render(<PaymentDetailsDrawer payment={payment} details={details} open loading={false} onRetry={vi.fn()} onOpenChange={vi.fn()} />);
+it("has one overview, a labelled dialog, payment method, booking link, and collapsed technical history", async () => {
+  const paymentWithMethod = {
+    ...payment,
+    bookingCode: "BK-1D8D952721",
+    paymentMethodType: "gcash",
+  };
+  render(
+    <PaymentDetailsDrawer
+      payment={paymentWithMethod}
+      details={{...details, payment: paymentWithMethod}}
+      open
+      loading={false}
+      onRetry={vi.fn()}
+      onOpenChange={vi.fn()}
+    />,
+  );
   expect(screen.getByRole("dialog", {name: "Payment details"})).toBeInTheDocument();
   expect(screen.getAllByRole("heading", {name: "Payment overview"})).toHaveLength(1);
   expect(screen.queryByRole("heading", {name: "Payment summary"})).not.toBeInTheDocument();
-  expect(screen.getByText("View payment information.")).toBeInTheDocument();
+  expect(screen.getByText("View payment information for BK-1D8D952721.")).toBeInTheDocument();
+  expect(screen.getByText("FEASTA fee ₱2,000.00")).toBeInTheDocument();
+  expect(screen.getByText("GCash")).toBeInTheDocument();
+  expect(screen.getByRole("link", {name: /Open booking/i})).toHaveAttribute(
+    "href",
+    "/admin/bookings?search=BK-1D8D952721",
+  );
   expect(screen.getByText("No refund recorded")).toBeInTheDocument();
   expect(screen.queryByRole("button", {name: "Request refund"})).not.toBeInTheDocument();
   const summary = screen.getByText("Additional details");
@@ -395,10 +432,14 @@ it("keeps payout review and validated setup-repair actions", async () => {
   await userEvent.click(screen.getByRole("button", {name: "Repair payout setup"}));
   expect(repair).toHaveBeenCalledWith(item);
 });
-it("loading uses the same four primary cards", () => {
+it("loading uses the same three primary cards", () => {
   render(<AdminPaymentsLoading />);
   const statistics = screen.getByRole("region", {name: "Loading payment statistics"});
-  for (const label of ["Net customer payments", "Pending payments", "Failed payments", "Refunded amount"]) expect(within(statistics).getByText(label)).toBeInTheDocument();
+  for (const label of ["FEASTA fees available", "FEASTA fees withdrawn", "Pending payments"]) expect(within(statistics).getByText(label)).toBeInTheDocument();
+  expect(within(statistics).queryByText("Net customer payments")).not.toBeInTheDocument();
+  expect(within(statistics).queryByText("Failed payments")).not.toBeInTheDocument();
+  expect(within(statistics).queryByText("Needs review")).not.toBeInTheDocument();
+  expect(within(statistics).queryByText("Refunded amount")).not.toBeInTheDocument();
   expect(within(statistics).queryByText("Payments to review")).not.toBeInTheDocument();
   expect(within(statistics).queryByText("Failed provider payouts")).not.toBeInTheDocument();
 });

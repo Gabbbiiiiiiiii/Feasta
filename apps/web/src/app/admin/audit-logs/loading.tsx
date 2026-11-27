@@ -8,9 +8,9 @@ export default function AdminAuditLogsLoading() {
       aria-label="Loading audit logs"
     >
       <PageHeading
-        eyebrow="Security and audit"
+        eyebrow="Administration"
         title="Activity logs"
-        description="Review administrator and system activity."
+        description="Track meaningful state, payment, moderation, and security events across FEASTA."
       />
       <section
         className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"

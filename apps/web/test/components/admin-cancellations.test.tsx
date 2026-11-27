@@ -449,3 +449,48 @@ it("keeps the open drawer while background refresh reads saved FEASTA state", as
   expect(within(drawer).getByText("Refund pending")).toBeVisible();
   expect(mocks.reconcile).not.toHaveBeenCalled();
 });
+
+it("filters between Needs review, Resolved, and All and paginates with Page X of Y", async () => {
+  const user = userEvent.setup();
+  const pendingItems = Array.from({length: 11}, (_, index) =>
+    item({
+      cancellationRequestId: `cancellation_pending_${String(index + 1).padStart(2, "0")}`,
+      providerRequestId: `provider_request_pending_${index + 1}`,
+      bookingCode: `BK-PEND-${String(index + 1).padStart(2, "0")}`,
+      providerName: `Pending Caterer ${index + 1}`,
+      cancellationStatus: "submitted",
+    }),
+  );
+  const resolvedItem = item({
+    cancellationRequestId: "cancellation_resolved_01",
+    providerRequestId: "provider_request_resolved_01",
+    bookingCode: "BK-DONE-01",
+    providerName: "Resolved Studio",
+    cancellationStatus: "refund_completed",
+    refundProgress: "full_completed",
+    refundAmountInCentavos: 150000,
+    canApprove: false,
+    canReject: false,
+  });
+
+  renderQueue([...pendingItems, resolvedItem]);
+
+  expect(screen.getByRole("button", {name: "Needs review (11)"})).toHaveAttribute("aria-pressed", "true");
+  expect(screen.getByText("Page 1 of 2")).toBeVisible();
+  expect(screen.queryByText("Resolved Studio")).not.toBeInTheDocument();
+
+  await user.click(screen.getByRole("button", {name: "Next"}));
+  expect(screen.getByText("Page 2 of 2")).toBeVisible();
+  expect(screen.getAllByText("Pending Caterer 11").length).toBeGreaterThan(0);
+
+  await user.click(screen.getByRole("button", {name: "Resolved (1)"}));
+  expect(screen.getByText("Page 1 of 1")).toBeVisible();
+  expect(screen.getAllByText("Resolved Studio").length).toBeGreaterThan(0);
+
+  await user.click(screen.getByRole("button", {name: "All (12)"}));
+  expect(screen.getByText("Page 1 of 2")).toBeVisible();
+
+  await user.type(screen.getByLabelText("Search cancellations"), "BK-DONE-01");
+  expect(screen.getByText("Page 1 of 1")).toBeVisible();
+  expect(screen.getAllByText("Resolved Studio").length).toBeGreaterThan(0);
+});

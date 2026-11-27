@@ -34,6 +34,10 @@ const {
   createSandboxMockCheckout,
 } = require(path.join(libRoot, "payments/sandbox-mock-checkout.js"));
 
+const {
+  isPartialRefundCapabilityConfirmed,
+} = require(path.join(libRoot, "refunds/refund-execution.js"));
+
 function withGatewayMode(mode, fn) {
   const previous = process.env.PAYMENT_GATEWAY_MODE;
   if (mode === undefined) {
@@ -189,6 +193,23 @@ test("synthetic sandbox webhook payloads parse cleanly through PayMongo webhook 
   assert.equal(paidEvent.successfulPayments.length, 1);
   assert.ok(paidEvent.successfulPayments[0].id.startsWith("pay_sandbox_"));
   assert.equal(paidEvent.gatewayFeeInCentavos, 0);
+  assert.equal(paidEvent.paymentMethodType, "gcash");
+
+  const cardPayload = buildSyntheticSandboxWebhookPayload({
+    paymentId: "payment_0378199916d5d0718e38879dc1580f7b",
+    bookingId: "c979810d47890f6fb0f87b2a931108771eb3a725",
+    providerRequestId: "ce5c572baa7ab951d396ac37968d9ac8ac89e30c",
+    customerId: "customer_12345678",
+    checkoutId: "cs_sandbox_1234567890abcdef12345678",
+    checkoutAttemptId: "a1e568ae-e5d6-41f8-96e0-eb036fb17140",
+    amountInCentavos: 511020,
+    outcome: "paid",
+    paymentMethod: "card",
+  });
+  const cardEvent = parsePayMongoWebhookEvent(
+    Buffer.from(JSON.stringify(cardPayload), "utf8"),
+  );
+  assert.equal(cardEvent.paymentMethodType, "card");
 
   const failedPayload = buildSyntheticSandboxWebhookPayload({
     paymentId: "payment_0378199916d5d0718e38879dc1580f7b",
@@ -265,6 +286,70 @@ test("createPayMongoRefund succeeds deterministically in sandbox_mock mode witho
     await assert.rejects(
       () => retrievePayMongoRefund("sk_sandbox_mock", refund.id),
       (error) => error?.certainty === "not_sent",
+    );
+  });
+});
+
+test("isPartialRefundCapabilityConfirmed permits sandbox_mock partial refunds while keeping paymongo strict", async () => {
+  await withGatewayMode("sandbox_mock", () => {
+    assert.equal(
+      isPartialRefundCapabilityConfirmed({
+        amountInCentavos: 35000,
+        originalAmountInCentavos: 50000,
+        paymentMethodType: null,
+      }),
+      true,
+    );
+    assert.equal(
+      isPartialRefundCapabilityConfirmed({
+        amountInCentavos: 35000,
+        originalAmountInCentavos: 50000,
+        paymentMethodType: "paymaya",
+      }),
+      true,
+    );
+  });
+
+  await withGatewayMode("paymongo", () => {
+    assert.equal(
+      isPartialRefundCapabilityConfirmed({
+        amountInCentavos: 50000,
+        originalAmountInCentavos: 50000,
+        paymentMethodType: null,
+      }),
+      true,
+    );
+    assert.equal(
+      isPartialRefundCapabilityConfirmed({
+        amountInCentavos: 35000,
+        originalAmountInCentavos: 50000,
+        paymentMethodType: "gcash",
+      }),
+      true,
+    );
+    assert.equal(
+      isPartialRefundCapabilityConfirmed({
+        amountInCentavos: 35000,
+        originalAmountInCentavos: 50000,
+        paymentMethodType: "card",
+      }),
+      true,
+    );
+    assert.equal(
+      isPartialRefundCapabilityConfirmed({
+        amountInCentavos: 35000,
+        originalAmountInCentavos: 50000,
+        paymentMethodType: "paymaya",
+      }),
+      false,
+    );
+    assert.equal(
+      isPartialRefundCapabilityConfirmed({
+        amountInCentavos: 35000,
+        originalAmountInCentavos: 50000,
+        paymentMethodType: null,
+      }),
+      false,
     );
   });
 });

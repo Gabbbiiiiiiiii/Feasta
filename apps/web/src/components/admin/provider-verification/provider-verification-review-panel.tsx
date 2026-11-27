@@ -15,7 +15,6 @@ import {useEffect, useRef, useState} from "react";
 import {providerVerificationLabel} from "@/lib/admin/provider-verification/provider-verification-labels";
 
 import {
-  DetailFieldItem,
   DetailFieldList,
 } from "@/components/data/detail-field-list";
 import {feastaToast} from "@/components/feedback/toast";
@@ -133,311 +132,331 @@ function ProviderVerificationReviewPanel({
   };
 
   return (
-    <div className="grid min-w-0 gap-6">
-      <section aria-labelledby="review-status-heading" className="rounded-card border border-border bg-card p-4 shadow-card">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <h3 id="review-status-heading" className="text-lg font-bold">
-            Review status
+    <div className="grid w-full min-w-0 gap-4 md:grid-cols-12 md:items-start">
+      <div className="grid min-w-0 gap-4 md:col-span-7">
+        <section aria-labelledby="owner-heading" className="rounded-xl border border-border bg-card p-4 shadow-xs">
+          <h3 id="owner-heading" className="text-sm font-bold tracking-tight text-foreground">
+            Owner profile
           </h3>
-          <StatusBadge status={application.status} label={providerVerificationLabel(application.status)} />
-        </div>
-        <DetailFieldList className="mt-4">
-          <Detail label="Submitted" value={application.submittedAt} />
-          <Detail label="Last reviewed" value={application.reviewedAt} />
-          <Detail
-            label="Reviewer reference"
-            value={application.reviewedBy ?? "Not assigned"}
-          />
-          <Detail
-            label="Policy consent"
-            value={[
-              application.termsPolicyVersion
-                ? `Terms ${application.termsPolicyVersion}`
-                : "Terms version unavailable",
-              application.privacyPolicyVersion
-                ? `Privacy ${application.privacyPolicyVersion}`
-                : "Privacy version unavailable",
-            ].join(" · ")}
-          />
-        </DetailFieldList>
-        <ExistingRemarks application={application} />
-      </section>
+          <dl className="mt-3 grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-3">
+            <Detail label="Name" value={application.owner.name} />
+            <Detail label="Email" value={application.owner.email} />
+            <Detail label="Phone" value={application.owner.phone} />
+          </dl>
+        </section>
 
-      <section aria-labelledby="owner-heading" className="rounded-card border border-border bg-card p-4 shadow-card">
-        <h3 id="owner-heading" className="text-lg font-bold">
-          Owner profile
-        </h3>
-        <DetailFieldList className="mt-4">
-          <Detail label="Name" value={application.owner.name} />
-          <Detail label="Email" value={application.owner.email} />
-          <Detail label="Phone" value={application.owner.phone} wide />
-        </DetailFieldList>
-      </section>
+        <section aria-labelledby="business-heading" className="rounded-xl border border-border bg-card p-4 shadow-xs">
+          <h3 id="business-heading" className="text-sm font-bold tracking-tight text-foreground">
+            Business information
+          </h3>
+          <div className="mt-3 flex flex-wrap items-start gap-4">
+            <MediaPreview
+              label="Business logo"
+              path={application.media.logoUrl}
+              aspect="square"
+            />
+            <MediaPreview
+              label="Cover photo"
+              path={application.media.coverImageUrl}
+              aspect="wide"
+            />
+          </div>
+          <dl className="mt-4 grid grid-cols-1 gap-x-4 gap-y-3 border-t border-border/70 pt-3 sm:grid-cols-2">
+            <Detail label="Business name" value={application.business.name} />
+            <Detail label="Business email" value={application.business.email} />
+            <Detail label="Business phone" value={application.business.phone} />
+            <Detail
+              label="Address"
+              value={[
+                application.business.address,
+                application.business.city,
+                application.business.province,
+              ].join(", ")}
+              wide
+            />
+            <Detail
+              label="Description"
+              value={application.business.description}
+              wide
+            />
+          </dl>
+        </section>
 
-      <section aria-labelledby="business-heading" className="rounded-card border border-border bg-card p-4 shadow-card">
-        <h3 id="business-heading" className="text-lg font-bold">
-          Business information
-        </h3>
-        <div className="mt-4 grid gap-4 sm:grid-cols-2">
-          <MediaPreview
-            label="Business logo"
-            path={application.media.logoUrl}
-            aspect="square"
-          />
+        <section aria-labelledby="operations-heading" className="rounded-xl border border-border bg-card p-4 shadow-xs">
+          <h3 id="operations-heading" className="text-sm font-bold tracking-tight text-foreground">
+            Services and operations
+          </h3>
+          <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-3">
+            <Detail
+              label="Service categories"
+              value={application.operations.serviceCategories.length > 0
+                ? application.operations.serviceCategories
+                    .map((code) =>
+                      serviceCategoryName(
+                        code,
+                        serviceCategoryOptions,
+                      ),
+                    )
+                    .join(", ")
+                : "Not configured"}
+            />
+            <Detail
+              label="Event types"
+              value={listLabel(application.operations.eventTypes)}
+            />
+            <Detail
+              label="Coverage areas"
+              value={listLabel(application.operations.serviceAreas)}
+            />
+            <Detail
+              label="Max service distance"
+              value={application.operations.maximumServiceDistance}
+            />
+            <Detail
+              label="Guest capacity"
+              value={application.operations.guestCapacity}
+            />
+            <Detail
+              label="Events per day"
+              value={application.operations.eventsPerDay}
+            />
+            <Detail label="Staff" value={application.operations.staffCount} />
+            <Detail
+              label="Equipment"
+              value={application.operations.equipmentCount}
+            />
+            <Detail
+              label="Operating days"
+              value={listLabel(application.operations.operatingDays)}
+            />
+            <Detail
+              label="Booking lead time"
+              value={application.operations.bookingLeadTime}
+            />
+            <Detail
+              label="Unavailable dates"
+              value={listLabel(application.operations.unavailableDates)}
+              wide
+            />
+          </dl>
+        </section>
 
-          <MediaPreview
-            label="Cover photo"
-            path={application.media.coverImageUrl}
-            aspect="wide"
-          />
-        </div>
-        <DetailFieldList className="mt-4">
-          <Detail label="Business name" value={application.business.name} />
-          <Detail label="Service type" value={application.business.serviceType} />
-          <Detail label="Business email" value={application.business.email} />
-          <Detail label="Business phone" value={application.business.phone} />
-          <Detail
-            label="Address"
-            value={[
-              application.business.address,
-              application.business.city,
-              application.business.province,
-            ].join(", ")}
-            wide
-          />
-          <Detail
-            label="Description"
-            value={application.business.description}
-            wide
-          />
-        </DetailFieldList>
-      </section>
-
-      <section aria-labelledby="operations-heading" className="rounded-card border border-border bg-card p-4 shadow-card">
-        <h3 id="operations-heading" className="text-lg font-bold">
-          Services and operations
-        </h3>
-        <DetailFieldList className="mt-4">
-          <Detail
-            label="Service categories"
-            value={application.operations.serviceCategories.length > 0
-              ? application.operations.serviceCategories
-                  .map((code) =>
-                    serviceCategoryName(
-                      code,
-                      serviceCategoryOptions,
-                    ),
-                  )
-                  .join(", ")
-              : "Not configured"}
-          />
-          <Detail
-            label="Event types"
-            value={listLabel(application.operations.eventTypes)}
-          />
-          <Detail
-            label="Coverage areas"
-            value={listLabel(application.operations.serviceAreas)}
-          />
-          <Detail
-            label="Maximum service distance"
-            value={application.operations.maximumServiceDistance}
-          />
-          <Detail
-            label="Guest capacity"
-            value={application.operations.guestCapacity}
-          />
-          <Detail
-            label="Events per day"
-            value={application.operations.eventsPerDay}
-          />
-          <Detail label="Staff" value={application.operations.staffCount} />
-          <Detail
-            label="Equipment"
-            value={application.operations.equipmentCount}
-          />
-          <Detail
-            label="Operating days"
-            value={listLabel(application.operations.operatingDays)}
-          />
-          <Detail
-            label="Booking lead time"
-            value={application.operations.bookingLeadTime}
-          />
-          <Detail
-            label="Unavailable dates"
-            value={listLabel(application.operations.unavailableDates)}
-            wide
-          />
-        </DetailFieldList>
-      </section>
-
-      <section aria-labelledby="documents-heading" className="rounded-card border border-border bg-card p-4 shadow-card">
-        <h3 id="documents-heading" className="text-lg font-bold">
-          Verification documents
-        </h3>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Review the documents submitted with this application.
-        </p>
-        {application.documents.length === 0 ? (
-          <p className="mt-4 rounded-lg border border-warning/40 bg-warning/10 p-3">
-            No verification documents are registered.
-          </p>
-        ) : (
-          <ul className="mt-4 grid gap-3">
-            {application.documents.map((document) => (
-              <li
-                key={document.id}
-                className="grid gap-3 rounded-lg border border-border p-3"
-              >
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="break-words font-semibold">
-                      {document.title}
-                    </p>
-                    <p className="text-sm text-muted-foreground">
-                      {document.requirementKind === "one_of"
-                        ? "One of the required documents"
-                        : document.isRequired ? "Required" : "Optional"}
-                    </p>
-                    <p className="mt-1 break-all text-sm text-muted-foreground">
-                      {document.fileName} · {document.fileSize} ·{" "}
-                      {document.contentType}
-                    </p>
+        <section aria-labelledby="documents-heading" className="rounded-xl border border-border bg-card p-4 shadow-xs">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <h3 id="documents-heading" className="text-sm font-bold tracking-tight text-foreground">
+              Verification documents
+            </h3>
+            <p className="text-xs text-muted-foreground">
+              Submitted with this application
+            </p>
+          </div>
+          {application.documents.length === 0 ? (
+            <p className="mt-3 rounded-lg border border-warning/40 bg-warning/10 p-2.5 text-xs">
+              No verification documents are registered.
+            </p>
+          ) : (
+            <ul className="mt-3 divide-y divide-border/70 rounded-lg border border-border/80">
+              {application.documents.map((document) => (
+                <li
+                  key={document.id}
+                  className="grid gap-2.5 p-3"
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="break-words text-sm font-semibold text-foreground">
+                        {document.title}
+                      </p>
+                      <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-muted-foreground">
+                        <span className="font-medium text-foreground/80">
+                          {document.requirementKind === "one_of"
+                            ? "One of the required documents"
+                            : document.isRequired ? "Required" : "Optional"}
+                        </span>
+                        <span aria-hidden="true">·</span>
+                        <span className="break-all">
+                          {document.fileName} ({document.fileSize})
+                        </span>
+                      </div>
+                    </div>
+                    <StatusBadge status={document.status} />
                   </div>
-                  <StatusBadge status={document.status} />
-                </div>
-                {document.reviewNote ? (
-                  <p className="text-sm text-destructive">
-                    Review note: {document.reviewNote}
-                  </p>
-                ) : null}
-                <div className="flex flex-col gap-2 sm:flex-row">
-                  <Button asChild variant="secondary" size="compact">
-                    <a
-                      href={document.viewPath}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                    >
-                      <ExternalLink aria-hidden="true" />
-                      View document
-                    </a>
-                  </Button>
-                  <Button asChild variant="secondary" size="compact">
-                    <a href={document.downloadPath}>
-                      <Download aria-hidden="true" />
-                      Download
-                    </a>
-                  </Button>
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+                  {document.reviewNote ? (
+                    <p className="text-xs text-destructive">
+                      Review note: {document.reviewNote}
+                    </p>
+                  ) : null}
+                  <div className="flex flex-wrap gap-2">
+                    <Button asChild variant="secondary" size="compact" className="h-8 min-h-8 px-2.5 text-xs">
+                      <a
+                        href={document.viewPath}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        <ExternalLink aria-hidden="true" className="size-3.5" />
+                        View document
+                      </a>
+                    </Button>
+                    <Button asChild variant="secondary" size="compact" className="h-8 min-h-8 px-2.5 text-xs">
+                      <a href={document.downloadPath}>
+                        <Download aria-hidden="true" className="size-3.5" />
+                        Download
+                      </a>
+                    </Button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
 
-      <details className="rounded-card border border-border bg-card p-4">
-        <summary className="cursor-pointer font-bold">Additional business information</summary>
-        <p className="mt-2 text-sm text-muted-foreground">Tax information is separate from provider approval.</p>
-        <TaxProfileReviewSection providerId={application.providerId} taxProfile={application.taxProfile} />
-      </details>
+        <details className="rounded-xl border border-border bg-card p-4 shadow-xs">
+          <summary className="cursor-pointer text-sm font-bold text-foreground">
+            Additional business information
+          </summary>
+          <p className="mt-1.5 text-xs text-muted-foreground">
+            Tax information is separate from provider approval.
+          </p>
+          <div className="mt-3">
+            <TaxProfileReviewSection providerId={application.providerId} taxProfile={application.taxProfile} />
+          </div>
+        </details>
+      </div>
 
-      <section aria-labelledby="decision-heading" className="rounded-card border border-border bg-card p-4 shadow-card">
-        <h3 id="decision-heading" className="text-lg font-bold">Review decision</h3>
-        <label htmlFor="provider-review-remarks" className="mt-4 grid gap-2 text-sm font-semibold">
-          Admin remarks
-          <Textarea
-            id="provider-review-remarks"
-            value={remarks}
-            maxLength={2000}
+      <div className="grid min-w-0 gap-4 md:col-span-5 md:sticky md:top-0">
+        <section aria-labelledby="review-status-heading" className="rounded-xl border border-border bg-card p-4 shadow-xs">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h3 id="review-status-heading" className="text-sm font-bold tracking-tight text-foreground">
+              Review status
+            </h3>
+            <StatusBadge status={application.status} label={providerVerificationLabel(application.status)} />
+          </div>
+          <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-3">
+            <Detail label="Submitted" value={application.submittedAt} />
+            <Detail label="Last reviewed" value={application.reviewedAt} />
+            <Detail
+              label="Reviewer reference"
+              value={application.reviewedBy ?? "Not assigned"}
+            />
+            <Detail
+              label="Policy consent"
+              value={[
+                application.termsPolicyVersion
+                  ? `Terms ${application.termsPolicyVersion}`
+                  : "Terms version unavailable",
+                application.privacyPolicyVersion
+                  ? `Privacy ${application.privacyPolicyVersion}`
+                  : "Privacy version unavailable",
+              ].join(" · ")}
+            />
+          </dl>
+          <ExistingRemarks application={application} />
+        </section>
+
+        <section aria-labelledby="decision-heading" className="rounded-xl border border-border bg-card p-4 shadow-xs">
+          <h3 id="decision-heading" className="text-sm font-bold tracking-tight text-foreground">
+            Review decision
+          </h3>
+          <label htmlFor="provider-review-remarks" className="mt-3 grid gap-1.5 text-xs font-semibold text-foreground">
+            Admin remarks
+            <Textarea
+              id="provider-review-remarks"
+              rows={3}
+              className="min-h-20 text-sm"
+              value={remarks}
+              maxLength={2000}
+              disabled={submitting}
+              onChange={(event) => setRemarks(event.currentTarget.value)}
+              placeholder="Explain your decision. Rejection, updated documents, suspension, and restoration require at least 10 characters."
+            />
+          </label>
+          <p className="mt-1.5 text-xs text-muted-foreground">
+            Saved in activity history and may be included in the provider notification.
+          </p>
+          {error ? (
+            <p role="alert" className="mt-2.5 text-xs font-semibold text-destructive">
+              {error}
+            </p>
+          ) : null}
+          <DecisionActions
+            status={application.status}
             disabled={submitting}
-            onChange={(event) => setRemarks(event.currentTarget.value)}
-            placeholder="Explain your decision. Rejection, updated documents, suspension, and restoration require at least 10 characters."
+            hasDocuments={application.documents.length > 0}
+            onSelect={selectDecision}
           />
-        </label>
-        <p className="mt-2 text-sm text-muted-foreground">
-          Your remarks are saved in the activity history and may be included in the provider notification.
-        </p>
-        {error ? (
-          <p role="alert" className="mt-3 text-sm font-semibold text-destructive">
-            {error}
-          </p>
-        ) : null}
-        <DecisionActions
-          status={application.status}
-          disabled={submitting}
-          hasDocuments={application.documents.length > 0}
-          onSelect={selectDecision}
-        />
-      </section>
+          {requiresMeaningfulRemarks && !remarksValid ? (
+            <p role="status" className="mt-2.5 text-xs text-warning">
+              Enter at least 10 characters before confirming this action.
+            </p>
+          ) : null}
+        </section>
 
-      <section
-        aria-labelledby="history-heading"
-        className="rounded-card border border-border bg-card p-4 shadow-card"
-      >
-        <h3 id="history-heading" className="text-lg font-bold">
-          Verification history
-        </h3>
-        <p className="mt-1 text-sm text-muted-foreground">
-          History of verification updates and administrator decisions.
-        </p>
-        {application.history.length === 0 ? (
-          <p className="mt-4 text-sm text-muted-foreground">
-            No verification updates have been recorded yet.
-          </p>
-        ) : (
-          <ol className="mt-4 grid gap-3">
-            {application.history.map((entry) => (
-              <li
-                key={entry.id}
-                className="rounded-lg border border-border p-3"
-              >
-                <div className="flex flex-wrap items-start justify-between gap-2">
-                  <p className="font-semibold">{humanize(entry.eventType)}</p>
-                  <time className="text-sm text-muted-foreground">
-                    {entry.createdAt}
-                  </time>
-                </div>
-                {entry.fromStatus || entry.toStatus ? (
-                  <p className="mt-2 text-sm">
-                    {entry.fromStatus
-                      ? humanize(entry.fromStatus)
-                      : "Initial state"}
-                    {" → "}
-                    {entry.toStatus
-                      ? humanize(entry.toStatus)
-                      : "No status change"}
-                  </p>
-                ) : null}
-                {entry.documentType ? (
-                  <p className="mt-2 text-sm">
-                    Document: {humanize(entry.documentType)}
-                    {entry.documentStatus
-                      ? ` · ${humanize(entry.documentStatus)}`
-                      : ""}
-                  </p>
-                ) : null}
-                {entry.remarks ? (
-                  <p className="mt-2 whitespace-pre-wrap text-sm">
-                    Remarks: {entry.remarks}
-                  </p>
-                ) : null}
-                <p className="mt-2 text-xs text-muted-foreground">
-                  {humanize(entry.actorRole)}
-                </p>
-                {entry.auditLogId !== "Unavailable" ? (
-                  <Link
-                    className="mt-2 inline-flex min-h-12 items-center text-sm font-semibold text-primary-strong underline underline-offset-4"
-                    href={`/admin/audit-logs/${entry.auditLogId}`}
-                  >
-                    View activity details
-                  </Link>
-                ) : null}
-              </li>
-            ))}
-          </ol>
-        )}
-      </section>
+        <section
+          aria-labelledby="history-heading"
+          className="rounded-xl border border-border bg-card p-4 shadow-xs"
+        >
+          <h3 id="history-heading" className="text-sm font-bold tracking-tight text-foreground">
+            Verification history
+          </h3>
+          {application.history.length === 0 ? (
+            <p className="mt-2.5 text-xs text-muted-foreground">
+              No verification updates have been recorded yet.
+            </p>
+          ) : (
+            <ol className="mt-3 divide-y divide-border/70">
+              {application.history.map((entry) => (
+                <li
+                  key={entry.id}
+                  className="py-2.5 first:pt-0 last:pb-0"
+                >
+                  <div className="flex flex-wrap items-baseline justify-between gap-2">
+                    <p className="text-xs font-semibold text-foreground">{humanize(entry.eventType)}</p>
+                    <time className="text-[11px] text-muted-foreground">
+                      {entry.createdAt}
+                    </time>
+                  </div>
+                  {entry.fromStatus || entry.toStatus ? (
+                    <p className="mt-1 text-xs text-foreground">
+                      {entry.fromStatus
+                        ? humanize(entry.fromStatus)
+                        : "Initial state"}
+                      {" → "}
+                      {entry.toStatus
+                        ? humanize(entry.toStatus)
+                        : "No status change"}
+                    </p>
+                  ) : null}
+                  {entry.documentType ? (
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Document: {humanize(entry.documentType)}
+                      {entry.documentStatus
+                        ? ` · ${humanize(entry.documentStatus)}`
+                        : ""}
+                    </p>
+                  ) : null}
+                  {entry.remarks ? (
+                    <p className="mt-1 whitespace-pre-wrap text-xs text-foreground">
+                      Remarks: {entry.remarks}
+                    </p>
+                  ) : null}
+                  <div className="mt-1 flex flex-wrap items-center justify-between gap-2">
+                    <span className="text-[11px] text-muted-foreground">
+                      {humanize(entry.actorRole)}
+                    </span>
+                    {entry.auditLogId !== "Unavailable" ? (
+                      <Link
+                        className="text-xs font-semibold text-primary-strong underline underline-offset-4"
+                        href={`/admin/audit-logs/${entry.auditLogId}`}
+                      >
+                        View activity details
+                      </Link>
+                    ) : null}
+                  </div>
+                </li>
+              ))}
+            </ol>
+          )}
+        </section>
+      </div>
 
       <ConfirmationDialog
         open={pendingDecision != null}
@@ -451,11 +470,6 @@ function ProviderVerificationReviewPanel({
         loading={submitting}
         onConfirm={decide}
       />
-      {requiresMeaningfulRemarks && !remarksValid ? (
-        <p role="status" className="text-sm text-warning">
-          Enter at least 10 characters before confirming this action.
-        </p>
-      ) : null}
     </div>
   );
 }
@@ -927,32 +941,41 @@ function DecisionActions({
 
   if (actions.length === 0) {
     return (
-      <p className="mt-4 rounded-lg bg-muted p-3 text-sm text-muted-foreground">
+      <p className="mt-3 rounded-lg bg-muted/60 px-3 py-2 text-xs text-muted-foreground">
         No review action is available for this application right now.
       </p>
     );
   }
   return (
-    <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+    <div className="mt-3 flex flex-wrap gap-2">
       {actions.map((action) => (
         <Button
           key={action.action}
+          size="compact"
           variant={action.destructive ? "destructive" : "primary"}
           disabled={disabled || (action.action === "approve" && !hasDocuments)}
           onClick={() => onSelect(action)}
         >
-          {action.action === "approve" ? <CheckCircle2 aria-hidden="true" /> : null}
-          {action.action === "reject" ? <XCircle aria-hidden="true" /> : null}
+          {action.action === "approve" ? <CheckCircle2 aria-hidden="true" className="size-4" /> : null}
+          {action.action === "reject" ? <XCircle aria-hidden="true" className="size-4" /> : null}
           {action.action === "require_resubmission"
-            ? <RotateCcw aria-hidden="true" />
+            ? <RotateCcw aria-hidden="true" className="size-4" />
             : null}
-          {action.action === "suspend" ? <PauseCircle aria-hidden="true" /> : null}
+          {action.action === "suspend" ? <PauseCircle aria-hidden="true" className="size-4" /> : null}
           {action.label}
         </Button>
       ))}
     </div>
   );
 }
+
+const MUTED_PLACEHOLDERS = new Set([
+  "not available",
+  "not configured",
+  "not assigned",
+  "not provided",
+  "none",
+]);
 
 function Detail({
   label,
@@ -963,7 +986,23 @@ function Detail({
   value: string;
   wide?: boolean;
 }) {
-  return <DetailFieldItem label={label} value={value} wide={wide} />;
+  const isMuted = MUTED_PLACEHOLDERS.has(value.trim().toLowerCase());
+  return (
+    <div className={wide ? "col-span-full min-w-0" : "min-w-0"}>
+      <dt className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+        {label}
+      </dt>
+      <dd
+        className={
+          isMuted
+            ? "mt-0.5 break-words text-xs font-normal text-muted-foreground"
+            : "mt-0.5 break-words text-sm font-medium text-foreground"
+        }
+      >
+        {value}
+      </dd>
+    </div>
+  );
 }
 
 function MediaPreview({
@@ -976,10 +1015,10 @@ function MediaPreview({
   aspect: "square" | "wide";
 }) {
   return (
-    <figure>
+    <figure className="shrink-0">
       <div className={[
-        "relative overflow-hidden rounded-lg border border-border bg-muted",
-        aspect === "square" ? "aspect-square max-w-40" : "aspect-[16/9]",
+        "relative overflow-hidden rounded-lg border border-border bg-muted/60",
+        aspect === "square" ? "size-20" : "h-20 w-36",
       ].join(" ")}>
         {path ? (
           <Image
@@ -988,15 +1027,17 @@ function MediaPreview({
             fill
             unoptimized
             className="object-cover"
-            sizes={aspect === "square" ? "160px" : "(max-width: 640px) 100vw, 240px"}
+            sizes={aspect === "square" ? "80px" : "144px"}
           />
         ) : (
-          <span className="grid size-full place-items-center p-4 text-center text-sm text-muted-foreground">
-            No image uploaded
+          <span className="grid size-full place-items-center p-2 text-center text-[11px] leading-tight text-muted-foreground">
+            No image
           </span>
         )}
       </div>
-      <figcaption className="mt-2 text-sm font-semibold">{label}</figcaption>
+      <figcaption className="mt-1.5 text-xs font-medium text-muted-foreground">
+        {label}
+      </figcaption>
     </figure>
   );
 }
@@ -1013,11 +1054,11 @@ function ExistingRemarks({
     ["Suspension reason", application.suspensionReason],
   ].filter((entry): entry is [string, string] => entry[1] != null);
   return entries.length > 0 ? (
-    <DetailFieldList columns={1} className="mt-4">
+    <dl className="mt-3 grid gap-2.5 border-t border-border/70 pt-3">
       {entries.map(([label, value]) => (
         <Detail key={label} label={label} value={value} />
       ))}
-    </DetailFieldList>
+    </dl>
   ) : null;
 }
 

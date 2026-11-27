@@ -139,6 +139,8 @@ export type ProviderBookingPage = {
   nextCursor: string | null;
   hasMore: boolean;
   skippedMalformedCount: number;
+  totalCount?: number | null;
+  totalPages?: number | null;
 };
 
 export type ProviderBookingSummary = {

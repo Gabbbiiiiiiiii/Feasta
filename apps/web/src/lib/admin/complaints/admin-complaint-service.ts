@@ -27,8 +27,11 @@ import type {
 } from "@/lib/admin/complaints/admin-complaint-types";
 import {requireAdmin} from "@/lib/auth/session";
 import {adminDb} from "@/lib/firebase/admin";
+import {countFirestoreQuery} from "@/lib/firebase/count-query";
+import {computeTotalPages} from "@/lib/pagination";
 
 const COMPLAINTS_COLLECTION = "complaints";
+const MAIN_EVENTS_COLLECTION = "mainEvents";
 const PROVIDERS_COLLECTION = "providers";
 const ADMIN_LOGS_COLLECTION = "adminLogs";
 const NOTIFICATIONS_COLLECTION = "notifications";
@@ -148,6 +151,8 @@ export async function getAdminComplaintPage(
       hasMore:
         complaints.length >
         filters.pageSize,
+      totalCount: complaints.length,
+      totalPages: 1,
     };
   }
 
@@ -177,6 +182,7 @@ export async function getAdminComplaintPage(
       "desc",
     );
 
+  const countQuery = query;
   const cursor =
     decodeComplaintCursor(
       filters.cursor,
@@ -191,11 +197,14 @@ export async function getAdminComplaintPage(
     );
   }
 
-  const snapshot = await query
-    .limit(
-      filters.pageSize + 1,
-    )
-    .get();
+  const [snapshot, totalCount] = await Promise.all([
+    query
+      .limit(
+        filters.pageSize + 1,
+      )
+      .get(),
+    countFirestoreQuery(countQuery),
+  ]);
 
   const hasMore =
     snapshot.docs.length >
@@ -238,6 +247,11 @@ export async function getAdminComplaintPage(
           )
         : null,
     hasMore,
+    totalCount,
+    totalPages: computeTotalPages(
+      totalCount,
+      filters.pageSize,
+    ),
   };
 }
 
@@ -259,11 +273,16 @@ async function getAdminComplaintStatistics(): Promise<
     totalSnapshot,
     submittedSnapshot,
     underReviewSnapshot,
-    awaitingSnapshot,
+    awaitingCustomerSnapshot,
+    awaitingProviderSnapshot,
     escalatedSnapshot,
     resolvedSnapshot,
     dismissedSnapshot,
     closedSnapshot,
+    lowPrioritySnapshot,
+    normalPrioritySnapshot,
+    highPrioritySnapshot,
+    urgentPrioritySnapshot,
   ] = await Promise.all([
     complaints.count().get(),
 
@@ -288,11 +307,17 @@ async function getAdminComplaintStatistics(): Promise<
     complaints
       .where(
         "status",
-        "in",
-        [
-          "awaiting_customer",
-          "awaiting_provider",
-        ],
+        "==",
+        "awaiting_customer",
+      )
+      .count()
+      .get(),
+
+    complaints
+      .where(
+        "status",
+        "==",
+        "awaiting_provider",
       )
       .count()
       .get(),
@@ -332,27 +357,88 @@ async function getAdminComplaintStatistics(): Promise<
       )
       .count()
       .get(),
+
+    complaints
+      .where(
+        "priority",
+        "==",
+        "low",
+      )
+      .count()
+      .get(),
+
+    complaints
+      .where(
+        "priority",
+        "==",
+        "normal",
+      )
+      .count()
+      .get(),
+
+    complaints
+      .where(
+        "priority",
+        "==",
+        "high",
+      )
+      .count()
+      .get(),
+
+    complaints
+      .where(
+        "priority",
+        "==",
+        "urgent",
+      )
+      .count()
+      .get(),
   ]);
+
+  const submitted = submittedSnapshot.data().count;
+  const underReview = underReviewSnapshot.data().count;
+  const awaitingCustomer = awaitingCustomerSnapshot.data().count;
+  const awaitingProvider = awaitingProviderSnapshot.data().count;
+  const escalated = escalatedSnapshot.data().count;
+  const resolved = resolvedSnapshot.data().count;
+  const dismissed = dismissedSnapshot.data().count;
+  const closed = closedSnapshot.data().count;
+
+  const statusCounts: Array<[ComplaintStatus, number]> = [
+    ["submitted", submitted],
+    ["under_review", underReview],
+    ["awaiting_customer", awaitingCustomer],
+    ["awaiting_provider", awaitingProvider],
+    ["escalated", escalated],
+    ["resolved", resolved],
+    ["dismissed", dismissed],
+    ["closed", closed],
+  ];
+
+  const priorityCounts: Array<[ComplaintPriority, number]> = [
+    ["low", lowPrioritySnapshot.data().count],
+    ["normal", normalPrioritySnapshot.data().count],
+    ["high", highPrioritySnapshot.data().count],
+    ["urgent", urgentPrioritySnapshot.data().count],
+  ];
 
   return {
     totalComplaints:
       totalSnapshot.data().count,
-    submitted:
-      submittedSnapshot.data().count,
-    underReview:
-      underReviewSnapshot
-        .data()
-        .count,
+    submitted,
+    underReview,
     awaitingResponse:
-      awaitingSnapshot.data().count,
-    escalated:
-      escalatedSnapshot.data().count,
-    resolved:
-      resolvedSnapshot.data().count,
-    dismissed:
-      dismissedSnapshot.data().count,
-    closed:
-      closedSnapshot.data().count,
+      awaitingCustomer + awaitingProvider,
+    escalated,
+    resolved,
+    dismissed,
+    closed,
+    availableStatuses: statusCounts
+      .filter(([, count]) => count > 0)
+      .map(([status]) => status),
+    availablePriorities: priorityCounts
+      .filter(([, count]) => count > 0)
+      .map(([priority]) => priority),
   };
 }
 
@@ -493,6 +579,7 @@ function mapComplaintDocument(
     providerOwnerId: null,
 
     bookingId: optionalDocumentId(data.bookingId ?? data.mainEventId),
+    bookingCode: null,
     providerRequestId: optionalDocumentId(data.providerRequestId),
     category:
       stringValue(
@@ -578,9 +665,26 @@ async function hydrateComplaintIdentities(
     ),
   ];
 
+  const bookingIds = [
+    ...new Set(
+      complaints
+        .map(
+          (complaint) =>
+            complaint.bookingId ?? null,
+        )
+        .filter(
+          (
+            bookingId,
+          ): bookingId is string =>
+            bookingId !== null,
+        ),
+    ),
+  ];
+
   const [
     userSnapshots,
     providerSnapshots,
+    bookingSnapshots,
   ] = await Promise.all([
     adminDb.getAll(
       ...userIds.map((userId) =>
@@ -606,6 +710,19 @@ async function hydrateComplaintIdentities(
           ),
         )
       : Promise.resolve([]),
+
+    bookingIds.length > 0
+      ? adminDb.getAll(
+          ...bookingIds.map(
+            (bookingId) =>
+              adminDb
+                .collection(
+                  MAIN_EVENTS_COLLECTION,
+                )
+                .doc(bookingId),
+          ),
+        )
+      : Promise.resolve([]),
   ]);
 
   const usersById = new Map(
@@ -627,6 +744,15 @@ async function hydrateComplaintIdentities(
       ),
     );
 
+  const bookingsById = new Map(
+    bookingSnapshots.map(
+      (snapshot) => [
+        snapshot.id,
+        snapshot.data() ?? {},
+      ],
+    ),
+  );
+
   return complaints.map(
     (complaint) => {
       const user =
@@ -641,8 +767,22 @@ async function hydrateComplaintIdentities(
             ) ?? {}
           : {};
 
+      const booking =
+        complaint.bookingId
+          ? bookingsById.get(
+              complaint.bookingId,
+            ) ?? {}
+          : {};
+
       return {
         ...complaint,
+
+        bookingCode:
+          complaint.bookingId
+            ? nullableString(
+                booking.bookingCode,
+              )
+            : null,
 
         complainantName:
           createAccountName(
@@ -1340,6 +1480,7 @@ function complaintMatchesSearch(
 ) {
   const searchableValues = [
     complaint.id,
+    complaint.bookingCode ?? "",
     complaint.category,
     complaint.description,
     complaint.complainantName,

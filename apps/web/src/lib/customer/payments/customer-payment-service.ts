@@ -42,6 +42,8 @@ import {
 } from "@/lib/customer/bookings/customer-booking-membership";
 import {requireCustomer} from "@/lib/auth/session";
 import {adminDb} from "@/lib/firebase/admin";
+import {countFirestoreQuery} from "@/lib/firebase/count-query";
+import {computeTotalPages} from "@/lib/pagination";
 
 const COLLECTIONS = {
   mainEvents: "mainEvents",
@@ -619,6 +621,8 @@ export async function getCustomerPaymentPage(
       statistics: await statisticsPromise,
       nextCursor: null,
       hasMore: false,
+      totalCount: documents.length,
+      totalPages: 1,
     };
   }
 
@@ -634,6 +638,7 @@ export async function getCustomerPaymentPage(
     .orderBy("createdAt", "desc")
     .orderBy(FieldPath.documentId(), "desc");
 
+  const countQuery = query;
   const cursor = decodeCursor(filters.cursor);
 
   if (cursor) {
@@ -643,9 +648,10 @@ export async function getCustomerPaymentPage(
     );
   }
 
-  const snapshot = await query
-    .limit(filters.pageSize + 1)
-    .get();
+  const [snapshot, totalCount] = await Promise.all([
+    query.limit(filters.pageSize + 1).get(),
+    countFirestoreQuery(countQuery),
+  ]);
   const hasMore = snapshot.docs.length > filters.pageSize;
   const documents = hasMore
     ? snapshot.docs.slice(0, filters.pageSize)
@@ -663,6 +669,8 @@ export async function getCustomerPaymentPage(
         ? encodeCursor(lastDocument)
         : null,
     hasMore,
+    totalCount,
+    totalPages: computeTotalPages(totalCount, filters.pageSize),
   };
 }
 

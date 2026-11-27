@@ -58,6 +58,12 @@ export function ProviderPackageDetailPreview({item, serviceCategoryLabel, custom
             return <section key={tier} aria-label={cateringPackageServiceTierLabel(tier)} className="grid min-w-0 content-start gap-2 rounded-xl border border-border bg-muted/20 p-4">
               <h4 className="font-semibold">{cateringPackageServiceTierLabel(tier)}</h4>
               <PriceDisplay amount={option.price} />
+              {tier === "drop_off" && item.pricingModel === "per_bundle" && typeof item.maxDropOffOrderQuantity === "number" ? (
+                <p className="text-sm text-muted-foreground">
+                  <span className="font-medium text-foreground">Max quantity per order:</span>{" "}
+                  {item.maxDropOffOrderQuantity === 1 ? "1 package" : `Up to ${item.maxDropOffOrderQuantity} packages`}
+                </p>
+              ) : null}
               <p className="text-muted-foreground">{cateringPackageServiceTierDescription(tier)}</p>
               <h5 className="font-semibold">Included services</h5>
               {option.includedServices.length ? <InclusionList items={option.includedServices} /> : <Empty>No tier-specific services listed.</Empty>}

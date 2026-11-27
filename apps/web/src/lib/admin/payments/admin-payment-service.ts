@@ -43,6 +43,8 @@ import type {
 } from "@/lib/admin/payments/admin-payment-types";
 import {requireAdmin} from "@/lib/auth/session";
 import {adminDb} from "@/lib/firebase/admin";
+import {countFirestoreQuery} from "@/lib/firebase/count-query";
+import {computeTotalPages} from "@/lib/pagination";
 import {bookingPaymentStatusMismatch, matchesAdminPaymentChoice, matchesPaymentReview} from "./payment-review";
 import {hasBookingSettlement, projectBookingPayment} from "@/lib/payments/booking-payment-projection";
 import {
@@ -139,6 +141,8 @@ export async function getAdminPaymentPage(
       statistics: await statisticsPromise,
       nextCursor: null,
       hasMore: false,
+      totalCount: payments.length,
+      totalPages: 1,
     };
   }
 
@@ -155,6 +159,7 @@ export async function getAdminPaymentPage(
     .orderBy(effectiveSortField, sortDirection)
     .orderBy(FieldPath.documentId(), sortDirection);
 
+  const countQuery = query;
   const cursor = decodeCursor(filters.cursor);
 
   if (cursor && cursor.field === effectiveSortField) {
@@ -168,6 +173,7 @@ export async function getAdminPaymentPage(
 
   let visibleDocuments: QueryDocumentSnapshot<DocumentData>[];
   let hasMore: boolean;
+  let totalCount: number | null = null;
 
   if (filters.paymentType === "full" || filters.paymentType === "provider_down_payment") {
     // A post-query filter on just one Firestore page would cause missing rows
@@ -191,9 +197,15 @@ export async function getAdminPaymentPage(
     hasMore = matching.length > filters.pageSize;
     visibleDocuments = matching.slice(0, filters.pageSize);
   } else {
-    const snapshot = await query.limit(filters.pageSize + 1).get();
+    const [snapshot, counted] = await Promise.all([
+      query.limit(filters.pageSize + 1).get(),
+      filters.issue === "all"
+        ? countFirestoreQuery(countQuery)
+        : Promise.resolve(null),
+    ]);
     hasMore = snapshot.docs.length > filters.pageSize;
     visibleDocuments = snapshot.docs.slice(0, filters.pageSize);
+    totalCount = counted;
   }
 
   const relations = await loadPaymentRelations(visibleDocuments);
@@ -211,6 +223,8 @@ export async function getAdminPaymentPage(
         ? encodeCursor(lastDocument, effectiveSortField)
         : null,
     hasMore,
+    totalCount,
+    totalPages: computeTotalPages(totalCount, filters.pageSize),
   };
 }
 
@@ -3493,6 +3507,7 @@ function mapPaymentDocument(
     paymentType: paymentType(data.paymentType),
     paymentChoice: data.paymentChoice === "full" || data.paymentChoice === "minimum" || data.paymentChoice === "remaining_balance"
       ? data.paymentChoice : null,
+    paymentMethodType: nullableString(data.paymentMethodType),
     gateway: paymentGateway(data.gateway),
     status,
     gatewayResourceId,
@@ -3613,11 +3628,13 @@ async function queryAdminPaymentStatistics(): Promise<
 
   const [
     paid,
+    paidCount,
     pending,
     processing,
     failed,
     expired,
     refunded,
+    refundedCount,
     failedPayouts,
     reconciliationCases,
     partialCount,
@@ -3637,6 +3654,15 @@ async function queryAdminPaymentStatistics(): Promise<
               "amountInCentavos",
             ),
         })
+        .get(),
+
+      payments
+        .where(
+          "status",
+          "==",
+          "paid",
+        )
+        .count()
         .get(),
 
       payments
@@ -3689,6 +3715,15 @@ async function queryAdminPaymentStatistics(): Promise<
         })
         .get(),
 
+      payments
+        .where(
+          "status",
+          "==",
+          "refunded",
+        )
+        .count()
+        .get(),
+
       payoutAttempts
         .where(
           "status",
@@ -3734,6 +3769,19 @@ async function queryAdminPaymentStatistics(): Promise<
   const failedPaymentCount =
     failed.data().count;
 
+  const statusCounts: readonly [PaymentStatus, number][] = [
+    ["pending", pending.data().count],
+    ["processing", processing.data().count],
+    ["paid", paidCount.data().count],
+    ["failed", failedPaymentCount],
+    ["expired", expired.data().count],
+    ["refunded", refundedCount.data().count],
+    ["partially_refunded", partialCount.data().count],
+  ];
+  const availableStatuses = statusCounts
+    .filter(([, count]) => count > 0)
+    .map(([status]) => status);
+
   return {
     confirmedVolumeInCentavos,
 
@@ -3754,6 +3802,8 @@ async function queryAdminPaymentStatistics(): Promise<
       reconciliationCases.data().count - aggregateReviewMembers.data().count + aggregateReview.data().count,
 
     refundedAmountInCentavos,
+
+    availableStatuses,
 
     confirmedVolumeFormatted:
       confirmedVolumeInCentavos === null ? "Unavailable" : formatCentavos(

@@ -3,12 +3,14 @@
 import {filledRatingStarClassName} from "@/components/ui/rating-styles";
 
 import {
+  ArrowUpRight,
   Eye,
   EyeOff,
   Flag,
   MessageSquareText,
   Star,
 } from "lucide-react";
+import Link from "next/link";
 import {
   useCallback,
   useMemo,
@@ -23,6 +25,7 @@ import {
   loadAdminReviewsAction,
 } from "@/app/admin/reviews/actions";
 import {CursorPagination} from "@/components/data/cursor-pagination";
+import {formatPageLabel} from "@/lib/pagination";
 import {
   DataTable,
   type DataTableColumn,
@@ -44,10 +47,10 @@ import type {
   AdminReviewDetails,
   AdminReviewFilters,
   AdminReviewModerationAction,
+  AdminReviewModerationStatus,
   AdminReviewModerationStatusFilter,
   AdminReviewPage,
   AdminReviewRatingFilter,
-  AdminReviewReportFilter,
   AdminReviewSortDirection,
   AdminReviewSortField,
   ModerateAdminReviewResult,
@@ -68,6 +71,11 @@ const DEFAULT_FILTERS: AdminReviewFilters = {
   sortDirection: "descending",
   pageSize: 10,
   cursor: null,
+};
+
+const REVIEW_STATUS_LABELS: Record<AdminReviewModerationStatus, string> = {
+  published: "Published",
+  hidden: "Hidden",
 };
 
 function ReviewManagementClient({
@@ -239,9 +247,7 @@ function ReviewManagementClient({
               <MessageSquareText aria-hidden="true" className="size-3.5" />
               Provider replied
             </span>
-          ) : (
-            <span className="text-xs text-muted-foreground">No reply</span>
-          )}
+          ) : null}
         </div>
       ),
     },
@@ -266,45 +272,75 @@ function ReviewManagementClient({
 
   const retryPage = () => loadPage(filters, currentCursor, cursorHistory);
 
+  const availableStatuses =
+    page.statistics.availableStatuses ??
+    initialPage.statistics.availableStatuses ??
+    [];
+  const availableRatings =
+    page.statistics.availableRatings ??
+    initialPage.statistics.availableRatings ??
+    [];
+
   return (
     <div className="grid min-w-0 gap-6">
       <PageHeading
         eyebrow="Administration"
         title="Review Management"
-        description="Monitor verified customer feedback, provider replies, reports, and moderation decisions."
+        description="Monitor verified customer reviews and manage review visibility."
       />
 
       <section
-        className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5"
+        className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"
         aria-label="Review statistics"
       >
         <SummaryCard
           label="Total Reviews"
+          tooltip="All non-deleted customer reviews submitted for completed bookings."
           value={page.statistics.totalCount}
           icon={<MessageSquareText className="size-5" />}
           loading={isPending}
         />
         <SummaryCard
           label="Published"
+          tooltip="Reviews visible on provider profiles and counted in provider ratings."
           value={page.statistics.publishedCount}
           icon={<Eye className="size-5" />}
           loading={isPending}
         />
         <SummaryCard
-          label="Reported"
-          value={page.statistics.reportedCount}
-          icon={<Flag className="size-5" />}
-          loading={isPending}
-        />
-        <SummaryCard
           label="Hidden"
+          tooltip="Reviews hidden by admin moderation and excluded from provider ratings."
           value={page.statistics.hiddenCount}
+          supportingMetric={
+            page.statistics.hiddenCount > 0 ? (
+              <button
+                type="button"
+                disabled={isPending}
+                onClick={() => applyFilters({status: "hidden"})}
+                className="font-semibold text-primary underline underline-offset-4 hover:text-primary/80 disabled:opacity-60"
+              >
+                View hidden
+              </button>
+            ) : (
+              "No hidden reviews"
+            )
+          }
           icon={<EyeOff className="size-5" />}
           loading={isPending}
         />
         <SummaryCard
           label="Average Rating"
-          value={`${page.statistics.averageRating.toFixed(1)} / 5`}
+          tooltip="Average star rating across all currently published reviews."
+          value={
+            page.statistics.publishedCount > 0
+              ? `${page.statistics.averageRating.toFixed(1)} / 5`
+              : "—"
+          }
+          supportingMetric={
+            page.statistics.publishedCount > 0
+              ? "Across published reviews"
+              : "No published reviews yet"
+          }
           icon={<Star className="size-5" />}
           loading={isPending}
         />
@@ -336,20 +372,17 @@ function ReviewManagementClient({
               })}
             >
               <option value="all">All statuses</option>
-              <option value="published">Published</option>
-              <option value="hidden">Hidden</option>
-            </FilterSelect>
-            <FilterSelect
-              label="Report status"
-              value={filters.report}
-              disabled={isPending}
-              onChange={(value) => applyFilters({
-                report: value as AdminReviewReportFilter,
-              })}
-            >
-              <option value="all">All reports</option>
-              <option value="reported">Reported</option>
-              <option value="not_reported">Not reported</option>
+              {filters.status !== "all" &&
+              !availableStatuses.includes(filters.status) ? (
+                <option value={filters.status} disabled>
+                  {REVIEW_STATUS_LABELS[filters.status]} (no matching records)
+                </option>
+              ) : null}
+              {availableStatuses.map((statusOption) => (
+                <option key={statusOption} value={statusOption}>
+                  {REVIEW_STATUS_LABELS[statusOption]}
+                </option>
+              ))}
             </FilterSelect>
             <FilterSelect
               label="Rating"
@@ -360,8 +393,16 @@ function ReviewManagementClient({
               })}
             >
               <option value="all">All ratings</option>
-              {[5, 4, 3, 2, 1].map((rating) => (
-                <option key={rating} value={rating}>{rating} stars</option>
+              {filters.rating !== "all" &&
+              !availableRatings.includes(filters.rating) ? (
+                <option value={filters.rating} disabled>
+                  {formatStarCount(filters.rating)} (no matching records)
+                </option>
+              ) : null}
+              {availableRatings.map((rating) => (
+                <option key={rating} value={rating}>
+                  {formatStarCount(rating)}
+                </option>
               ))}
             </FilterSelect>
             <FilterSelect
@@ -418,7 +459,7 @@ function ReviewManagementClient({
         previousCursor={previousCursor}
         nextCursor={page.hasMore ? page.nextCursor : null}
         loading={isPending}
-        pageLabel={`Page ${cursorHistory.length}`}
+        pageLabel={formatPageLabel(cursorHistory.length, page.totalPages, {hasMore: page.hasMore})}
         onPrevious={() => {
           if (cursorHistory.length <= 1) return;
           const history = cursorHistory.slice(0, -1);
@@ -483,9 +524,21 @@ function ReviewDetailsDrawer({
   return (
     <DetailDrawer
       title={current ? `${current.customerName}'s review` : "Review details"}
-      description="Review customer feedback and manage reported reviews."
+      description="Review customer feedback and manage public visibility."
       open={open}
       onOpenChange={onOpenChange}
+      footer={
+        current?.bookingCode ? (
+          <Button asChild variant="secondary" className="w-full">
+            <Link
+              href={`/admin/bookings?search=${encodeURIComponent(current.bookingCode)}`}
+            >
+              <span>Open booking</span>
+              <ArrowUpRight aria-hidden="true" className="size-4" />
+            </Link>
+          </Button>
+        ) : undefined
+      }
     >
       {loading ? (
         <p className="py-8 text-center text-muted-foreground" role="status">
@@ -518,22 +571,24 @@ function ReviewDetailsDrawer({
 
           <DetailSection title="Booking">
             <Detail label="Booking" value={current.bookingCode ?? "Not recorded"} />
-            <Detail label="Event type" value={details?.booking.eventType} />
-            <Detail label="Booking status" value={details?.booking.status} />
+            <Detail
+              label="Event type"
+              value={details?.booking.eventType ? humanize(details.booking.eventType) : null}
+            />
+            <Detail
+              label="Booking status"
+              value={details?.booking.status ? humanize(details.booking.status) : null}
+            />
           </DetailSection>
-          <details className="rounded-lg border border-border p-4">
-            <summary className="cursor-pointer text-sm font-semibold">Support references</summary>
-            <div className="mt-3">
-              <Detail label="Review reference" value={current.id} />
-            </div>
-          </details>
 
-          <section className="grid gap-3 rounded-card border border-border p-4">
-            <h3 className="font-bold">Provider reply</h3>
-            <p className="whitespace-pre-wrap break-words text-sm leading-6 text-muted-foreground">
-              {current.providerReply ?? "The provider has not replied."}
-            </p>
-          </section>
+          {current.providerReply ? (
+            <section className="grid gap-3 rounded-card border border-border p-4">
+              <h3 className="font-bold">Provider reply</h3>
+              <p className="whitespace-pre-wrap break-words text-sm leading-6 text-muted-foreground">
+                {current.providerReply}
+              </p>
+            </section>
+          ) : null}
 
           <section className="grid gap-4 rounded-card border border-border p-4">
             <div>
@@ -772,11 +827,19 @@ function updateReviewPage(
     const nextAverage = nextCount === 0
       ? 0
       : (ratingTotal + (isPublished ? after.rating : -before.rating)) / nextCount;
+    const nextHiddenCount = Math.max(
+      0,
+      statistics.hiddenCount + (isPublished ? -1 : 1),
+    );
+    const nextAvailableStatuses: AdminReviewModerationStatus[] = [];
+    if (nextCount > 0) nextAvailableStatuses.push("published");
+    if (nextHiddenCount > 0) nextAvailableStatuses.push("hidden");
     statistics = {
       ...statistics,
       publishedCount: nextCount,
-      hiddenCount: Math.max(0, statistics.hiddenCount + (isPublished ? -1 : 1)),
+      hiddenCount: nextHiddenCount,
       averageRating: Math.round(nextAverage * 10) / 10,
+      availableStatuses: nextAvailableStatuses,
     };
   }
   if (before.isReported !== after.isReported) {
@@ -798,10 +861,13 @@ function updateReviewPage(
 function filterLabels(filters: AdminReviewFilters): string[] {
   const labels: string[] = [];
   if (filters.status !== "all") labels.push(`Status: ${humanize(filters.status)}`);
-  if (filters.report !== "all") labels.push(`Report: ${humanize(filters.report)}`);
-  if (filters.rating !== "all") labels.push(`Rating: ${filters.rating} stars`);
+  if (filters.rating !== "all") labels.push(`Rating: ${formatStarCount(filters.rating)}`);
   if (filters.date !== "all") labels.push(`Date: ${humanize(filters.date)}`);
   return labels;
+}
+
+function formatStarCount(rating: string): string {
+  return rating === "1" ? "1 star" : `${rating} stars`;
 }
 
 function moderationSuccessMessage(action: AdminReviewModerationAction): string {

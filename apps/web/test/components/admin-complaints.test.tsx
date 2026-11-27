@@ -2,6 +2,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import {
@@ -93,6 +94,18 @@ describe(
             "No complaints submitted",
           ),
         ).toBeInTheDocument();
+
+        expect(
+          Array.from(
+            (screen.getByLabelText("Status") as HTMLSelectElement).options,
+          ).map((option) => option.value),
+        ).toEqual(["all"]);
+
+        expect(
+          Array.from(
+            (screen.getByLabelText("Priority") as HTMLSelectElement).options,
+          ).map((option) => option.value),
+        ).toEqual(["all"]);
       },
     );
 
@@ -274,6 +287,125 @@ describe(
         );
       },
     );
+
+    it(
+      "renders mutually exclusive KPI cards with quick-filter shortcuts",
+      async () => {
+        const user = userEvent.setup();
+        const initial = pageFixture([complaintFixture()]);
+        initial.statistics = {
+          totalComplaints: 9,
+          submitted: 2,
+          underReview: 1,
+          awaitingResponse: 2,
+          escalated: 1,
+          resolved: 2,
+          dismissed: 0,
+          closed: 1,
+          availableStatuses: ["submitted", "under_review", "escalated", "resolved"],
+          availablePriorities: ["normal", "urgent"],
+        };
+
+        render(<ComplaintManagementClient initialPage={initial} />);
+
+        const pendingCard = screen.getByRole("region", {name: "Pending triage"});
+        expect(within(pendingCard).getByText("2")).toBeInTheDocument();
+
+        const inProgressCard = screen.getByRole("region", {name: "In progress"});
+        expect(within(inProgressCard).getByText("3")).toBeInTheDocument();
+        expect(
+          within(inProgressCard).getByText("1 under review · 2 awaiting reply"),
+        ).toBeInTheDocument();
+
+        const escalatedCard = screen.getByRole("region", {name: "Escalated"});
+        expect(within(escalatedCard).getByText("1")).toBeInTheDocument();
+
+        const resolvedCard = screen.getByRole("region", {name: "Resolved & closed"});
+        expect(within(resolvedCard).getByText("3")).toBeInTheDocument();
+        expect(within(resolvedCard).getByText("9 total recorded")).toBeInTheDocument();
+
+        const statusOptions = Array.from(
+          (screen.getByLabelText("Status") as HTMLSelectElement).options,
+        ).map((option) => option.value);
+        expect(statusOptions).toEqual([
+          "all",
+          "submitted",
+          "under_review",
+          "escalated",
+          "resolved",
+        ]);
+
+        const priorityOptions = Array.from(
+          (screen.getByLabelText("Priority") as HTMLSelectElement).options,
+        ).map((option) => option.value);
+        expect(priorityOptions).toEqual(["all", "normal", "urgent"]);
+
+        await user.click(
+          within(escalatedCard).getByRole("button", {name: "View escalated"}),
+        );
+
+        await waitFor(() => {
+          expect(mocks.load).toHaveBeenCalledWith(
+            expect.objectContaining({
+              status: "escalated",
+              cursor: null,
+            }),
+          );
+        });
+      },
+    );
+
+    it(
+      "renders booking link and safe evidence links in complaint details",
+      async () => {
+        const user = userEvent.setup();
+        const complaint = {
+          ...complaintFixture(),
+          bookingId: "event_test",
+          bookingCode: "FST-2026-0042",
+          providerRequestId: "req_test",
+          evidenceUrls: [
+            "https://storage.googleapis.com/feasta/evidence-1.jpg",
+            "javascript:alert(1)",
+          ],
+        };
+
+        render(
+          <ComplaintManagementClient initialPage={pageFixture([complaint])} />,
+        );
+
+        await user.click(
+          screen.getAllByRole("button", {
+            name: "View complaint from Test Customer",
+          })[0],
+        );
+
+        expect(screen.getByText("FST-2026-0042")).toBeInTheDocument();
+
+        const bookingLink = screen.getByRole("link", {name: "Open booking"});
+        expect(bookingLink).toHaveAttribute(
+          "href",
+          "/admin/bookings?search=FST-2026-0042",
+        );
+
+        const safeEvidence = screen.getByRole("link", {
+          name: "Open evidence item 1",
+        });
+        expect(safeEvidence).toHaveAttribute(
+          "href",
+          "https://storage.googleapis.com/feasta/evidence-1.jpg",
+        );
+        expect(safeEvidence).toHaveAttribute("target", "_blank");
+        expect(safeEvidence).toHaveAttribute("rel", "noopener noreferrer");
+
+        expect(
+          screen.getByText("Evidence item 2 (link unavailable)"),
+        ).toBeInTheDocument();
+        expect(
+          screen.queryByRole("link", {name: /evidence item 2/i}),
+        ).not.toBeInTheDocument();
+      },
+    );
   },
 );
 
@@ -299,6 +431,10 @@ function pageFixture(
       resolved: 0,
       dismissed: 0,
       closed: 0,
+      availableStatuses:
+        complaints.length > 0 ? ["submitted", "under_review"] : [],
+      availablePriorities:
+        complaints.length > 0 ? ["normal", "urgent"] : [],
     },
     nextCursor: null,
     hasMore: false,

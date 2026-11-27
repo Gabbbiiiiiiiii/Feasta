@@ -270,7 +270,7 @@ describe("provider booking payments workspace", () => {
       pageSize: 10,
       cursor: null,
     }));
-    expect(await screen.findByText("Page 1")).toBeVisible();
+    expect(await screen.findByText("Page 1 of 1")).toBeVisible();
   });
 
   it("renders honest empty states for all and filtered results", () => {

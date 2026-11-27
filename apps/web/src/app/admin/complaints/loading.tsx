@@ -12,7 +12,7 @@ export default function AdminComplaintsLoading() {
       <PageHeading
         eyebrow="Administration"
         title="Complaints"
-        description="Review, investigate, resolve, and audit customer and provider complaints."
+        description="Review and resolve customer complaints."
       />
 
       <section

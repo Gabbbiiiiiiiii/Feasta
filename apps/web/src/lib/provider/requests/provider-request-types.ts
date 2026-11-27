@@ -111,4 +111,4 @@ export type ProviderRequestTypeFilter =
 
 export type ProviderRequestFilter = "all" | "new" | "accepted" | "rejected" | "cancelled";
 export type ProviderRequestFilters = {status: ProviderRequestFilter; search: string; cursor?: string | null};
-export type ProviderRequestPage = {requests: ProviderRequestListItem[]; nextCursor: string | null; hasMore: boolean; skippedMalformedCount: number};
+export type ProviderRequestPage = {requests: ProviderRequestListItem[]; nextCursor: string | null; hasMore: boolean; skippedMalformedCount: number; totalCount?: number | null; totalPages?: number | null};

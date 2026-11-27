@@ -17,6 +17,7 @@ import {
   DataTable,
   type DataTableColumn,
 } from "@/components/data";
+import {formatPageLabel} from "@/lib/pagination";
 import {PageHeading} from "@/components/layout/page-heading";
 import {StatusBadge} from "@/components/shared/status-badge";
 import {Button} from "@/components/ui/button";
@@ -336,7 +337,7 @@ export function ProviderPaymentsClient({
         previousCursor={previousCursor}
         nextCursor={page.nextCursor}
         loading={loading || loadError !== null}
-        pageLabel={`Page ${pageNumber}`}
+        pageLabel={formatPageLabel(pageNumber, page.totalPages, {hasMore: page.hasMore})}
         onPrevious={(cursor) => {
           const nextHistory = cursorHistory.slice(0, -1);
           const nextCursor = cursor === FIRST_PAGE_CURSOR ? null : cursor;
