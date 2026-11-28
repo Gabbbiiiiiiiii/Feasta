@@ -31,6 +31,13 @@ import {
   buildSuccessfulRefundFinancialLedgerPlan,
 } from "../payments/financial-ledger.js";
 import {
+  COMPANY_COMMISSION_DOC_PATH,
+  COMPANY_FLOAT_LEDGER_SCHEMA_VERSION,
+  companyCommissionRefundLedgerId,
+  parseCompanyCommission,
+  planCompanyCommissionRefundAdjustment,
+} from "../provider-finance/company-float-domain.js";
+import {
   buildProviderEarningRefundPlan,
 } from "../provider-finance/provider-earning-domain.js";
 import {
@@ -3104,17 +3111,31 @@ export async function reconcileGatewayRefund(input: {
           ),
         );
 
+      const companyCommissionReference =
+        db
+          .collection(COMPANY_COMMISSION_DOC_PATH.collection)
+          .doc(COMPANY_COMMISSION_DOC_PATH.document);
+
+      const companyCommissionRefundLedgerReference =
+        db
+          .collection("companyFloatLedgerEntries")
+          .doc(companyCommissionRefundLedgerId(operationId));
+
       const [
         cancellationSnapshot,
         requestSnapshot,
         mainEventSnapshot,
         providerSnapshot,
+        companyCommissionSnapshot,
+        companyCommissionRefundLedgerSnapshot,
       ] =
         await transaction.getAll(
           cancellationReference,
           requestReference,
           mainEventReference,
           providerReference,
+          companyCommissionReference,
+          companyCommissionRefundLedgerReference,
         );
 
       if (
@@ -3720,6 +3741,63 @@ export async function reconcileGatewayRefund(input: {
       if (paymentDefaultPlan) {
         transaction.create(db.collection("financialLedgerEntries").doc(`payment_default_${operationId}`),
           paymentDefaultPlan.ledgerRecord);
+      }
+
+      if (refundFinancialLedgerPlan) {
+        const reversedCommission =
+          Number(
+            refundFinancialLedgerPlan.ledgerRecord.commissionReversedInCentavos ??
+              0,
+          ) +
+          Number(
+            paymentDefaultPlan?.ledgerRecord
+              .ordinaryCommissionAdjustmentInCentavos ?? 0,
+          );
+        const earnedCancellationFee = Number(
+          paymentDefaultPlan?.ledgerRecord
+            .feastaCancellationFeeEarnedInCentavos ?? 0,
+        );
+        const commissionPlan = planCompanyCommissionRefundAdjustment({
+          commission: parseCompanyCommission(
+            companyCommissionSnapshot.exists
+              ? companyCommissionSnapshot.data() ?? {}
+              : null,
+          ),
+          commissionReversedInCentavos: reversedCommission,
+          cancellationFeeEarnedInCentavos: earnedCancellationFee,
+          alreadyRecorded: companyCommissionRefundLedgerSnapshot.exists,
+        });
+
+        if (commissionPlan.applied) {
+          transaction.create(companyCommissionRefundLedgerReference, {
+            schemaVersion: COMPANY_FLOAT_LEDGER_SCHEMA_VERSION,
+            entryId: companyCommissionRefundLedgerReference.id,
+            entryType: "commission_refund_adjustment",
+            destination: "company_commission",
+            paymentId,
+            refundOperationId: operationId,
+            providerRequestId,
+            providerId: ids.providerId,
+            amountInCentavos: commissionPlan.netDeltaInCentavos,
+            commissionReversedInCentavos: reversedCommission,
+            cancellationFeeEarnedInCentavos: earnedCancellationFee,
+            currency: "PHP",
+            createdAt: timestamp,
+          });
+          if (companyCommissionSnapshot.exists) {
+            transaction.update(companyCommissionReference, {
+              availableBalanceInCentavos:
+                commissionPlan.commission.availableBalanceInCentavos,
+              updatedAt: timestamp,
+            });
+          } else {
+            transaction.create(companyCommissionReference, {
+              ...commissionPlan.commission,
+              createdAt: timestamp,
+              updatedAt: timestamp,
+            });
+          }
+        }
       }
 
       if (

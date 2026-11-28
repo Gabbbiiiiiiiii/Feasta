@@ -117,6 +117,16 @@ export function companyFloatCommissionLedgerId(paymentId: string): string {
     .slice(0, 32)}`;
 }
 
+export function companyCommissionRefundLedgerId(
+  refundOperationId: string,
+): string {
+  const id = requireToken(refundOperationId, "Refund operation");
+  return `company_commission_refund_${createHash("sha256")
+    .update(["company-commission-refund", id, "v1"].join(":"))
+    .digest("hex")
+    .slice(0, 32)}`;
+}
+
 export function companyCommissionTransferLedgerId(
   clientRequestId: string,
 ): string {
@@ -356,6 +366,66 @@ export function planCompanyCommissionWithdrawal(input: {
         amountInCentavos,
       ),
     },
+  };
+}
+
+/**
+ * Adjusts FEASTA's withdrawable commission wallet when a customer refund
+ * reverses previously accrued service fees (or recognizes a default
+ * cancellation fee). Clamped at zero so a refund after earlier admin
+ * withdrawals never blocks refund completion.
+ */
+export function planCompanyCommissionRefundAdjustment(input: {
+  commission: CompanyCommissionSnapshot;
+  commissionReversedInCentavos: number;
+  cancellationFeeEarnedInCentavos?: number;
+  alreadyRecorded: boolean;
+}): {
+  commission: CompanyCommissionSnapshot;
+  applied: boolean;
+  netDeltaInCentavos: number;
+} {
+  if (input.alreadyRecorded) {
+    return {
+      commission: input.commission,
+      applied: false,
+      netDeltaInCentavos: 0,
+    };
+  }
+
+  const reversed = input.commissionReversedInCentavos;
+  const cancellationFee = input.cancellationFeeEarnedInCentavos ?? 0;
+
+  if (
+    !Number.isSafeInteger(reversed) ||
+    reversed < 0 ||
+    !Number.isSafeInteger(cancellationFee) ||
+    cancellationFee < 0
+  ) {
+    throw companyFloatInvalid("Commission refund adjustment amount is invalid.");
+  }
+
+  const netDeltaInCentavos = cancellationFee - reversed;
+  if (netDeltaInCentavos === 0) {
+    return {
+      commission: input.commission,
+      applied: false,
+      netDeltaInCentavos: 0,
+    };
+  }
+
+  const nextAvailable =
+    netDeltaInCentavos >= 0
+      ? checkedAdd(input.commission.availableBalanceInCentavos, netDeltaInCentavos)
+      : Math.max(0, input.commission.availableBalanceInCentavos + netDeltaInCentavos);
+
+  return {
+    commission: {
+      ...input.commission,
+      availableBalanceInCentavos: nextAvailable,
+    },
+    applied: true,
+    netDeltaInCentavos,
   };
 }
 

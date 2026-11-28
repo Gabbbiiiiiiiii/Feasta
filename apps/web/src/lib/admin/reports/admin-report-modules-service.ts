@@ -153,6 +153,7 @@ async function queryServiceFeesReport(
             "paymentId",
             "commissionAccruedInCentavos",
             "commissionReversedInCentavos",
+            "ordinaryCommissionAdjustmentInCentavos",
             "feastaCancellationFeeEarnedInCentavos",
           ),
       ),
@@ -188,7 +189,13 @@ async function queryServiceFeesReport(
 
   const ledgerByPayment = new Map<
     string,
-    {accrued: number; reversed: number; cancellationFee: number; hasRefundEntry: boolean}
+    {
+      accrued: number;
+      reversed: number;
+      ordinaryAdjustment: number;
+      cancellationFee: number;
+      hasRefundEntry: boolean;
+    }
   >();
   for (const doc of ledgerDocs) {
     const data = doc.data();
@@ -197,15 +204,25 @@ async function queryServiceFeesReport(
     const entry = ledgerByPayment.get(paymentId) ?? {
       accrued: 0,
       reversed: 0,
+      ordinaryAdjustment: 0,
       cancellationFee: 0,
       hasRefundEntry: false,
     };
     const accrued = nonNegativeInt(data.commissionAccruedInCentavos);
     const reversed = nonNegativeInt(data.commissionReversedInCentavos);
-    const cancellationFee = nonNegativeInt(data.feastaCancellationFeeEarnedInCentavos);
+    const ordinaryAdjustment = nonNegativeInt(
+      data.ordinaryCommissionAdjustmentInCentavos,
+    );
+    const cancellationFee = nonNegativeInt(
+      data.feastaCancellationFeeEarnedInCentavos,
+    );
     if (data.entryType === "refund_completed") {
       entry.hasRefundEntry = true;
       entry.reversed += reversed;
+      entry.cancellationFee += cancellationFee;
+    } else if (data.entryType === "payment_default_allocation_completed") {
+      entry.hasRefundEntry = true;
+      entry.ordinaryAdjustment += ordinaryAdjustment;
       entry.cancellationFee += cancellationFee;
     } else if (accrued > 0) {
       entry.accrued = Math.max(entry.accrued, accrued);
@@ -249,13 +266,17 @@ async function queryServiceFeesReport(
     const amountInCentavos = canonicalCentavos(data);
     const ledger = ledgerByPayment.get(doc.id);
     const directCommission = nonNegativeInt(data.commissionAccruedInCentavos);
-    const feeEarned = ledger && ledger.accrued > 0 ? ledger.accrued : directCommission;
+    const baseFeeEarned = ledger && ledger.accrued > 0 ? ledger.accrued : directCommission;
+    const feeEarned = baseFeeEarned + (ledger?.cancellationFee ?? 0);
 
     let feeRefunded = 0;
     let netFee = feeEarned;
     if (ledger?.hasRefundEntry) {
-      feeRefunded = Math.min(feeEarned, ledger.reversed);
-      netFee = Math.max(0, feeEarned - feeRefunded + ledger.cancellationFee);
+      feeRefunded = Math.min(
+        feeEarned,
+        ledger.reversed + ledger.ordinaryAdjustment,
+      );
+      netFee = Math.max(0, feeEarned - feeRefunded);
     } else if (status === "refunded") {
       feeRefunded = feeEarned;
       netFee = 0;

@@ -210,3 +210,50 @@ test("partial repayment reduces outstanding advance", () => {
   assert.equal(repaid.advanceUpdate.outstandingAmountInCentavos, 50_000);
   assert.equal(repaid.float.availableBalanceInCentavos, 200_000);
 });
+
+test("commission refund adjustment deducts reversed fees idempotently and clamps at zero", () => {
+  const credited = domain.planCompanyCommissionCredit({
+    commission: domain.emptyCompanyCommission(),
+    commissionInCentavos: 25_000,
+    alreadyCredited: false,
+  });
+
+  const reversed = domain.planCompanyCommissionRefundAdjustment({
+    commission: credited.commission,
+    commissionReversedInCentavos: 10_000,
+    alreadyRecorded: false,
+  });
+  assert.equal(reversed.applied, true);
+  assert.equal(reversed.netDeltaInCentavos, -10_000);
+  assert.equal(reversed.commission.availableBalanceInCentavos, 15_000);
+
+  const replayed = domain.planCompanyCommissionRefundAdjustment({
+    commission: reversed.commission,
+    commissionReversedInCentavos: 10_000,
+    alreadyRecorded: true,
+  });
+  assert.equal(replayed.applied, false);
+  assert.equal(replayed.commission.availableBalanceInCentavos, 15_000);
+
+  const clamped = domain.planCompanyCommissionRefundAdjustment({
+    commission: reversed.commission,
+    commissionReversedInCentavos: 50_000,
+    alreadyRecorded: false,
+  });
+  assert.equal(clamped.applied, true);
+  assert.equal(clamped.commission.availableBalanceInCentavos, 0);
+
+  const defaultFee = domain.planCompanyCommissionRefundAdjustment({
+    commission: reversed.commission,
+    commissionReversedInCentavos: 5_000,
+    cancellationFeeEarnedInCentavos: 5_000,
+    alreadyRecorded: false,
+  });
+  assert.equal(defaultFee.applied, false);
+  assert.equal(defaultFee.commission.availableBalanceInCentavos, 15_000);
+
+  assert.match(
+    domain.companyCommissionRefundLedgerId("refund_op_1"),
+    /^company_commission_refund_[a-f0-9]{32}$/u,
+  );
+});
