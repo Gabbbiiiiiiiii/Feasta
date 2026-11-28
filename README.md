@@ -1,4 +1,8 @@
-# feasta
+# FEASTA
+
+FEASTA is a Flutter, Next.js, and Firebase monorepo. See
+[`docs/development/emulators.md`](docs/development/emulators.md) for the local
+Firebase workflow and deterministic development accounts.
 
 A new Flutter project.
 

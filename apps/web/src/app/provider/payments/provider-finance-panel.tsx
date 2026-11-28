@@ -1,0 +1,829 @@
+"use client";
+
+import {
+  BadgeCheck,
+  CircleDollarSign,
+  CircleOff,
+  Clock3,
+  ExternalLink,
+  FileText,
+  RefreshCw,
+  WalletCards,
+} from "lucide-react";
+import Link from "next/link";
+import {useState} from "react";
+
+import {SummaryCard} from "@/components/data";
+import {Button} from "@/components/ui/button";
+import {
+  refreshProviderPayoutSetup,
+  startProviderPayoutSetup,
+} from "@/lib/provider/payments/provider-payout-client";
+import {ProviderMockWithdrawDialog} from "./provider-mock-withdraw-dialog";
+import {ProviderPayoutActivationForm} from "./provider-payout-activation-form";
+import type {
+  ProviderFinanceOverview,
+  ProviderMockWithdrawalView,
+  ProviderPayoutSetupStatus,
+  ProviderSettlementStatus,
+} from "@/lib/provider/payments/provider-finance-types";
+import {payoutSetupGuidance} from "@/lib/provider/payments/provider-payout-status";
+
+import {
+  loadProviderFinanceOverviewAction,
+} from "./actions";
+
+type ProviderFinancePanelProps = {
+  initialFinance: ProviderFinanceOverview;
+};
+
+export function ProviderFinancePanel({
+  initialFinance,
+}: ProviderFinancePanelProps) {
+  const [finance, setFinance] =
+    useState(initialFinance);
+
+  const [working, setWorking] =
+    useState<
+      "setup" |
+      "refresh" |
+      null
+    >(null);
+
+  const [error, setError] =
+    useState<string | null>(null);
+
+  const [withdrawOpen, setWithdrawOpen] =
+    useState(false);
+
+  const reload =
+    async () => {
+      setFinance(
+        await loadProviderFinanceOverviewAction(),
+      );
+    };
+
+  const startSetup =
+    async () => {
+      if (working) return;
+
+      setWorking("setup");
+      setError(null);
+
+      try {
+        const result =
+          await startProviderPayoutSetup();
+
+        await reload();
+
+        if (result.onboardingUrl) {
+          window.location.assign(
+            result.onboardingUrl,
+          );
+        }
+      } catch (actionError) {
+        setError(
+          actionError instanceof Error
+            ? actionError.message
+            : "Payout setup could not be started.",
+        );
+      } finally {
+        setWorking(null);
+      }
+    };
+
+  const refresh =
+    async () => {
+      if (working) return;
+
+      setWorking("refresh");
+      setError(null);
+
+      try {
+        await refreshProviderPayoutSetup();
+        await reload();
+      } catch (actionError) {
+        setError(
+          actionError instanceof Error
+            ? actionError.message
+            : "Payout status could not be refreshed.",
+        );
+      } finally {
+        setWorking(null);
+      }
+    };
+
+  const payout =
+    finance.payoutAccount;
+
+  const setupGuidance =
+    payoutSetupGuidance(payout);
+
+  const hasLegacyHeldBalance =
+    finance.earningSummary.pendingAmountInCentavos > 0 ||
+    finance.earningSummary.availableAmountInCentavos > 0;
+
+  const hasLegacyWithdrawals =
+    (finance.mockWithdrawals?.length ?? 0) > 0;
+
+  const directReceivedInCentavos =
+    finance.earningSummary.paidAmountInCentavos > 0
+      ? finance.earningSummary.paidAmountInCentavos
+      : finance.settlementSummary.paidOutAmountInCentavos;
+
+  return (
+    <div className="grid min-w-0 gap-6">
+      <section
+        className="grid gap-4"
+        aria-labelledby="provider-earnings-heading"
+      >
+        <div>
+          <h2
+            id="provider-earnings-heading"
+            className="text-xl font-bold"
+          >
+            Your earnings
+          </h2>
+
+          <p className="mt-1 text-sm text-muted-foreground">
+            Customer payments route 100% of your listed package price directly to
+            your linked payout account upon confirmation (0-day hold). FEASTA’s
+            platform service fee is paid separately by the customer, and provider
+            VAT remains part of your service price.
+          </p>
+        </div>
+
+        <div className="flex justify-end">
+          <Button
+            asChild
+            variant="secondary"
+            size="compact"
+          >
+            <Link href="/provider/payments/statements">
+              <FileText
+                aria-hidden="true"
+                className="size-4"
+              />
+              View earnings statement
+            </Link>
+          </Button>
+        </div>
+
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <SummaryCard
+            label="Direct payments received"
+            value={formatCentavos(directReceivedInCentavos)}
+            trend={{
+              label:
+                "100% of listed price routed directly on payment",
+              direction: "neutral",
+            }}
+            icon={
+              <BadgeCheck className="size-5" />
+            }
+          />
+
+          <SummaryCard
+            label="Refund reversals"
+            value={formatCentavos(
+              finance.earningSummary
+                .reversedAmountInCentavos,
+            )}
+            trend={{
+              label:
+                "Provider share reversed on eligible cancellations",
+              direction: "neutral",
+            }}
+            icon={
+              <CircleOff className="size-5" />
+            }
+          />
+
+          {hasLegacyHeldBalance ? (
+            <>
+              <SummaryCard
+                label="Pending earnings (legacy escrow)"
+                value={formatCentavos(
+                  finance.earningSummary
+                    .pendingAmountInCentavos,
+                )}
+                trend={{
+                  label:
+                    "Historical pre-direct booking awaiting eligibility",
+                  direction: "neutral",
+                }}
+                icon={
+                  <Clock3 className="size-5" />
+                }
+              />
+
+              <SummaryCard
+                label="Available earnings (legacy escrow)"
+                value={formatCentavos(
+                  finance.earningSummary
+                    .availableAmountInCentavos,
+                )}
+                trend={{
+                  label:
+                    "Historical balance eligible for withdrawal",
+                  direction: "neutral",
+                }}
+                icon={
+                  <CircleDollarSign className="size-5" />
+                }
+              />
+            </>
+          ) : null}
+        </div>
+
+        {hasLegacyHeldBalance ? (
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-muted/20 px-4 py-3">
+            <p className="text-sm text-muted-foreground">
+              Legacy escrow balance remaining from pre-direct bookings.
+            </p>
+            <Button
+              type="button"
+              size="compact"
+              disabled={
+                finance.earningSummary.availableAmountInCentavos <= 0 ||
+                working !== null
+              }
+              className="disabled:bg-primary/55 disabled:text-primary-foreground disabled:opacity-100"
+              onClick={() => setWithdrawOpen(true)}
+            >
+              Withdraw available earnings
+            </Button>
+          </div>
+        ) : null}
+      </section>
+
+      {hasLegacyHeldBalance ? (
+        <ProviderMockWithdrawDialog
+          open={withdrawOpen}
+          availableAmountInCentavos={
+            finance.earningSummary.availableAmountInCentavos
+          }
+          onOpenChange={setWithdrawOpen}
+          onCompleted={reload}
+        />
+      ) : null}
+
+      {hasLegacyHeldBalance || hasLegacyWithdrawals ? (
+        <section
+          className="grid gap-4"
+          aria-labelledby="provider-withdrawal-history-heading"
+        >
+          <div>
+            <h2
+              id="provider-withdrawal-history-heading"
+              className="text-xl font-bold"
+            >
+              Legacy withdrawal history
+            </h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Historical withdrawals from pre-direct escrow bookings only. New
+              bookings settle directly to your linked payout account without
+              manual withdrawal.
+            </p>
+          </div>
+
+          {(finance.mockWithdrawals?.length ?? 0) === 0 ? (
+            <p
+              className="rounded-card border border-dashed border-border bg-card p-4 text-sm text-muted-foreground"
+              role="status"
+            >
+              No legacy withdrawals recorded yet.
+            </p>
+          ) : (
+            <ul className="grid gap-3">
+              {(finance.mockWithdrawals ?? []).map((withdrawal) => (
+                <li key={withdrawal.withdrawalId}>
+                  <WithdrawalHistoryCard withdrawal={withdrawal} />
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      ) : null}
+
+      <section
+        className="rounded-card border border-border bg-card p-5 shadow-card"
+        aria-labelledby="payout-account-heading"
+      >
+        <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <WalletCards
+                aria-hidden="true"
+                className="size-5 text-primary"
+              />
+              <h2
+                id="payout-account-heading"
+                className="text-xl font-bold"
+              >
+                Direct payout account
+              </h2>
+            </div>
+
+            <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
+              Link and verify your PayMongo payout destination so 100% of your
+              listed package price routes directly to your account when
+              customers pay.
+            </p>
+          </div>
+
+          <PayoutReadyIndicator
+            accountReady={payout.payoutReady}
+            transportReady={
+              payout.settlementTransportReady
+            }
+          />
+        </div>
+
+        <details className="mt-5 rounded-lg border border-border bg-muted/20 p-4">
+          <summary className="cursor-pointer text-sm font-semibold text-primary-strong">
+            View payout setup details
+          </summary>
+          <dl className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <FinanceDetail
+            label="Provider onboarding"
+            value={formatLabel(
+              payout.setupStatus,
+            )}
+          />
+
+          <FinanceDetail
+            label="Account type"
+            value={
+              payout.linkedAccountType
+                ? formatLinkedAccount(
+                  payout.linkedAccountType,
+                )
+                : "Not connected"
+            }
+          />
+
+          <FinanceDetail
+            label="PayMongo invitation"
+            value={
+              payout.invitationStatus
+                ? formatLabel(
+                  payout.invitationStatus,
+                )
+                : "Not started"
+            }
+          />
+
+          <FinanceDetail
+            label="Activation status"
+            value={
+              payout.activationStatus
+                ? formatLabel(
+                  payout.activationStatus,
+                )
+                : "Not available"
+            }
+          />
+
+          <FinanceDetail
+            label="PayMongo provider link"
+            value={
+              payout.relationshipStatus
+                ? payout.relationshipStatus === "enabled" ? "Verified link" : payout.relationshipStatus === "disabled" ? "Link disabled" : "Not verified"
+                : "Not verified"
+            }
+          />
+
+          <FinanceDetail
+            label="Payout transfer setup"
+            value={formatSettlementTransport(
+              payout.settlementTransportMode,
+              payout.settlementTransportReady,
+            )}
+          />
+          </dl>
+        </details>
+
+        {!payout.settlementTransportReady ? (
+          <p
+            className="mt-4 rounded-md border border-warning/20 bg-warning/5 p-3 text-sm text-muted-foreground"
+            role="status"
+          >
+            <strong className="block text-foreground">Earnings can be eligible while transfers are unavailable.</strong>
+            {!payout.payoutReady ? "Complete provider payout onboarding and account checks."
+              : payout.relationshipStatus !== "enabled"
+                ? "Your PayMongo provider link is not verified. Contact FEASTA to confirm the platform’s Linked Accounts eligibility and complete provider linking."
+                : "Your payout transfer setup still needs verification. Contact FEASTA before expecting a transfer."}
+            {" "}Refreshing checks account status; it does not create a provider link or send money.
+          </p>
+        ) : null}
+
+        {error ? (
+          <p
+            className="mt-4 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive"
+            role="alert"
+          >
+            {error}
+          </p>
+        ) : setupGuidance ? (
+          <p
+            className="mt-4 rounded-md border border-warning/30 bg-warning/10 px-3 py-2 text-sm text-warning"
+            role="status"
+          >
+            {setupGuidance}
+          </p>
+        ) : null}
+
+        {payout.childAccountPresent &&
+        !payout.activationProfileComplete &&
+        !payout.payoutReady &&
+        payout.linkedAccountType ? (
+          <ProviderPayoutActivationForm
+            linkedAccountType={payout.linkedAccountType}
+            onSaved={async () => {
+              await reload();
+              setError(null);
+            }}
+          />
+        ) : null}
+
+        {payout.childAccountPresent &&
+        payout.activationProfileComplete &&
+        !payout.payoutReady ? (
+          <p className="mt-4 text-sm text-muted-foreground">
+            Activation details are saved. Refresh status to continue
+            verification and activation.
+          </p>
+        ) : null}
+
+        <div className="mt-5 flex flex-wrap gap-2">
+          {!payout.payoutReady ? (
+            <Button
+              type="button"
+              onClick={() =>
+                void startSetup()
+              }
+              disabled={working !== null}
+            >
+              <ExternalLink
+                aria-hidden="true"
+                className="size-4"
+              />
+              {setupButtonLabel(
+                payout.setupStatus,
+                working === "setup",
+              )}
+            </Button>
+          ) : null}
+
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={() =>
+              void refresh()
+            }
+            disabled={working !== null}
+          >
+            <RefreshCw
+              aria-hidden="true"
+              className={
+                working === "refresh"
+                  ? "size-4 animate-spin"
+                  : "size-4"
+              }
+            />
+            {working === "refresh"
+              ? "Refreshing..."
+              : "Refresh status"}
+          </Button>
+        </div>
+      </section>
+
+      {(finance.disbursements?.length ?? 0) > 0 ? (
+        <section className="grid gap-3" aria-labelledby="provider-payouts-heading">
+          <h2 id="provider-payouts-heading" className="text-xl font-bold">Legacy escrow payout updates</h2>
+          {finance.disbursements?.map(payout => (
+            <article key={payout.id} className="rounded-card border border-border bg-card p-4">
+              <p className="font-semibold">{({scheduled: "Scheduled", held: "On hold",
+                ready: finance.payoutAccount.settlementTransportReady ? "Eligible for transfer" : "Eligible — payout setup incomplete", reserved: "Transfer reserved", processing: "Transfer processing",
+                paid: "Transfer confirmed", failed: "Transfer failed", reconciliation_required: "Under financial review",
+                cancelled: "Cancelled"} as Record<string, string>)[payout.status] ?? "Under financial review"}</p>
+              {payout.amountInCentavos !== null ? <p>{formatCentavos(payout.amountInCentavos)}</p> : null}
+              {payout.status === "ready" ? <p className="mt-1 text-sm font-medium text-primary-strong">Eligible earnings. This is not a completed transfer.</p> : null}
+              {payout.eligibleAt ? <p className="text-sm text-muted-foreground">Expected payout eligibility: {new Intl.DateTimeFormat("en-PH", {
+                timeZone: "Asia/Manila", month: "short", day: "numeric", year: "numeric",
+              }).format(new Date(payout.eligibleAt))}</p> : null}
+              <p className="mt-1 text-sm text-muted-foreground">
+                {payout.trigger === "payment_default_compensation"
+                  ? "Eligible from 10:00 AM Manila on the first banking day after refund finalization."
+                  : "Eligible from 10:00 AM Manila on the third banking day after completion."}
+                {" "}Actual transfer timing depends on processing and payout readiness.
+              </p>
+            </article>
+          ))}
+        </section>
+      ) : null}
+
+      <section
+        className="grid gap-4"
+        aria-labelledby="provider-settlements-heading"
+      >
+        <div>
+          <h2
+            id="provider-settlements-heading"
+            className="text-xl font-bold"
+          >
+            Direct settlement history
+          </h2>
+
+          <p className="mt-1 text-sm text-muted-foreground">
+            Records of direct-routed booking payments settled to your linked
+            payout account and any proportional refund reversals.
+          </p>
+        </div>
+
+        {finance.settlementSummary.reservedAmountInCentavos > 0 ? (
+          <p className="text-sm">Reserved / processing (legacy): <strong>{formatCentavos(finance.settlementSummary.reservedAmountInCentavos)}</strong></p>
+        ) : null}
+        <details className="rounded-card border border-border p-4">
+          <summary className="cursor-pointer font-semibold">Settlement accounting details</summary>
+          <dl className="mt-3 grid gap-3 sm:grid-cols-2">
+            <FinanceDetail label="Direct settled total" value={formatCentavos(directReceivedInCentavos)} />
+            <FinanceDetail label="Refund reversals" value={formatCentavos(finance.earningSummary.reversedAmountInCentavos)} />
+            {finance.settlementSummary.awaitingAvailabilityAmountInCentavos > 0 ? (
+              <FinanceDetail label="Legacy escrow awaiting eligibility" value={formatCentavos(finance.settlementSummary.awaitingAvailabilityAmountInCentavos)} />
+            ) : null}
+            {finance.settlementSummary.readyAmountInCentavos > 0 ? (
+              <FinanceDetail label="Legacy escrow eligible (not transferred)" value={formatCentavos(finance.settlementSummary.readyAmountInCentavos)} />
+            ) : null}
+          </dl>
+        </details>
+
+        {finance.settlementSummary
+          .reconciliationRequiredCount > 0 ? (
+          <div
+            className="rounded-card border border-warning/30 bg-warning/5 p-4"
+            role="status"
+          >
+            <div className="flex items-start gap-3">
+              <CircleOff
+                aria-hidden="true"
+                className="mt-0.5 size-5 shrink-0 text-warning"
+              />
+
+              <div>
+                <p className="font-semibold">
+                  Settlement review required
+                </p>
+
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {
+                    finance.settlementSummary
+                      .reconciliationRequiredCount
+                  } settlement {
+                    finance.settlementSummary
+                      .reconciliationRequiredCount === 1
+                      ? "record requires"
+                      : "records require"
+                  } reconciliation before another payout or refund operation.
+                </p>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
+        <details className="rounded-card border border-border p-4">
+          <summary className="cursor-pointer font-semibold">Recent settlement history</summary>
+          {finance.settlements.length === 0 ? <p className="mt-3 text-sm text-muted-foreground">No provider settlement records yet.</p> : (
+            <ul className="mt-3 divide-y divide-border">
+              {finance.settlements.map(settlement => (
+                <li key={settlement.settlementId} className="flex flex-wrap items-center justify-between gap-3 py-3 text-sm">
+                  <span>{formatDateTime(settlement.createdAt)}</span>
+                  <SettlementStatus status={settlement.status} />
+                  <span>{formatCentavos(settlement.netSettlementAmountInCentavos)}</span>
+                  {settlement.reconciliationRequired ? <strong className="text-warning">Review required</strong> : null}
+                </li>
+              ))}
+            </ul>
+          )}
+        </details>
+      </section>
+
+    </div>
+  );
+}
+
+function FinanceDetail({
+  label,
+  value,
+}: {
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="rounded-md border border-border bg-background px-4 py-3">
+      <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+        {label}
+      </dt>
+
+      <dd className="mt-1 font-semibold">
+        {value}
+      </dd>
+    </div>
+  );
+}
+
+function PayoutReadyIndicator({
+  accountReady,
+  transportReady,
+}: {
+  accountReady: boolean;
+  transportReady: boolean;
+}) {
+  if (transportReady) {
+    return (
+      <span className="inline-flex w-fit items-center gap-1.5 rounded-full bg-success/10 px-3 py-1.5 text-sm font-semibold text-success">
+        <BadgeCheck
+          aria-hidden="true"
+          className="size-4"
+        />
+        Payout transfer setup verified
+      </span>
+    );
+  }
+
+  if (accountReady) {
+    return (
+      <span className="inline-flex w-fit items-center gap-1.5 rounded-full bg-warning/10 px-3 py-1.5 text-sm font-semibold text-warning">
+        <Clock3
+          aria-hidden="true"
+          className="size-4"
+        />
+        Provider link / transfer setup incomplete
+      </span>
+    );
+  }
+
+  return (
+    <span className="inline-flex w-fit items-center gap-1.5 rounded-full bg-warning/10 px-3 py-1.5 text-sm font-semibold text-warning">
+      <CircleOff
+        aria-hidden="true"
+        className="size-4"
+      />
+      Payout setup required
+    </span>
+  );
+}
+
+function SettlementStatus({
+  status,
+}: {
+  status:
+    ProviderSettlementStatus;
+}) {
+  return (
+    <span className="inline-flex rounded-full border border-border bg-muted/40 px-2.5 py-1 text-xs font-semibold">
+      {({awaiting_availability: "Waiting for eligibility", ready: "Eligible for payout", reserved: "Transfer reserved", processing: "Transfer processing", paid: "Direct settled", reconciliation_required: "Requires attention", cancelled: "Reversed"} as Record<ProviderSettlementStatus, string>)[status]}
+    </span>
+  );
+}
+
+function WithdrawalHistoryCard({
+  withdrawal,
+}: {
+  withdrawal: ProviderMockWithdrawalView;
+}) {
+  const method =
+    withdrawal.destinationType === "gcash"
+      ? "GCash"
+      : "Bank transfer";
+
+  const destinationDetail =
+    withdrawal.destinationType === "gcash"
+      ? withdrawal.mobileMasked
+      : [withdrawal.bankName, withdrawal.accountNumberMasked]
+          .filter(Boolean)
+          .join(" · ");
+
+  return (
+    <article className="rounded-card border border-border bg-card p-4 shadow-card">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="font-semibold">
+            {formatCentavos(withdrawal.amountInCentavos)}
+          </p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {method}
+            {destinationDetail ? ` · ${destinationDetail}` : null}
+          </p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {withdrawal.accountName}
+          </p>
+        </div>
+        <div className="text-right">
+          <p className="text-sm font-semibold text-success">Recorded</p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {withdrawal.completedAt || withdrawal.createdAt
+              ? formatDateTime(
+                  withdrawal.completedAt ?? withdrawal.createdAt ?? "",
+                )
+              : "Date unavailable"}
+          </p>
+        </div>
+      </div>
+      <p className="mt-3 break-all text-xs text-muted-foreground">
+        Reference: {withdrawal.withdrawalId}
+      </p>
+    </article>
+  );
+}
+
+function formatSettlementTransport(
+  mode:
+    "disabled" |
+    "wallet_transfer" |
+    "workflow",
+
+  ready: boolean,
+): string {
+  if (!ready) {
+    return mode === "disabled"
+      ? "Not configured"
+      : `${formatLabel(mode)} - not verified`;
+  }
+
+  return `${formatLabel(mode)} - verified`;
+}
+function setupButtonLabel(
+  status: ProviderPayoutSetupStatus,
+  loading: boolean,
+): string {
+  if (loading) {
+    return "Opening PayMongo...";
+  }
+
+  if (
+    status === "onboarding" ||
+    status === "action_required"
+  ) {
+    return "Continue payout setup";
+  }
+
+  return "Set up payouts";
+}
+
+function formatLinkedAccount(
+  value: "consumer" | "merchant",
+): string {
+  return value === "merchant"
+    ? "Business / Merchant"
+    : "Individual / Consumer";
+}
+
+function formatCentavos(
+  value: number,
+): string {
+  return new Intl.NumberFormat(
+    "en-PH",
+    {
+      style: "currency",
+      currency: "PHP",
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    },
+  ).format(value / 100);
+}
+
+function formatLabel(
+  value: string,
+): string {
+  return value
+    .replaceAll("_", " ")
+    .replace(
+      /\b\w/gu,
+      (character) =>
+        character.toUpperCase(),
+    );
+}
+
+function formatDateTime(
+  value: string,
+): string {
+  const date =
+    new Date(value);
+
+  if (
+    Number.isNaN(date.getTime())
+  ) {
+    return "Date unavailable";
+  }
+
+  return new Intl.DateTimeFormat(
+    "en-PH",
+    {
+      dateStyle: "medium",
+      timeStyle: "short",
+      timeZone: "Asia/Manila",
+    },
+  ).format(date);
+}

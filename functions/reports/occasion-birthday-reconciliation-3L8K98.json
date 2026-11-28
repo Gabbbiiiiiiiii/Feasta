@@ -1,0 +1,186 @@
+{
+    "project":  "feasta-catering-system",
+    "occasionId":  "birthday",
+    "sourceStep":  "3L.8K.98",
+    "purpose":  "Historical witness backfill proposal only",
+    "expectedCount":  17,
+    "matchedCount":  0,
+    "unresolvedCount":  0,
+    "authorizedForWrite":  false,
+    "snapshotIsolated":  false,
+    "writersFenced":  false,
+    "coverageVerified":  false,
+    "canDeactivate":  false,
+    "proposedWitnesses":  [
+                              {
+                                  "value":  {
+                                                "schemaVersion":  1,
+                                                "sourcePath":  "mainEvents/03a12ebc98b5ce0672266c525447a05df019c444",
+                                                "occasionId":  "birthday",
+                                                "sourceId":  "03a12ebc98b5ce0672266c525447a05df019c444",
+                                                "kind":  "submitted_booking"
+                                            },
+                                  "path":  "occasionDependencies/birthday/entries/submitted_booking_03a12ebc98b5ce0672266c525447a05df019c444"
+                              },
+                              {
+                                  "value":  {
+                                                "schemaVersion":  1,
+                                                "sourcePath":  "mainEvents/0af0c99907e07bc13945ff87b5e4e8a712cc8078",
+                                                "occasionId":  "birthday",
+                                                "sourceId":  "0af0c99907e07bc13945ff87b5e4e8a712cc8078",
+                                                "kind":  "submitted_booking"
+                                            },
+                                  "path":  "occasionDependencies/birthday/entries/submitted_booking_0af0c99907e07bc13945ff87b5e4e8a712cc8078"
+                              },
+                              {
+                                  "value":  {
+                                                "schemaVersion":  1,
+                                                "sourcePath":  "mainEvents/10888baaaf63179ecf65efcc459d85d44990b1ee",
+                                                "occasionId":  "birthday",
+                                                "sourceId":  "10888baaaf63179ecf65efcc459d85d44990b1ee",
+                                                "kind":  "submitted_booking"
+                                            },
+                                  "path":  "occasionDependencies/birthday/entries/submitted_booking_10888baaaf63179ecf65efcc459d85d44990b1ee"
+                              },
+                              {
+                                  "value":  {
+                                                "schemaVersion":  1,
+                                                "sourcePath":  "mainEvents/1b4f838a194341da0b2296651417b3efc02a6eef",
+                                                "occasionId":  "birthday",
+                                                "sourceId":  "1b4f838a194341da0b2296651417b3efc02a6eef",
+                                                "kind":  "submitted_booking"
+                                            },
+                                  "path":  "occasionDependencies/birthday/entries/submitted_booking_1b4f838a194341da0b2296651417b3efc02a6eef"
+                              },
+                              {
+                                  "value":  {
+                                                "schemaVersion":  1,
+                                                "sourcePath":  "mainEvents/1d8d952721ac1cf63afac74cf9d967e1779d4061",
+                                                "occasionId":  "birthday",
+                                                "sourceId":  "1d8d952721ac1cf63afac74cf9d967e1779d4061",
+                                                "kind":  "submitted_booking"
+                                            },
+                                  "path":  "occasionDependencies/birthday/entries/submitted_booking_1d8d952721ac1cf63afac74cf9d967e1779d4061"
+                              },
+                              {
+                                  "value":  {
+                                                "schemaVersion":  1,
+                                                "sourcePath":  "mainEvents/25394ba4468defbe7db90cc831f3122efcc6af65",
+                                                "occasionId":  "birthday",
+                                                "sourceId":  "25394ba4468defbe7db90cc831f3122efcc6af65",
+                                                "kind":  "submitted_booking"
+                                            },
+                                  "path":  "occasionDependencies/birthday/entries/submitted_booking_25394ba4468defbe7db90cc831f3122efcc6af65"
+                              },
+                              {
+                                  "value":  {
+                                                "schemaVersion":  1,
+                                                "sourcePath":  "mainEvents/682db4134c394ed78d4dfb89ae1244368dadc181",
+                                                "occasionId":  "birthday",
+                                                "sourceId":  "682db4134c394ed78d4dfb89ae1244368dadc181",
+                                                "kind":  "submitted_booking"
+                                            },
+                                  "path":  "occasionDependencies/birthday/entries/submitted_booking_682db4134c394ed78d4dfb89ae1244368dadc181"
+                              },
+                              {
+                                  "value":  {
+                                                "schemaVersion":  1,
+                                                "sourcePath":  "mainEvents/7aca8029d93826eb81ae304fdbb8d1f13fa9a01d",
+                                                "occasionId":  "birthday",
+                                                "sourceId":  "7aca8029d93826eb81ae304fdbb8d1f13fa9a01d",
+                                                "kind":  "submitted_booking"
+                                            },
+                                  "path":  "occasionDependencies/birthday/entries/submitted_booking_7aca8029d93826eb81ae304fdbb8d1f13fa9a01d"
+                              },
+                              {
+                                  "value":  {
+                                                "schemaVersion":  1,
+                                                "sourcePath":  "mainEvents/8666b001cd1d54e8655fa48b5c47391af52a748c",
+                                                "occasionId":  "birthday",
+                                                "sourceId":  "8666b001cd1d54e8655fa48b5c47391af52a748c",
+                                                "kind":  "submitted_booking"
+                                            },
+                                  "path":  "occasionDependencies/birthday/entries/submitted_booking_8666b001cd1d54e8655fa48b5c47391af52a748c"
+                              },
+                              {
+                                  "value":  {
+                                                "schemaVersion":  1,
+                                                "sourcePath":  "mainEvents/90e40ef1b0f087025aa2735e17f791b0b50c5987",
+                                                "occasionId":  "birthday",
+                                                "sourceId":  "90e40ef1b0f087025aa2735e17f791b0b50c5987",
+                                                "kind":  "submitted_booking"
+                                            },
+                                  "path":  "occasionDependencies/birthday/entries/submitted_booking_90e40ef1b0f087025aa2735e17f791b0b50c5987"
+                              },
+                              {
+                                  "value":  {
+                                                "schemaVersion":  1,
+                                                "sourcePath":  "mainEvents/a7a3fc52b9e6437f2ff26c217f392af91753dd76",
+                                                "occasionId":  "birthday",
+                                                "sourceId":  "a7a3fc52b9e6437f2ff26c217f392af91753dd76",
+                                                "kind":  "submitted_booking"
+                                            },
+                                  "path":  "occasionDependencies/birthday/entries/submitted_booking_a7a3fc52b9e6437f2ff26c217f392af91753dd76"
+                              },
+                              {
+                                  "value":  {
+                                                "schemaVersion":  1,
+                                                "sourcePath":  "mainEvents/a7a59c77c58a264ab687aac3db58de3065b0d23f",
+                                                "occasionId":  "birthday",
+                                                "sourceId":  "a7a59c77c58a264ab687aac3db58de3065b0d23f",
+                                                "kind":  "submitted_booking"
+                                            },
+                                  "path":  "occasionDependencies/birthday/entries/submitted_booking_a7a59c77c58a264ab687aac3db58de3065b0d23f"
+                              },
+                              {
+                                  "value":  {
+                                                "schemaVersion":  1,
+                                                "sourcePath":  "mainEvents/b277ad53ccbb59caa2bc0700f487e8704f91b8d1",
+                                                "occasionId":  "birthday",
+                                                "sourceId":  "b277ad53ccbb59caa2bc0700f487e8704f91b8d1",
+                                                "kind":  "submitted_booking"
+                                            },
+                                  "path":  "occasionDependencies/birthday/entries/submitted_booking_b277ad53ccbb59caa2bc0700f487e8704f91b8d1"
+                              },
+                              {
+                                  "value":  {
+                                                "schemaVersion":  1,
+                                                "sourcePath":  "mainEvents/c2d798f9d9e94dfdc909914810df6abc8bd7280c",
+                                                "occasionId":  "birthday",
+                                                "sourceId":  "c2d798f9d9e94dfdc909914810df6abc8bd7280c",
+                                                "kind":  "submitted_booking"
+                                            },
+                                  "path":  "occasionDependencies/birthday/entries/submitted_booking_c2d798f9d9e94dfdc909914810df6abc8bd7280c"
+                              },
+                              {
+                                  "value":  {
+                                                "schemaVersion":  1,
+                                                "sourcePath":  "mainEvents/c8ab8100dbecd37b71f275d2f3119f2652d5f572",
+                                                "occasionId":  "birthday",
+                                                "sourceId":  "c8ab8100dbecd37b71f275d2f3119f2652d5f572",
+                                                "kind":  "submitted_booking"
+                                            },
+                                  "path":  "occasionDependencies/birthday/entries/submitted_booking_c8ab8100dbecd37b71f275d2f3119f2652d5f572"
+                              },
+                              {
+                                  "value":  {
+                                                "schemaVersion":  1,
+                                                "sourcePath":  "mainEvents/d182e49f01265c0b7c6532a6406f6cb85958cd4e",
+                                                "occasionId":  "birthday",
+                                                "sourceId":  "d182e49f01265c0b7c6532a6406f6cb85958cd4e",
+                                                "kind":  "submitted_booking"
+                                            },
+                                  "path":  "occasionDependencies/birthday/entries/submitted_booking_d182e49f01265c0b7c6532a6406f6cb85958cd4e"
+                              },
+                              {
+                                  "value":  {
+                                                "schemaVersion":  1,
+                                                "sourcePath":  "mainEvents/daf3bc71e3e515f7fecd63786b0dc610047f09e7",
+                                                "occasionId":  "birthday",
+                                                "sourceId":  "daf3bc71e3e515f7fecd63786b0dc610047f09e7",
+                                                "kind":  "submitted_booking"
+                                            },
+                                  "path":  "occasionDependencies/birthday/entries/submitted_booking_daf3bc71e3e515f7fecd63786b0dc610047f09e7"
+                              }
+                          ]
+}

@@ -1,0 +1,4504 @@
+"use client";
+import {cloudEventListSaveFeedback} from "@/lib/customer/event-list/customer-event-list-save-feedback";
+import type {CloudSaveOutcome} from "@/lib/customer/event-list/use-customer-event-list-cloud-async";
+import {clearBestFitSession} from "@/lib/customer/providers/clear-best-fit-session";
+
+import {ServicePortfolioGallery} from "@/components/shared/service-portfolio-gallery";
+import {FreelanceServiceSummary} from "@/components/shared/freelance-service-summary";
+import {sharedEventCandidates, compatibleSharedEvent} from "@/lib/customer/event-list/shared-event-details";
+
+import type {ComponentProps} from "react";
+import {useCustomerEventListSession} from "@/lib/customer/event-list/customer-event-list";
+import {CUSTOMER_EVENT_LIST_CLOUD_ENABLED} from "@/lib/customer/event-list/customer-event-list-cloud-transport";
+import {useCustomerEventListCloudAsync} from "@/lib/customer/event-list/use-customer-event-list-cloud-async";
+import {toWebItem} from "@/lib/customer/event-list/customer-event-list-cloud-contract";
+
+
+import Link from "next/link";
+import type {FoodChoiceSelectionV2} from "@feasta/shared-types/provider-package-v2";
+import {customerPackageEstimate} from "@feasta/shared-types/customer-package-v2";
+import {normalizeConfiguration, useCustomerEventList} from "@/lib/customer/event-list/customer-event-list";
+import {eventListConfigurationDraft} from "@/lib/customer/event-list/configuration-edit";
+import {canonicalConfigurationDraft, projectCanonicalBookingReview} from "@/lib/customer/event-list/configuration-edit";
+import {readCustomerEventListCloud} from "@/lib/customer/event-list/customer-event-list-cloud-transport";
+import type {PlanningEntry} from "../../../../../../functions/src/customer-event-lists/contract";
+import {FixedPackageInclusions} from "./fixed-package-inclusions";
+import {FoodChoiceSelector} from "./food-choice-selector";
+import {PreBookingCancellationCutoffNotice} from "./cancellation-cutoff-notice";
+import {foodChoiceSelectionError, reconcileFoodChoiceSelections} from "@/lib/customer/bookings/food-choice-selection";
+
+
+import {formatEventTime} from "@/lib/presentation/event-time";
+import {
+  DROP_OFF_END_TIME_LABEL,
+  DROP_OFF_TIME_HELPER,
+  DROP_OFF_TIME_LABEL,
+  EVENT_END_TIME_LABEL,
+  EVENT_START_TIME_LABEL,
+  cateringScheduleMode,
+  formatCateringScheduleDisplay,
+  normalizeCateringSchedule,
+} from "@/lib/catering/catering-schedule";
+
+import {CustomerEventAddressMap, type EventMapCoordinates} from "@/components/customer/bookings/customer-event-address-map";
+import {
+  ArrowLeft,
+  ArrowRight,
+  CalendarDays,
+  Check,
+  CircleCheckBig,
+  Clock3,
+  Info,
+  History,
+  Plus,
+  MapPin,
+  Palette,
+  ReceiptText,
+  Soup,
+  TriangleAlert,
+  UsersRound,
+  Armchair,
+} from "lucide-react";
+
+import {useRouter} from "next/navigation";
+import {BookingOfferSelection} from "@/components/customer/bookings/booking-offer-selection";
+import {useCustomizationDraft} from "@/lib/customer/bookings/use-customization-draft";
+import {bookingSubmissionDeadlineNotice} from "@/lib/customer/bookings/booking-submission-deadline";
+import {
+  bookingCustomizationReviewLabel,
+  clearStaleSetupReference,
+  emptyBookingThemeInspiration,
+  omitUntrustedBookingCustomization,
+  reconcileBookingCustomization,
+  type BookingThemeInspiration,
+} from "@/lib/customer/bookings/booking-customization-selection";
+import type {ProviderSetup} from "@/lib/provider/provider-setup-gallery";
+import {
+  cateringPackageServiceTierDescription,
+  cateringPackageServiceTierLabel,
+  type CateringPackageServiceTier,
+} from "@/lib/catering/catering-service-tier";
+import {CustomerAuthLink} from "@/components/customer/layout/customer-auth-provider";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
+import {
+  checkCustomerProviderAvailability,
+  getCustomerProviderCalendarAvailability,
+  type CustomerProviderAvailability,
+  type CustomerProviderAvailabilityInput,
+} from "@/lib/customer/bookings/customer-provider-availability-client";
+import {
+  abandonUnresolvedCustomerBookingSubmission,
+  bookingSubmissionRequiresPreviousRequestRecovery,
+  bookingSubmissionRequiresRefundPolicyRefresh,
+  submitCustomerBookingRequest,
+  reconcileCustomerBookingSubmission,
+  type SubmitPackageBookingRequestInput,
+  type SubmitBookingRequestResult,
+} from "@/lib/customer/bookings/customer-booking-submission-client";
+import {
+  buildRefundPolicyAcknowledgements,
+  getCustomerBookingRefundPolicyDisclosures,
+  normalizeDisclosureError,
+  type RefundPolicyDisclosureError,
+  type CustomerRefundPolicyDisclosure,
+  type CustomerRefundPolicyDisclosureResult,
+} from "@/lib/customer/bookings/customer-refund-policy-client";
+
+import {ProviderDatePicker, type ProviderCalendarCache} from "./provider-date-picker";
+import {PackagePaymentTerms} from "@/components/shared/package-payment-terms";
+import {formatBookingEventTypeLabel} from "@/lib/customer/discovery/package-occasion-labels";
+import {PriceDisplay} from "@/components/shared/price-display";
+import {getCustomerProviderTaxPreview} from "@/lib/customer/bookings/customer-provider-vat-preview-client";
+import {
+  customerFeastaCommissionEstimatePesos,
+  formatPlatformCommissionRatePercent,
+} from "@/lib/customer/bookings/customer-feasta-commission-estimate";
+import {customerProviderVatBreakdown, type CustomerProviderTaxStatus} from "@/lib/customer/bookings/customer-provider-vat-breakdown";
+import {Button} from "@/components/ui/button";
+import {Input} from "@/components/ui/input";
+import {Textarea} from "@/components/ui/textarea";
+import {formatPhilippineDate} from "@/lib/dates/philippine-date";
+import type {
+  PublicEventService,
+  PublicPackageDetail,
+} from "@/lib/customer/discovery/marketplace-types";
+import {
+  humanizeProviderValue,
+} from "@/lib/customer/providers/provider-catalog";
+import {customerBookingPlanningQuery, type CustomerEventContext, type CustomerPlanningContext} from "@/lib/customer/planning/event-planning-context";
+
+type EventCustomizationExperienceProps = {
+  eventListEditProviderId?: string;
+  eventListReviewIntent?: boolean;
+  draftOwner?: string;
+  planningOnly?: boolean;
+  detail: PublicPackageDetail;
+  eventServices: readonly PublicEventService[];
+  initialEventContext?: CustomerEventContext | null;
+  initialPlanningContext?: CustomerPlanningContext | null;
+  bestFitReturnHref?: string;
+  initialServiceTier?: CateringPackageServiceTier | null;
+  publishedSetups?: readonly ProviderSetup[];
+  platformCommissionRateBps?: number;
+};
+
+type EventDetailsDraft = {
+  eventType?: string;
+  eventDate: string;
+  eventTime: string;
+  eventEndTime: string;
+  guestCount: string;
+  eventLocation: string;
+  eventAddress: string;
+  specialRequest: string;
+};
+
+type EventDetailsErrors = Partial<
+  Record<keyof EventDetailsDraft | "serviceTier", string>
+>;
+
+type PackageCustomizationDraft = {
+  foodChoiceSelections?: FoodChoiceSelectionV2[];
+  selectedFoods: string[];
+  selectedDecorations: string[];
+  selectedFurniture: string[];
+};
+
+type AvailabilityStatus =
+  | "idle"
+  | "loading"
+  | "ready"
+  | "error";
+
+type RefundPolicyStatus =
+  | "idle"
+  | "loading"
+  | "ready"
+  | "error";
+
+const STEPS = [
+  {
+    number: 1,
+    label: "Event details",
+  },
+  {
+    number: 2,
+    label: "Customize package",
+  },
+  {
+    number: 3,
+    label: "Review Booking",
+  },
+] as const;
+
+function EventCustomizationExperienceSession({
+  detail,
+  eventServices,
+  initialEventContext = null,
+  initialPlanningContext = null,
+  bestFitReturnHref,
+  initialServiceTier,
+  draftOwner = "guest",
+  planningOnly = false,
+  publishedSetups,
+  platformCommissionRateBps,
+  eventListEditProviderId,
+  eventListReviewIntent = false,
+}: EventCustomizationExperienceProps) {
+  const {addItem, readItems, removeSubmittedItems} = useCustomerEventList();
+  const cloudList = useCustomerEventListCloudAsync();
+  const canonicalEditOriginal = useRef<PlanningEntry | null>(null);
+  const [canonicalEditRequiresCompatibleReview, setCanonicalEditRequiresCompatibleReview] = useState(false);
+  const cloudItems = cloudList.state.document?.entries.flatMap(entry => {
+    const projection = toWebItem(entry);
+    return projection.status === "supported" ? [projection.item] : [];
+  }) ?? [];
+  const readEventListItems = () => CUSTOMER_EVENT_LIST_CLOUD_ENABLED
+    ? cloudItems : readItems();
+  const {
+    packageRecord,
+    provider,
+    customization: sharedCustomization,
+  } = detail;
+
+  const [submittedEventListSnapshot] = useState(() => readEventListItems().filter(item =>
+    item.type !== "custom_menu" && item.packageId === packageRecord.id && item.providerId === provider.id));
+
+  const [sharedDetailsDismissed, setSharedDetailsDismissed] = useState(false);
+  const sharedDetailsOperation = useRef(0);
+  const [sharedDetailsNotice, setSharedDetailsNotice] = useState<string | null>(null);
+  const [step, setStep] = useState(1);
+  const [eventMapOpen, setEventMapOpen] = useState(false);
+  const [eventMapCoordinates, setEventMapCoordinates] = useState<EventMapCoordinates | null>(() => {
+    const venue = initialPlanningContext?.eventVenue;
+    return venue ? {latitude: venue.latitude, longitude: venue.longitude} : null;
+  });
+
+  const router = useRouter();
+
+  const [bestFitLeaveError, setBestFitLeaveError] = useState<string | null>(null);
+  const [leaveDialogOpen, setLeaveDialogOpen] =
+  useState(false);
+
+  const [pendingLeaveHref, setPendingLeaveHref] =
+    useState<string | null>(null);
+
+  const plannedOccasion = initialPlanningContext?.eventType;
+  const plannedVenue = initialPlanningContext?.eventVenue;
+  const planningQuery = customerBookingPlanningQuery(initialEventContext, initialPlanningContext);
+  const navigationQuery = new URLSearchParams(planningQuery);
+  if (bestFitReturnHref) navigationQuery.set("returnTo", bestFitReturnHref);
+  const planningSuffix = navigationQuery.size ? `?${navigationQuery}` : "";
+  const [draft, setDraft] =
+    useState<EventDetailsDraft>({
+      eventType: plannedOccasion && (packageRecord.occasionMatchIds ?? [packageRecord.eventType]).includes(plannedOccasion)
+        ? plannedOccasion : packageRecord.eventType ?? "",
+      eventDate: initialEventContext?.eventDate ?? initialPlanningContext?.eventDate ?? "",
+      eventTime: initialEventContext?.eventTime ?? "",
+      eventEndTime: initialEventContext?.eventEndTime ?? "",
+      guestCount: String(initialEventContext?.guestCount ?? initialPlanningContext?.guestCount ?? ""),
+      eventLocation:
+        (plannedVenue && [plannedVenue.city, plannedVenue.province].filter(Boolean).join(", ")) || provider.location || "",
+      eventAddress: plannedVenue?.address ?? "",
+      specialRequest: "",
+    });
+
+  const [
+    customizationDraft,
+    setCustomizationDraft,
+  ] = useState<PackageCustomizationDraft>({
+    selectedFoods: [],
+    selectedDecorations: [],
+    selectedFurniture: [],
+  });
+
+  const [isSubmitting, setIsSubmitting] =
+  useState(false);
+  const {items: localEventListItems} = useCustomerEventList();
+  const eventListItems = CUSTOMER_EVENT_LIST_CLOUD_ENABLED
+    ? cloudItems : localEventListItems;
+  const storedEntry = eventListItems.find(item => item.type !== "custom_menu" && item.packageId === packageRecord.id && item.providerId === provider.id);
+  const hasSavedConfiguration = storedEntry?.type !== "custom_menu" && Boolean(storedEntry?.configuration);
+  const canSaveEventList = draftOwner.startsWith("customer:");
+  const eventListSaveBusy = useRef(false);
+  const eventListSaveGeneration = useRef(0);
+  const [savingEventList, setSavingEventList] = useState(false);
+  const [storedEventListFeedback, setEventListFeedback] = useState<{
+    signature: string; message: string; success: boolean; cloudOutcome?: CloudSaveOutcome;
+  } | null>(null);
+  const eventListFeedback = storedEventListFeedback?.cloudOutcome
+    ? {...storedEventListFeedback, ...cloudEventListSaveFeedback(
+        storedEventListFeedback.cloudOutcome, cloudList.state, cloudList.recovery,
+      )}
+    : storedEventListFeedback;
+  useEffect(() => () => {eventListSaveGeneration.current += 1;}, [draftOwner]);
+  const [freshAttempt, setFreshAttempt] = useState(false);
+  const [unresolvedRequest, setUnresolvedRequest] = useState(false);
+  const [recoveryNotice, setRecoveryNotice] = useState<string | null>(null);
+
+const [
+  submissionError,
+  setSubmissionError,
+] = useState<string | null>(null);
+
+const [
+  submissionResult,
+  setSubmissionResult,
+] =
+  useState<SubmitBookingRequestResult | null>(
+    null,
+  );
+
+const submissionIdentityRef =
+  useRef<{
+    draftKey: string;
+    clientRequestId: string;
+  } | null>(null);
+
+  const [
+    selectedEventServiceIds,
+    setSelectedEventServiceIds,
+  ] = useState<string[]>([]);
+
+  // Legacy draft and submission fields stay inert after the UI removal.
+  const [willArrangeOwnAddOns, setWillArrangeOwnAddOns] = useState(false);
+  const [customerArrangedAddOnsNote, setCustomerArrangedAddOnsNote] = useState("");
+  const [eventListRestoreBlocked, setEventListRestoreBlocked] = useState(Boolean(eventListEditProviderId));
+  const reviewNavigationPending = useRef(eventListReviewIntent && Boolean(eventListEditProviderId) && !planningOnly && draftOwner.startsWith("customer:"));
+  const [restoredOptionsNeedReview, setRestoredOptionsNeedReview] = useState(false);
+  const [eventListRestoreNotice, setEventListRestoreNotice] = useState<string | null>(null);
+  const [restoredContractChanged, setRestoredContractChanged] = useState(false);
+  const [serviceTier, setServiceTier] = useState<CateringPackageServiceTier | null>(initialServiceTier ?? null);
+  const [packageThemeId, setPackageThemeId] = useState<string | null>(null);
+  const [themeInspiration, setThemeInspiration] = useState<BookingThemeInspiration>(
+    emptyBookingThemeInspiration(),
+  );
+  const [offerSelectionError, setOfferSelectionError] = useState<string | null>(null);
+  const isV2 = packageRecord.sharedContractVersion === 2;
+  const tierOption = serviceTier ? packageRecord.serviceOptions?.[serviceTier] : undefined;
+  const customization = {...sharedCustomization,
+    decorations: [...new Set([...sharedCustomization.decorations, ...(tierOption?.decorInclusions ?? [])])],
+    furniture: [...new Set([...sharedCustomization.furniture, ...(tierOption?.furnitureInclusions ?? [])])],
+    services: [...new Set([...sharedCustomization.services, ...(tierOption?.includedServices ?? []),
+      ...(packageRecord.equipmentInclusions ?? []), ...(tierOption?.equipmentInclusions ?? [])])]};
+  const offerSelection = useMemo(() => reconcileBookingCustomization({
+    packageSource: packageRecord,
+    serviceTier,
+    packageThemeId,
+    themeInspiration,
+  }), [packageRecord, serviceTier, packageThemeId, themeInspiration]);
+
+  const savedDraft = useCustomizationDraft({
+    owner: draftOwner, providerId: provider.id, packageId: packageRecord.id,
+    context: eventListEditProviderId ? `event-list:${eventListEditProviderId}` : initialPlanningContext ? planningQuery : JSON.stringify(initialEventContext),
+    explicitSource: eventListEditProviderId ? async () => {
+      const {auth} = await import("@/lib/firebase/client");
+      await auth.authStateReady();
+      if ((draftOwner.startsWith("customer:") && auth.currentUser?.uid !== draftOwner.slice(9)) ||
+          (draftOwner === "guest" && auth.currentUser !== null)) {
+        setEventListRestoreNotice("Your session changed. Reopen Event List with the correct account.");
+        throw new Error("Session changed");
+      }
+      if (CUSTOMER_EVENT_LIST_CLOUD_ENABLED && draftOwner.startsWith("customer:")) {
+        const owner = auth.currentUser;
+        if (!owner) throw new Error("Customer session changed.");
+        try {
+          const document = await readCustomerEventListCloud(owner, () => auth.currentUser === owner);
+          const entry = document.entries.find(candidate => candidate.kind === "catering_package" &&
+            candidate.providerId === eventListEditProviderId && candidate.selectionId === packageRecord.id);
+          if (!entry?.configuration || provider.id !== eventListEditProviderId || packageRecord.providerId !== eventListEditProviderId) {
+            throw new Error("This saved configuration could not be found. Return to Event List.");
+          }
+          const projection = projectCanonicalBookingReview(entry);
+          const restored = projection.status === "supported" && projection.item.type !== "custom_menu" && projection.item.configuration
+            ? eventListConfigurationDraft(projection.item.configuration)
+            : canonicalConfigurationDraft(entry);
+          canonicalEditOriginal.current = entry;
+          setCanonicalEditRequiresCompatibleReview(projection.status === "read_only");
+          setRestoredContractChanged(entry.configuration.sharedContractVersion !== (packageRecord.sharedContractVersion ?? null) ||
+            entry.configuration.expectedPackageRevision !== (packageRecord.revision ?? null));
+          return restored;
+        } catch (cause) {
+          setEventListRestoreNotice(cause instanceof Error ? cause.message : "Cloud configuration could not be restored.");
+          throw cause;
+        }
+      }
+      const selected = readEventListItems().find(item => item.type !== "custom_menu" &&
+        item.providerId === eventListEditProviderId && item.packageId === packageRecord.id);
+      if (!selected || selected.type === "custom_menu" || !selected.configuration ||
+          provider.id !== eventListEditProviderId || packageRecord.providerId !== eventListEditProviderId) {
+        setEventListRestoreNotice("This saved configuration could not be found. Return to Event List; no other draft has been loaded.");
+        throw new Error("Configuration unavailable");
+      }
+      setRestoredContractChanged(selected.configuration.sharedContractVersion !== (packageRecord.sharedContractVersion ?? null) ||
+        selected.configuration.expectedPackageRevision !== (packageRecord.revision ?? null));
+      return eventListConfigurationDraft(selected.configuration);
+    } : undefined,
+    value: {event: draft, customization: customizationDraft, addonIds: selectedEventServiceIds,
+      ownAddons: willArrangeOwnAddOns, ownAddonsNote: customerArrangedAddOnsNote,
+      serviceTier: offerSelection.serviceTier,
+      packageThemeId: offerSelection.packageThemeId,
+      themeInspiration: offerSelection.themeInspiration},
+    restore: (saved) => {
+      if (eventListEditProviderId) {
+        setDraft(saved.event);
+        setCustomizationDraft(saved.customization);
+        setSelectedEventServiceIds(saved.addonIds);
+        setServiceTier(saved.serviceTier ?? null);
+        setPackageThemeId(saved.packageThemeId ?? null);
+        setThemeInspiration(saved.themeInspiration ?? emptyBookingThemeInspiration());
+        setWillArrangeOwnAddOns(saved.ownAddons ?? false);
+        setCustomerArrangedAddOnsNote(saved.ownAddonsNote ?? "");
+        setEventListRestoreBlocked(false);
+        setRestoredOptionsNeedReview(true);
+        setEventListRestoreNotice("Saved configuration restored. Review the currently published options and confirm them before continuing. Saved prices and availability are not authoritative.");
+        return;
+      }
+      const restoredOffer = reconcileBookingCustomization({
+        packageSource: packageRecord,
+        serviceTier: saved.serviceTier,
+        packageThemeId: saved.packageThemeId,
+        themeInspiration: saved.themeInspiration,
+      });
+      setDraft({...saved.event, eventType: (packageRecord.occasionMatchIds ?? [packageRecord.eventType]).includes(saved.event.eventType ?? "")
+        ? saved.event.eventType : packageRecord.eventType ?? ""});
+      setCustomizationDraft({
+        foodChoiceSelections: reconcileFoodChoiceSelections(packageRecord.foodChoiceGroups ?? [], saved.customization.foodChoiceSelections ?? []),
+        selectedFoods: isV2 ? [] : saved.customization.selectedFoods.filter((item) => customization.foods.includes(item)),
+        selectedDecorations: isV2 ? [] : saved.customization.selectedDecorations.filter((item) => [...sharedCustomization.decorations, ...(restoredOffer.serviceTier ? packageRecord.serviceOptions?.[restoredOffer.serviceTier]?.decorInclusions ?? [] : [])].includes(item)),
+        selectedFurniture: isV2 ? [] : saved.customization.selectedFurniture.filter((item) => [...sharedCustomization.furniture, ...(restoredOffer.serviceTier ? packageRecord.serviceOptions?.[restoredOffer.serviceTier]?.furnitureInclusions ?? [] : [])].includes(item)),
+      });
+      setSelectedEventServiceIds(saved.addonIds);
+      setServiceTier(restoredOffer.serviceTier);
+      setPackageThemeId(restoredOffer.packageThemeId);
+      setThemeInspiration(publishedSetups
+        ? clearStaleSetupReference(restoredOffer.themeInspiration, publishedSetups.map((setup) => setup.id))
+        : restoredOffer.themeInspiration);
+      setOfferSelectionError(null);
+    },
+  });
+
+  const currentCustomizationSignature = JSON.stringify({
+    event: draft,
+    customization: customizationDraft,
+    addonIds: selectedEventServiceIds,
+    ownAddons: willArrangeOwnAddOns,
+    ownAddonsNote: customerArrangedAddOnsNote,
+    serviceTier: offerSelection.serviceTier,
+    packageThemeId: offerSelection.packageThemeId,
+    themeInspiration: offerSelection.themeInspiration,
+  });
+
+  const sharedDetailsSignature = useRef(currentCustomizationSignature);
+  useEffect(() => {sharedDetailsSignature.current = currentCustomizationSignature;}, [currentCustomizationSignature]);
+
+  const [initialCustomizationSignature] =
+    useState(currentCustomizationSignature);
+
+  const hasMeaningfulChanges =
+    currentCustomizationSignature !==
+    initialCustomizationSignature;
+
+  const [refundPolicyStatus, setRefundPolicyStatus] =
+    useState<RefundPolicyStatus>("idle");
+  const [refundPolicyResult, setRefundPolicyResult] =
+    useState<CustomerRefundPolicyDisclosureResult | null>(null);
+  const [refundPolicyError, setRefundPolicyError] =
+    useState<RefundPolicyDisclosureError | null>(null);
+  const [refundPolicyNotice, setRefundPolicyNotice] =
+    useState<string | null>(null);
+  const [acknowledgedPolicyKeys, setAcknowledgedPolicyKeys] =
+    useState<Record<string, string>>({});
+  const refundPolicyGenerationRef = useRef(0);
+  const [agreements, setAgreements] = useState<BookingAgreementDisclosure[]>([]);
+  const [agreementAcknowledged, setAgreementAcknowledged] = useState<Record<string, string>>({});
+  const [agreementError, setAgreementError] = useState<string | null>(null);
+  const [agreementReload, setAgreementReload] = useState(0);
+  const [loadedAgreementInput, setLoadedAgreementInput] = useState<string | null>(null);
+  let agreementInputJSON: string | null = null;
+  if (step === 3) {
+    try { agreementInputJSON = JSON.stringify(buildSubmissionInput("agreement-preview", [])); } catch { /* Event validation owns these errors. */ }
+  }
+  useEffect(() => {
+    let current = true;
+    void Promise.resolve().then(async () => {
+      if (!current) return;
+      setAgreements([]); setAgreementAcknowledged({}); setAgreementError(null); setLoadedAgreementInput(null);
+      if (!agreementInputJSON) return;
+      try {
+        const result = await getCustomerBookingPaymentAgreements(JSON.parse(agreementInputJSON));
+        if (current) { setAgreements(result); setLoadedAgreementInput(agreementInputJSON); }
+      } catch (error) {
+        if (current) setAgreementError(error instanceof Error ? error.message : "Booking agreement could not be loaded.");
+      }
+    });
+    return () => { current = false; };
+  }, [agreementInputJSON, agreementReload]);
+  const everyAgreementAcknowledged = loadedAgreementInput === agreementInputJSON && agreements.length > 0 && agreements.every(agreement =>
+    agreementAcknowledged[agreement.providerId] === agreement.agreementKey);
+
+  const loadRefundPolicyDisclosures = useCallback(async (
+    notice: string | null = null,
+  ) => {
+    const generation = refundPolicyGenerationRef.current + 1;
+    refundPolicyGenerationRef.current = generation;
+    setRefundPolicyStatus("loading");
+    setRefundPolicyResult(null);
+    setRefundPolicyError(null);
+    setRefundPolicyNotice(notice);
+    setAcknowledgedPolicyKeys({});
+
+    try {
+      const result = await getCustomerBookingRefundPolicyDisclosures({
+        providerId: provider.id,
+        packageId: packageRecord.id,
+        addonIds: selectedEventServiceIds,
+      });
+      if (refundPolicyGenerationRef.current !== generation) return;
+      setRefundPolicyResult(result);
+      setRefundPolicyStatus("ready");
+    } catch (error) {
+      if (refundPolicyGenerationRef.current !== generation) return;
+      setRefundPolicyStatus("error");
+      setRefundPolicyError(normalizeDisclosureError(error));
+    }
+  }, [packageRecord.id, provider.id, selectedEventServiceIds, setAcknowledgedPolicyKeys]);
+
+  useEffect(() => {
+    if (planningOnly || step !== 3) return undefined;
+    const timeoutId = window.setTimeout(() => {
+      void loadRefundPolicyDisclosures();
+    }, 0);
+    return () => {
+      window.clearTimeout(timeoutId);
+      refundPolicyGenerationRef.current += 1;
+    };
+  }, [loadRefundPolicyDisclosures, step, planningOnly]);
+
+  const [errors, setErrors] =
+    useState<EventDetailsErrors>({});
+
+  const [availabilityStatus, setAvailabilityStatus] =
+    useState<AvailabilityStatus>("idle");
+  const [availabilityResults, setAvailabilityResults] =
+    useState<ReadonlyMap<string, CustomerProviderAvailability>>(
+      new Map(),
+    );
+  const [availabilityError, setAvailabilityError] =
+    useState<string | null>(null);
+  const [availabilityCheckedKey, setAvailabilityCheckedKey] =
+    useState<string | null>(null);
+  const [selectionAvailabilityError, setSelectionAvailabilityError] =
+    useState<string | null>(null);
+  const [providerCalendarCache] = useState<ProviderCalendarCache>(() => new Map());
+  const [calendarBlockedDate, setCalendarBlockedDate] = useState<string | null>(null);
+  const onCalendarAvailability = useCallback((date: string, blocked: boolean) => {
+    setCalendarBlockedDate(blocked ? date : null);
+    if (blocked) setAvailabilityCheckedKey(null);
+  }, [setAvailabilityCheckedKey]);
+  const [availabilityRetryNonce, setAvailabilityRetryNonce] =
+    useState(0);
+  const availabilityGenerationRef = useRef(0);
+
+  const expectedAvailabilityProviderIds = useMemo(
+    () => [
+      provider.id,
+      ...new Set(eventServices.map((service) => service.providerId)),
+    ].filter((providerId, index, values) =>
+      values.indexOf(providerId) === index
+    ),
+    [eventServices, provider.id],
+  );
+
+  const availabilityParameters = useMemo(
+    () => availabilityInputForDraft({
+      eventDate: draft.eventDate,
+      eventTime: draft.eventTime,
+      eventEndTime: draft.eventEndTime,
+      guestCount: draft.guestCount,
+      packageId: packageRecord.id,
+      addonIds: eventServices.map((service) => service.id),
+      minimumGuests: packageRecord.minimumGuests,
+      maximumGuests: packageRecord.maximumGuests,
+      serviceTier: offerSelection.serviceTier,
+    }),
+    [
+      draft.eventDate,
+      draft.eventEndTime,
+      draft.eventTime,
+      draft.guestCount,
+      eventServices,
+      offerSelection.serviceTier,
+      packageRecord.id,
+      packageRecord.maximumGuests,
+      packageRecord.minimumGuests,
+    ],
+  );
+  const availabilityKey = availabilityParameters
+    ? availabilityRequestKey(availabilityParameters)
+    : null;
+
+  useEffect(() => {
+    const generation = availabilityGenerationRef.current + 1;
+    availabilityGenerationRef.current = generation;
+
+    if (planningOnly || !availabilityParameters || !availabilityKey) {
+      return undefined;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      if (availabilityGenerationRef.current !== generation) return;
+
+      setAvailabilityResults(new Map());
+      setAvailabilityCheckedKey(null);
+      setAvailabilityError(null);
+      setSelectionAvailabilityError(null);
+      setAvailabilityStatus("loading");
+
+      void checkCustomerProviderAvailability(
+        availabilityParameters,
+        expectedAvailabilityProviderIds,
+      ).then((results) => {
+        if (availabilityGenerationRef.current !== generation) return;
+
+        setAvailabilityResults(availabilityResultMap(results));
+        setAvailabilityCheckedKey(availabilityKey);
+        setAvailabilityStatus("ready");
+      }).catch((error: unknown) => {
+        if (availabilityGenerationRef.current !== generation) return;
+
+        setAvailabilityStatus("error");
+        setAvailabilityError(availabilityErrorMessage(error));
+      });
+    }, 350);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+      if (availabilityGenerationRef.current === generation) {
+        availabilityGenerationRef.current += 1;
+      }
+    };
+  }, [
+    planningOnly,
+    availabilityKey,
+    availabilityParameters,
+    availabilityRetryNonce,
+    expectedAvailabilityProviderIds,
+  ]);
+
+  const guestGuidance =
+    packageGuestGuidance(
+      packageRecord.minimumGuests,
+      packageRecord.maximumGuests,
+    );
+
+  const packageHref =
+    `/customer/packages/${encodeURIComponent(
+      packageRecord.id,
+    )}`;
+
+  const estimatedServicePrice = customerPackageEstimate(offerSelection.serviceTier
+    ? offerSelection.displayedServicePrice : packageRecord.price,
+  Number(draft.guestCount), packageRecord.pricingModel);
+
+  // Tier cards already display these published inclusions.
+  const additionalIncludedServices = customization.services.filter((service) =>
+    !offerSelection.availableTiers.some((tier) =>
+      packageRecord.serviceOptions?.[tier]?.includedServices.includes(service),
+    ),
+  );
+
+  const selectedEventServices =
+    eventServices.filter((service) =>
+      selectedEventServiceIds.includes(
+        service.id,
+      ),
+    );
+
+  const availabilityIsCurrent =
+    availabilityStatus === "ready" &&
+    availabilityKey !== null &&
+    availabilityCheckedKey === availabilityKey;
+  const primaryProviderAvailability =
+    availabilityIsCurrent
+      ? availabilityResults.get(provider.id) ?? null
+      : null;
+  const unresolvedServiceIds = selectedEventServiceIds.filter(id => !eventServices.some(service => service.id === id));
+  const unavailableSelectedServices =
+    availabilityIsCurrent
+      ? selectedEventServices.filter((service) =>
+          availabilityResults.get(service.providerId)?.available === false
+        )
+      : [];
+
+  const selectedEventServicesSubtotal =
+    selectedEventServices.reduce(
+      (total, service) =>
+        total + (service.price ?? 0),
+      0,
+    );
+
+  const eventListSaveSignature = JSON.stringify([draftOwner, provider.id, packageRecord.id,
+    packageRecord.revision, currentCustomizationSignature]);
+
+  const restoredOptionProblems = [
+    ...(!(packageRecord.occasionMatchIds ?? [packageRecord.eventType]).includes(draft.eventType ?? "")
+      ? ["The saved event type is no longer supported."] : []),
+    ...(restoredContractChanged ? ["The package contract or revision has changed."] : []),
+    ...(serviceTier && serviceTier !== offerSelection.serviceTier ? ["The saved service level is no longer offered."] : []),
+    ...(packageThemeId && packageThemeId !== offerSelection.packageThemeId ? ["The saved theme is no longer applicable."] : []),
+    ...(foodChoiceSelectionError(packageRecord.foodChoiceGroups ?? [], customizationDraft.foodChoiceSelections ?? [])
+      ? ["Food-choice groups or dishes require correction."] : []),
+    ...(customizationDraft.selectedFoods.some(food => !customization.foods.includes(food)) ||
+      customizationDraft.selectedDecorations.some(item => !customization.decorations.includes(item)) ||
+      customizationDraft.selectedFurniture.some(item => !customization.furniture.includes(item))
+      ? ["Some saved food, decoration, or furniture options are no longer offered."] : []),
+    ...(unresolvedServiceIds.length ? ["Some saved event services are no longer in the catalog."] : []),
+    ...(publishedSetups && themeInspiration.referenceSetupId &&
+      !publishedSetups.some(setup => setup.id === themeInspiration.referenceSetupId)
+      ? ["The setup inspiration is no longer published."] : []),
+  ];
+
+  const hasRestoredOptionProblems = restoredOptionProblems.length > 0;
+
+  // Consume only after the explicit identity-checked source restores. Changed options
+  // remain in the existing confirmation and editing flow.
+  useEffect(() => {
+    if (!reviewNavigationPending.current || eventListRestoreBlocked) return;
+    if (hasRestoredOptionProblems ||
+        Object.keys(validateEventDetails(draft, packageRecord.minimumGuests, packageRecord.maximumGuests, offerSelection.serviceTier)).length ||
+        bookingSubmissionDeadlineNotice(draft) ||
+        (offerSelection.availableTiers.length > 0 && !offerSelection.serviceTier)) {
+      reviewNavigationPending.current = false;
+      return;
+    }
+    if (!availabilityIsCurrent) return;
+    if (primaryProviderAvailability?.available !== true || calendarBlockedDate === draft.eventDate) {
+      reviewNavigationPending.current = false;
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      reviewNavigationPending.current = false;
+      setRestoredOptionsNeedReview(false);
+      setEventListRestoreNotice("Saved configuration restored and checked against current package options. Review your booking before submitting.");
+      setStep(3);
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [eventListRestoreBlocked, hasRestoredOptionProblems, draft, packageRecord.minimumGuests,
+    packageRecord.maximumGuests, offerSelection.availableTiers.length, offerSelection.serviceTier,
+    availabilityIsCurrent, primaryProviderAvailability, calendarBlockedDate]);
+
+  function confirmRestoredOptions() {
+    if (!(packageRecord.occasionMatchIds ?? [packageRecord.eventType]).includes(draft.eventType ?? "")) {
+      setDraft(current => ({...current, eventType: ""}));
+    }
+    setCustomizationDraft({
+      foodChoiceSelections: reconcileFoodChoiceSelections(packageRecord.foodChoiceGroups ?? [], customizationDraft.foodChoiceSelections ?? []),
+      selectedFoods: isV2 ? [] : customizationDraft.selectedFoods.filter(item => customization.foods.includes(item)),
+      selectedDecorations: customizationDraft.selectedDecorations.filter(item => customization.decorations.includes(item)),
+      selectedFurniture: customizationDraft.selectedFurniture.filter(item => customization.furniture.includes(item)),
+    });
+    setServiceTier(offerSelection.serviceTier);
+    setPackageThemeId(offerSelection.packageThemeId);
+    setThemeInspiration(publishedSetups ? clearStaleSetupReference(themeInspiration, publishedSetups.map(setup => setup.id)) : themeInspiration);
+    setSelectedEventServiceIds(selectedEventServiceIds.filter(id => eventServices.some(service => service.id === id)));
+    setRestoredOptionsNeedReview(false);
+    setEventListRestoreNotice("Current package options applied. Check event details and complete any required selections before Review Booking. Your saved entry is unchanged until you save again.");
+    setOfferSelectionError(null);
+  }
+
+  async function saveConfigurationToEventList({updateExisting = false} = {}) {
+    if (!canSaveEventList || eventListRestoreBlocked || restoredOptionsNeedReview) return;
+    if (eventListSaveBusy.current || isSubmitting || step !== 3 ||
+        (hasSavedConfiguration && eventListFeedback?.success && eventListFeedback.signature === eventListSaveSignature)) return;
+    eventListSaveBusy.current = true;
+    setSavingEventList(true);
+    const generation = eventListSaveGeneration.current;
+    const feedback = (message: string, success = false, cloudOutcome?: CloudSaveOutcome) => {
+      if (generation === eventListSaveGeneration.current) {
+        setEventListFeedback({signature: eventListSaveSignature, message, success, cloudOutcome});
+      }
+    };
+    try {
+      const {auth} = await import("@/lib/firebase/client");
+      await auth.authStateReady();
+      if (generation !== eventListSaveGeneration.current) return;
+      const authorized = draftOwner.startsWith("customer:")
+        ? auth.currentUser?.uid === draftOwner.slice("customer:".length)
+        : false;
+      if (!authorized) {
+        feedback("Your session changed. Reopen this plan with the correct customer account or as a signed-out guest.");
+        return;
+      }
+      const existing = readEventListItems().find(item => item.type !== "custom_menu" && item.packageId === packageRecord.id);
+      if (eventListEditProviderId && !(CUSTOMER_EVENT_LIST_CLOUD_ENABLED && canonicalEditOriginal.current) && (!existing || existing.type === "custom_menu" || !existing.configuration || existing.providerId !== eventListEditProviderId)) {
+        setEventListRestoreBlocked(true);
+        setEventListRestoreNotice("This saved configuration was deleted or cleared. Return to Event List or browse packages to start again.");
+        return;
+      }
+      if (!updateExisting && !eventListEditProviderId && existing?.type !== "custom_menu" && existing?.configuration) {
+        feedback("Already in Event List. Open Event List to edit the saved configuration.", true);
+        return;
+      }
+      const errors = validateEventDetails(draft, packageRecord.minimumGuests, packageRecord.maximumGuests, offerSelection.serviceTier);
+      const choiceError = foodChoiceSelectionError(packageRecord.foodChoiceGroups ?? [], customizationDraft.foodChoiceSelections ?? []);
+      if (Object.keys(errors).length || choiceError || unresolvedServiceIds.length ||
+          (offerSelection.availableTiers.length > 0 && !offerSelection.serviceTier) ||
+          packageRecord.providerId !== provider.id) {
+        feedback(choiceError ?? "Review the event details and selected package options before saving. All selected services must still be in the catalog.");
+        return;
+      }
+      const configuration = normalizeConfiguration({
+        event: {...draft, eventType: draft.eventType ?? packageRecord.eventType,
+          guestCount: Number(draft.guestCount)},
+        sharedContractVersion: packageRecord.sharedContractVersion ?? null,
+        expectedPackageRevision: packageRecord.revision ?? null,
+        serviceTier: offerSelection.serviceTier, packageThemeId: offerSelection.packageThemeId,
+        themeInspiration: offerSelection.themeInspiration,
+        foodChoiceSelections: customizationDraft.foodChoiceSelections ?? [],
+        selectedFoods: customizationDraft.selectedFoods,
+        selectedDecorations: customizationDraft.selectedDecorations,
+        selectedFurniture: customizationDraft.selectedFurniture,
+        selectedEventServices: selectedEventServices.map(({id, providerId, providerName, name, category, price, source}) =>
+          ({id, providerId, providerName, name, category, price, source})),
+        willArrangeOwnAddOns, customerArrangedAddOnsNote,
+        estimatedTotal: estimatedServicePrice === null || selectedEventServices.some((service) => service.price === null)
+          ? null : estimatedServicePrice + selectedEventServicesSubtotal,
+        pricingContext: {currency: "PHP", pricingModel: packageRecord.pricingModel ?? null,
+          displayedServicePrice: offerSelection.serviceTier ? offerSelection.displayedServicePrice : packageRecord.price},
+      });
+      if (!configuration) {
+        feedback("This configuration could not be validated. Review your selections before retrying.");
+        return;
+      }
+      const item = {providerId: provider.id, packageId: packageRecord.id,
+        providerName: provider.businessName, packageName: packageRecord.name, price: packageRecord.price,
+        imageUrl: packageRecord.imageUrl, packageHref, configuration};
+      if (CUSTOMER_EVENT_LIST_CLOUD_ENABLED) {
+        const original = canonicalEditOriginal.current;
+        const patch: Record<string, unknown> = {...configuration};
+        delete patch.sharedContractVersion;
+        delete patch.expectedPackageRevision;
+        if (canonicalEditRequiresCompatibleReview) {
+          // Web cannot price Mobile-only add-ons. Preserve them and avoid claiming a complete estimate.
+          patch.estimatedTotal = null;
+        }
+        const result = eventListEditProviderId && original
+          ? await cloudList.editCanonicalConfigurationAsync(original, patch)
+          : cloudList.state.status === "missing"
+          ? await cloudList.initializeCloudListAsync(
+              [...readItems().filter(candidate => candidate.type === "custom_menu" ||
+                candidate.providerId !== item.providerId || candidate.packageId !== item.packageId), item],
+              null,
+            )
+          : await cloudList.saveItemAsync(item);
+        if (eventListEditProviderId && "entry" in result) {
+          canonicalEditOriginal.current = result.entry as PlanningEntry;
+        }
+        feedback(result.status === "confirmed"
+          ? "Cloud Event List confirmed. Revalidation required; nothing is reserved."
+          : "Cloud save accepted. Waiting for Firestore confirmation; nothing is reserved.",
+        result.status === "confirmed", result);
+      } else {
+        const saved = addItem(item);
+        feedback(saved ? "Saved to Event List. Configured — revalidation required. Nothing is reserved."
+          : "Could not verify your Event List in browser storage. Check storage access and retry.", saved);
+      }
+    } catch (error) {
+      feedback(CUSTOMER_EVENT_LIST_CLOUD_ENABLED
+        ? (error instanceof Error ? error.message : "Cloud save not confirmed; review recovery state.")
+        : "Could not verify your Event List in browser storage. Check storage access and retry.");
+    } finally {
+      eventListSaveBusy.current = false;
+      if (generation === eventListSaveGeneration.current) setSavingEventList(false);
+    }
+  }
+
+
+
+  function updateDraft(
+    field: keyof EventDetailsDraft,
+    value: string,
+  ) {
+    if (field === "eventLocation" || field === "eventAddress") {
+      setEventMapCoordinates(null);
+      setEventMapOpen(false);
+    }
+    if (
+      field === "eventDate" ||
+      field === "eventTime" ||
+      field === "eventEndTime" ||
+      field === "guestCount"
+    ) {
+      availabilityGenerationRef.current += 1;
+      setAvailabilityStatus("idle");
+      setAvailabilityResults(new Map());
+      setAvailabilityCheckedKey(null);
+      setAvailabilityError(null);
+      setSelectionAvailabilityError(null);
+    }
+
+    setDraft((current) => ({
+      ...current,
+      [field]: value,
+    }));
+
+    setErrors((current) => {
+      if (!current[field]) {
+        return current;
+      }
+
+      const next = {...current};
+      delete next[field];
+
+      return next;
+    });
+  }
+
+  function toggleCustomization(
+    field: "selectedFoods" | "selectedDecorations" | "selectedFurniture",
+    value: string,
+  ) {
+    setCustomizationDraft((current) => {
+      const selected =
+        current[field];
+
+      const nextValues =
+        selected.includes(value)
+          ? selected.filter(
+              (item) => item !== value,
+            )
+          : [...selected, value];
+
+      return {
+        ...current,
+        [field]: nextValues,
+      };
+    });
+  }
+
+function toggleEventService(
+  serviceId: string,
+) {
+  if (selectedEventServiceIds.includes(serviceId)) {
+    setSelectedEventServiceIds(current => current.filter(id => id !== serviceId));
+    setSelectionAvailabilityError(null);
+    return;
+  }
+  const service = eventServices.find((candidate) => candidate.id === serviceId);
+
+  if (!service) return;
+
+  if (
+    !planningOnly && !selectedEventServiceIds.includes(serviceId) &&
+    (
+      !availabilityIsCurrent ||
+      availabilityResults.get(service.providerId)?.available !== true
+    )
+  ) {
+    setSelectionAvailabilityError(
+      `${service.providerName} is not available for the current event details.`,
+    );
+    return;
+  }
+
+  setSelectionAvailabilityError(null);
+
+  setSelectedEventServiceIds(
+    (current) => {
+      if (
+        current.includes(serviceId)
+      ) {
+        return current.filter(
+          (id) => id !== serviceId,
+        );
+      }
+
+      if (current.length >= 20) {
+        return current;
+      }
+
+      return [
+        ...current,
+        serviceId,
+      ];
+    },
+  );
+}
+
+function buildSubmissionInput(
+  clientRequestId: string,
+  policyAcknowledgements: SubmitPackageBookingRequestInput["policyAcknowledgements"],
+): SubmitPackageBookingRequestInput {
+  const eventType =
+    (draft.eventType ?? packageRecord.eventType)?.trim();
+
+  if (!eventType) {
+    throw new Error(
+      "This package does not have a valid event type. Return to the package and choose another option.",
+    );
+  }
+
+  const guestCount =
+    Number(draft.guestCount);
+
+  if (
+    !Number.isInteger(guestCount) ||
+    guestCount < 1 ||
+    guestCount > 10_000
+  ) {
+    throw new Error(
+      "Enter a valid guest count before submitting.",
+    );
+  }
+
+  const specialRequest =
+    draft.specialRequest.trim();
+
+
+  return omitUntrustedBookingCustomization({
+    clientRequestId,
+
+    providerId: provider.id,
+    packageId: packageRecord.id,
+    ...(packageRecord.sharedContractVersion === 2 ? {sharedContractVersion: 2 as const, expectedPackageRevision: packageRecord.revision} : {}),
+
+    eventType,
+    eventDate: draft.eventDate,
+    eventTime: draft.eventTime,
+    eventEndTime: draft.eventEndTime,
+
+    eventLocation:
+      draft.eventLocation.trim(),
+
+    eventAddress:
+      draft.eventAddress.trim(),
+
+    guestCount,
+
+    ...(customizationDraft.foodChoiceSelections?.length ? {foodChoiceSelections: customizationDraft.foodChoiceSelections} : {}),
+    selectedFoods:
+      isV2 ? [] : customizationDraft.selectedFoods,
+
+    selectedDecorations:
+      isV2 ? [] : customizationDraft.selectedDecorations,
+
+    selectedFurniture:
+      isV2 ? [] : customizationDraft.selectedFurniture,
+
+    addonIds:
+      selectedEventServiceIds,
+
+    ...(offerSelection.serviceTier
+      ? {serviceTier: offerSelection.serviceTier}
+      : {}),
+
+    ...(offerSelection.packageThemeId
+      ? {packageThemeId: offerSelection.packageThemeId}
+      : {}),
+
+    policyAcknowledgements,
+
+    ...(specialRequest
+      ? {
+          specialRequest,
+        }
+      : {}),
+
+    willArrangeOwnAddOns: false,
+  });
+}
+
+function currentSubmissionDraftKey(): string {
+  return JSON.stringify({
+    providerId: provider.id,
+    packageId: packageRecord.id,
+
+    eventType:
+      draft.eventType ?? packageRecord.eventType ?? "",
+
+    eventDate: draft.eventDate,
+    eventTime: draft.eventTime,
+    eventEndTime: draft.eventEndTime,
+
+    eventLocation:
+      draft.eventLocation.trim(),
+
+    eventAddress:
+      draft.eventAddress.trim(),
+
+    guestCount:
+      draft.guestCount,
+
+    ...(customizationDraft.foodChoiceSelections?.length ? {foodChoiceSelections: customizationDraft.foodChoiceSelections} : {}),
+    selectedFoods:
+      isV2 ? [] : customizationDraft.selectedFoods,
+
+    selectedDecorations:
+      isV2 ? [] : customizationDraft.selectedDecorations,
+
+    selectedFurniture:
+      isV2 ? [] : customizationDraft.selectedFurniture,
+
+    addonIds:
+      selectedEventServiceIds,
+
+    serviceTier:
+      offerSelection.serviceTier,
+
+    packageThemeId:
+      offerSelection.packageThemeId,
+
+    specialRequest:
+      draft.specialRequest.trim(),
+
+    willArrangeOwnAddOns,
+
+    customerArrangedAddOnsNote:
+      willArrangeOwnAddOns
+        ? customerArrangedAddOnsNote.trim()
+        : "",
+  });
+}
+
+function getSubmissionClientRequestId(
+  draftKey: string,
+): string {
+  const existing =
+    submissionIdentityRef.current;
+
+  if (
+    existing &&
+    existing.draftKey === draftKey
+  ) {
+    return existing.clientRequestId;
+  }
+
+  const randomId =
+    globalThis.crypto?.randomUUID?.();
+
+  if (!randomId) {
+    throw new Error(
+      "Secure booking initialization is unavailable. Refresh the page and try again.",
+    );
+  }
+
+  const clientRequestId =
+    `booking-${randomId}`;
+
+  submissionIdentityRef.current = {
+    draftKey,
+    clientRequestId,
+  };
+
+  return clientRequestId;
+}
+
+function navigateToSubmittedBooking(
+  result: SubmitBookingRequestResult,
+) {
+  // A confirmed booking consumes only its matching saved package. This session-bound
+  // mutation also refreshes the drawer and badge and keeps unrelated selections.
+  // Do not substitute ordinary remove for proof-validated cloud cleanup.
+  if (!CUSTOMER_EVENT_LIST_CLOUD_ENABLED) {
+    removeSubmittedItems(submittedEventListSnapshot);
+  }
+
+  const parameters = new URLSearchParams({
+    submitted: result.bookingId,
+  });
+
+  router.replace(
+    `/customer/bookings?${parameters.toString()}`,
+  );
+}
+
+async function applyRejectedRecovery(notice: string) {
+  setAcknowledgedPolicyKeys({});
+  setAgreementAcknowledged({});
+  setAgreementReload(value => value + 1);
+  await loadRefundPolicyDisclosures();
+  setUnresolvedRequest(false);
+  setFreshAttempt(true);
+  setRecoveryNotice(notice);
+}
+
+async function checkPreviousRequest() {
+  if (isSubmitting) return;
+  setIsSubmitting(true);
+  setFreshAttempt(false);
+  try {
+    const result = await reconcileCustomerBookingSubmission(
+      draftOwner.startsWith("customer:") ? draftOwner.slice(9) : undefined,
+      savedDraft.previousSubmissionId(),
+    );
+    setUnresolvedRequest(result.outcome === "unresolved");
+    if (result.outcome === "confirmed_created") {
+      setSubmissionResult(result.booking);
+      savedDraft.clear();
+      if (bestFitReturnHref && draftOwner.startsWith("customer:")) clearBestFitSession(draftOwner.slice(9));
+      navigateToSubmittedBooking(result.booking);
+    } else if (result.outcome === "confirmed_rejected") {
+      await applyRejectedRecovery(
+        "Previous request was confirmed rejected. Review and acknowledge the current policies and agreement. Submit Booking will start a fresh attempt.",
+      );
+    } else {
+      setRecoveryNotice("Previous request is unresolved. Another submission is blocked. Keep this request and check again, or start a new attempt if you never received confirmation.");
+    }
+  } catch (error) {
+    setRecoveryNotice(error instanceof Error ? error.message : "Unable to check the previous request. Check again.");
+  } finally {
+    setIsSubmitting(false);
+  }
+}
+
+async function startNewAttemptAfterUnresolved() {
+  if (isSubmitting || !unresolvedRequest) return;
+  setIsSubmitting(true);
+  try {
+    const result = await abandonUnresolvedCustomerBookingSubmission(
+      draftOwner.startsWith("customer:") ? draftOwner.slice(9) : undefined,
+    );
+    if (result.outcome === "confirmed_created") {
+      setSubmissionResult(result.booking);
+      savedDraft.clear();
+      if (bestFitReturnHref && draftOwner.startsWith("customer:")) clearBestFitSession(draftOwner.slice(9));
+      navigateToSubmittedBooking(result.booking);
+      return;
+    }
+    await applyRejectedRecovery(
+      "Previous unresolved request was closed. Review and acknowledge the current policies and agreement. Submit Booking will start a fresh attempt.",
+    );
+  } catch (error) {
+    setRecoveryNotice(error instanceof Error ? error.message : "Unable to start a new attempt. Check again.");
+  } finally {
+    setIsSubmitting(false);
+  }
+}
+
+async function handleSubmitBooking() {
+  if (canonicalEditRequiresCompatibleReview) {
+    setSubmissionError("Saved Mobile package choices require compatible booking review. You can save your edits to Event List.");
+    return;
+  }
+  if (eventListRestoreBlocked || restoredOptionsNeedReview) return;
+  const choiceError = foodChoiceSelectionError(packageRecord.foodChoiceGroups ?? [], customizationDraft.foodChoiceSelections ?? []);
+  if (choiceError) {setSubmissionError(choiceError); setStep(2); return;}
+  if (!planningOnly) {
+    const notice = bookingSubmissionDeadlineNotice(draft);
+
+    if (notice) {
+      setSubmissionError(notice);
+      setErrors((current) => ({...current, eventTime: notice}));
+      setStep(1);
+      return;
+    }
+  }
+  if (!everyAgreementAcknowledged) {
+    setSubmissionError("Review and acknowledge each Booking & Payment Agreement before submitting.");
+    return;
+  }
+  if (planningOnly) return;
+  if (
+    isSubmitting ||
+    submissionResult
+  ) {
+    return;
+  }
+
+  setSubmissionError(null);
+
+  const validationErrors =
+    validateEventDetails(
+      draft,
+      packageRecord.minimumGuests,
+      packageRecord.maximumGuests,
+      offerSelection.serviceTier,
+    );
+
+  if (
+    Object.keys(
+      validationErrors,
+    ).length > 0
+  ) {
+    setErrors(validationErrors);
+    setStep(1);
+
+    setSubmissionError(
+      "Review the event details before submitting your booking request.",
+    );
+
+    return;
+  }
+
+  if (
+    refundPolicyStatus !== "ready" ||
+    !refundPolicyResult
+  ) {
+    setSubmissionError(
+      "Wait for the current refund policies to load before submitting.",
+    );
+    return;
+  }
+
+  const everyPolicyAcknowledged =
+    refundPolicyResult.policies.every(
+      (policy) =>
+        acknowledgedPolicyKeys[policy.providerId] ===
+          policy.effectivePolicyKey,
+    );
+
+  if (!everyPolicyAcknowledged) {
+    setSubmissionError(
+      "Review and acknowledge every Provider refund policy before submitting.",
+    );
+    return;
+  }
+
+  try {
+    setIsSubmitting(true);
+
+    const draftKey =
+      currentSubmissionDraftKey();
+
+    const restoredRequestId = savedDraft.previousSubmissionId();
+
+    const clientRequestId =
+      await savedDraft.submissionId(draftKey, () => getSubmissionClientRequestId(draftKey));
+
+    const input =
+      buildSubmissionInput(
+        clientRequestId,
+        buildRefundPolicyAcknowledgements(
+          refundPolicyResult.policies,
+        ),
+      );
+    input.agreementAcknowledgements = agreements.map(({providerId, agreementKey}) => ({providerId, agreementKey}));
+
+    const selectedProviderIds = [
+      provider.id,
+      ...new Set(selectedEventServices.map((service) => service.providerId)),
+    ].filter((providerId, index, values) =>
+      values.indexOf(providerId) === index
+    );
+    const freshAvailability =
+      await checkCustomerProviderAvailability(
+        {
+          packageId: input.packageId,
+          addonIds: input.addonIds,
+          eventDate: input.eventDate,
+          eventTime: input.eventTime,
+          ...(input.eventEndTime
+            ? {eventEndTime: input.eventEndTime}
+            : {}),
+          ...(input.serviceTier ? {serviceTier: input.serviceTier} : {}),
+          guestCount: input.guestCount,
+        },
+        selectedProviderIds,
+      );
+    const unavailableProviders = freshAvailability.filter(
+      (result) => !result.available,
+    );
+
+    if (unavailableProviders.length > 0) {
+      setAvailabilityRetryNonce((current) => current + 1);
+      setAvailabilityCheckedKey(null);
+      const primaryUnavailable = unavailableProviders.some(
+        (result) => result.providerId === provider.id,
+      );
+      const message = unavailableProviders[0]?.message ??
+        "A selected provider is no longer available.";
+
+      setSubmissionError(
+        `Provider availability changed: ${message}`,
+      );
+      setStep(primaryUnavailable ? 1 : 3);
+      return;
+    }
+
+    const result =
+      await submitCustomerBookingRequest(
+        input,
+        {customerId: draftOwner.startsWith("customer:") ? draftOwner.slice(9) : undefined,
+          freshAttempt, restoredRequestId},
+      );
+
+    setSubmissionResult(result);
+    savedDraft.clear();
+      if (bestFitReturnHref && draftOwner.startsWith("customer:")) clearBestFitSession(draftOwner.slice(9));
+
+    navigateToSubmittedBooking(result);
+  } catch (error) {
+    if (
+      (error as {reason?: string})?.reason ===
+      "booking_submission_payment_deadline_passed"
+    ) {
+      setSubmissionError(
+        error instanceof Error
+          ? error.message
+          : "The booking payment deadline has passed.",
+      );
+
+      setErrors((current) => ({
+        ...current,
+        eventTime: "Choose a later event date or start time.",
+      }));
+
+      setStep(1);
+      return;
+    }
+
+    if ((error as {reason?: string})?.reason?.startsWith("BOOKING_PAYMENT_AGREEMENT_")) {
+      setAgreementAcknowledged({});
+      setAgreements([]);
+      setAgreementReload(value => value + 1);
+      setSubmissionError("Booking terms changed. Review the refreshed agreement and acknowledge it again.");
+      return;
+    }
+    if (
+      bookingSubmissionRequiresRefundPolicyRefresh(
+        error,
+      )
+    ) {
+      const message =
+        "A Provider refund policy changed. Review the refreshed policy and acknowledge it again before submitting.";
+      await loadRefundPolicyDisclosures(message);
+      return;
+    }
+
+    if (bookingSubmissionRequiresPreviousRequestRecovery(error)) {
+      setUnresolvedRequest(true);
+      setRecoveryNotice(
+        "Previous request is unresolved. Check Previous Request, or start a new attempt if you never received confirmation.",
+      );
+    }
+
+    setSubmissionError(
+      error instanceof Error &&
+        error.message.trim()
+        ? error.message
+        : "We could not submit your booking request. Please try again.",
+    );
+  } finally {
+    setIsSubmitting(false);
+  }
+}
+
+  function continueFromEventDetails() {
+    const nextErrors =
+      validateEventDetails(
+        draft,
+        packageRecord.minimumGuests,
+        packageRecord.maximumGuests,
+        offerSelection.serviceTier,
+      );
+    if (
+      offerSelection.availableTiers.length > 0 &&
+      !offerSelection.serviceTier
+    ) {
+      nextErrors.serviceTier = "Choose a service level to continue.";
+    }
+
+    setErrors(nextErrors);
+
+    if (
+      Object.keys(nextErrors).length > 0
+    ) {
+      return;
+    }
+
+    if (!planningOnly) {
+      const notice = bookingSubmissionDeadlineNotice(draft);
+
+      if (notice) {
+        setErrors({...nextErrors, eventTime: notice});
+        return;
+      }
+    }
+
+    if (!planningOnly && calendarBlockedDate === draft.eventDate) {
+      setAvailabilityError("This date is no longer available. Choose another date.");
+      return;
+    }
+    if (!planningOnly && !availabilityIsCurrent) {
+      setAvailabilityError(
+        availabilityStatus === "loading"
+          ? "Wait for the provider availability check to finish."
+          : "Provider availability must be checked before you continue.",
+      );
+      return;
+    }
+
+    if (!planningOnly && primaryProviderAvailability?.available !== true) {
+      setAvailabilityError(
+        primaryProviderAvailability?.message ??
+          "The selected package provider is unavailable for this event.",
+      );
+      return;
+    }
+
+    setStep(2);
+  }
+
+  function selectServiceTier(nextTier: CateringPackageServiceTier) {
+    const next = reconcileBookingCustomization({
+      packageSource: packageRecord,
+      serviceTier: nextTier,
+      packageThemeId,
+      themeInspiration,
+    });
+    setCustomizationDraft(previous => ({...previous,
+      selectedDecorations: previous.selectedDecorations.filter(item => [...sharedCustomization.decorations,
+        ...(packageRecord.serviceOptions?.[nextTier]?.decorInclusions ?? [])].includes(item)),
+      selectedFurniture: previous.selectedFurniture.filter(item => [...sharedCustomization.furniture,
+        ...(packageRecord.serviceOptions?.[nextTier]?.furnitureInclusions ?? [])].includes(item))}));
+    setServiceTier(next.serviceTier);
+    setPackageThemeId(next.packageThemeId);
+    setThemeInspiration(next.themeInspiration);
+    setOfferSelectionError(null);
+    setErrors((current) => {
+      const nextErrors = {...current};
+      delete nextErrors.serviceTier;
+      return nextErrors;
+    });
+  }
+
+  // Time fields live on Step 1, so select the only published tier early.
+  useEffect(() => {
+    if (offerSelection.serviceTier || offerSelection.availableTiers.length !== 1) {
+      return;
+    }
+    selectServiceTier(offerSelection.availableTiers[0]!);
+    // Intentional: only react when available tiers / selection change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [offerSelection.availableTiers, offerSelection.serviceTier]);
+
+  function selectPackageTheme(nextThemeId: string | null) {
+    const next = reconcileBookingCustomization({
+      packageSource: packageRecord,
+      serviceTier,
+      packageThemeId: nextThemeId,
+      themeInspiration,
+    });
+    setPackageThemeId(next.packageThemeId);
+    setThemeInspiration(next.themeInspiration);
+  }
+
+  function continueFromCustomization() {
+    if (eventListRestoreBlocked || restoredOptionsNeedReview) {
+      setOfferSelectionError("Review and confirm the restored package options first.");
+      return;
+    }
+    const choiceError = foodChoiceSelectionError(packageRecord.foodChoiceGroups ?? [], customizationDraft.foodChoiceSelections ?? []);
+    if (choiceError) {setOfferSelectionError(choiceError); return;}
+    /*
+     * Food, decor, and furniture selections stay optional because
+     * submitBookingRequest currently permits empty customization arrays.
+     * A published service level is required only when this package offers one.
+     * The selected tier and theme ids are submitted for server validation.
+     * Inspiration notes and setup references stay on this device.
+     */
+    if (offerSelection.availableTiers.length > 0 && !offerSelection.serviceTier) {
+      setOfferSelectionError(
+        "Choose a catering service level offered by this package.",
+      );
+      return;
+    }
+
+    setOfferSelectionError(null);
+    setStep(3);
+  }
+
+  function requestLeave(href: string) {
+  if (
+    isSubmitting ||
+    submissionResult
+  ) {
+    router.push(href);
+    return;
+  }
+
+  /*
+   * State C:
+   * nothing meaningful changed from the
+   * original customization state.
+   */
+  if (
+    !savedDraft.isReady ||
+    !hasMeaningfulChanges
+  ) {
+    router.push(href);
+    return;
+  }
+
+  /*
+   * State A or B:
+   * meaningful customization exists.
+   */
+  if (leaveDialogOpen) {
+    return;
+  }
+
+  setPendingLeaveHref(href);
+  setLeaveDialogOpen(true);
+}
+
+function returnToBestFit(href: string) {
+  setPendingLeaveHref(href);
+  setBestFitLeaveError(null);
+  setLeaveDialogOpen(true);
+}
+
+function saveAndReturnToBestFit(href: string) {
+  setBestFitLeaveError(null);
+
+  if (!savedDraft.isReady) {
+    setBestFitLeaveError("Your booking draft is not ready. Review your selections before leaving.");
+    return;
+  }
+
+  if (savedDraft.isDirty && !savedDraft.saveNow()) {
+    setBestFitLeaveError("Your booking draft could not be saved on this device. Try again before leaving.");
+    return;
+  }
+
+  cancelLeave();
+  router.push(href);
+}
+
+function cancelLeave() {
+  if (eventListSaveBusy.current) return;
+  setLeaveDialogOpen(false);
+  setPendingLeaveHref(null);
+}
+
+function leaveWithSavedDraft() {
+  const href = pendingLeaveHref;
+
+  if (!href) {
+    cancelLeave();
+    return;
+  }
+
+  /*
+   * If the newest edits have not yet reached
+   * the 400 ms autosave, persist them now.
+   */
+  if (
+    savedDraft.isDirty &&
+    !savedDraft.saveNow()
+  ) {
+    return;
+  }
+
+  setLeaveDialogOpen(false);
+  setPendingLeaveHref(null);
+
+  router.push(href);
+}
+
+function discardAndLeave() {
+  const href = pendingLeaveHref;
+
+  if (!href) {
+    cancelLeave();
+    return;
+  }
+
+  if (!savedDraft.discard()) {
+    if (href === bestFitReturnHref) setBestFitLeaveError("Could not discard this draft. Try again.");
+    return;
+  }
+
+  setLeaveDialogOpen(false);
+  setPendingLeaveHref(null);
+
+  router.push(href);
+}
+
+  return (
+    <div className="mx-auto grid w-full max-w-[1240px] min-w-0 gap-4 [overflow-wrap:anywhere] sm:gap-5">
+      <header className="grid min-w-0 gap-2">
+      <button
+        type="button"
+        onClick={() =>
+          bestFitReturnHref
+            ? step === 3 ? returnToBestFit(bestFitReturnHref) : requestLeave(bestFitReturnHref)
+            : requestLeave(packageHref + planningSuffix)
+        }
+        className={[
+          "group inline-flex min-h-11 w-fit items-center gap-2",
+          "rounded-full px-1 text-sm font-bold",
+          "text-primary-strong transition-colors",
+          "hover:text-primary",
+          "focus-visible:outline-none focus-visible:ring-2",
+          "focus-visible:ring-primary focus-visible:ring-offset-2",
+        ].join(" ")}
+      >
+        <ArrowLeft
+          aria-hidden="true"
+          className="size-4 transition-transform group-hover:-translate-x-0.5 motion-reduce:transform-none"
+        />
+
+        {bestFitReturnHref ? "Back to Best Fit" : "Back to package details"}
+      </button>
+        <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="min-w-0">
+            <h1 className="text-2xl font-extrabold tracking-[-0.035em] text-foreground sm:text-3xl">
+              Customize your event
+            </h1>
+            <p className="mt-1 text-sm leading-6 text-feasta-text-secondary">
+              Add your event details, personalize your package, and review your request.
+            </p>
+          </div>
+
+        </div>
+        {step === 1 && initialPlanningContext && !eventListEditProviderId && !hasSavedConfiguration && <p className="text-sm text-muted-foreground">
+          Filled from your event plan. You can update these details before continuing.
+        </p>}
+        {savedDraft.isReady && savedDraft.isFresh && canSaveEventList && !eventListEditProviderId && !initialEventContext && !hasSavedConfiguration && !hasMeaningfulChanges && !sharedDetailsDismissed && sharedEventCandidates(eventListItems, provider.id).length > 0 ? <section aria-label="Reuse event details" className="rounded-xl border p-4 space-y-2">
+          <p>{sharedEventCandidates(eventListItems, provider.id).length > 1 ? "Saved event details conflict. Choose the event plan to reuse, or enter new details." : "Reuse your saved event details for this provider?"}</p>
+          <p className="text-sm">All details stay editable. Check availability for this provider. Unsupported values need your input.</p>
+          {sharedEventCandidates(eventListItems, provider.id).map(candidate => <Button key={candidate.signature} variant="secondary" className="h-auto w-full whitespace-normal text-left" onClick={async () => {
+            const operation = ++sharedDetailsOperation.current;
+            const generation = eventListSaveGeneration.current;
+            const signature = currentCustomizationSignature;
+            const current = sharedEventCandidates(readEventListItems(), provider.id).find(item => item.signature === candidate.signature);
+            if (!current) return;
+            const values = compatibleSharedEvent(current.event, {eventTypes: packageRecord.occasionMatchIds ?? [packageRecord.eventType], minimum: Math.max(packageRecord.minimumGuests ?? 1, provider.minimumGuests ?? 1), maximum: Math.min(packageRecord.maximumGuests ?? 10000, provider.maximumGuests ?? 10000), earliestDate: tomorrowDateValue()});
+            if (values.eventDate) {
+              try {
+                const calendar = await getCustomerProviderCalendarAvailability(provider.id, values.eventDate.slice(0, 7));
+                if (calendar.dates.some(row => row.date === values.eventDate)) {
+                  delete values.eventDate; delete values.eventTime; delete values.eventEndTime;
+                }
+              } catch {
+                delete values.eventDate; delete values.eventTime; delete values.eventEndTime;
+              }
+            }
+            if (operation !== sharedDetailsOperation.current || generation !== eventListSaveGeneration.current || signature !== sharedDetailsSignature.current || !sharedEventCandidates(readEventListItems(), provider.id).some(item => item.signature === candidate.signature)) return;
+            setDraft(value => ({...value, ...values}));
+            setSharedDetailsNotice("Shared event details applied where supported. Review the date, guest count and venue; availability and current terms still require verification.");
+            setSharedDetailsDismissed(true);
+          }}>Use {candidate.providerName}: {candidate.event.eventType}, {candidate.event.eventDate} {candidate.event.eventTime} to {candidate.event.eventEndTime}, {candidate.event.guestCount} guests, {candidate.event.eventLocation}, {candidate.event.eventAddress}</Button>)}
+          <Button variant="secondary" onClick={() => {sharedDetailsOperation.current += 1; setSharedDetailsDismissed(true);}}>Enter new details</Button>
+        </section> : null}
+        {sharedDetailsNotice ? <p role="status">{sharedDetailsNotice}</p> : null}
+
+        {planningOnly ? <p className="text-xs leading-5 text-muted-foreground">Plan your event here. Sign in to check availability, review refund policies, and submit a booking. Nothing is reserved yet.</p> : null}
+              <p role="status" aria-live="polite" aria-atomic="true"
+            className={[
+              "flex w-fit max-w-full shrink-0 items-start gap-2 rounded-xl px-3 py-2 text-xs leading-5 sm:max-w-72",
+              /unable|could not/i.test(savedDraft.status)
+                ? "bg-warning-subtle text-warning"
+                : "bg-feasta-canvas text-feasta-text-secondary",
+            ].join(" ")}>
+            <span aria-hidden="true" className="mt-1.5 size-1.5 shrink-0 rounded-full bg-current" />
+            {savedDraft.status === "Draft saved" && savedDraft.isDirty
+              ? "Saving draft?"
+              : savedDraft.status}
+          </p>
+        {savedDraft.choices.length ? <div className="flex flex-wrap gap-2" aria-label="Saved event plans">
+          {savedDraft.choices.map((choice) => <Button key={choice.key} variant="secondary" onClick={() => savedDraft.resume(choice)}>
+            Continue draft{choice.value.event.eventDate ? ` for ${formatPhilippineDate(choice.value.event.eventDate)}` : " without a date"}
+          </Button>)}
+        </div> : null}
+      </header>
+
+      <nav
+        aria-label="Booking progress"
+        className="rounded-[22px] border border-feasta-border-soft bg-white p-2 shadow-[0_5px_20px_rgb(0_75_59/0.03)] sm:p-3"
+      >
+        <ol className="grid grid-cols-2 gap-1.5 sm:grid-cols-3">
+          {STEPS.map((item) => {
+            const active =
+              item.number === step;
+
+            const completed =
+              item.number < step;
+
+            return (
+              <li
+                key={item.number}
+                aria-current={
+                  active
+                    ? "step"
+                    : undefined
+                }
+                className={[
+                  "flex min-w-0 items-center gap-2 rounded-xl px-2 py-2",
+                  active
+                    ? "bg-secondary"
+                    : "bg-feasta-canvas",
+                ].join(" ")}
+              >
+                <span
+                  className={[
+                    "grid size-8 shrink-0 place-items-center rounded-full",
+                    "text-xs font-extrabold",
+                    active
+                      ? "bg-primary text-primary-foreground"
+                      : completed
+                        ? "bg-success text-success-foreground"
+                        : "bg-white text-feasta-text-tertiary",
+                  ].join(" ")}
+                >
+                  {completed ? (
+                    <Check
+                      aria-hidden="true"
+                      className="size-4"
+                    />
+                  ) : (
+                    item.number
+                  )}
+                </span>
+
+                <span
+                  className={[
+                    "min-w-0 text-xs font-bold",
+                    active
+                      ? "text-primary-strong"
+                      : "text-feasta-text-secondary",
+                  ].join(" ")}
+                >
+                  {item.label}
+                  {completed ? <span className="sr-only"> (completed)</span> : null}
+                </span>
+              </li>
+            );
+          })}
+        </ol>
+      </nav>
+
+      <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
+
+        {!planningOnly && !submissionResult && savedDraft.isReady &&
+          <div className="grid w-full gap-1 sm:w-auto sm:justify-items-end">
+          <Button type="button" variant="secondary" size="compact"
+            className={`rounded-full ${unresolvedRequest ? "border-warning/30 bg-warning-subtle text-warning" : ""}`}
+            disabled={isSubmitting || !savedDraft.isReady} onClick={checkPreviousRequest}>
+            <History aria-hidden="true" className="size-4" />
+            Check Previous Request
+          </Button>
+          {unresolvedRequest ? <>
+            <Button type="button" variant="secondary" size="compact"
+              className="rounded-full" disabled={isSubmitting || !savedDraft.isReady}
+              onClick={startNewAttemptAfterUnresolved}>
+              Start a new attempt
+            </Button>
+            <p className="text-xs text-warning">
+              Didn’t get a confirmation? Check your previous request before trying again.
+            </p>
+          </> : null}
+        </div>}
+        {recoveryNotice && <p role="status" className="basis-full text-sm">{recoveryNotice}</p>}
+      </div>
+
+      {/* ============================================================
+          MAIN LAYOUT
+         ============================================================ */}
+
+      <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1fr)_19rem] lg:gap-5 lg:items-start">
+        <main className="min-w-0">
+          {eventListRestoreNotice ? <section aria-label="Restored configuration" className="mb-4 rounded-xl border p-4">
+            <p role={eventListRestoreBlocked ? "alert" : "status"}>{eventListRestoreNotice}</p>
+              {eventListRestoreBlocked ? <Link href="/customer/event-list/review">Return to Event List</Link> : null}
+            {restoredOptionsNeedReview ? <>
+              <ul>{restoredOptionProblems.map(problem => <li key={problem}>{problem}</li>)}</ul>
+              <Button type="button" onClick={confirmRestoredOptions}>{restoredOptionProblems.length
+                ? "Remove unavailable options and review current package" : "Confirm restored options"}</Button>
+            </> : null}
+          </section> : null}
+
+          {/* ========================================================
+              STEP 1 — EVENT DETAILS
+             ======================================================== */}
+
+          {step === 1 ? (
+            <section
+              aria-labelledby="event-details-title"
+              className="rounded-[26px] border border-feasta-border-soft bg-white p-5 shadow-[0_8px_28px_rgb(0_75_59/0.04)] sm:p-6"
+            >
+              <p className="text-xs font-extrabold uppercase tracking-[0.13em] text-primary-strong">
+                Step 1 of 3
+              </p>
+
+              <h2
+                id="event-details-title"
+                className="mt-1 text-xl font-extrabold tracking-[-0.035em] text-foreground"
+              >
+                Event details
+              </h2>
+
+              <p className="mt-1 max-w-2xl text-sm leading-6 text-feasta-text-secondary">
+                Add the schedule, guest
+                count, and venue information
+                for your celebration.
+              </p>
+
+              <div className="mt-4 grid gap-4">
+                <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
+                  <span className="text-feasta-text-secondary">Event type</span>
+                  <span className="font-bold text-foreground">
+                    {(packageRecord.occasionMatchIds?.length ?? 0) > 1 ? <select aria-label="Event type"
+                      value={draft.eventType} onChange={e => updateDraft("eventType", e.currentTarget.value)}>
+                      {packageRecord.occasionMatchIds!.map(id => <option key={id} value={id}>{formatBookingEventTypeLabel(id, packageRecord.customOccasionLabels, humanizeProviderValue)}</option>)}
+                    </select> : formatBookingEventTypeLabel(draft.eventType ?? packageRecord.eventType ?? "Package event", packageRecord.customOccasionLabels, humanizeProviderValue)}
+                  </span>
+                </p>
+
+                <div className="grid min-w-0 items-start gap-4 sm:grid-cols-2">
+                  <div className="grid min-w-0 gap-2">
+                    <span className="text-sm font-bold">Event date</span>
+                    <ProviderDatePicker
+                      providerId={provider.id}
+                      planningOnly={planningOnly}
+                      revision={`${availabilityRetryNonce}:${primaryProviderAvailability?.reasonCode ?? ""}`}
+                      sessionCache={providerCalendarCache}
+                      onAvailability={onCalendarAvailability}
+                      value={draft.eventDate}
+                      invalid={Boolean(errors.eventDate)}
+                      onChange={(value) => updateDraft("eventDate", value)}
+                    />
+                    {errors.eventDate ? <p role="alert" className="text-xs font-semibold text-destructive">{errors.eventDate}</p> : null}
+                  </div>
+
+                  <Field
+                    label="Number of guests"
+                    hint={guestGuidance}
+                    error={
+                      draft.guestCount.trim()
+                        ? immediateGuestCountError(
+                            draft.guestCount,
+                            packageRecord.minimumGuests,
+                            packageRecord.maximumGuests,
+                          )
+                        : errors.guestCount
+                    }
+                  >
+                    <Input
+                      type="number"
+                      min={
+                        packageRecord
+                          .minimumGuests ?? 1
+                      }
+                      max={
+                        packageRecord
+                          .maximumGuests ??
+                        10_000
+                      }
+                      inputMode="numeric"
+                      placeholder="Enter guest count"
+                      value={draft.guestCount}
+                      onChange={(event) =>
+                        updateDraft(
+                          "guestCount",
+                          event.currentTarget
+                            .value,
+                        )
+                      }
+                      aria-invalid={Boolean(
+                         draft.guestCount.trim()
+                           ? immediateGuestCountError(
+                               draft.guestCount,
+                               packageRecord.minimumGuests,
+                               packageRecord.maximumGuests,
+                             )
+                           : errors.guestCount
+                       )}
+                    />
+                  </Field>
+                </div>
+
+                {offerSelection.availableTiers.length > 0 ? (
+                  <Field
+                    label="Service level"
+                    hint="Choose Drop-Off, Buffet Setup, or Full-Service before setting the schedule."
+                    error={errors.serviceTier}
+                  >
+                    <div
+                      role="radiogroup"
+                      aria-label="Service level"
+                      aria-invalid={Boolean(errors.serviceTier) || undefined}
+                      className="grid gap-2 sm:grid-cols-3"
+                    >
+                      {offerSelection.availableTiers.map((tier) => {
+                        const selected = offerSelection.serviceTier === tier;
+                        return (
+                          <label
+                            key={tier}
+                            className={[
+                              "flex cursor-pointer flex-col rounded-xl border p-3 transition-colors",
+                              selected
+                                ? "border-primary bg-secondary/50 ring-1 ring-primary/20"
+                                : "border-feasta-border-soft bg-feasta-canvas hover:border-primary/40",
+                            ].join(" ")}
+                          >
+                            <input
+                              type="radio"
+                              name="step1-service-tier"
+                              className="sr-only"
+                              checked={selected}
+                              onChange={() => selectServiceTier(tier)}
+                            />
+                            <span className="text-sm font-extrabold text-foreground">
+                              {cateringPackageServiceTierLabel(tier)}
+                            </span>
+                            <span className="mt-1 text-xs leading-5 text-feasta-text-secondary">
+                              {cateringPackageServiceTierDescription(tier)}
+                            </span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </Field>
+                ) : null}
+
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <Field
+                    label={
+                      cateringScheduleMode(offerSelection.serviceTier) === "drop_off_time"
+                        ? DROP_OFF_TIME_LABEL
+                        : EVENT_START_TIME_LABEL
+                    }
+                    hint={
+                      cateringScheduleMode(offerSelection.serviceTier) === "drop_off_time"
+                        ? DROP_OFF_TIME_HELPER
+                        : offerSelection.availableTiers.length > 0 && !offerSelection.serviceTier
+                          ? "Select a service level first. Drop-Off uses estimated drop-off and end time; Buffet Setup and Full-Service use a start and end time."
+                          : undefined
+                    }
+                    error={errors.eventTime}
+                  >
+                    <Input
+                      type="time"
+                      value={draft.eventTime}
+                      onChange={(event) =>
+                        updateDraft(
+                          "eventTime",
+                          event.currentTarget
+                            .value,
+                        )
+                      }
+                      aria-invalid={Boolean(
+                        errors.eventTime,
+                      )}
+                    />
+                  </Field>
+
+                  <Field
+                    label={
+                      cateringScheduleMode(offerSelection.serviceTier) === "drop_off_time"
+                        ? DROP_OFF_END_TIME_LABEL
+                        : EVENT_END_TIME_LABEL
+                    }
+                    error={
+                      errors.eventEndTime
+                    }
+                  >
+                    <Input
+                      type="time"
+                      value={
+                        draft.eventEndTime
+                      }
+                      onChange={(event) =>
+                        updateDraft(
+                          "eventEndTime",
+                          event.currentTarget
+                            .value,
+                        )
+                      }
+                      aria-invalid={Boolean(
+                        errors.eventEndTime,
+                      )}
+                      aria-label={
+                        cateringScheduleMode(offerSelection.serviceTier) === "drop_off_time"
+                          ? "Estimated drop-off end time"
+                          : undefined
+                      }
+                    />
+                  </Field>
+                </div>
+
+
+                <ProviderAvailabilityPanel
+                  providerName={provider.businessName}
+                  status={planningOnly || !availabilityParameters ? "idle" : availabilityIsCurrent ? "ready" : availabilityStatus === "error" ? "error" : "loading"}
+                  result={primaryProviderAvailability}
+                  error={availabilityError}
+                  onRetry={() =>
+                    setAvailabilityRetryNonce((current) => current + 1)
+                  }
+                />
+
+                <Field
+                  label="Event location"
+                  hint="City, municipality, or venue"
+                  error={
+                    errors.eventLocation
+                  }
+                >
+                  <Input
+                    maxLength={180}
+                    placeholder="e.g. Ormoc City"
+                    value={
+                      draft.eventLocation
+                    }
+                    onChange={(event) =>
+                      updateDraft(
+                        "eventLocation",
+                        event.currentTarget
+                          .value,
+                      )
+                    }
+                    aria-invalid={Boolean(
+                      errors.eventLocation,
+                    )}
+                  />
+                </Field>
+
+                <Field
+                  label="Complete event address"
+                  hint={`${draft.eventAddress.length}/500 characters`}
+                  error={
+                    errors.eventAddress
+                  }
+                >
+                  <Textarea
+                    maxLength={500}
+                    rows={2}
+                    className="min-h-20"
+                    placeholder="Street, barangay, landmark, venue details..."
+                    value={
+                      draft.eventAddress
+                    }
+                    onChange={(event) =>
+                      updateDraft(
+                        "eventAddress",
+                        event.currentTarget
+                          .value,
+                      )
+                    }
+                    aria-invalid={Boolean(
+                      errors.eventAddress,
+                    )}
+                  />
+                </Field>
+
+                <div className="grid gap-3">
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    aria-expanded={eventMapOpen}
+                    onClick={() => setEventMapOpen((open) => !open)}
+                  >
+                    {eventMapOpen ? "Close map" : "Choose on map"}
+                  </Button>
+                  {eventMapOpen ? (
+                    <CustomerEventAddressMap
+                      coordinates={eventMapCoordinates}
+                      onCancel={() => setEventMapOpen(false)}
+                      onConfirm={(location) => {
+                        setDraft((current) => ({
+                          ...current,
+                          eventAddress: location.address,
+                          eventLocation: [location.city, location.province].filter(Boolean).join(", "),
+                        }));
+                        setErrors((current) => {
+                          const next = {...current};
+                          delete next.eventAddress;
+                          delete next.eventLocation;
+                          return next;
+                        });
+                        setEventMapCoordinates({latitude: location.latitude, longitude: location.longitude});
+                        setEventMapOpen(false);
+                      }}
+                    />
+                  ) : null}
+                </div>
+
+                <Field
+                  label="Special requests"
+                  optional
+                  hint={`${draft.specialRequest.length}/1000 characters`}
+                  error={
+                    errors.specialRequest
+                  }
+                >
+                  <Textarea
+                    maxLength={1000}
+                    rows={3}
+                    className="min-h-24"
+                    placeholder="Dietary notes, timing concerns, setup requests, or other event details..."
+                    value={
+                      draft.specialRequest
+                    }
+                    onChange={(event) =>
+                      updateDraft(
+                        "specialRequest",
+                        event.currentTarget
+                          .value,
+                      )
+                    }
+                  />
+                </Field>
+              </div>
+
+              <div className="mt-5 flex flex-col-reverse gap-3 border-t border-feasta-divider pt-4 sm:flex-row sm:items-center sm:justify-between">
+                <p className="max-w-md text-xs leading-5 text-feasta-text-secondary">
+                  You&apos;ll review your request before sending it to the provider.
+                </p>
+
+                <Button
+                  type="button"
+                  onClick={
+                    continueFromEventDetails
+                  }
+                  className="min-h-12 w-full shrink-0 rounded-full px-5 sm:w-auto"
+                >
+                  Continue
+
+                  <ArrowRight
+                    aria-hidden="true"
+                    className="size-4"
+                  />
+                </Button>
+              </div>
+            </section>
+          ) : null}
+
+          {/* ========================================================
+              STEP 2 — PACKAGE CUSTOMIZATION
+             ======================================================== */}
+
+          {step === 2 ? (
+            <section
+              aria-labelledby="package-customization-title"
+              className="rounded-[26px] border border-feasta-border-soft bg-white p-5 shadow-[0_8px_28px_rgb(0_75_59/0.04)] sm:p-6"
+            >
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                <div className="max-w-2xl">
+                  <p className="text-xs font-extrabold uppercase tracking-[0.13em] text-primary-strong">
+                    Step 2 of 3
+                  </p>
+
+                  <h2
+                    id="package-customization-title"
+                    className="mt-1 text-xl font-extrabold tracking-[-0.035em] text-foreground"
+                  >
+                    Customize your package
+                  </h2>
+
+                  <p className="mt-1 text-sm leading-6 text-feasta-text-secondary">
+                    {isV2 ? "Compare service levels, choose your dishes, and explore optional visual styles. Published inclusions are automatically included." : offerSelection.availableTiers.length > 0
+                      ? "Choose your service level and any published package options."
+                      : "Choose any published package options you would like."}
+                  </p>
+                </div>
+
+                {offerSelection.availableTiers.length > 0 ? (
+                  <p className="max-w-full rounded-xl bg-feasta-canvas px-3 py-2 text-xs font-bold text-primary-strong sm:max-w-52">
+                    {offerSelection.serviceTier
+                      ? bookingCustomizationReviewLabel(offerSelection.serviceTier)
+                      : "Choose a service level (required)"}
+                  </p>
+                ) : null}
+              </div>
+
+              <div className="mt-5 grid gap-5">
+                <BookingOfferSelection
+                  availableTiers={offerSelection.availableTiers}
+                  serviceOptions={packageRecord.serviceOptions}
+                  pricingModel={packageRecord.pricingModel}
+                  themesApplicable={offerSelection.themesApplicable}
+                  hasThemeOptions={(packageRecord.themeOptions?.length ?? 0) > 0}
+                  serviceTier={offerSelection.serviceTier}
+                  packageThemeId={offerSelection.packageThemeId}
+                  availableThemes={offerSelection.availableThemes}
+                  themeInspiration={offerSelection.themeInspiration}
+                  publishedSetups={publishedSetups}
+                  error={offerSelectionError}
+                  onServiceTierChange={selectServiceTier}
+                  onPackageThemeChange={selectPackageTheme}
+                  onThemeInspirationChange={(nextInspiration) => {
+                    const next = reconcileBookingCustomization({
+                      packageSource: packageRecord,
+                      serviceTier,
+                      packageThemeId,
+                      themeInspiration: nextInspiration,
+                    });
+                    setThemeInspiration(next.themeInspiration);
+                    setPackageThemeId(next.packageThemeId);
+                  }}
+                >
+                  {isV2 ? <>
+                <div aria-label="Selected service summary" className="grid gap-3 rounded-2xl border border-primary/15 bg-feasta-canvas p-4 sm:grid-cols-2 sm:p-5">
+                  <h3 className="flex items-center gap-2 font-extrabold text-primary-strong sm:col-span-2"><ReceiptText aria-hidden="true" className="size-5"/>Selected service</h3>
+                  <p>{offerSelection.serviceTier ? bookingCustomizationReviewLabel(offerSelection.serviceTier) : offerSelection.availableTiers.length ? "Choose a service level" : "Published package"}</p>
+                  <p>{packageRecord.pricingModel === "per_pax" ? "Per Pax" : "Fixed Bundle"} &middot; {draft.guestCount || "0"} guests</p>
+                  <EstimateRow label="Estimated package price" value={estimatedServicePrice}/>
+                </div>
+
+                    <FoodChoiceSelector groups={packageRecord.foodChoiceGroups ?? []}
+                      value={customizationDraft.foodChoiceSelections ?? []}
+                      onChange={(foodChoiceSelections) => setCustomizationDraft((current) => ({...current, foodChoiceSelections}))}/>
+                    <FixedPackageInclusions detail={detail} serviceTier={offerSelection.serviceTier}/>
+                  </> : null}
+                </BookingOfferSelection>
+                {!isV2 ? <>
+                <FoodChoiceSelector groups={packageRecord.foodChoiceGroups ?? []}
+                  value={customizationDraft.foodChoiceSelections ?? []}
+                  onChange={(foodChoiceSelections) => setCustomizationDraft((current) => ({...current, foodChoiceSelections}))}/>
+
+                <div className="rounded-2xl border border-feasta-border-soft bg-feasta-canvas p-4">
+                  <h3 className="text-base font-extrabold text-foreground">
+                    Optional package inclusions
+                  </h3>
+                  <p className="mt-1 text-sm leading-6 text-feasta-text-secondary">
+                    Choose which additional included food, decoration, or furniture
+                    options you want with your event. You can leave these unchecked.
+                    These selections do not add a separate charge.
+                  </p>
+                </div>
+                <CustomizationGroup
+                  title="Other included foods (optional)"
+                  description="Select any additional included foods you want, such as rice or dessert. These are separate from your required dish choices."
+                  icon={
+                    <Soup
+                      aria-hidden="true"
+                    />
+                  }
+                  options={
+                    customization.foods
+                  }
+                  selected={
+                    customizationDraft
+                      .selectedFoods
+                  }
+                  onToggle={(value) =>
+                    toggleCustomization(
+                      "selectedFoods",
+                      value,
+                    )
+                  }
+                />
+
+                <CustomizationGroup
+                  title="Decoration preferences (optional)"
+                  description="Select the included decorations you would like for your event. Leave unchecked if you have no preference."
+                  icon={
+                    <Palette
+                      aria-hidden="true"
+                    />
+                  }
+                  options={
+                    customization.decorations
+                  }
+                  selected={
+                    customizationDraft
+                      .selectedDecorations
+                  }
+                  onToggle={(value) =>
+                    toggleCustomization(
+                      "selectedDecorations",
+                      value,
+                    )
+                  }
+                />
+
+                <CustomizationGroup
+                  title="Furniture preferences (optional)"
+                  description="Select the included furniture items you would like. These options do not add a separate charge."
+                  icon={
+                    <Armchair
+                      aria-hidden="true"
+                    />
+                  }
+                  options={
+                    customization.furniture
+                  }
+                  selected={
+                    customizationDraft
+                      .selectedFurniture
+                  }
+                  onToggle={(value) =>
+                    toggleCustomization(
+                      "selectedFurniture",
+                      value,
+                    )
+                  }
+                />
+
+                <IncludedServices
+                  services={
+                    additionalIncludedServices
+                  }
+                />
+                {customization.foods.length + customization.decorations.length + customization.furniture.length + additionalIncludedServices.length === 0 ? (
+                  <p className="text-sm text-feasta-text-secondary">No additional package options are published.</p>
+                ) : null}
+                </> : null}
+
+
+              </div>
+
+              <div className="mt-5 flex flex-col-reverse gap-3 border-t border-feasta-divider pt-4 sm:flex-row sm:items-center sm:justify-between">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() =>
+                    setStep(1)
+                  }
+                  className="min-h-12 w-full rounded-full px-5 sm:w-auto shrink-0 whitespace-nowrap min-w-fit"
+                >
+                  <ArrowLeft
+                    aria-hidden="true"
+                    className="size-4"
+                  />
+
+                  Back
+                </Button>
+
+                <div className="flex flex-col gap-3 sm:items-end">
+                  <p className="max-w-md text-xs leading-5 text-feasta-text-secondary sm:text-right">
+                    {offerSelection.availableTiers.length > 0
+                      ? "Choose a service level to continue. Other package options are optional."
+                      : "Package options are optional."}
+                  </p>
+
+                  <Button
+                    type="button"
+                    onClick={
+                      continueFromCustomization
+                    }
+                    className="min-h-12 rounded-full px-5"
+                  >
+                    Review booking
+
+                    <ArrowRight
+                      aria-hidden="true"
+                      className="size-4"
+                    />
+                  </Button>
+                </div>
+              </div>
+            </section>
+          ) : null}
+
+          {/* ========================================================
+              STEP 4 — REVIEW PLACEHOLDER
+            ======================================================== */}
+
+          {step === 3 && (selectionAvailabilityError || unavailableSelectedServices.length > 0) ? <p role="alert">{selectionAvailabilityError ?? "A selected service is unavailable. Remove it or change your event details."}</p> : null}
+          {step === 3 && unresolvedServiceIds.length > 0 ? <section aria-label="Unavailable saved services" className="mb-4 rounded-xl border p-4">
+            <p role="alert">These saved services cannot be verified in the current catalog. Their price is excluded from this estimate. Remove them before submitting.</p>
+            {unresolvedServiceIds.map(id => <div key={id}>Unavailable saved service<Button type="button" onClick={() => toggleEventService(id)}>Remove unavailable service</Button></div>)}
+          </section> : null}
+          {step === 3 && planningOnly ? <section aria-label="Save configuration" className="mb-4 rounded-xl border bg-card p-5">
+            <Button type="button" variant="secondary" onClick={() => void saveConfigurationToEventList()}
+              disabled={!canSaveEventList || eventListRestoreBlocked || restoredOptionsNeedReview || isSubmitting || savingEventList ||
+                (hasSavedConfiguration && eventListFeedback?.success === true && eventListFeedback.signature === eventListSaveSignature)}>
+              {savingEventList ? "Saving to Event List…" : "Save to Event List"}
+            </Button>
+            <p className="mt-2 text-sm text-muted-foreground">Save this configuration for planning. Availability and prices require revalidation; nothing is reserved or paid.</p>
+            {eventListFeedback?.signature === eventListSaveSignature
+              ? <p role={eventListFeedback.success ? "status" : "alert"}>{eventListFeedback.message}</p> : null}
+          </section> : null}
+          {step === 3 && planningOnly ? (
+            <div className="rounded-xl border bg-card p-5">
+              <p>Step 3 of 3</p>
+                <h2 className="text-xl font-bold">Continue your saved plan</h2>
+                {selectedEventServices.map(service => <div key={service.id}>{service.name} - {service.providerName}<PriceDisplay amount={service.price ?? 0} />{service.portfolio ? <ServicePortfolioGallery portfolio={service.portfolio} showCover={!service.imageUrl} /> : null}
+                      {service.freelanceDetails ? <FreelanceServiceSummary details={service.freelanceDetails} /> : null}<Button onClick={() => toggleEventService(service.id)}>Remove {service.name}</Button></div>)}
+                <Button type="button" variant="secondary" onClick={() => setStep(2)}>Back</Button>
+              <p className="my-3 text-muted-foreground">Sign in and complete account verification to review current availability and each provider&apos;s refund policy. Your selections will be restored.</p>
+              <CustomerAuthLink href={`${packageHref}/book${planningSuffix}`}
+                returnTo={`${packageHref}/plan${planningSuffix}`} className="font-semibold text-primary underline">Sign in to continue</CustomerAuthLink>
+            </div>
+          ) : null}
+          {step === 3 && !planningOnly ? (
+            <BookingReview
+              packageRecord={packageRecord}
+              providerName={provider.businessName}
+              providerId={provider.id}
+              eventDraft={draft}
+              customizationDraft={customizationDraft}
+              includedServices={customization.services}
+              selectedEventServices={selectedEventServices}
+              selectedEventServicesSubtotal={
+                selectedEventServicesSubtotal
+              }
+              serviceTierLabel={bookingCustomizationReviewLabel(offerSelection.serviceTier)}
+              displayedServicePrice={estimatedServicePrice}
+              platformCommissionRateBps={platformCommissionRateBps}
+              packageThemeName={
+                offerSelection.availableThemes.find(
+                  (theme) => theme.id === offerSelection.packageThemeId,
+                )?.name ?? null
+              }
+              themeNotes={offerSelection.themeInspiration.notes}
+              isSubmitting={isSubmitting}
+              onAddToEventList={() => void saveConfigurationToEventList()}
+              savingEventList={savingEventList}
+              eventListAlreadySaved={
+                (!eventListEditProviderId && hasSavedConfiguration) ||
+                (hasSavedConfiguration && eventListFeedback?.success === true &&
+                  eventListFeedback.signature === eventListSaveSignature)
+              }
+              eventListSaveDisabled={ !canSaveEventList || eventListRestoreBlocked || restoredOptionsNeedReview ||
+                (!eventListEditProviderId && hasSavedConfiguration) ||
+                isSubmitting ||
+                savingEventList ||
+                (hasSavedConfiguration && eventListFeedback?.success === true &&
+                  eventListFeedback.signature === eventListSaveSignature)
+              }
+              eventListFeedbackMessage={
+                eventListFeedback?.signature === eventListSaveSignature
+                  ? eventListFeedback.message
+                  : null
+              }
+              eventListFeedbackSuccess={eventListFeedback?.success === true}
+              submissionError={
+                canonicalEditRequiresCompatibleReview
+                  ? "Saved Mobile package choices require compatible booking review. You can save your edits to Event List."
+                  : submissionError
+              }
+              submissionResult={
+                submissionResult
+              }
+              refundPolicyStatus={refundPolicyStatus}
+              agreementReady={everyAgreementAcknowledged && !canonicalEditRequiresCompatibleReview}
+              agreementReview={<BookingPaymentAgreementReview agreements={loadedAgreementInput === agreementInputJSON ? agreements : []} acknowledged={agreementAcknowledged}
+                error={agreementError} onReload={() => setAgreementReload(value => value + 1)}
+                onChange={(providerId, key) => setAgreementAcknowledged(current => {
+                  const next = {...current}; if (key) next[providerId] = key; else delete next[providerId]; return next;
+                })} />}
+              refundPolicyResult={refundPolicyResult}
+              refundPolicyError={refundPolicyError}
+              refundPolicyNotice={refundPolicyNotice}
+              acknowledgedPolicyKeys={acknowledgedPolicyKeys}
+              onRefundPolicyAcknowledgementChange={(policy, checked) => {
+                setAcknowledgedPolicyKeys((current) => {
+                  if (checked) {
+                    return {
+                      ...current,
+                      [policy.providerId]: policy.effectivePolicyKey,
+                    };
+                  }
+                  const next = {...current};
+                  delete next[policy.providerId];
+                  return next;
+                });
+                setSubmissionError(null);
+              }}
+              onRetryRefundPolicies={() => {
+                void loadRefundPolicyDisclosures();
+              }}
+              onBack={() =>
+                setStep(2)
+              }
+              onEditEvent={() => setStep(1)}
+              onEditPackage={() => setStep(2)}
+              onEditServices={toggleEventService}
+              onSubmit={
+                handleSubmitBooking
+              }
+            />
+          ) : null}
+        </main>
+
+        {/* ============================================================
+            STICKY SUMMARY
+           ============================================================ */}
+
+        <aside aria-label="Package summary" className="order-first min-w-0 lg:order-none lg:sticky lg:top-24">
+          <section className="overflow-hidden rounded-[22px] border border-feasta-border-soft bg-white shadow-[0_8px_26px_rgb(0_75_59/0.04)]">
+            <div className="p-4 sm:p-5">
+              {packageRecord.imageUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={packageRecord.imageUrl} alt="" aria-hidden="true"
+                  className="float-right mb-2 ml-3 size-14 rounded-xl object-cover" />
+              ) : null}
+              <p className="text-[11px] font-extrabold uppercase tracking-[0.09em] text-primary-strong">
+                Your package
+              </p>
+
+              <h2 className="mt-1.5 break-words text-lg font-extrabold tracking-[-0.025em] text-foreground">
+                {packageRecord.name}
+              </h2>
+
+              <p className="mt-1 text-sm text-feasta-text-secondary">
+                {provider.businessName}
+              </p>
+
+              <div className="mt-3 border-t border-feasta-divider pt-4">
+                {offerSelection.serviceTier ? (
+                  <p className="mb-3 text-xs leading-5 text-feasta-text-secondary">
+                    Selected service: {bookingCustomizationReviewLabel(offerSelection.serviceTier)}
+                  </p>
+                ) : null}
+                <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-feasta-text-tertiary">
+                  {offerSelection.availableTiers.length > 0 && !offerSelection.serviceTier
+                    ? "Starting price ? no service level selected"
+                    : "Estimated service price"}
+                </p>
+
+                <PriceDisplay
+                  amount={
+                    estimatedServicePrice
+                  }
+                  className="mt-1"
+                />
+
+                {step === 3 && !planningOnly ? (
+                  <div className="mt-3 rounded-xl border border-primary/15 bg-secondary p-3" aria-label="Current booking payment requirement">
+                    <p className="text-[11px] font-extrabold uppercase tracking-wide text-primary-strong">Payment requirement for this request</p>
+                    {loadedAgreementInput === agreementInputJSON && agreements.length > 0 ? (
+                      <div className="mt-2 grid gap-3">
+                        {agreements.map((agreement) => (
+                          <div key={agreement.providerId} className="grid gap-1 border-t border-primary/10 pt-2 first:border-t-0 first:pt-0">
+                            <p className="break-words text-xs font-semibold text-feasta-text-secondary">{agreement.providerName}</p>
+                            <p className="text-sm font-extrabold text-foreground">{agreement.depositEligible ? "Deposit currently available" : "Full payment required"}</p>
+                            <PriceDisplay amount={agreement.requiredUpfrontAmountInCentavos / 100} />
+                            {agreement.depositEligible ? (
+                              <p className="text-xs leading-5 text-feasta-text-secondary">Remaining balance: {new Intl.NumberFormat("en-PH", {style: "currency", currency: "PHP"}).format(agreement.remainingBalanceInCentavos / 100)}. Submit at least 72 hours before the event to keep the deposit option. Eligibility is finalized on submission.</p>
+                            ) : agreement.eligibilityReason === "short_notice" ? (
+                              <p className="text-xs leading-5 text-feasta-text-secondary">The 72-hour deposit cutoff has passed for this event.</p>
+                            ) : null}
+                          </div>
+                        ))}
+                        <p className="text-xs leading-5 text-feasta-text-secondary">The detailed agreement below shows all deadlines. Payment is not collected by submitting this request.</p>
+                      </div>
+                    ) : (
+                      <p className="mt-2 text-xs leading-5 text-feasta-text-secondary">{agreementError ? "Current payment terms could not be loaded. Use the agreement retry option below." : "Checking current booking-specific payment requirements..."}</p>
+                    )}
+                  </div>
+                ) : <div className="mt-3"><PackagePaymentTerms source={packageRecord} /></div>}
+              </div>
+
+              <div className="mt-3 grid grid-cols-2 gap-3 border-t border-feasta-divider pt-4">
+                {draft.eventDate ? (
+                  <SummaryLine
+                    icon={
+                      <CalendarDays
+                        aria-hidden="true"
+                      />
+                    }
+                    label="Date"
+                    value={formatPhilippineDate(draft.eventDate)}
+                  />
+                ) : null}
+
+                {draft.eventTime ? (
+                  <SummaryLine
+                    icon={
+                      <Clock3
+                        aria-hidden="true"
+                      />
+                    }
+                    label={
+                      cateringScheduleMode(offerSelection.serviceTier) === "drop_off_time"
+                        ? DROP_OFF_TIME_LABEL
+                        : "Time"
+                    }
+                    value={formatCateringScheduleDisplay({
+                      serviceTier: offerSelection.serviceTier,
+                      eventTime: draft.eventTime,
+                      eventEndTime: draft.eventEndTime,
+                    })}
+                  />
+                ) : null}
+
+                {draft.guestCount ? (
+                  <SummaryLine
+                    icon={
+                      <UsersRound
+                        aria-hidden="true"
+                      />
+                    }
+                    label="Guests"
+                    value={
+                      draft.guestCount
+                    }
+                  />
+                ) : null}
+
+                {draft.eventLocation ? (
+                  <SummaryLine
+                    icon={
+                      <MapPin
+                        aria-hidden="true"
+                      />
+                    }
+                    label="Location"
+                    value={
+                      draft.eventLocation
+                    }
+                  />
+                ) : null}
+              </div>
+
+              {customizationDraft.selectedFoods.length +
+              customizationDraft.selectedDecorations.length +
+              customizationDraft.selectedFurniture.length > 0 ? (
+                <div className="mt-4 border-t border-feasta-divider pt-4">
+                  <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-feasta-text-tertiary">
+                    Customization
+                  </p>
+
+                  <div className="mt-3 grid gap-2">
+                    {customizationDraft
+                      .selectedFoods.length >
+                    0 ? (
+                      <SelectionSummary
+                        label="Food"
+                        count={
+                          customizationDraft
+                            .selectedFoods
+                            .length
+                        }
+                      />
+                    ) : null}
+
+                    {customizationDraft
+                      .selectedDecorations
+                      .length > 0 ? (
+                      <SelectionSummary
+                        label="Decor"
+                        count={
+                          customizationDraft
+                            .selectedDecorations
+                            .length
+                        }
+                      />
+                    ) : null}
+
+                    {customizationDraft
+                      .selectedFurniture
+                      .length > 0 ? (
+                      <SelectionSummary
+                        label="Furniture"
+                        count={
+                          customizationDraft
+                            .selectedFurniture
+                            .length
+                        }
+                      />
+                    ) : null}
+                  </div>
+                </div>
+              ) : null}
+              {selectedEventServiceIds.length > 0 ? (
+                <div className="mt-4 border-t border-feasta-divider pt-4">
+                  <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-feasta-text-tertiary">
+                    Event services
+                  </p>
+
+                  <div className="mt-3 grid gap-2">
+                    <SelectionSummary
+                      label="Selected"
+                      count={selectedEventServiceIds.length}
+                    />
+
+                    <div className="flex items-center justify-between gap-3 text-xs">
+                      <span className="text-feasta-text-secondary">
+                        Displayed subtotal
+                      </span>
+
+                      <span className="font-extrabold text-foreground">
+                        {formatCurrency(
+                          selectedEventServicesSubtotal,
+                        )}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+
+              {willArrangeOwnAddOns ? (
+              <div className="mt-4 border-t border-feasta-divider pt-4">
+                <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-feasta-text-tertiary">
+                  Own arrangements
+                </p>
+
+                <div className="mt-2 flex items-start gap-2">
+                  <span className="mt-0.5 grid size-5 shrink-0 place-items-center rounded-full bg-secondary text-primary-strong">
+                    <Check
+                      aria-hidden="true"
+                      className="size-3"
+                    />
+                  </span>
+
+                  <div className="min-w-0">
+                    <p className="text-xs font-semibold text-foreground">
+                      Customer-arranged services
+                    </p>
+
+                    {customerArrangedAddOnsNote ? (
+                      <p className="mt-1 line-clamp-3 break-words text-xs leading-5 text-feasta-text-secondary">
+                        {
+                          customerArrangedAddOnsNote
+                        }
+                      </p>
+                    ) : null}
+                  </div>
+                </div>
+              </div>
+            ) : null}
+            </div>
+          </section>
+                </aside>
+      </div>
+
+      {leaveDialogOpen ? (
+        <div
+          className="fixed inset-0 z-50 grid place-items-center bg-black/30 p-4 backdrop-blur-sm"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (
+              event.target ===
+              event.currentTarget
+            ) {
+              cancelLeave();
+            }
+          }}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="leave-customization-title"
+            aria-describedby="leave-customization-description"
+            className="w-full max-w-md rounded-[24px] border border-feasta-border-soft bg-white p-6 shadow-2xl"
+            onKeyDown={(event) => {
+              if (event.key === "Escape") {
+                event.preventDefault();
+                cancelLeave();
+              }
+            }}
+          >
+            <h2
+              id="leave-customization-title"
+              className="text-xl font-extrabold tracking-[-0.03em] text-foreground"
+            >
+              {pendingLeaveHref === bestFitReturnHref && step === 3
+                ? "Back to Best Fit Recommendations?"
+                : savedDraft.isDirty
+                ? "Save your event plan before leaving?"
+                : "Leave this customization?"}
+            </h2>
+
+            <p
+              id="leave-customization-description"
+              className="mt-3 text-sm leading-6 text-feasta-text-secondary"
+            >
+              {savedDraft.isDirty
+                ? "You’ve made changes to this customization. Save them as a draft so you can continue planning later without starting over."
+                : "Your latest changes have been saved as a draft. You can continue where you left off when you return."}
+            </p>
+
+            <div className="mt-6 grid gap-3">
+              {pendingLeaveHref && pendingLeaveHref === bestFitReturnHref && step === 3 ? (
+                <>
+                  <Button type="button" disabled={!savedDraft.isReady || isSubmitting}
+                    onClick={() => saveAndReturnToBestFit(pendingLeaveHref)}>
+                    Save draft & go back
+                  </Button>
+                  <Button type="button" variant="secondary" disabled={savingEventList}
+                    onClick={discardAndLeave}>
+                    Discard Changes & Go Back
+                  </Button>
+                  {bestFitLeaveError && <p role="alert" className="text-sm text-destructive">{bestFitLeaveError}</p>}
+                </>
+              ) : savedDraft.isDirty ? (
+                <>
+                  <Button
+                    type="button"
+                    className="min-h-11 rounded-full"
+                    onClick={leaveWithSavedDraft}
+                  >
+                    Save draft & leave
+                  </Button>
+
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    className="min-h-11 rounded-full"
+                    onClick={discardAndLeave}
+                  >
+                    Discard changes
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <Button
+                    type="button"
+                    className="min-h-11 rounded-full"
+                    onClick={leaveWithSavedDraft}
+                  >
+                    Leave customization
+                  </Button>
+
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    className="min-h-11 rounded-full"
+                    onClick={discardAndLeave}
+                  >
+                    Discard saved draft
+                  </Button>
+                </>
+              )}
+
+              <Button
+                type="button"
+                variant="ghost"
+                className="min-h-11 rounded-full"
+                onClick={cancelLeave}
+                disabled={savingEventList}
+              >
+                {pendingLeaveHref === bestFitReturnHref && step === 3 ? "Cancel" : "Continue editing"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+    </div>
+  );
+}
+
+/* ==================================================================
+   CUSTOMIZATION COMPONENTS
+   ================================================================== */
+
+function CustomizationGroup({
+  title,
+  description,
+  icon,
+  options,
+  selected,
+  onToggle,
+}: {
+  title: string;
+  description: string;
+  icon: ReactNode;
+  options: readonly string[];
+  selected: readonly string[];
+  onToggle: (value: string) => void;
+}) {
+  if (options.length === 0) return null;
+
+  return (
+    <section className="min-w-0 border-t border-feasta-divider pt-4">
+      <div className="flex items-start gap-2">
+        <span className="grid size-8 shrink-0 place-items-center rounded-xl bg-white text-primary-strong shadow-sm [&_svg]:size-[18px]">
+          {icon}
+        </span>
+
+        <div className="min-w-0">
+          <h3 className="text-base font-extrabold tracking-[-0.02em] text-foreground">
+            {title}
+          </h3>
+
+          <p className="mt-1 text-xs leading-5 text-feasta-text-secondary">
+            {description}
+          </p>
+        </div>
+      </div>
+
+      <div className="grid gap-2 mt-3 sm:grid-cols-2">
+        {options.map((option) => {
+          const checked =
+            selected.includes(option);
+
+          return (
+            <label
+              key={option}
+              className={[
+                "group relative flex min-w-0 cursor-pointer items-start gap-3",
+                "min-h-11 rounded-xl border px-3 py-2.5",
+                "transition-[border-color,background-color,box-shadow]",
+                checked
+                  ? "border-primary/35 bg-secondary shadow-brand-subtle"
+                  : "border-feasta-border-soft bg-white hover:border-primary/20 hover:bg-feasta-canvas",
+              ].join(" ")}
+            >
+              <input
+                type="checkbox"
+                checked={checked}
+                onChange={() =>
+                  onToggle(option)
+                }
+                className="peer sr-only"
+              />
+
+              <span
+                aria-hidden="true"
+                className={[
+                  "mt-0.5 grid size-5 shrink-0 place-items-center rounded-[6px] border",
+                  "transition-[border-color,background-color,color]",
+                  checked
+                    ? "border-primary bg-primary text-primary-foreground"
+                    : "border-feasta-border-strong bg-white text-transparent",
+                  "peer-focus-visible:ring-2 peer-focus-visible:ring-primary",
+                  "peer-focus-visible:ring-offset-2",
+                ].join(" ")}
+              >
+                <Check className="size-3.5" />
+              </span>
+
+              <span
+                className={[
+                  "min-w-0 break-words text-sm leading-5",
+                  checked
+                    ? "font-bold text-foreground"
+                    : "font-semibold text-feasta-text-secondary",
+                ].join(" ")}
+              >
+                {option}
+              </span>
+            </label>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+function IncludedServices({services}: {services: readonly string[]}) {
+  if (services.length === 0) return null;
+  return (
+    <section className="min-w-0 border-t border-feasta-divider pt-4">
+      <h3 className="text-base font-extrabold text-foreground">Included services</h3>
+      <p className="mt-1 text-xs leading-5 text-feasta-text-secondary">Included with the package; no selection needed.</p>
+      <ul className="mt-3 grid gap-2 sm:grid-cols-2">
+        {services.map((service) => <li key={service} className="flex min-w-0 items-start gap-2 text-sm leading-5 text-feasta-text-secondary">
+          <Check aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-primary" />
+          <span className="min-w-0 break-words">{service}</span>
+        </li>)}
+      </ul>
+    </section>
+  );
+}
+
+function immediateGuestCountError(
+  value: string,
+  minimumGuests: number | null | undefined,
+  maximumGuests: number | null | undefined,
+): string | undefined {
+  const trimmed = value.trim();
+
+  if (!trimmed) return undefined;
+
+  if (!/^\d+$/.test(trimmed)) {
+    return "Enter a valid whole number of guests.";
+  }
+
+  const count = Number(trimmed);
+
+  if (!Number.isSafeInteger(count) || count < 1 || count > 10000) {
+    return "Enter a valid guest count.";
+  }
+
+  if (minimumGuests != null && count < minimumGuests) {
+    return `This package starts at ${minimumGuests.toLocaleString("en-PH")} guests.`;
+  }
+
+  if (maximumGuests != null && count > maximumGuests) {
+    return `This package supports up to ${maximumGuests.toLocaleString("en-PH")} guests.`;
+  }
+
+  return undefined;
+}
+function BookingReview({
+  packageRecord,
+  providerName,
+  providerId,
+  eventDraft,
+  customizationDraft,
+  includedServices,
+  selectedEventServices,
+  selectedEventServicesSubtotal,
+  serviceTierLabel,
+  displayedServicePrice,
+  platformCommissionRateBps,
+  packageThemeName,
+  themeNotes,
+  isSubmitting,
+  onAddToEventList,
+  savingEventList,
+  eventListSaveDisabled,
+  eventListAlreadySaved,
+  eventListFeedbackMessage,
+  eventListFeedbackSuccess,
+  submissionError,
+  submissionResult,
+  refundPolicyStatus,
+  agreementReady,
+  agreementReview,
+  refundPolicyResult,
+  refundPolicyError,
+  refundPolicyNotice,
+  acknowledgedPolicyKeys,
+  onRefundPolicyAcknowledgementChange,
+  onRetryRefundPolicies,
+  onBack,
+  onEditEvent,
+  onEditPackage,
+  onEditServices,
+  onSubmit,
+}: {
+  packageRecord:
+    PublicPackageDetail["packageRecord"];
+
+  providerName: string;
+  providerId: string;
+
+  eventDraft:
+    EventDetailsDraft;
+
+  customizationDraft:
+    PackageCustomizationDraft;
+
+  includedServices:
+    readonly string[];
+
+  selectedEventServices:
+    readonly PublicEventService[];
+
+  selectedEventServicesSubtotal:
+    number;
+
+  serviceTierLabel: string | null;
+
+  displayedServicePrice: number | null;
+
+  platformCommissionRateBps?: number;
+
+  packageThemeName: string | null;
+
+  themeNotes: string;
+
+  isSubmitting: boolean;
+  onAddToEventList: () => void;
+  savingEventList: boolean;
+  eventListSaveDisabled: boolean;
+  eventListAlreadySaved: boolean;
+  eventListFeedbackMessage: string | null;
+  eventListFeedbackSuccess: boolean;
+
+  submissionError:
+    string | null;
+
+  submissionResult:
+    SubmitBookingRequestResult | null;
+
+  refundPolicyStatus: RefundPolicyStatus;
+  agreementReady: boolean;
+  agreementReview: React.ReactNode;
+
+  refundPolicyResult: CustomerRefundPolicyDisclosureResult | null;
+
+  refundPolicyError: RefundPolicyDisclosureError | null;
+
+  refundPolicyNotice: string | null;
+
+  acknowledgedPolicyKeys: Readonly<Record<string, string>>;
+
+  onRefundPolicyAcknowledgementChange: (
+    policy: CustomerRefundPolicyDisclosure,
+    checked: boolean,
+  ) => void;
+
+  onRetryRefundPolicies: () => void;
+
+  onBack:
+    () => void;
+  onEditEvent: () => void;
+  onEditPackage: () => void;
+  onEditServices: (id: string) => void;
+
+  onSubmit:
+    () => Promise<void>;
+}) {
+  const [taxResult, setTaxResult] = useState<{
+    providerId: string;
+    status: CustomerProviderTaxStatus;
+  } | null>(null);
+
+  useEffect(() => {
+    let active = true;
+
+    void getCustomerProviderTaxPreview(providerId)
+      .then((preview) => {
+        if (active) {
+          setTaxResult({
+            providerId,
+            status: preview.taxStatus,
+          });
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setTaxResult({
+            providerId,
+            status: "unknown",
+          });
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [providerId]);
+
+  const taxStatus =
+    taxResult?.providerId === providerId
+      ? taxResult.status
+      : null;
+
+  const vatBreakdown = customerProviderVatBreakdown(
+    displayedServicePrice,
+    taxStatus,
+  );
+
+  const subtotalBeforeFee =
+    displayedServicePrice !== null
+      ? displayedServicePrice +
+        selectedEventServicesSubtotal
+      : null;
+
+  const feastaCommissionEstimate =
+    customerFeastaCommissionEstimatePesos(
+      subtotalBeforeFee,
+      platformCommissionRateBps,
+    );
+
+  const estimatedTotal =
+    subtotalBeforeFee !== null
+      ? Math.round(
+          (subtotalBeforeFee +
+            (feastaCommissionEstimate ?? 0)) *
+            100,
+        ) / 100
+      : null;
+
+  const everyPolicyAcknowledged =
+    refundPolicyStatus === "ready" &&
+    refundPolicyResult !== null &&
+    refundPolicyResult.policies.every(
+      (policy) =>
+        acknowledgedPolicyKeys[policy.providerId] ===
+          policy.effectivePolicyKey,
+    );
+
+  return (
+    <section
+      aria-labelledby="booking-review-title"
+      className="rounded-[26px] border border-feasta-border-soft bg-white p-5 shadow-[0_8px_28px_rgb(0_75_59/0.04)] sm:p-6 lg:p-7"
+    >
+      <div className="max-w-3xl">
+        <p className="text-xs font-extrabold uppercase tracking-[0.13em] text-primary-strong">
+          Step 3 of 3
+        </p>
+
+        <h2
+          id="booking-review-title"
+          className="mt-2 text-2xl font-extrabold tracking-[-0.035em] text-foreground sm:text-3xl"
+        >
+          Review your booking request
+        </h2>
+
+        <p className="mt-3 text-sm leading-6 text-feasta-text-secondary">
+          Check your event, package
+          customization, and selected services
+          before sending the request to the
+          provider.
+        </p>
+      </div>
+
+      <div className="mt-7 grid gap-6">
+        {/* ==========================================================
+            EVENT
+           ========================================================== */}
+
+        <ReviewSection
+          title="Event details"
+          description="When and where your celebration will take place."
+          actionLabel="Edit event"
+          onAction={onEditEvent}
+        >
+          <div className="grid gap-4 sm:grid-cols-2">
+            <ReviewValue
+              label="Event date"
+              value={formatEventDate(
+                eventDraft.eventDate,
+              )}
+            />
+
+            <ReviewValue
+              label="Event time"
+              value={`${formatEventTime(
+                eventDraft.eventTime,
+              )} – ${formatEventTime(
+                eventDraft.eventEndTime,
+              )}`}
+            />
+
+            <ReviewValue
+              label="Guest count"
+              value={`${Number(
+                eventDraft.guestCount,
+              ).toLocaleString(
+                "en-PH",
+              )} guests`}
+            />
+
+            <ReviewValue
+              label="Event location"
+              value={
+                eventDraft.eventLocation
+              }
+            />
+          </div>
+
+          <div className="mt-4">
+            <ReviewValue
+              label="Complete address"
+              value={
+                eventDraft.eventAddress
+              }
+            />
+          </div>
+
+          {eventDraft.specialRequest ? (
+            <div className="mt-4">
+              <ReviewValue
+                label="Special requests"
+                value={
+                  eventDraft.specialRequest
+                }
+              />
+            </div>
+          ) : null}
+        </ReviewSection>
+
+        {/* PACKAGE AND CUSTOMIZATION: display only meaningful selections. */}
+        <ReviewSection
+          title="Package & customization"
+          description="Your catering package, selected service level, and published inclusions."
+          actionLabel="Edit package"
+          onAction={onEditPackage}
+        >
+          <div className="grid min-w-0 gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start">
+            <div className="min-w-0">
+              <h4 className="break-words text-lg font-extrabold text-foreground">{packageRecord.name}</h4>
+              <p className="mt-1 text-sm text-feasta-text-secondary">{providerName}</p>
+              {packageRecord.eventType ? <p className="mt-1 text-xs font-semibold text-feasta-text-secondary">{formatBookingEventTypeLabel(eventDraft.eventType ?? packageRecord.eventType, packageRecord.customOccasionLabels, humanizeProviderValue)}</p> : null}
+            </div>
+            <div className="rounded-xl bg-feasta-canvas px-3 py-2 sm:text-right">
+              <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-feasta-text-tertiary">Estimated package price</p>
+              <PriceDisplay amount={displayedServicePrice} className="mt-1" />
+            </div>
+          </div>
+          {serviceTierLabel ? (
+            <div className="mt-4"><ReviewValue label="Selected service level" value={serviceTierLabel} /></div>
+          ) : null}
+          {packageThemeName || themeNotes ? (
+            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+              {packageThemeName ? <ReviewValue label="Visual style" value={packageThemeName} /> : null}
+              {themeNotes ? <ReviewValue label="Visual notes" value={themeNotes} /> : null}
+            </div>
+          ) : null}
+          {(packageRecord.foodChoiceGroups ?? []).map((group) => <ReviewSelectionList key={group.id}
+            title={group.title} values={group.options.filter((option) => customizationDraft.foodChoiceSelections?.find((selection) => selection.groupId === group.id)?.optionIds.includes(option.id)).map((option) => option.name)} emptyText="No dishes selected"/>)}
+          {customizationDraft.selectedFoods.length > 0 ||
+          customizationDraft.selectedDecorations.length > 0 ||
+          customizationDraft.selectedFurniture.length > 0 ||
+          includedServices.length > 0 ? (
+            <div className="mt-4 grid gap-4 border-t border-feasta-divider pt-4">
+              {customizationDraft.selectedFoods.length > 0 ? (
+                <ReviewSelectionList title="Food selections" values={customizationDraft.selectedFoods} emptyText="" />
+              ) : null}
+              {customizationDraft.selectedDecorations.length > 0 ? (
+                <ReviewSelectionList title="Decorations" values={customizationDraft.selectedDecorations} emptyText="" />
+              ) : null}
+              {customizationDraft.selectedFurniture.length > 0 ? (
+                <ReviewSelectionList title="Furniture" values={customizationDraft.selectedFurniture} emptyText="" />
+              ) : null}
+              {includedServices.length > 0 ? (
+                <ReviewSelectionList title="Included package services" values={includedServices} emptyText="" fixed />
+              ) : null}
+            </div>
+          ) : (
+            <p className="mt-3 text-xs leading-5 text-feasta-text-secondary">No additional package options were selected.</p>
+          )}
+          <p className="mt-3 text-xs leading-5 text-feasta-text-secondary">FEASTA revalidates the package price and selections when your request is submitted.</p>
+        </ReviewSection>
+
+        {/* ==========================================================
+            EVENT SERVICES
+           ========================================================== */}
+
+        <ReviewSection
+          title="Optional event services"
+          description="Additional FEASTA services selected for this booking."
+          actionLabel="Edit services"
+        >
+          {selectedEventServices.length >
+          0 ? (
+            <div className="grid gap-3">
+              {selectedEventServices.map(
+                (service) => (
+                  <div
+                    key={service.id}
+                    className="grid min-w-0 gap-3 rounded-[16px] border border-feasta-border-soft bg-feasta-canvas p-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"
+                  >
+                    <div className="min-w-0">
+                      <p className="break-words text-sm font-extrabold text-foreground">
+                        {service.name}
+                      </p>
+
+                      <p className="mt-1 break-words text-xs text-feasta-text-secondary">
+                        {
+                          service.providerName
+                        }
+                      </p>
+
+                      {service.portfolio ? <ServicePortfolioGallery portfolio={service.portfolio} showCover={!service.imageUrl} /> : null}
+                      {service.freelanceDetails ? <FreelanceServiceSummary details={service.freelanceDetails} /> : null}
+                      {service.category ? (
+                        <p className="mt-1 text-[11px] font-semibold text-feasta-text-tertiary">
+                          {humanizeProviderValue(
+                            service.category,
+                          )}
+                        </p>
+                      ) : null}
+                    </div>
+
+                    <div className="sm:text-right">
+                      <Button type="button" variant="ghost" onClick={() => onEditServices(service.id)} aria-label={`Remove ${service.name} from ${service.providerName}`}>Remove</Button>
+                      <p className="text-[10px] font-bold uppercase tracking-[0.07em] text-feasta-text-tertiary">
+                        Displayed price
+                      </p>
+
+                      {service.price !==
+                      null ? (
+                        <PriceDisplay
+                          amount={
+                            service.price
+                          }
+                          className="mt-0.5"
+                        />
+                      ) : (
+                        <p className="mt-1 text-xs font-semibold text-feasta-text-secondary">
+                          Not listed
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                ),
+              )}
+
+              <div className="flex flex-col gap-2 border-t border-feasta-divider pt-4 sm:flex-row sm:items-center sm:justify-between">
+                <p className="text-sm font-bold text-foreground">
+                  Displayed add-ons subtotal
+                </p>
+
+                <PriceDisplay
+                  amount={
+                    selectedEventServicesSubtotal
+                  }
+                />
+              </div>
+            </div>
+          ) : (
+            <ReviewEmptyState>
+              No FEASTA event services
+              selected.
+            </ReviewEmptyState>
+          )}
+        </ReviewSection>
+
+        {agreementReview}
+        <RefundPolicyReview
+          status={refundPolicyStatus}
+          result={refundPolicyResult}
+          error={refundPolicyError}
+          notice={refundPolicyNotice}
+          eventDate={eventDraft.eventDate}
+          eventTime={eventDraft.eventTime}
+          acknowledgedPolicyKeys={acknowledgedPolicyKeys}
+          onAcknowledgementChange={onRefundPolicyAcknowledgementChange}
+          onRetry={onRetryRefundPolicies}
+        />
+
+        {/* ==========================================================
+            ESTIMATE
+           ========================================================== */}
+
+        <section aria-labelledby="booking-estimate-title" className="rounded-[22px] border border-feasta-divider bg-white p-5 sm:p-6">
+          <p className="text-xs font-extrabold uppercase tracking-[0.13em] text-feasta-text-secondary">Booking estimate</p>
+          <h3 id="booking-estimate-title" className="mt-2 text-xl font-extrabold tracking-[-0.03em] text-primary-strong">
+            Review the displayed cost before submission.
+          </h3>
+
+          <div className="mt-5 grid gap-4">
+            <EstimateRow label="Estimated service price" value={displayedServicePrice}
+              detail={`${packageRecord.name} · ${eventDraft.guestCount} guests`} />
+            <EstimateRow label="Selected FEASTA services" value={selectedEventServicesSubtotal} />
+
+            <EstimateRow
+              label={`FEASTA service fee (${formatPlatformCommissionRatePercent(
+                platformCommissionRateBps,
+              )})`}
+              value={feastaCommissionEstimate}
+              detail="Added to total · provider receives 100% of listed price"
+            />
+
+            <div aria-label="Estimated provider tax breakdown" className="rounded-xl border border-feasta-divider bg-secondary/40 p-3">
+              {taxStatus === null ? (
+                <p className="text-sm text-feasta-text-secondary">Checking provider tax verification...</p>
+              ) : vatBreakdown ? (
+                <div className="grid gap-2">
+                  <EstimateRow label="Included provider VAT (12%)" value={vatBreakdown.vatCentavos / 100} />
+                  <details className="rounded-lg border border-feasta-divider p-2">
+                    <summary className="cursor-pointer text-sm font-semibold">Tax breakdown</summary>
+                    <div className="mt-2">
+                      <EstimateRow label="VAT-exclusive service amount" value={vatBreakdown.exclusiveCentavos / 100} />
+                    </div>
+                  </details>
+                  <p className="text-xs text-feasta-text-secondary">VAT is already included in this provider&apos;s service price. No additional charge.</p>
+                </div>
+              ) : (
+                <p className="text-sm text-feasta-text-secondary">
+                  {taxStatus === "non_vat"
+                    ? "Non-VAT provider. No provider VAT component is displayed."
+                    : "Provider VAT breakdown is not confirmed. Final tax details are determined when the provider accepts."}
+                </p>
+              )}
+            </div>
+            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-feasta-divider pt-4">
+              <p className="text-base font-extrabold text-foreground">Estimated total</p>
+              <PriceDisplay amount={estimatedTotal} unknownLabel="Not available" className="[&>span]:text-3xl" />
+            </div>
+            <div className="flex items-start gap-2 rounded-xl bg-secondary p-3 text-sm leading-6 text-feasta-text-secondary">
+              <Info aria-hidden="true" className="mt-1 size-4 shrink-0 text-primary-strong" />
+              <p>FEASTA checks pricing, availability, and payment terms when you submit. Your request goes to the provider for review. No payment is collected now.</p>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      {submissionError ? (
+        <div
+          role="alert"
+          className="mt-6 rounded-[16px] border border-destructive/20 bg-destructive/[0.05] px-4 py-3"
+        >
+          <p className="text-sm font-bold text-destructive">
+            Booking request not submitted
+          </p>
+
+          <p className="mt-1 text-sm leading-6 text-feasta-text-secondary">
+            {submissionError}
+          </p>
+        </div>
+      ) : null}
+
+      {submissionResult ? (
+        <div
+          role="status"
+          className="mt-6 rounded-[16px] border border-success/20 bg-success/[0.06] px-4 py-4"
+        >
+          <div className="flex items-start gap-3">
+            <span className="grid size-8 shrink-0 place-items-center rounded-full bg-success text-success-foreground">
+              <Check
+                aria-hidden="true"
+                className="size-4"
+              />
+            </span>
+
+            <div>
+              <p className="text-sm font-extrabold text-foreground">
+                Booking request submitted
+              </p>
+
+              <p className="mt-1 text-sm leading-6 text-feasta-text-secondary">
+                FEASTA created booking{" "}
+                <span className="font-bold text-foreground">
+                  {submissionResult.bookingId}
+                </span>
+                . The provider request is now ready
+                for the next booking stage.
+              </p>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {/* ============================================================
+          ACTIONS
+         ============================================================ */}
+
+      <div className="mt-5 flex flex-col items-start gap-4 lg:flex-row lg:justify-between">
+        <Button
+          type="button"
+          variant="secondary"
+          onClick={onBack}
+          className="min-h-12 shrink-0 whitespace-nowrap rounded-full px-5"
+        >
+          <ArrowLeft
+            aria-hidden="true"
+            className="size-4"
+          />
+
+          Back
+        </Button>
+
+        <div className="flex w-full min-w-0 flex-col gap-2 lg:w-auto lg:max-w-2xl lg:items-end">
+          <p
+            id="booking-refund-policy-submit-requirement"
+            className="text-xs leading-5 text-feasta-text-secondary sm:text-right"
+          >
+            {refundPolicyStatus !== "ready"
+              ? "Current refund policies must be loaded before submission."
+              : !agreementReady
+                ? "Review and accept every Booking & Payment Agreement to continue."
+                : !everyPolicyAcknowledged
+                  ? "Acknowledge every displayed Provider refund policy to continue."
+                  : ""}
+          </p>
+
+          <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center lg:justify-end">
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={onAddToEventList}
+              disabled={eventListSaveDisabled}
+              aria-busy={savingEventList}
+              className="min-h-12 rounded-full px-5"
+            >
+              {!eventListAlreadySaved && !savingEventList && <Plus aria-hidden="true" className="size-4" />}
+              {savingEventList ? "Adding..." : eventListAlreadySaved ? "Already in Event List" : "Add to Event List"}
+            </Button>
+
+          <Button
+            type="button"
+            disabled={
+              isSubmitting ||
+              submissionResult !== null ||
+              !everyPolicyAcknowledged
+              || !agreementReady
+            }
+            aria-describedby="booking-refund-policy-submit-requirement"
+            aria-busy={
+              isSubmitting
+            }
+            onClick={() => {
+              void onSubmit();
+            }}
+            className="min-h-12 rounded-full px-5"
+          >
+            {isSubmitting
+              ? "Submitting..."
+              : submissionResult
+                ? "Booking submitted"
+                : "Submit booking request"}
+
+            {!isSubmitting &&
+            !submissionResult ? (
+              <ArrowRight
+                aria-hidden="true"
+                className="size-4"
+              />
+            ) : null}
+          </Button>
+          </div>
+
+          <p className="text-xs leading-5 text-feasta-text-secondary sm:text-right">
+            Want to add more services? Add this package to your Event List
+            and{" "}
+            <Link
+              href="/customer"
+              className="font-semibold text-primary underline underline-offset-4 hover:text-primary-strong focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+            >
+              browse more providers
+            </Link>
+            .
+          </p>
+
+          {eventListFeedbackMessage ? (
+            <p
+              role={eventListFeedbackSuccess ? "status" : "alert"}
+              className="text-xs text-feasta-text-secondary sm:text-right"
+            >
+              {eventListFeedbackMessage}
+            </p>
+          ) : null}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function ReviewSection({
+  title,
+  description,
+  actionLabel,
+  onAction,
+  children,
+}: {
+  title: string;
+  description: string;
+  actionLabel?: string;
+  onAction?: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <section className="overflow-hidden rounded-[20px] border border-feasta-border-soft">
+      <div className="flex flex-wrap items-start justify-between gap-3 border-b border-feasta-divider bg-feasta-canvas px-4 py-3 sm:px-5">
+        <div className="min-w-0 flex-1">
+          <h3 className="text-base font-extrabold tracking-[-0.02em] text-foreground">{title}</h3>
+          <p className="mt-1 text-xs leading-5 text-feasta-text-secondary">{description}</p>
+        </div>
+        {actionLabel && onAction ? <Button type="button" size="compact" variant="ghost" className="min-h-11 shrink-0" onClick={onAction}>{actionLabel}</Button> : null}
+      </div>
+
+      <div className="p-4 sm:p-5">
+        {children}
+      </div>
+    </section>
+  );
+}
+
+function ReviewValue({
+  label,
+  value,
+}: {
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="min-w-0 rounded-[14px] bg-feasta-canvas p-3.5">
+      <p className="text-[10px] font-bold uppercase tracking-[0.08em] text-feasta-text-tertiary">
+        {label}
+      </p>
+
+      <p className="mt-1 break-words text-sm font-bold leading-6 text-foreground">
+        {value}
+      </p>
+    </div>
+  );
+}
+
+function ReviewSelectionList({
+  title,
+  values,
+  emptyText,
+  fixed = false,
+}: {
+  title: string;
+  values: readonly string[];
+  emptyText: string;
+  fixed?: boolean;
+}) {
+  return (
+    <div>
+      <div className="flex flex-wrap items-center gap-2">
+        <h4 className="text-sm font-extrabold text-foreground">
+          {title}
+        </h4>
+
+        {fixed ? (
+          <span className="rounded-full bg-feasta-canvas px-2 py-0.5 text-[10px] font-bold text-feasta-text-tertiary">
+            Included
+          </span>
+        ) : null}
+      </div>
+
+      {values.length > 0 ? (
+        <ul className="mt-3 grid gap-2 sm:grid-cols-2">
+          {values.map((value) => (
+            <li
+              key={value}
+              className="flex min-w-0 items-start gap-2.5 rounded-[13px] bg-feasta-canvas px-3 py-3"
+            >
+              <span className="mt-0.5 grid size-5 shrink-0 place-items-center rounded-full bg-secondary text-primary-strong">
+                <Check
+                  aria-hidden="true"
+                  className="size-3"
+                />
+              </span>
+
+              <span className="min-w-0 break-words text-xs font-semibold leading-5 text-feasta-text-secondary">
+                {value}
+              </span>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="mt-2 text-xs leading-5 text-feasta-text-tertiary">
+          {emptyText}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function ReviewEmptyState({
+  children,
+}: {
+  children: ReactNode;
+}) {
+  return (
+    <div className="rounded-[14px] border border-dashed border-feasta-border-strong bg-feasta-canvas px-4 py-3">
+      <p className="text-sm leading-6 text-feasta-text-secondary">
+        {children}
+      </p>
+    </div>
+  );
+}
+
+function RefundPolicyReview({
+  status,
+  result,
+  error,
+  notice,
+  eventDate,
+  eventTime,
+  acknowledgedPolicyKeys,
+  onAcknowledgementChange,
+  onRetry,
+}: {
+  status: RefundPolicyStatus;
+  result: CustomerRefundPolicyDisclosureResult | null;
+  error: RefundPolicyDisclosureError | null;
+  notice: string | null;
+  eventDate?: string | null;
+  eventTime?: string | null;
+  acknowledgedPolicyKeys: Readonly<Record<string, string>>;
+  onAcknowledgementChange: (
+    policy: CustomerRefundPolicyDisclosure,
+    checked: boolean,
+  ) => void;
+  onRetry: () => void;
+}) {
+  return (
+    <section
+      aria-labelledby="booking-refund-policy-title"
+      aria-busy={status === "loading" || undefined}
+      className="overflow-hidden rounded-[20px] border border-primary/20 bg-white"
+    >
+      <div className="border-b border-primary/10 bg-secondary px-4 py-4 sm:px-5">
+        <div className="flex items-start gap-3">
+          <span className="grid size-9 shrink-0 place-items-center rounded-full bg-primary text-primary-foreground">
+            <ReceiptText aria-hidden="true" className="size-5" />
+          </span>
+          <div>
+            <h3 id="booking-refund-policy-title" className="text-base font-extrabold tracking-[-0.02em] text-foreground">
+              Refund Policy
+            </h3>
+            <p className="mt-1 text-xs leading-5 text-feasta-text-secondary">
+              Review and acknowledge the effective policy for every Provider before submitting. No refund amount is estimated here.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid gap-4 p-4 sm:p-5">
+        {notice ? (
+          <div role="alert" className="rounded-[14px] border border-warning/30 bg-warning-subtle p-3 text-sm font-semibold text-warning">
+            {notice}
+          </div>
+        ) : null}
+
+        {status === "loading" || status === "idle" ? (
+          <div role="status" className="grid gap-3">
+            <p className="text-sm font-semibold text-feasta-text-secondary">
+              Loading current Provider refund policies…
+            </p>
+            <div className="h-36 animate-pulse rounded-[16px] bg-feasta-surface-muted motion-reduce:animate-none" />
+          </div>
+        ) : null}
+
+        {status === "error" ? (
+          <div role="alert" className="rounded-[16px] border border-destructive/20 bg-destructive-subtle p-4">
+            <p className="font-bold text-destructive">{error?.title ?? "Refund policies are temporarily unavailable."}</p>
+            <p className="mt-1 text-sm leading-6 text-feasta-text-secondary">
+              {error?.message ?? "Refund policy details could not be loaded."}
+            </p>
+            {error?.retryable !== false ? <Button type="button" variant="secondary" size="compact" className="mt-3" onClick={onRetry}>
+              Try again
+            </Button> : null}
+          </div>
+        ) : null}
+
+        {status === "ready" && result ? (
+          <div className="grid gap-4">
+            {result.policies.map((policy) => {
+              const checked = acknowledgedPolicyKeys[policy.providerId] ===
+                policy.effectivePolicyKey;
+              return (
+                <article key={policy.providerId} className="min-w-0 rounded-[18px] border border-feasta-border-soft bg-feasta-canvas p-4 sm:p-5">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="min-w-0">
+                      <h4 className="break-words text-lg font-extrabold text-foreground">
+                        {policy.providerName}
+                      </h4>
+                      <p className="mt-1 text-xs font-bold uppercase tracking-[0.08em] text-primary-strong">
+                        {policy.sourceKind === "package_override"
+                          ? "Package-specific policy"
+                          : "Provider refund policy"}
+                      </p>
+                    </div>
+                  </div>
+
+                  {policy.cancellationCutoff ? (
+                    <PreBookingCancellationCutoffNotice
+                      cutoff={policy.cancellationCutoff}
+                      eventDate={eventDate}
+                      eventTime={eventTime}
+                    />
+                  ) : null}
+
+                  <dl className="mt-4 grid gap-3 md:grid-cols-2">
+                    <div className="rounded-[14px] border border-primary/20 bg-white p-3">
+                      <dt className="text-xs font-bold text-feasta-text-secondary">
+                        Before Cancellation Cutoff
+                      </dt>
+                      <dd className="mt-1 text-xl font-extrabold text-foreground">
+                        {formatRefundBasisPoints(beforeCutoffRefundBasisPoints(policy.rules))}%
+                      </dd>
+                      <dd className="mt-1 text-xs leading-5 text-feasta-text-tertiary">
+                        {policy.cancellationCutoff
+                          ? `If you cancel more than ${formatCutoffHoursLabel(policy.cancellationCutoff.cutoffHoursBeforeEvent)} before event start.`
+                          : "If you cancel before the cancellation cutoff."}
+                      </dd>
+                    </div>
+                    <div className="rounded-[14px] border border-feasta-border-soft bg-white p-3">
+                      <dt className="text-xs font-bold text-feasta-text-secondary">
+                        After Cancellation Cutoff
+                      </dt>
+                      <dd className="mt-1 text-xl font-extrabold text-foreground">
+                        0%
+                      </dd>
+                      <dd className="mt-1 text-xs leading-5 text-feasta-text-tertiary">
+                        Cancellation closed — new cancellation requests are not accepted once the cutoff passes.
+                      </dd>
+                    </div>
+                  </dl>
+
+                  {policy.terms ? (
+                    <div className="mt-4 rounded-[14px] border border-feasta-border-soft bg-white p-3">
+                      <p className="text-xs font-bold uppercase tracking-[0.08em] text-feasta-text-tertiary">
+                        Additional policy terms
+                      </p>
+                      <p className="mt-2 whitespace-pre-wrap break-words text-sm leading-6 text-feasta-text-secondary">
+                        {policy.terms}
+                      </p>
+                    </div>
+                  ) : null}
+
+                  <label className="mt-4 flex cursor-pointer items-start gap-3 rounded-[14px] border border-primary/20 bg-white p-4 text-sm leading-6 focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2">
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={(event) => onAcknowledgementChange(
+                        policy,
+                        event.currentTarget.checked,
+                      )}
+                      className="mt-1 size-5 shrink-0 accent-primary"
+                    />
+                    <span>
+                      I have reviewed {policy.providerName}&apos;s refund policy. I understand that the policy attached to this booking is the version I agree to now, and later Provider policy changes will not alter this existing booking.
+                    </span>
+                  </label>
+                </article>
+              );
+            })}
+          </div>
+        ) : null}
+      </div>
+    </section>
+  );
+}
+
+function beforeCutoffRefundBasisPoints(
+  rules: CustomerRefundPolicyDisclosure["rules"],
+): number {
+  return rules.find((rule) => rule.stage === "preparation_not_started")?.refundBasisPoints ?? 0;
+}
+
+function formatCutoffHoursLabel(totalHours: number): string {
+  const safe = Math.max(0, Math.floor(totalHours));
+  const days = Math.floor(safe / 24);
+  const hours = safe % 24;
+  const parts: string[] = [];
+  if (days > 0) parts.push(`${days} ${days === 1 ? "day" : "days"}`);
+  if (hours > 0 || parts.length === 0) parts.push(`${hours} ${hours === 1 ? "hour" : "hours"}`);
+  return parts.join(" ");
+}
+
+function formatRefundBasisPoints(value: number): string {
+  const whole = Math.floor(value / 100);
+  const decimal = String(value % 100).padStart(2, "0").replace(/0+$/u, "");
+  return decimal ? `${whole}.${decimal}` : String(whole);
+}
+
+function ProviderAvailabilityPanel({
+  providerName,
+  status,
+  result,
+  error,
+  onRetry,
+}: {
+  providerName: string;
+  status: AvailabilityStatus;
+  result: CustomerProviderAvailability | null;
+  error: string | null;
+  onRetry: () => void;
+}) {
+  if (status === "idle") {
+    return (
+      <div className="rounded-xl border border-feasta-border-soft bg-feasta-canvas px-4 py-3">
+        <p className="text-sm font-bold text-foreground">
+          Provider availability
+        </p>
+        <p className="mt-1 text-xs leading-5 text-feasta-text-secondary">
+          Choose a valid date, time range, and guest count to check {providerName}.
+        </p>
+      </div>
+    );
+  }
+
+  if (status === "loading") {
+    return (
+      <div
+        className="rounded-xl border border-info/20 bg-info-subtle px-4 py-3"
+        role="status"
+        aria-live="polite"
+      >
+        <p className="text-sm font-bold text-info">
+          Checking provider availability…
+        </p>
+        <p className="mt-1 text-xs leading-5 text-feasta-text-secondary">
+          Checking your selected schedule.
+        </p>
+      </div>
+    );
+  }
+
+  if (status === "ready" && result) {
+    return (
+      <div
+        className={[
+          "rounded-xl border px-4 py-3",
+          result.available
+            ? "border-success/20 bg-success-subtle"
+            : "border-warning/25 bg-warning-subtle",
+        ].join(" ")}
+        role="status"
+        aria-live="polite"
+      >
+        <p className={[
+          "flex items-center gap-2 text-sm font-bold",
+          result.available ? "text-success" : "text-warning",
+        ].join(" ")}>
+          {result.available ? (
+            <CircleCheckBig aria-hidden="true" className="size-4 shrink-0" />
+          ) : (
+            <TriangleAlert aria-hidden="true" className="size-4 shrink-0" />
+          )}
+          {result.available
+            ? `${providerName} is available`
+            : `${providerName} is unavailable`}
+        </p>
+        <p className="mt-1 text-xs leading-5 text-feasta-text-secondary">
+          {result.message}
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className="rounded-xl border border-destructive/20 bg-destructive/[0.05] px-4 py-3"
+      role="alert"
+    >
+      <p className="text-sm font-bold text-destructive">
+        Availability could not be checked
+      </p>
+      <p className="mt-1 text-xs leading-5 text-feasta-text-secondary">
+        {error ?? "Provider availability could not be checked. Please try again."}
+      </p>
+      <Button
+        type="button"
+        variant="secondary"
+        size="compact"
+        className="mt-2"
+        onClick={onRetry}
+      >
+        Try again
+      </Button>
+    </div>
+  );
+}
+
+function EstimateRow({
+  label,
+  value,
+  detail,
+}: {
+  label: string;
+  value: number | null;
+  detail?: string;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-4">
+      <div className="flex min-w-0 flex-wrap items-center gap-2">
+        <span className="text-sm font-semibold text-foreground">{label}</span>
+        {detail && <span className="rounded-full bg-secondary px-2.5 py-1 text-xs text-feasta-text-secondary">{detail}</span>}
+      </div>
+
+      {value !== null ? (
+        <PriceDisplay
+          amount={value}
+        />
+      ) : (
+        <span className="text-xs font-semibold text-feasta-text-tertiary">
+          Not listed
+        </span>
+      )}
+    </div>
+  );
+}
+
+/* ==================================================================
+   SHARED FORM COMPONENTS
+   ================================================================== */
+
+function Field({
+  label,
+  hint,
+  error,
+  optional = false,
+  children,
+}: {
+  label: string;
+  hint?: string;
+  error?: string;
+  optional?: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <label className="grid min-w-0 gap-2">
+      <span className="flex flex-wrap items-center justify-between gap-2 text-sm font-bold text-foreground">
+        <span>
+          {label}
+
+          {optional ? (
+            <span className="ml-1 font-medium text-feasta-text-tertiary">
+              (optional)
+            </span>
+          ) : null}
+        </span>
+
+        {hint ? (
+          <span className="text-xs font-medium text-feasta-text-tertiary">
+            {hint}
+          </span>
+        ) : null}
+      </span>
+
+      {children}
+
+      {error ? (
+        <span
+          role="alert"
+          className="text-xs font-semibold text-destructive"
+        >
+          {error}
+        </span>
+      ) : null}
+    </label>
+  );
+}
+
+function SummaryLine({
+  icon,
+  label,
+  value,
+}: {
+  icon: ReactNode;
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="flex min-w-0 items-start gap-2.5">
+      <span className="mt-0.5 text-primary [&_svg]:size-4">
+        {icon}
+      </span>
+
+      <div className="min-w-0">
+        <p className="text-[10px] font-bold uppercase tracking-[0.07em] text-feasta-text-tertiary">
+          {label}
+        </p>
+
+        <p className="mt-0.5 break-words text-xs font-semibold text-feasta-text-secondary">
+          {value}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function SelectionSummary({
+  label,
+  count,
+}: {
+  label: string;
+  count: number;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3 text-xs">
+      <span className="text-feasta-text-secondary">
+        {label}
+      </span>
+
+      <span className="rounded-full bg-secondary px-2 py-0.5 font-extrabold text-primary-strong">
+        {count}
+      </span>
+    </div>
+  );
+}
+/* ==================================================================
+   VALIDATION / FORMAT HELPERS
+   ================================================================== */
+
+function availabilityInputForDraft(input: {
+  eventDate: string;
+  eventTime: string;
+  eventEndTime: string;
+  guestCount: string;
+  packageId: string;
+  addonIds: readonly string[];
+  minimumGuests: number | null;
+  maximumGuests: number | null;
+  serviceTier?: CateringPackageServiceTier | null;
+}): CustomerProviderAvailabilityInput | null {
+  const guestCount = Number(input.guestCount);
+  const schedule = normalizeCateringSchedule({
+    serviceTier: input.serviceTier,
+    eventTime: input.eventTime,
+    eventEndTime: input.eventEndTime,
+  });
+
+  if (
+    !isCanonicalDateValue(input.eventDate) ||
+    input.eventDate < tomorrowDateValue() ||
+    !schedule.ok ||
+    !Number.isInteger(guestCount) ||
+    guestCount < 1 ||
+    guestCount > 10_000 ||
+    (
+      input.minimumGuests !== null &&
+      guestCount < input.minimumGuests
+    ) ||
+    (
+      input.maximumGuests !== null &&
+      guestCount > input.maximumGuests
+    )
+  ) {
+    return null;
+  }
+
+  return {
+    packageId: input.packageId,
+    addonIds: input.addonIds,
+    eventDate: input.eventDate,
+    eventTime: schedule.value.eventTime,
+    ...(schedule.value.eventEndTime
+      ? {eventEndTime: schedule.value.eventEndTime}
+      : {}),
+    ...(input.serviceTier ? {serviceTier: input.serviceTier} : {}),
+    guestCount,
+  };
+}
+
+function availabilityRequestKey(
+  input: CustomerProviderAvailabilityInput,
+): string {
+  return JSON.stringify(input);
+}
+
+function availabilityResultMap(
+  results: readonly CustomerProviderAvailability[],
+): ReadonlyMap<string, CustomerProviderAvailability> {
+  return new Map(results.map((result) => [result.providerId, result]));
+}
+
+function availabilityErrorMessage(error: unknown): string {
+  return error instanceof Error && error.message.trim()
+    ? error.message
+    : "Provider availability could not be checked. Please try again.";
+}
+
+function validateEventDetails(
+  draft: EventDetailsDraft,
+  minimumGuests: number | null,
+  maximumGuests: number | null,
+  serviceTier?: CateringPackageServiceTier | null,
+): EventDetailsErrors {
+  const errors: EventDetailsErrors = {};
+
+  if (!draft.eventType) errors.eventType = "Choose an event type supported by this package.";
+
+  if (!draft.eventDate) {
+    errors.eventDate =
+      "Choose your event date.";
+  } else {
+    if (
+      !isCanonicalDateValue(draft.eventDate) ||
+      draft.eventDate < tomorrowDateValue()
+    ) {
+      errors.eventDate =
+        "Choose a future event date.";
+    }
+  }
+
+  const schedule = normalizeCateringSchedule({
+    serviceTier,
+    eventTime: draft.eventTime,
+    eventEndTime: draft.eventEndTime,
+  });
+  if (!schedule.ok) {
+    errors[schedule.field] = schedule.message;
+  }
+
+  const guestCount =
+    Number(draft.guestCount);
+
+  if (
+    !Number.isInteger(guestCount) ||
+    guestCount < 1 ||
+    guestCount > 10_000
+  ) {
+    errors.guestCount =
+      "Enter a valid guest count.";
+  } else if (
+    minimumGuests !== null &&
+    guestCount < minimumGuests
+  ) {
+    errors.guestCount =
+      `This package starts at ${minimumGuests.toLocaleString("en-PH")} guests.`;
+  } else if (
+    maximumGuests !== null &&
+    guestCount > maximumGuests
+  ) {
+    errors.guestCount =
+      `This package supports up to ${maximumGuests.toLocaleString("en-PH")} guests.`;
+  }
+
+  if (
+    draft.eventLocation.trim()
+      .length < 1
+  ) {
+    errors.eventLocation =
+      "Enter the event location.";
+  } else if (
+    draft.eventLocation.trim()
+      .length > 180
+  ) {
+    errors.eventLocation =
+      "Event location must be 180 characters or fewer.";
+  }
+
+  if (
+    draft.eventAddress.trim()
+      .length < 1
+  ) {
+    errors.eventAddress =
+      "Enter the complete event address.";
+  } else if (
+    draft.eventAddress.trim()
+      .length > 500
+  ) {
+    errors.eventAddress =
+      "Event address must be 500 characters or fewer.";
+  }
+
+  if (
+    draft.specialRequest.trim()
+      .length > 1000
+  ) {
+    errors.specialRequest =
+      "Special requests must be 1,000 characters or fewer.";
+  }
+
+  return errors;
+}
+
+function packageGuestGuidance(
+  minimumGuests: number | null,
+  maximumGuests: number | null,
+): string | undefined {
+  if (
+    minimumGuests !== null &&
+    maximumGuests !== null
+  ) {
+    return minimumGuests ===
+      maximumGuests
+      ? `${minimumGuests.toLocaleString("en-PH")} guests`
+      : `${minimumGuests.toLocaleString("en-PH")}–${maximumGuests.toLocaleString("en-PH")} guests`;
+  }
+
+  if (minimumGuests !== null) {
+    return `Minimum ${minimumGuests.toLocaleString("en-PH")}`;
+  }
+
+  if (maximumGuests !== null) {
+    return `Maximum ${maximumGuests.toLocaleString("en-PH")}`;
+  }
+
+  return undefined;
+}
+
+function formatEventDate(
+  value: string,
+): string {
+  return formatPhilippineDate(value);
+}
+
+function formatCurrency(
+  amount: number,
+): string {
+  return new Intl.NumberFormat(
+    "en-PH",
+    {
+      style: "currency",
+      currency: "PHP",
+      maximumFractionDigits: 2,
+    },
+  ).format(amount);
+}
+
+function tomorrowDateValue(): string {
+  const today = manilaDateParts(new Date());
+  const tomorrow = new Date(Date.UTC(
+    today.year,
+    today.month - 1,
+    today.day + 1,
+  ));
+  const year = tomorrow.getUTCFullYear();
+  const month = String(tomorrow.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(tomorrow.getUTCDate()).padStart(2, "0");
+
+  return `${year}-${month}-${day}`;
+}
+
+function isCanonicalDateValue(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/u.test(value)) return false;
+
+  const [year, month, day] = value.split("-").map(Number);
+  const parsed = new Date(Date.UTC(year, month - 1, day));
+
+  return parsed.getUTCFullYear() === year &&
+    parsed.getUTCMonth() === month - 1 &&
+    parsed.getUTCDate() === day;
+}
+
+function manilaDateParts(date: Date): {
+  year: number;
+  month: number;
+  day: number;
+} {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Manila",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+  const value = (type: Intl.DateTimeFormatPartTypes) =>
+    Number(parts.find((part) => part.type === type)?.value);
+
+  return {
+    year: value("year"),
+    month: value("month"),
+    day: value("day"),
+  };
+}
+import {getCustomerBookingPaymentAgreements, type BookingAgreementDisclosure} from "@/lib/customer/bookings/customer-booking-agreement";
+import {BookingPaymentAgreementReview} from "./booking-payment-agreement-review";
+
+// Reset editable and pending UI state when the authenticated session changes.
+export function EventCustomizationExperience(props: ComponentProps<typeof EventCustomizationExperienceSession>) {
+  const session = useCustomerEventListSession();
+  return <EventCustomizationExperienceSession key={session.generation} {...props} />;
+}

@@ -1,0 +1,50 @@
+{
+  "firestore": {
+    "rules": "test/native-package-drafts/firestore.rules",
+    "indexes": "test/native-package-drafts/firestore.indexes.json"
+  },
+  "storage": {
+    "rules": "test/native-package-drafts/storage.rules"
+  },
+  "emulators": {
+    "hosting": {
+      "host": "127.0.0.1",
+      "port": 5000
+    },
+    "singleProjectMode": true,
+    "functions": {
+      "host": "127.0.0.1",
+      "port": 58144
+    },
+    "firestore": {
+      "host": "127.0.0.1",
+      "port": 58145,
+      "websocketPort": 58150
+    },
+    "auth": {
+      "host": "127.0.0.1",
+      "port": 58146
+    },
+    "storage": {
+      "host": "127.0.0.1",
+      "port": 58147
+    },
+    "hub": {
+      "host": "127.0.0.1",
+      "port": 58148
+    },
+    "logging": {
+      "host": "127.0.0.1",
+      "port": 58149
+    },
+    "ui": {
+      "enabled": false
+    }
+  },
+  "functions": [
+    {
+      "source": "test/native-package-drafts",
+      "codebase": "v2-browser-tests"
+    }
+  ]
+}

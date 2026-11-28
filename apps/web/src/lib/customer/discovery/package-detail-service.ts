@@ -1,0 +1,150 @@
+import "server-only";
+import {loadActiveLegacyOccasionIds} from "@/lib/customer/discovery/active-legacy-occasion-guard";
+import {verifiedPublicPackageV2} from "@/lib/customer/discovery/verified-package-v2";
+
+import {FIRESTORE_COLLECTIONS} from "@feasta/shared-types";
+
+import {adminDb} from "@/lib/firebase/admin";
+import {normalizePublicProvider} from "@/lib/customer/providers/provider-normalization";
+import {isPublicProviderId} from "@/lib/customer/providers/provider-route-policy";
+
+import type {
+  PublicPackageDetail,
+} from "./marketplace-types";
+import {
+  normalizePublicPackage,
+  normalizePublicPackageCustomization,
+} from "./public-package-normalization";
+import {loadPublishedPackageCustomOccasions} from "./package-custom-occasions-service";
+
+export async function getPublicPackageDetail(
+  packageId: string,
+): Promise<PublicPackageDetail | null> {
+  const normalizedPackageId =
+    safeDocumentId(packageId);
+
+  if (!normalizedPackageId) {
+    return null;
+  }
+
+  const packageSnapshot = await adminDb
+    .collection(FIRESTORE_COLLECTIONS.packages)
+    .doc(normalizedPackageId)
+    .get();
+
+  if (!packageSnapshot.exists) {
+    return null;
+  }
+
+  let packageData =
+    packageSnapshot.data() ?? {};
+  const v2 = packageData.occasionSchemaVersion === 2;
+  if (v2) { const verified = await verifiedPublicPackageV2(packageSnapshot.id);
+    if (!verified) return null; packageData = verified; }
+
+  if (!v2) {
+    const activeLegacyIds = await loadActiveLegacyOccasionIds([packageData]);
+    if (!activeLegacyIds.has(String(packageData.eventType))) return null;
+  }
+
+  const providerId = safeDocumentId(
+    packageData.providerId,
+  );
+
+  if (
+    !providerId ||
+    !isPublicProviderId(providerId)
+  ) {
+    return null;
+  }
+
+  const providerSnapshot = await adminDb
+    .collection(FIRESTORE_COLLECTIONS.providers)
+    .doc(providerId)
+    .get();
+
+  if (!providerSnapshot.exists) {
+    return null;
+  }
+
+  const providerData =
+    providerSnapshot.data() ?? {};
+
+  const ownerId = safeDocumentId(
+    providerData.ownerId,
+  );
+
+  if (!ownerId) {
+    return null;
+  }
+
+  const ownerSnapshot = await adminDb
+    .collection(FIRESTORE_COLLECTIONS.users)
+    .doc(ownerId)
+    .get();
+
+  const provider = normalizePublicProvider(
+    providerSnapshot.id,
+    providerData,
+    ownerSnapshot.exists
+      ? ownerSnapshot.data() ?? {}
+      : {},
+  );
+
+  if (!provider) {
+    return null;
+  }
+
+  const providerNames = new Map([
+    [
+      provider.id,
+      provider.businessName,
+    ],
+  ]);
+
+  const packageRecord =
+    normalizePublicPackage(
+      packageSnapshot.id,
+      packageData,
+      providerNames,
+      v2,
+    );
+
+  if (!packageRecord) {
+    return null;
+  }
+
+  const usesOther = v2 && packageRecord.occasionScope === "specific" &&
+    (packageRecord.occasionMatchIds ?? (packageRecord.eventType ? [packageRecord.eventType] : [])).includes("other");
+  const customOccasionLabels = usesOther
+    ? await loadPublishedPackageCustomOccasions(provider.id, packageSnapshot.id)
+    : [];
+
+  return {
+    packageRecord: customOccasionLabels.length > 0
+      ? {...packageRecord, customOccasionLabels}
+      : packageRecord,
+    provider,
+    customization:
+      normalizePublicPackageCustomization(
+        packageData,
+      ),
+  };
+}
+
+function safeDocumentId(
+  value: unknown,
+): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const normalized = value
+    .trim()
+    .slice(0, 128);
+
+  return normalized &&
+      !normalized.includes("/")
+    ? normalized
+    : null;
+}

@@ -1,0 +1,796 @@
+const assert =
+  require("node:assert/strict");
+
+const path =
+  require("node:path");
+
+const test =
+  require("node:test");
+
+const {
+  DEFAULT_PROVIDER_VAT_RATE_BPS,
+  buildSuccessfulPaymentFinancialAllocation,
+  inclusiveTaxComponent,
+} =
+  require(path.resolve(
+    __dirname,
+    "../lib/payments/financial-ledger-domain.js",
+  ));
+
+function financialSnapshot(
+  patch = {},
+) {
+  return {
+    schemaVersion: 1,
+    currency: "PHP",
+
+    grossAmountInCentavos:
+      3_000_000,
+
+    requiredUpfrontAmountInCentavos:
+      900_000,
+
+    remainingBalanceInCentavos:
+      2_100_000,
+
+    requiredUpfrontRateBps:
+      3_000,
+
+    platformCommissionRateBps:
+      1_000,
+
+    platformTaxStatus:
+      "vat_registered",
+
+    platformVatRateBps:
+      1_200,
+
+    financialPolicyVersion:
+      4,
+
+    providerTaxType:
+      "vat_registered",
+
+    providerTaxVerificationStatus:
+      "verified",
+
+    ...patch,
+  };
+}
+
+function providerRequest(
+  patch = {},
+) {
+  return {
+    financialSnapshot:
+      financialSnapshot(),
+
+    grossSettledAmountInCentavos:
+      0,
+
+    commissionReversedInCentavos:
+      0,
+
+    ...patch,
+  };
+}
+
+test(
+  "full payment allocates commission, provider VAT and FEASTA VAT",
+  () => {
+    const allocation =
+      buildSuccessfulPaymentFinancialAllocation({
+        providerRequest:
+          providerRequest(),
+
+        paymentAmountInCentavos:
+          3_000_000,
+      });
+
+    assert.equal(
+      allocation
+        .commissionAccruedForPaymentInCentavos,
+      300_000,
+    );
+
+    assert.equal(
+      allocation
+        .commissionAccruedAfterInCentavos,
+      300_000,
+    );
+
+    assert.equal(
+      allocation
+        .commissionEarnedAfterInCentavos,
+      300_000,
+    );
+
+    assert.equal(
+      allocation
+        .providerVatForPaymentInCentavos,
+      321_429,
+    );
+
+    assert.equal(
+      allocation
+        .platformVatForPaymentInCentavos,
+      36_000,
+    );
+
+    assert.equal(
+      allocation
+        .withholdingForPaymentInCentavos,
+      0,
+    );
+
+    assert.equal(
+      allocation.withholdingStatus,
+      "not_applied",
+    );
+  },
+);
+
+test(
+  "deposit plus balance reconciles to the same totals as full payment",
+  () => {
+    const deposit =
+      buildSuccessfulPaymentFinancialAllocation({
+        providerRequest:
+          providerRequest(),
+
+        paymentAmountInCentavos:
+          900_000,
+      });
+
+    const balance =
+      buildSuccessfulPaymentFinancialAllocation({
+        providerRequest:
+          providerRequest({
+            grossSettledAmountInCentavos:
+              900_000,
+          }),
+
+        paymentAmountInCentavos:
+          2_100_000,
+      });
+
+    const full =
+      buildSuccessfulPaymentFinancialAllocation({
+        providerRequest:
+          providerRequest(),
+
+        paymentAmountInCentavos:
+          3_000_000,
+      });
+
+    assert.equal(
+      deposit
+        .commissionAccruedForPaymentInCentavos +
+        balance
+          .commissionAccruedForPaymentInCentavos,
+      full
+        .commissionAccruedAfterInCentavos,
+    );
+
+    assert.equal(
+      deposit
+        .providerVatForPaymentInCentavos +
+        balance
+          .providerVatForPaymentInCentavos,
+      full
+        .providerVatAccruedAfterInCentavos,
+    );
+
+    assert.equal(
+      deposit
+        .platformVatForPaymentInCentavos +
+        balance
+          .platformVatForPaymentInCentavos,
+      full
+        .platformVatAccruedAfterInCentavos,
+    );
+  },
+);
+
+test(
+  "verified Non-VAT provider has no provider VAT component",
+  () => {
+    const request =
+      providerRequest({
+        financialSnapshot:
+          financialSnapshot({
+            providerTaxType:
+              "non_vat",
+
+            providerTaxVerificationStatus:
+              "verified",
+          }),
+      });
+
+    const allocation =
+      buildSuccessfulPaymentFinancialAllocation({
+        providerRequest:
+          request,
+
+        paymentAmountInCentavos:
+          3_000_000,
+      });
+
+    assert.equal(
+      allocation.providerVatApplicable,
+      false,
+    );
+
+    assert.equal(
+      allocation
+        .providerVatForPaymentInCentavos,
+      0,
+    );
+
+    assert.equal(
+      allocation.providerVatRateBps,
+      0,
+    );
+  },
+);
+
+test(
+  "unverified VAT declaration is not authoritative for provider VAT",
+  () => {
+    for (
+      const status of [
+        "pending",
+        "rejected",
+      ]
+    ) {
+      const request =
+        providerRequest({
+          financialSnapshot:
+            financialSnapshot({
+              providerTaxType: null,
+
+              providerTaxVerificationStatus:
+                status,
+            }),
+        });
+
+      const allocation =
+        buildSuccessfulPaymentFinancialAllocation({
+          providerRequest:
+            request,
+
+          paymentAmountInCentavos:
+            3_000_000,
+        });
+
+      assert.equal(
+        allocation.providerVatApplicable,
+        false,
+      );
+
+      assert.equal(
+        allocation
+          .providerVatForPaymentInCentavos,
+        0,
+      );
+    }
+  },
+);
+
+test(
+  "Non-VAT FEASTA produces no platform VAT while commission remains",
+  () => {
+    const request =
+      providerRequest({
+        financialSnapshot:
+          financialSnapshot({
+            platformTaxStatus:
+              "non_vat",
+          }),
+      });
+
+    const allocation =
+      buildSuccessfulPaymentFinancialAllocation({
+        providerRequest:
+          request,
+
+        paymentAmountInCentavos:
+          3_000_000,
+      });
+
+    assert.equal(
+      allocation
+        .commissionAccruedForPaymentInCentavos,
+      300_000,
+    );
+
+    assert.equal(
+      allocation.platformVatApplicable,
+      false,
+    );
+
+    assert.equal(
+      allocation
+        .platformVatForPaymentInCentavos,
+      0,
+    );
+  },
+);
+
+test(
+  "provider VAT is extracted from VAT-inclusive gross",
+  () => {
+    assert.equal(
+      DEFAULT_PROVIDER_VAT_RATE_BPS,
+      1_200,
+    );
+
+    assert.equal(
+      inclusiveTaxComponent(
+        3_000_000,
+        1_200,
+      ),
+      321_429,
+    );
+
+    assert.equal(
+      inclusiveTaxComponent(
+        900_000,
+        1_200,
+      ) +
+        (
+          inclusiveTaxComponent(
+            3_000_000,
+            1_200,
+          ) -
+          inclusiveTaxComponent(
+            900_000,
+            1_200,
+          )
+        ),
+      inclusiveTaxComponent(
+        3_000_000,
+        1_200,
+      ),
+    );
+  },
+);
+
+test(
+  "existing commission reversals reduce earned commission without changing accrual",
+  () => {
+    const allocation =
+      buildSuccessfulPaymentFinancialAllocation({
+        providerRequest:
+          providerRequest({
+            commissionReversedInCentavos:
+              25_000,
+          }),
+
+        paymentAmountInCentavos:
+          3_000_000,
+      });
+
+    assert.equal(
+      allocation
+        .commissionAccruedAfterInCentavos,
+      300_000,
+    );
+
+    assert.equal(
+      allocation
+        .commissionReversedInCentavos,
+      25_000,
+    );
+
+    assert.equal(
+      allocation
+        .commissionEarnedAfterInCentavos,
+      275_000,
+    );
+  },
+);
+
+test(
+  "centavo rounding remains deterministic across split payments",
+  () => {
+    const smallSnapshot =
+      financialSnapshot({
+        grossAmountInCentavos:
+          101,
+
+        platformCommissionRateBps:
+          3_333,
+
+        platformVatRateBps:
+          1_200,
+      });
+
+    const first =
+      buildSuccessfulPaymentFinancialAllocation({
+        providerRequest: {
+          financialSnapshot:
+            smallSnapshot,
+
+          grossSettledAmountInCentavos:
+            0,
+
+          commissionReversedInCentavos:
+            0,
+        },
+
+        paymentAmountInCentavos:
+          50,
+      });
+
+    const second =
+      buildSuccessfulPaymentFinancialAllocation({
+        providerRequest: {
+          financialSnapshot:
+            smallSnapshot,
+
+          grossSettledAmountInCentavos:
+            50,
+
+          commissionReversedInCentavos:
+            0,
+        },
+
+        paymentAmountInCentavos:
+          51,
+      });
+
+    const full =
+      buildSuccessfulPaymentFinancialAllocation({
+        providerRequest: {
+          financialSnapshot:
+            smallSnapshot,
+
+          grossSettledAmountInCentavos:
+            0,
+
+          commissionReversedInCentavos:
+            0,
+        },
+
+        paymentAmountInCentavos:
+          101,
+      });
+
+    assert.equal(
+      first
+        .commissionAccruedForPaymentInCentavos +
+        second
+          .commissionAccruedForPaymentInCentavos,
+      full
+        .commissionAccruedAfterInCentavos,
+    );
+
+    assert.equal(
+      first
+        .providerVatForPaymentInCentavos +
+        second
+          .providerVatForPaymentInCentavos,
+      full
+        .providerVatAccruedAfterInCentavos,
+    );
+
+    assert.equal(
+      first
+        .platformVatForPaymentInCentavos +
+        second
+          .platformVatForPaymentInCentavos,
+      full
+        .platformVatAccruedAfterInCentavos,
+    );
+  },
+);
+
+test(
+  "allocation rejects overpayment and invalid financial snapshots",
+  () => {
+    assert.throws(
+      () =>
+        buildSuccessfulPaymentFinancialAllocation({
+          providerRequest:
+            providerRequest({
+              grossSettledAmountInCentavos:
+                900_000,
+            }),
+
+          paymentAmountInCentavos:
+            2_100_001,
+        }),
+      /exceeds the provider-request gross amount/u,
+    );
+
+    assert.throws(
+      () =>
+        buildSuccessfulPaymentFinancialAllocation({
+          providerRequest: {
+            financialSnapshot:
+              financialSnapshot({
+                platformCommissionRateBps:
+                  10_001,
+              }),
+          },
+
+          paymentAmountInCentavos:
+            100,
+        }),
+      /Platform commission rate is invalid/u,
+    );
+  },
+);
+
+test(
+  "legacy flat-bps snapshots keep uncapped 10 percent commission",
+  () => {
+    const allocation =
+      buildSuccessfulPaymentFinancialAllocation({
+        providerRequest:
+          providerRequest(),
+
+        paymentAmountInCentavos:
+          3_000_000,
+      });
+
+    assert.equal(
+      allocation
+        .commissionAccruedAfterInCentavos,
+      300_000,
+    );
+
+    assert.equal(
+      allocation.calculationSnapshot
+        .platformCommissionModel,
+      null,
+    );
+
+    assert.equal(
+      allocation.calculationSnapshot
+        .platformCommissionTotalInCentavos,
+      null,
+    );
+  },
+);
+
+test(
+  "tiered capped snapshots allocate the frozen commission across split payments",
+  () => {
+    const cappedSnapshot =
+      financialSnapshot({
+        grossAmountInCentavos:
+          10_000_000,
+
+        requiredUpfrontAmountInCentavos:
+          5_000_000,
+
+        remainingBalanceInCentavos:
+          5_000_000,
+
+        requiredUpfrontRateBps:
+          5_000,
+
+        platformCommissionRateBps:
+          200,
+
+        platformCommissionModel:
+          "tiered_capped_2pct_v1",
+
+        platformCommissionTotalInCentavos:
+          100_000,
+
+        platformTaxStatus:
+          "non_vat",
+
+        providerTaxType:
+          null,
+
+        providerTaxVerificationStatus:
+          null,
+      });
+
+    const deposit =
+      buildSuccessfulPaymentFinancialAllocation({
+        providerRequest:
+          providerRequest({
+            financialSnapshot:
+              cappedSnapshot,
+          }),
+
+        paymentAmountInCentavos:
+          5_000_000,
+      });
+
+    const balance =
+      buildSuccessfulPaymentFinancialAllocation({
+        providerRequest:
+          providerRequest({
+            financialSnapshot:
+              cappedSnapshot,
+
+            grossSettledAmountInCentavos:
+              5_000_000,
+          }),
+
+        paymentAmountInCentavos:
+          5_000_000,
+      });
+
+    assert.equal(
+      deposit
+        .commissionAccruedForPaymentInCentavos,
+      50_000,
+    );
+
+    assert.equal(
+      balance
+        .commissionAccruedForPaymentInCentavos,
+      50_000,
+    );
+
+    assert.equal(
+      deposit
+        .commissionAccruedForPaymentInCentavos +
+        balance
+          .commissionAccruedForPaymentInCentavos,
+      100_000,
+    );
+
+    assert.equal(
+      balance
+        .commissionAccruedAfterInCentavos,
+      100_000,
+    );
+
+    assert.equal(
+      balance.calculationSnapshot
+        .platformCommissionModel,
+      "tiered_capped_2pct_v1",
+    );
+
+    assert.equal(
+      balance.calculationSnapshot
+        .platformCommissionTotalInCentavos,
+      100_000,
+    );
+  },
+);
+
+test(
+  "tiered capped commission rejects mismatched model and total",
+  () => {
+    assert.throws(
+      () =>
+        buildSuccessfulPaymentFinancialAllocation({
+          providerRequest:
+            providerRequest({
+              financialSnapshot:
+                financialSnapshot({
+                  platformCommissionModel:
+                    "tiered_capped_2pct_v1",
+                }),
+            }),
+
+          paymentAmountInCentavos:
+            100,
+        }),
+      /commission model and total must both be present or both absent/u,
+    );
+  },
+);
+
+test(
+  "customer_paid_flat_v1 computes dynamic fee, provider-only VAT, and VAT-inclusive FEASTA VAT",
+  () => {
+    // 1. P1,000 subtotal + 0.2% (20 bps) = P1,002 customer total; Non-VAT FEASTA, VAT provider
+    const nonVatFeastaSnapshot = financialSnapshot({
+      serviceSubtotalInCentavos: 100_000,
+      grossAmountInCentavos: 100_200,
+      requiredUpfrontAmountInCentavos: 50_100,
+      remainingBalanceInCentavos: 50_100,
+      requiredUpfrontRateBps: 5_000,
+      platformCommissionModel: "customer_paid_flat_v1",
+      platformCommissionRateBps: 20,
+      platformCommissionTotalInCentavos: 200,
+      platformTaxStatus: "non_vat",
+      platformVatRateBps: 1_200,
+      providerTaxType: "vat_registered",
+      providerTaxVerificationStatus: "verified",
+    });
+
+    const fullNonVatFeasta = buildSuccessfulPaymentFinancialAllocation({
+      providerRequest: providerRequest({
+        financialSnapshot: nonVatFeastaSnapshot,
+      }),
+      paymentAmountInCentavos: 100_200,
+    });
+
+    assert.equal(fullNonVatFeasta.commissionAccruedForPaymentInCentavos, 200);
+    // Provider 12% VAT extracted inclusively ONLY from P1,000.00 (100000 * 12 / 112 = 10714.28 -> 10714)
+    assert.equal(fullNonVatFeasta.providerVatForPaymentInCentavos, 10_714);
+    assert.equal(fullNonVatFeasta.platformVatForPaymentInCentavos, 0);
+    assert.equal(
+      fullNonVatFeasta.grossSettledAfterInCentavos -
+        fullNonVatFeasta.commissionAccruedAfterInCentavos,
+      100_000,
+    );
+
+    // 2. Dynamic 0.1% rate (10 bps): P1,000 + P1 = P1,001; Provider VAT stays P107.14
+    const lowerRateSnapshot = financialSnapshot({
+      serviceSubtotalInCentavos: 100_000,
+      grossAmountInCentavos: 100_100,
+      requiredUpfrontAmountInCentavos: 100_100,
+      remainingBalanceInCentavos: 0,
+      requiredUpfrontRateBps: 10_000,
+      platformCommissionModel: "customer_paid_flat_v1",
+      platformCommissionRateBps: 10,
+      platformCommissionTotalInCentavos: 100,
+      platformTaxStatus: "non_vat",
+      platformVatRateBps: 1_200,
+      providerTaxType: "vat_registered",
+      providerTaxVerificationStatus: "verified",
+    });
+
+    const fullLowerRate = buildSuccessfulPaymentFinancialAllocation({
+      providerRequest: providerRequest({
+        financialSnapshot: lowerRateSnapshot,
+      }),
+      paymentAmountInCentavos: 100_100,
+    });
+
+    assert.equal(fullLowerRate.commissionAccruedForPaymentInCentavos, 100);
+    assert.equal(fullLowerRate.providerVatForPaymentInCentavos, 10_714);
+    assert.equal(fullLowerRate.platformVatForPaymentInCentavos, 0);
+
+    // 3. VAT-registered FEASTA: 12% VAT extracted INCLUSIVELY from P2.00 fee (200 * 12 / 112 = 21.43 -> 21)
+    const vatFeastaSnapshot = {
+      ...nonVatFeastaSnapshot,
+      platformTaxStatus: "vat_registered",
+    };
+
+    const fullVatFeasta = buildSuccessfulPaymentFinancialAllocation({
+      providerRequest: providerRequest({
+        financialSnapshot: vatFeastaSnapshot,
+      }),
+      paymentAmountInCentavos: 100_200,
+    });
+
+    assert.equal(fullVatFeasta.commissionAccruedForPaymentInCentavos, 200);
+    assert.equal(fullVatFeasta.providerVatForPaymentInCentavos, 10_714);
+    assert.equal(fullVatFeasta.platformVatForPaymentInCentavos, 21);
+
+    // 4. 50% proportional deposit (P501) + balance (P501) reconciles exactly to full payment
+    const deposit = buildSuccessfulPaymentFinancialAllocation({
+      providerRequest: providerRequest({
+        financialSnapshot: vatFeastaSnapshot,
+      }),
+      paymentAmountInCentavos: 50_100,
+    });
+
+    const balance = buildSuccessfulPaymentFinancialAllocation({
+      providerRequest: providerRequest({
+        financialSnapshot: vatFeastaSnapshot,
+        grossSettledAmountInCentavos: 50_100,
+      }),
+      paymentAmountInCentavos: 50_100,
+    });
+
+    assert.equal(
+      deposit.commissionAccruedForPaymentInCentavos +
+        balance.commissionAccruedForPaymentInCentavos,
+      200,
+    );
+    assert.equal(
+      deposit.providerVatForPaymentInCentavos +
+        balance.providerVatForPaymentInCentavos,
+      10_714,
+    );
+    assert.equal(
+      deposit.platformVatForPaymentInCentavos +
+        balance.platformVatForPaymentInCentavos,
+      21,
+    );
+  },
+);

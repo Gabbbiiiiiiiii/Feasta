@@ -1,0 +1,635 @@
+"use client";
+
+import {
+  Building2,
+  CalendarCheck,
+  ClipboardList,
+  Eye,
+  RotateCcw,
+} from "lucide-react";
+import {usePathname, useRouter, useSearchParams} from "next/navigation";
+import {useMemo, useRef, useState, useTransition} from "react";
+
+import {
+  CursorPagination,
+  DataTable,
+  DetailDrawer,
+  DetailFieldItem,
+  DetailFieldList,
+  FilterToolbar,
+  SummaryCard,
+  type DataTableColumn,
+} from "@/components/data";
+import {formatPageLabel} from "@/lib/pagination";
+import {loadProviderVerificationQueueAction} from "@/app/admin/providers/actions";
+import {useAdminAutoRefresh} from "@/lib/admin/use-admin-auto-refresh";
+import {providerVerificationLabel} from "@/lib/admin/provider-verification/provider-verification-labels";
+import {PageHeading} from "@/components/layout/page-heading";
+import {ProviderVerificationReviewPanel} from "@/components/admin/provider-verification/provider-verification-review-panel";
+import {StatusBadge} from "@/components/shared/status-badge";
+import {Button} from "@/components/ui/button";
+import {Select} from "@/components/ui/select";
+import type {
+  ProviderVerificationQueueFilters,
+  ProviderVerificationQueueItem,
+  ProviderVerificationQueuePage,
+  ProviderVerificationQueueSummary,
+  ProviderVerificationReviewDetail,
+} from "@/lib/admin/provider-verification/provider-verification-types";
+
+import {
+  serviceCategoryName,
+  type ServiceCategoryOption,
+} from "@/lib/service-categories/service-category-types";
+
+type ProviderVerificationQueueProps = {
+  page: ProviderVerificationQueuePage;
+  filters: ProviderVerificationQueueFilters;
+  summary: ProviderVerificationQueueSummary;
+  selected: ProviderVerificationReviewDetail | null;
+  serviceCategoryOptions: readonly ServiceCategoryOption[];
+};
+
+function formatServiceCategories(
+  categories: readonly string[],
+  options: readonly ServiceCategoryOption[],
+): string {
+  return categories.length > 0
+    ? categories
+        .map((code) => serviceCategoryName(code, options))
+        .join(", ")
+    : "Not configured";
+}
+
+function buildColumns(
+  serviceCategoryOptions: readonly ServiceCategoryOption[],
+): readonly DataTableColumn<ProviderVerificationQueueItem>[] {
+  return [
+    {
+      id: "businessName",
+      header: "Provider",
+      cell: (item) => (
+        <div className="min-w-0">
+          <p className="break-words font-bold">{item.businessName}</p>
+          <p className="mt-1 break-all text-sm text-muted-foreground">
+            {item.email}
+          </p>
+        </div>
+      ),
+    },
+    {
+      id: "ownerName",
+      header: "Owner",
+      cell: (item) => <span className="break-words">{item.ownerName}</span>,
+    },
+    {
+      id: "serviceCategory",
+      header: "Service category",
+      cell: (item) => (
+        <span className="break-words">
+          {formatServiceCategories(item.serviceCategories, serviceCategoryOptions)}
+        </span>
+      ),
+    },
+    {
+      id: "submittedAt",
+      header: "Submitted",
+      cell: (item) => item.submittedAt,
+    },
+    {
+      id: "status",
+      header: "Business status",
+      cell: (item) => <StatusBadge status={item.status} label={providerVerificationLabel(item.status)} />,
+    },
+    {
+      id: "taxVerificationStatus",
+      header: "Tax status",
+      cell: (item) => <TaxStatusIndicator status={item.taxVerificationStatus} />,
+    },
+  ];
+}
+
+function ProviderVerificationQueue({
+  page: initialPage,
+  filters: initialFilters,
+  summary: initialSummary,
+  selected: initialSelected,
+  serviceCategoryOptions,
+}: ProviderVerificationQueueProps) {
+  const [filters, setFilters] = useState(initialFilters);
+  const searchGeneration = useRef(0);
+  const [pageError, setPageError] = useState<string>();
+  const [data, setData] = useState({page: initialPage, summary: initialSummary, selected: initialSelected});
+  const {page, summary, selected} = data;
+  const router = useRouter();
+  const pathname = usePathname();
+  const currentSearchParams = useSearchParams();
+  const [search, setSearch] = useState(filters.search);
+  const [isPending, startTransition] = useTransition();
+  const [reviewBusy, setReviewBusy] = useState(false);
+  const [reviewTarget, setReviewTarget] =
+    useState<ProviderVerificationQueueItem | null>(
+      initialSelected
+        ? initialPage.items.find(
+            (item) => item.id === initialSelected.id,
+          ) ?? null
+        : null,
+    );
+  const [reviewLoading, setReviewLoading] = useState(false);
+  const [reviewError, setReviewError] = useState<string>();
+  const reviewRequestId = useRef(0);
+
+  const refreshQueue = useAdminAutoRefresh(async (isCurrent) => {
+    const version = searchGeneration.current;
+    const next = await loadProviderVerificationQueueAction(filters, selected?.id ?? null);
+    if (isCurrent() && version === searchGeneration.current) setData(current => ({...next, selected: next.selected ?? current.selected}));
+  }, JSON.stringify({filters, selected: selected?.id}), isPending || reviewBusy || reviewLoading || search.trim() !== filters.search.trim());
+
+  const columns = useMemo(
+    () => buildColumns(serviceCategoryOptions),
+    [serviceCategoryOptions],
+  );
+
+  const activeServiceCategories = useMemo(
+    () => serviceCategoryOptions.filter((category) => category.status === "active"),
+    [serviceCategoryOptions],
+  );
+
+  const activeFilters = useMemo(() => [
+    ...(filters.search ? [`Search: ${filters.search}`] : []),
+    ...(filters.status !== "all" ? [`Status: ${providerVerificationLabel(filters.status)}`] : []),
+    ...(filters.serviceCategory !== "all"
+      ? [`Category: ${serviceCategoryName(filters.serviceCategory, serviceCategoryOptions)}`]
+      : []),
+  ], [filters, serviceCategoryOptions]);
+
+  const navigate = (
+    updates: Record<string, string | null>,
+    resetCursor = true,
+  ) => {
+    const params = new URLSearchParams(currentSearchParams.toString());
+    if (filters.search) params.set("q", filters.search); else params.delete("q");
+    for (const [key, value] of Object.entries(updates)) {
+      if (value) params.set(key, value);
+      else params.delete(key);
+    }
+    if (resetCursor) {
+      params.delete("cursor");
+      params.delete("direction");
+    }
+    startTransition(() => {
+      router.push(`${pathname}?${params.toString()}`);
+    });
+  };
+
+  const syncSelectedUrl = (selectedId: string | null) => {
+    const params = new URLSearchParams(window.location.search);
+
+    if (selectedId) {
+      params.set("selected", selectedId);
+    } else {
+      params.delete("selected");
+    }
+
+    const query = params.toString();
+
+    window.history.replaceState(
+      window.history.state,
+      "",
+      query ? `${pathname}?${query}` : pathname,
+    );
+  };
+
+  const selectApplication = (
+    item: ProviderVerificationQueueItem,
+  ) => {
+    const requestId = reviewRequestId.current + 1;
+    reviewRequestId.current = requestId;
+
+    setReviewTarget(item);
+    setReviewError(undefined);
+    setReviewLoading(true);
+
+    setData((current) => ({
+      ...current,
+      selected:
+        current.selected?.id === item.id
+          ? current.selected
+          : null,
+    }));
+
+    syncSelectedUrl(item.id);
+
+    void loadProviderVerificationQueueAction(
+      filters,
+      item.id,
+    )
+      .then((next) => {
+        if (reviewRequestId.current !== requestId) {
+          return;
+        }
+
+        if (!next.selected) {
+          throw new Error(
+            "The provider application could not be loaded.",
+          );
+        }
+
+        setData((current) => ({
+          ...current,
+          selected: next.selected,
+        }));
+      })
+      .catch((caughtError: unknown) => {
+        if (reviewRequestId.current !== requestId) {
+          return;
+        }
+
+        setReviewError(
+          caughtError instanceof Error &&
+            caughtError.message.trim()
+            ? caughtError.message
+            : "The provider application could not be loaded.",
+        );
+      })
+      .finally(() => {
+        if (reviewRequestId.current === requestId) {
+          setReviewLoading(false);
+        }
+      });
+  };
+
+  const closeApplicationReview = () => {
+    reviewRequestId.current += 1;
+
+    setReviewTarget(null);
+    setReviewLoading(false);
+    setReviewError(undefined);
+
+    setData((current) => ({
+      ...current,
+      selected: null,
+    }));
+
+    syncSelectedUrl(null);
+  };
+
+  return (
+    <div className="grid min-w-0 gap-6">
+      <PageHeading
+        eyebrow="administration"
+        title="Provider verification"
+        description="View provider applications across all verification statuses and review those awaiting approval."
+      />
+
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <SummaryCard
+          label="Submitted"
+          value={summary.submitted}
+          icon={
+            <ClipboardList className="size-6" />
+          }
+        />
+
+        <SummaryCard
+          label="Under review"
+          value={summary.underReview}
+          icon={
+            <Eye className="size-6" />
+          }
+        />
+
+        <SummaryCard
+          label="Approved today"
+          value={summary.approvedToday}
+          icon={
+            <CalendarCheck className="size-6" />
+          }
+        />
+
+        <SummaryCard
+          label="Updated documents needed"
+          value={summary.needsResubmission}
+          icon={
+            <RotateCcw className="size-6" />
+          }
+        />
+      </div>
+
+      <FilterToolbar
+        searchValue={search}
+        onSearchChange={setSearch}
+        onSearchInvalidate={() => {
+          searchGeneration.current += 1;
+        }}
+        onSearchSubmit={(value) => {
+          const version = ++searchGeneration.current;
+          const nextFilters = {...filters, search: value, cursor: null, direction: "next" as const};
+          setPageError(undefined);
+          startTransition(async () => {
+            try {
+              const next = await loadProviderVerificationQueueAction(nextFilters, selected?.id ?? null);
+              if (version !== searchGeneration.current) return;
+              setFilters(nextFilters);
+              setData(current => ({...next, selected: next.selected ?? current.selected}));
+            } catch { if (version === searchGeneration.current) setPageError("Applications could not be loaded. Please try again."); }
+          });
+        }}
+        onClearFilters={() => {
+          setSearch("");
+          navigate({
+            q: null,
+            status: null,
+            serviceCategory: null,
+            serviceType: null,
+            from: null,
+            to: null,
+            selected: null,
+          });
+        }}
+        activeFilters={activeFilters}
+        searchLabel="Search provider verification applications"
+        searchPlaceholder="Business, owner, email, phone, or provider ID"
+        loading={isPending}
+        filterControls={
+          <>
+            <label className="grid gap-1 text-sm font-semibold">
+              Status
+              <Select
+                aria-label="Verification status"
+                value={filters.status}
+                disabled={isPending}
+                onChange={(event) => navigate({
+                  status: event.currentTarget.value === "all"
+                    ? null
+                    : event.currentTarget.value,
+                  selected: null,
+                })}
+              >
+                <option value="all">All verification statuses</option>
+                {filters.status !== "all" &&
+                  !summary.availableStatuses.includes(filters.status) ? (
+                    <option value={filters.status} disabled>
+                      {providerVerificationLabel(filters.status)} (none)
+                    </option>
+                  ) : null}
+                {summary.availableStatuses.map((status) => (
+                  <option key={status} value={status}>
+                    {providerVerificationLabel(status)}
+                  </option>
+                ))}
+              </Select>
+            </label>
+            <label className="grid gap-1 text-sm font-semibold">
+              Service category
+              <Select
+                aria-label="Service category"
+                value={filters.serviceCategory}
+                disabled={isPending}
+                onChange={(event) => navigate({
+                  serviceCategory: event.currentTarget.value === "all"
+                    ? null
+                    : event.currentTarget.value,
+                  serviceType: null,
+                  selected: null,
+                })}
+              >
+                <option value="all">All service categories</option>
+                {filters.serviceCategory !== "all" &&
+                  !activeServiceCategories.some(
+                    (category) => category.code === filters.serviceCategory,
+                  ) ? (
+                    <option value={filters.serviceCategory}>
+                      {serviceCategoryName(
+                        filters.serviceCategory,
+                        serviceCategoryOptions,
+                      )}
+                    </option>
+                  ) : null}
+                {activeServiceCategories.map((category) => (
+                  <option key={category.code} value={category.code}>
+                    {category.name}
+                  </option>
+                ))}
+              </Select>
+            </label>
+          </>
+        }
+      />
+
+      <DataTable
+        columns={columns}
+        rows={page.items}
+        getRowId={(item) => item.id}
+        caption="Provider verification"
+        error={pageError}
+        loading={isPending}
+        emptyTitle="No verification applications"
+        emptyDescription="No applications match the selected filters."
+        rowActions={(item) => (
+          <Button
+            variant="secondary"
+            size="compact"
+            onClick={() => selectApplication(item)}
+            aria-label={`Review ${item.businessName}`}
+            loading={
+              reviewLoading &&
+              reviewTarget?.id === item.id
+            }
+            loadingLabel="Opening"
+          >
+            <Eye aria-hidden="true" />
+            Review
+          </Button>
+        )}
+        renderMobileRow={(item) => (
+          <article className="grid min-w-0 gap-3 rounded-card border border-border bg-card p-4 shadow-card">
+            <div className="flex min-w-0 items-start gap-3">
+              <span className="grid size-12 shrink-0 place-items-center rounded-lg bg-secondary text-primary">
+                <Building2 aria-hidden="true" className="size-6" />
+              </span>
+              <div className="min-w-0 flex-1">
+                <h2 className="break-words font-bold">{item.businessName}</h2>
+                <p className="mt-1 break-words text-sm text-muted-foreground">
+                  {item.ownerName}
+                </p>
+              </div>
+              <StatusBadge status={item.status} label={providerVerificationLabel(item.status)} />
+            </div>
+            <DetailFieldList columns={2}>
+              <DetailFieldItem
+                label="Service category"
+                value={formatServiceCategories(
+                  item.serviceCategories,
+                  serviceCategoryOptions,
+                )}
+              />
+              <DetailFieldItem
+                label="Submitted"
+                value={item.submittedAt}
+              />
+              <DetailFieldItem
+                label="Tax status"
+                wide
+              >
+                <TaxStatusIndicator status={item.taxVerificationStatus} />
+              </DetailFieldItem>
+            </DetailFieldList>
+            <Button
+              variant="secondary"
+              fullWidth
+              onClick={() => selectApplication(item)}
+              aria-label={`Review ${item.businessName}`}
+              loading={
+                reviewLoading &&
+                reviewTarget?.id === item.id
+              }
+              loadingLabel="Opening"
+            >
+              <Eye aria-hidden="true" />
+              Review application
+            </Button>
+          </article>
+        )}
+      />
+
+      <CursorPagination
+        previousCursor={page.previousCursor}
+        nextCursor={page.nextCursor}
+        loading={isPending}
+        pageLabel={formatPageLabel(page.currentPage ?? 1, page.totalPages, {hasMore: page.nextCursor !== null})}
+        onPrevious={(cursor) => navigate({
+          cursor,
+          direction: "previous",
+          selected: null,
+        }, false)}
+        onNext={(cursor) => navigate({
+          cursor,
+          direction: "next",
+          selected: null,
+        }, false)}
+      />
+
+      <DetailDrawer
+        open={selected != null || reviewTarget != null}
+        onOpenChange={(open) => {
+          if (!open) {
+            closeApplicationReview();
+          }
+        }}
+        fullScreen
+        backLabel="Back to Provider Verification"
+        title={
+          selected?.business.name ??
+          reviewTarget?.businessName ??
+          "Provider verification"
+        }
+        description="Provider application review"
+        headerMeta={
+          selected ? (
+            <>
+              <StatusBadge
+                status={selected.status}
+                label={providerVerificationLabel(selected.status)}
+              />
+              <span className="text-xs text-muted-foreground">
+                Submitted {selected.submittedAt}
+              </span>
+            </>
+          ) : undefined
+        }
+      >
+        {reviewLoading ? (
+          <div
+            className="grid gap-5 py-1"
+            aria-live="polite"
+            aria-busy="true"
+          >
+            <div>
+              <p className="font-semibold text-foreground">
+                Loading application...
+              </p>
+
+              <p className="mt-1 text-sm text-muted-foreground">
+                The review panel will be ready in a moment.
+              </p>
+            </div>
+
+            <div
+              className="grid animate-pulse gap-3"
+              aria-hidden="true"
+            >
+              <div className="h-28 rounded-xl bg-muted" />
+              <div className="h-40 rounded-xl bg-muted" />
+              <div className="h-32 rounded-xl bg-muted" />
+            </div>
+          </div>
+        ) : reviewError ? (
+          <div
+            role="alert"
+            className="rounded-xl border border-destructive/30 bg-destructive/5 p-4"
+          >
+            <p className="font-semibold text-destructive">
+              Application could not be opened
+            </p>
+
+            <p className="mt-1 text-sm text-muted-foreground">
+              {reviewError}
+            </p>
+
+            {reviewTarget ? (
+              <Button
+                type="button"
+                variant="secondary"
+                className="mt-4"
+                onClick={() =>
+                  selectApplication(reviewTarget)
+                }
+              >
+                Try again
+              </Button>
+            ) : null}
+          </div>
+        ) : selected ? (
+          <ProviderVerificationReviewPanel
+            application={selected}
+            serviceCategoryOptions={serviceCategoryOptions}
+            onBusyChange={setReviewBusy}
+            onUpdated={() => refreshQueue(true)}
+          />
+        ) : null}
+      </DetailDrawer>
+    </div>
+  );
+}
+
+function TaxStatusIndicator({
+  status,
+}: {
+  status: ProviderVerificationQueueItem["taxVerificationStatus"];
+}) {
+  const labels = {
+    not_submitted: "Not submitted",
+    pending: "Pending",
+    verified: "Verified",
+    rejected: "Rejected",
+  } as const;
+
+  const styles = {
+    not_submitted: "border-border bg-muted/40 text-muted-foreground",
+    pending: "border-warning/30 bg-warning-subtle text-warning",
+    verified: "border-success/30 bg-success-subtle text-success",
+    rejected: "border-destructive/30 bg-destructive-subtle text-destructive",
+  } as const;
+
+  return (
+    <span
+      aria-label={`Tax verification: ${labels[status]}`}
+      className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold ${styles[status]}`}
+    >
+      {labels[status]}
+    </span>
+  );
+}
+
+export {ProviderVerificationQueue};

@@ -1,0 +1,1868 @@
+"use client";
+import {ProviderPackageMoneyInput} from "./provider-package-money-input";
+import {isDropOffOrderQuantity, MAX_DROP_OFF_ORDER_QUANTITY, MAX_PRIVATE_OCCASION_LENGTH, parsePrivatePackageOccasions, privateOccasionKey} from "@feasta/shared-types/provider-package-v2";
+import {ProviderPackageIntegerInput, isPackageIntegerEdit} from "./provider-package-integer-input";
+import {usePackageConfirmation} from "./use-package-confirmation";
+
+import {
+  useEffect,
+  useImperativeHandle,
+  useMemo,
+  type Ref,
+  useRef,
+  useState,
+} from "react";
+
+import {
+  FormField,
+} from "@/components/forms/form-field";
+import {
+  Button,
+} from "@/components/ui/button";
+import {
+  Input,
+} from "@/components/ui/input";
+import {
+  createProviderPackage,
+  publishProviderPackage,
+  updateProviderPackage,
+  type ProviderPackage,
+  type ProviderPackageInput,
+  type ProviderPackagePaymentPolicy,
+} from "@/lib/provider/provider-package-client";
+
+import {packageV2Enabled, packageV2PublicationEnabled, createV2PackageDraft, updateV2PackageDraft,
+  completeV2PackageProgress, hasPendingV2Draft, retryPendingV2Draft} from "@/lib/provider/provider-package-v2-client";
+import type {CreateProviderPackageV2Request, FoodChoiceGroupV2} from "@feasta/shared-types/provider-package-v2";
+import {parseFoodChoiceGroupsV2} from "@/lib/provider/food-choice-groups-v2";
+import {ProviderPackageFoodChoices, ProviderPackageParentGroupRules} from "./provider-package-food-choices";
+import {
+  ProviderPackageIndividualFood,
+  type IndividualFoodDraftV2,
+} from "./provider-package-individual-food";
+import {CatalogImageUploader, uploadCatalogImages} from "@/components/provider/catalog-image-uploader";
+import {packageImageDrafts} from "@/lib/provider/catalog-media";
+
+import {providerContentCapabilities} from "@/lib/provider/provider-content-capabilities";
+import {DEFAULT_PROVIDER_PACKAGE_PAYMENT_POLICY_BOUNDS, depositRateBpsToPercentage, type ProviderPackagePaymentPolicyBounds} from "@/lib/provider/provider-package-payment-policy";
+
+import {foodInclusionsError, parsePackageDishes} from "@/lib/provider/package-food-inclusions";
+import {providerPackagePublishError, providerPackageSaveError} from "@/lib/provider/provider-package-save-error";
+import {ProviderPackageReview} from "./provider-package-review";
+import {ProviderPackageFoodMenu} from "./provider-package-food-menu";
+import {packageOccasionChoices, type PackageOccasionOptions} from "@/lib/provider/package-occasion-options";
+import {X} from "lucide-react";
+import {
+  savePackageProgress, packageProgressError, packageEditorProgressEnabled,
+  type SavedEditorDraft, type EditorProgress,
+} from "@/lib/provider/provider-package-progress";
+import {Textarea} from "@/components/ui/textarea";
+import {Select} from "@/components/ui/select";
+import {
+  ProviderPackageOfferBuilder,
+  createProviderPackageOfferDraft,
+  serializeProviderPackageOfferDraft,
+  tierExtraInclusions,
+  uploadProviderPackageThemeImages,
+  type ProviderPackageOfferDraft,
+} from "./provider-package-offer-builder";
+
+type PackageStructure = "" | "fixed" | "customizable" | "individual";
+
+export type ProviderPackageEditor = {
+  hasUnsavedChanges: () => boolean;
+  saveDraftAndExit: () => Promise<void>;
+};
+
+export type LocalPackageProgress = Pick<SavedEditorDraft, "progress" | "currentStep"> & {
+  syncedDraft?: SavedEditorDraft | null;
+};
+
+type ProviderPackageFormProps = {
+  loadPrivateOccasions?: (packageId?: string) => Promise<{available: string[]; selected: string[]}>;
+  localDraftKey?: string;
+  localProgress?: LocalPackageProgress | null;
+  editorRef?: Ref<ProviderPackageEditor>;
+  occasionCatalog?: PackageOccasionOptions | null;
+  dialogLayout?: boolean;
+  providerServiceType?: string;
+  serviceCategories?: readonly string[];
+  packageCategoryOptions: readonly {
+    code: string;
+    name: string;
+  }[];
+  eventTypesSupported: string[];
+  minGuestsPerEvent: number;
+  maxGuestsPerEvent: number;
+
+  paymentPolicyBounds?:
+    ProviderPackagePaymentPolicyBounds;
+
+  initialPackage?: ProviderPackage;
+  initialEditorProgress?: SavedEditorDraft | null;
+  onProgressSaved?: (draft: SavedEditorDraft) => void;
+  onProgressExit?: () => void;
+
+  onSaved: () => void | Promise<void>;
+  onCancel: () => void;
+  onSubmittingChange?: (busy: boolean) => void;
+};
+
+export function ProviderPackageForm({
+  loadPrivateOccasions,
+  localDraftKey,
+  localProgress,
+  editorRef,
+  dialogLayout = false,
+  providerServiceType = "catering",
+  serviceCategories = [],
+  packageCategoryOptions,
+  eventTypesSupported,
+  occasionCatalog,
+  minGuestsPerEvent,
+  maxGuestsPerEvent,
+
+  paymentPolicyBounds = DEFAULT_PROVIDER_PACKAGE_PAYMENT_POLICY_BOUNDS,
+  initialPackage,
+  initialEditorProgress: serverProgress,
+  onProgressSaved,
+  onProgressExit,
+  onSaved,
+  onCancel,
+  onSubmittingChange,
+}: ProviderPackageFormProps) {
+  const {confirm, confirmationDialog} = usePackageConfirmation();
+  const initialEditorProgress = localProgress ?? serverProgress;
+  const [pendingV2, setPendingV2] = useState(() => hasPendingV2Draft());
+  const [draftSaved, setDraftSaved] = useState(false);
+  const [step, setStep] = useState(initialEditorProgress?.currentStep ?? 0);
+  const [savedProgress, setSavedProgress] = useState<SavedEditorDraft | null>(serverProgress ?? localProgress?.syncedDraft ?? null);
+  const [progressSaving, setProgressSaving] = useState(false);
+  const [progressError, setProgressError] = useState<string | null>(null);
+  // Preserve the same request ID on an ambiguous network failure, so retries
+  // cannot create a second private draft for an identical payload.
+  const pendingProgress = useRef<{signature: string; key: string} | null>(null);
+  const scrollContainer = useRef<HTMLDivElement>(null);
+  const stepHeading = useRef<HTMLHeadingElement>(null);
+  const [maxDropOffOrderQuantityText, setMaxDropOffOrderQuantityText] = useState(
+    initialEditorProgress?.progress.maxDropOffOrderQuantityText ??
+      String(initialPackage?.maxDropOffOrderQuantity ?? 1),
+  );
+  const [dropOffLimitInputError, setDropOffLimitInputError] = useState<string | undefined>(undefined);
+  const [pricingModel, setPricingModel] = useState<"per_pax" | "per_bundle" | "legacy">(initialEditorProgress?.progress.pricingModel ?? (initialPackage ? initialPackage.pricingModel ?? "legacy" : "per_pax"));
+  const [packageStyle] = useState(
+    initialEditorProgress?.progress.packageStyle ??
+      initialPackage?.packageStyle ?? initialPackage?.v2?.packageStyle ?? "",
+  );
+  const [offerStructure] = useState<PackageStructure>(() =>
+    initialEditorProgress?.progress.offerStructure ||
+    initialPackage?.offerStructure ||
+    initialPackage?.v2?.offerStructure ||
+    (!initialPackage || initialPackage.v2 || packageStyle.trim() ? "fixed" : ""),
+  );
+  const usesV2 = initialPackage ? Boolean(initialPackage.v2) :
+    packageV2Enabled || offerStructure === "fixed" || offerStructure === "customizable";
+  const steps = ["Package details", "Pricing & capacity", "Food menu", "Services & media", "Review & save"];
+  function goToStep(next: number) {
+    if (!Number.isInteger(next) || next < 0 || next > 4) return;
+    setStep(next as 0 | 1 | 2 | 3 | 4);
+    setError(null);
+    requestAnimationFrame(() => {
+      stepHeading.current?.focus({preventScroll: true});
+      if (scrollContainer.current) scrollContainer.current.scrollTop = 0;
+    });
+  }
+  const capabilities = providerContentCapabilities(providerServiceType, serviceCategories);
+
+  const editing =
+    initialPackage !== undefined;
+  const editingPublished =
+    initialPackage?.status === "published";
+
+  const [
+    serviceCategoryCode,
+    setServiceCategoryCode,
+  ] = useState(
+    initialEditorProgress?.progress.serviceCategoryCode ?? initialPackage?.serviceCategoryCode ??
+      (packageCategoryOptions.length === 1 ? packageCategoryOptions[0].code : ""),
+  );
+  const occasionOptions = packageOccasionChoices(occasionCatalog, serviceCategoryCode);
+  const availableEventTypes = occasionOptions.map((option) => option.id);
+  const occasionLabel = (id: string) => occasionCatalog?.options.find((option) => option.id === id)?.label ?? formatEventType(id);
+  const [name, setName] =
+    useState(
+      initialEditorProgress?.progress.name ?? initialPackage?.name ?? "",
+    );
+
+  const [
+    description,
+    setDescription,
+  ] = useState(
+    initialEditorProgress?.progress.description ?? initialPackage?.description ?? "",
+  );
+
+  const [selectedOccasions, setSelectedOccasions] = useState<string[]>(() => {
+    if (initialEditorProgress?.progress.occasion) {
+      return initialEditorProgress.progress.occasion.occasionIds ?? [];
+    }
+    if (initialPackage?.v2) return initialPackage.v2.occasionIds;
+    const initial = initialPackage?.eventType;
+    return initial ? [initial] : [];
+  });
+  const [occasionScope, setOccasionScope] = useState<"specific" | "all">(initialEditorProgress?.progress.occasion?.occasionScope ?? initialPackage?.v2?.occasionScope ?? "specific");
+  const [occasionToAdd, setOccasionToAdd] = useState("");
+  const occasionSelector = useRef<HTMLSelectElement>(null);
+  const [privateLabels, setPrivateLabels] = useState(initialEditorProgress?.progress.privateOccasionLabels ?? []);
+  const otherAutoAdded = useRef(Boolean(initialEditorProgress?.progress.privateOccasionLabels?.length));
+  const [privateLibrary, setPrivateLibrary] = useState<string[]>([]);
+  const [hasSavedPrivateLabels, setHasSavedPrivateLabels] = useState(false);
+  const [privateOccasionStatus, setPrivateOccasionStatus] = useState<"loading" | "ready" | "error">(
+    loadPrivateOccasions && usesV2 ? "loading" : "ready",
+  );
+  const [customOccasion, setCustomOccasion] = useState("");
+  const [customOccasionError, setCustomOccasionError] = useState("");
+  const privatePackageId = initialPackage?.id;
+  const otherOccasion = availableEventTypes.find(id => id === "other" || privateOccasionKey(occasionLabel(id)) === "other");
+  const privateOccasionBlocked = Boolean(privatePackageId && privateOccasionStatus === "loading");
+  const privateOccasionMappingError = privateLabels.length > 0 &&
+    (!otherOccasion || occasionScope !== "specific" || !selectedOccasions.includes(otherOccasion))
+    ? "Custom occasions need the approved Other occasion for this category. Remove the custom labels or select Other." : undefined;
+
+  useEffect(() => {
+    if (!loadPrivateOccasions || !usesV2) return;
+    let active = true;
+    void loadPrivateOccasions(privatePackageId).then(result => {
+      if (!active) return;
+      setPrivateLibrary(result.available);
+      if (privatePackageId) {
+        setPrivateLabels(result.selected);
+        setHasSavedPrivateLabels(result.selected.length > 0);
+        if (result.selected.length > 0) otherAutoAdded.current = true;
+      }
+      setPrivateOccasionStatus("ready");
+    }).catch(() => {
+      if (active) setPrivateOccasionStatus("error");
+    });
+    return () => { active = false; };
+  }, [loadPrivateOccasions, privatePackageId, usesV2]);
+
+  const customChoice = "__add_private_occasion__";
+  const privateChoicePrefix = "private:";
+  const privateFeature = Boolean(loadPrivateOccasions && usesV2);
+  const addingCustom = occasionToAdd === customChoice;
+
+  function addPrivateOccasion(name: string) {
+    if (!otherOccasion) return;
+    try {
+      if (availableEventTypes.some(id => privateOccasionKey(occasionLabel(id)) === privateOccasionKey(name))) {
+        setCustomOccasionError("Choose the existing occasion from the dropdown.");
+        return;
+      }
+      const labels = parsePrivatePackageOccasions([...privateLabels, name]);
+      const hadOtherManually = occasionScope === "specific" && selectedOccasions.includes(otherOccasion);
+      if (!hadOtherManually) otherAutoAdded.current = true;
+      setPrivateLabels(labels);
+      setOccasionScope("specific");
+      setSelectedOccasions(current => occasionScope === "all" ? [otherOccasion] :
+        current.includes(otherOccasion) ? current : [...current, otherOccasion]);
+      setOccasionToAdd("");
+      setCustomOccasion("");
+      setCustomOccasionError("");
+      setError(null);
+      occasionSelector.current?.focus();
+    } catch {
+      setCustomOccasionError("Use a unique name of 2–60 characters. Each package can have up to 10 custom occasions.");
+    }
+  }
+  // The legacy writer accepts exactly one supported eventType. Never pick a
+  // primary occasion from a multi-selection or discard the other chips on save.
+  const eventType = selectedOccasions.length === 1 ? selectedOccasions[0] : "";
+  // Retain only the existing scalar scope when the V2 read configuration is
+  // unavailable. This does not add choices or authorize a new scope; the legacy
+  // callable still checks current ownership, capabilities and draft status.
+  const retainingLegacyScope = !usesV2 && !occasionCatalog && initialPackage?.status === "draft" &&
+    occasionScope === "specific" && selectedOccasions.length === 1 &&
+    eventType === initialPackage.eventType && serviceCategoryCode === initialPackage.serviceCategoryCode &&
+    eventTypesSupported.includes(eventType);
+  const approvedOccasionError = retainingLegacyScope ? undefined : !occasionCatalog
+    ? "Approved occasion choices are unavailable. Reload before saving."
+    : occasionScope === "all" ? undefined
+    : !selectedOccasions.length || selectedOccasions.some((id) => !availableEventTypes.includes(id))
+      ? "Add one occasion supported by your business before continuing."
+      : selectedOccasions.length > occasionCatalog.maxSpecificOccasions
+        ? `Choose at most ${occasionCatalog.maxSpecificOccasions} approved occasions.` : undefined;
+  const occasionError = privateOccasionMappingError || approvedOccasionError;
+  const occasionSaveGate = usesV2 ? undefined : occasionScope === "all" || selectedOccasions.length > 1
+    ? "Multiple occasions and Fits All cannot create a real package until the V2 writer is verified. Use Save progress to keep unfinished selections where enabled."
+    : eventType && !eventTypesSupported.includes(eventType)
+      ? "This approved occasion requires the V2 package writer before it can be saved." : undefined;
+
+  function addOccasion() {
+    if (addingCustom) return addPrivateOccasion(customOccasion);
+    if (occasionToAdd.startsWith(privateChoicePrefix)) return addPrivateOccasion(occasionToAdd.slice(privateChoicePrefix.length));
+    if (!availableEventTypes.some((value) => value === occasionToAdd)) return;
+    if (occasionToAdd === otherOccasion) otherAutoAdded.current = false;
+    setOccasionScope("specific");
+    setSelectedOccasions((current) => occasionScope === "all" ? [occasionToAdd] : current.includes(occasionToAdd) ? current : [...current, occasionToAdd]);
+    setOccasionToAdd("");
+    setError(null);
+    occasionSelector.current?.focus();
+  }
+
+  const [guestInputErrors, setGuestInputErrors] = useState<{minimum?: string; maximum?: string}>({});
+  const [guestTouched, setGuestTouched] = useState<{minimum: boolean; maximum: boolean}>({
+    minimum: false,
+    maximum: false,
+  });
+  const [step2Submitted, setStep2Submitted] = useState(false);
+  const guestCapacityLimit = Math.min(maxGuestsPerEvent, 400);
+
+  const [
+    minimumGuests,
+    setMinimumGuests,
+  ] = useState(
+    initialEditorProgress?.progress.minimumGuestsText ?? (initialPackage
+      ? String(
+          initialPackage.minimumGuests,
+        )
+      : ""),
+  );
+
+  const [
+    maximumGuests,
+    setMaximumGuests,
+  ] = useState(
+    initialEditorProgress?.progress.maximumGuestsText ?? (initialPackage
+      ? String(
+          initialPackage.maximumGuests,
+        )
+      : ""),
+  );
+
+  const [
+    foodInclusions,
+    setFoodInclusions,
+  ] = useState(
+    initialEditorProgress?.progress.foodInclusions ?? initialPackage?.foodInclusions ?? [],
+  );
+
+  const [foodChoiceGroups, setFoodChoiceGroups] = useState<FoodChoiceGroupV2[]>(
+    initialEditorProgress?.progress.foodChoiceGroups ?? initialPackage?.v2?.foodChoiceGroups ?? [],
+  );
+
+  // The Web package currently resolves older generated shared declarations.
+  // This local type mirrors the current private progress source contract.
+  const restoredIndividualFoodDraft = (
+    initialEditorProgress?.progress as
+      (EditorProgress & {individualFoodDraft?: IndividualFoodDraftV2}) | undefined
+  )?.individualFoodDraft;
+
+  const [individualFoodDraft, setIndividualFoodDraft] = useState<IndividualFoodDraftV2>(
+    () => restoredIndividualFoodDraft ?? {
+      id: "individual_item",
+      name: "",
+      servingOptions: [],
+    },
+  );
+
+  const [
+    decorInclusionsText,
+    setDecorInclusionsText,
+  ] = useState(
+    initialEditorProgress?.progress.decorInclusions?.join("\n") ?? initialPackage?.decorInclusions.join(
+      "\n",
+    ) ?? "",
+  );
+
+  const [
+    furnitureInclusionsText,
+    setFurnitureInclusionsText,
+  ] = useState(
+    initialEditorProgress?.progress.furnitureInclusions?.join("\n") ?? initialPackage?.furnitureInclusions.join(
+      "\n",
+    ) ?? "",
+  );
+
+  const [
+    serviceInclusionsText,
+    setServiceInclusionsText,
+  ] = useState(
+    initialEditorProgress?.progress.serviceInclusions?.join("\n") ?? initialPackage?.serviceInclusions.join(
+      "\n",
+    ) ?? "",
+  );
+
+  const minimumDepositPercentageAllowed = depositRateBpsToPercentage(paymentPolicyBounds.minimumDepositRateBps);
+  const maximumDepositPercentageAllowed = depositRateBpsToPercentage(paymentPolicyBounds.maximumDepositRateBps);
+  const initialPaymentPolicy = initialEditorProgress?.progress.paymentPolicy ?? initialPackage?.paymentPolicy ?? "full_payment";
+  const initialFullPaymentAllowed = initialEditorProgress?.progress.fullPaymentAllowed ?? initialPackage?.fullPaymentAllowed;
+  const [allowFullPayment, setAllowFullPayment] = useState(
+    initialPaymentPolicy === "full_payment" || initialFullPaymentAllowed !== false,
+  );
+  const [allowDownPayment, setAllowDownPayment] = useState(
+    initialPaymentPolicy === "deposit_then_balance",
+  );
+  const paymentPolicy: ProviderPackagePaymentPolicy = allowDownPayment ? "deposit_then_balance" : "full_payment";
+  const paymentTermsError = !allowFullPayment && !allowDownPayment
+    ? "Select at least one payment option: Full Payment, Down Payment, or both."
+    : undefined;
+  const [depositPercentage, setDepositPercentage] = useState(
+    initialEditorProgress?.progress.depositPercentageText ?? (initialPackage?.paymentPolicy === "deposit_then_balance" ? String(initialPackage.depositPercentage) : ""),
+  );
+  const parsedDepositPercentage = depositPercentage.trim() === "" ? Number.NaN : Number(depositPercentage);
+  const depositError = allowDownPayment && (
+    !Number.isFinite(parsedDepositPercentage) || parsedDepositPercentage <= 0 || parsedDepositPercentage >= 100 ||
+    parsedDepositPercentage < minimumDepositPercentageAllowed || parsedDepositPercentage > maximumDepositPercentageAllowed
+  ) ? `Enter a down payment percentage between ${minimumDepositPercentageAllowed}% and ${maximumDepositPercentageAllowed}%, greater than 0% and below 100%.` : undefined;
+
+  const [images, setImages] = useState(() => packageImageDrafts(initialPackage?.imageUrls, initialPackage?.imageUrl));
+  const [offerDraft, setOfferDraft] =
+    useState<ProviderPackageOfferDraft>(
+      () => {
+        const draft = createProviderPackageOfferDraft(initialPackage?.v2 ?
+          {...initialPackage, serviceOptions: initialPackage.v2.serviceOptions} : initialPackage);
+        const progress = initialEditorProgress?.progress;
+        if (progress?.tiers) {
+          for (const tier of ["drop_off", "buffet_setup", "full_service"] as const) {
+            const saved = progress.tiers[tier];
+            if (saved) {
+              draft.serviceOptions[tier] = {
+                enabled: saved.enabled,
+                price: saved.priceText,
+                includedServicesText: saved.includedServices.join("\n"),
+                decorInclusionsText: saved.decorInclusions.join("\n"),
+                furnitureInclusionsText: saved.furnitureInclusions.join("\n"),
+                equipmentInclusionsText: saved.equipmentInclusions.join("\n"),
+              };
+            }
+          }
+        }
+        if (progress?.themes) {
+          draft.themeOptions = progress.themes.map((theme) => ({
+            id: theme.editorThemeId, name: theme.name, description: theme.description, images: [],
+          }));
+        }
+        return draft;
+      },
+    );
+  const [offerInteracted, setOfferInteracted] =
+    useState(false);
+
+  const submissionPending = useRef(false);
+  const [submitting, setSubmitting] =
+    useState(false);
+  const [submittingMode, setSubmittingMode] = useState<"draft" | "publish" | "update_published" | null>(null);
+  const [createdDraft, setCreatedDraft] = useState<{
+    packageId: string;
+    revision: number | null;
+    isV2: boolean;
+    snapshot: string;
+  } | null>(null);
+
+  const [error, setError] =
+    useState<string | null>(null);
+
+  const offerConfiguration =
+    serializeProviderPackageOfferDraft(
+      offerDraft,
+    );
+  const canSetDropOffLimit = usesV2 && offerStructure !== "individual" &&
+    pricingModel === "per_bundle" && offerDraft.serviceOptions.drop_off.enabled;
+  const dropOffLimit = maxDropOffOrderQuantityText !== "" &&
+    isPackageIntegerEdit(maxDropOffOrderQuantityText, MAX_DROP_OFF_ORDER_QUANTITY)
+    ? Number(maxDropOffOrderQuantityText) : Number.NaN;
+  const dropOffLimitError = !canSetDropOffLimit
+    ? null
+    : dropOffLimitInputError ?? (
+      !isDropOffOrderQuantity(dropOffLimit)
+        ? `Enter a number from 1 to ${MAX_DROP_OFF_ORDER_QUANTITY}.`
+        : null
+    );
+  const parsedPrice =
+    offerConfiguration.startingPrice ??
+    Number.NaN;
+
+  // Preserve existing V2 fixed-package choice groups.
+  // Do not send unsupported food-selection contracts to the legacy writer.
+  const foodStructureError =
+    offerStructure === "individual"
+      ? "Individual Food Item requires serving-size, quantity, and pricing contracts before saving."
+      : offerStructure === "customizable" && !usesV2
+        ? "This draft has no saved V2 contract. Keep its details for reviewed recovery; the current editor cannot convert it in place or safely save customer food selections."
+        : (offerStructure === "customizable" || (offerStructure === "fixed" && (!initialPackage || editingPublished))) && foodChoiceGroups.length === 0 && (offerStructure === "customizable" || foodInclusions.length === 0)
+          ? offerStructure === "fixed"
+            ? "Add an included dish or a customer-selectable food group."
+            : "Add at least one Parent Group rule."
+          : null;
+
+  const foodError = (!usesV2 && foodChoiceGroups.length ? "Return to Customizable Package to save the food-choice groups, or remove them before changing structure." : null) || foodStructureError || foodInclusionsError(foodInclusions) || (usesV2 ? (() => {
+    try {parseFoodChoiceGroupsV2(foodChoiceGroups); return null;}
+    catch {return "Complete each food-choice group with a title, valid options, and a possible selection count.";}
+  })() : null);
+
+  // Keep invalid or incomplete guest counts invalid.
+  // Number("") would otherwise incorrectly become zero.
+  const parseGuestCount = (value: string): number => {
+    if (!value || !isPackageIntegerEdit(value, guestCapacityLimit)) return Number.NaN;
+    const parsed = Number(value);
+    return Number.isSafeInteger(parsed) ? parsed : Number.NaN;
+  };
+
+  const parsedMinimumGuests =
+    parseGuestCount(minimumGuests);
+  const parsedMaximumGuests =
+    parseGuestCount(maximumGuests);
+  const requiresStrictlyHigherMax = guestCapacityLimit > minGuestsPerEvent;
+  const minGuestsUpperBound = requiresStrictlyHigherMax
+    ? guestCapacityLimit - 1
+    : guestCapacityLimit;
+  const maxGuestsLowerBound = Number.isInteger(parsedMinimumGuests) &&
+    parsedMinimumGuests >= minGuestsPerEvent &&
+    parsedMinimumGuests <= minGuestsUpperBound
+    ? (requiresStrictlyHigherMax ? Math.min(guestCapacityLimit, parsedMinimumGuests + 1) : parsedMinimumGuests)
+    : (requiresStrictlyHigherMax ? Math.min(guestCapacityLimit, minGuestsPerEvent + 1) : minGuestsPerEvent);
+
+  const minimumGuestsError = guestInputErrors.minimum ?? (
+    minimumGuests === ""
+      ? "Enter minimum guests."
+      : !Number.isInteger(parsedMinimumGuests)
+        ? "Numbers only (no decimals or symbols)."
+        : parsedMinimumGuests < minGuestsPerEvent
+          ? `Must be at least ${minGuestsPerEvent} guests.`
+          : parsedMinimumGuests > minGuestsUpperBound
+            ? (requiresStrictlyHigherMax
+                ? `Must be less than ${guestCapacityLimit} guests.`
+                : `Cannot exceed ${guestCapacityLimit} guests.`)
+            : undefined
+  );
+
+  const maximumGuestsError = guestInputErrors.maximum ?? (
+    maximumGuests === ""
+      ? "Enter maximum guests."
+      : !Number.isInteger(parsedMaximumGuests)
+        ? "Numbers only (no decimals or symbols)."
+        : parsedMaximumGuests > guestCapacityLimit
+          ? `Cannot exceed ${guestCapacityLimit} guests.`
+          : requiresStrictlyHigherMax && Number.isInteger(parsedMinimumGuests) && parsedMaximumGuests <= parsedMinimumGuests
+            ? "Must be higher than minimum guests."
+            : parsedMaximumGuests < minGuestsPerEvent ||
+                (Number.isInteger(parsedMinimumGuests) && parsedMaximumGuests < parsedMinimumGuests)
+              ? `Must be at least ${maxGuestsLowerBound} guests.`
+              : undefined
+  );
+
+  const visibleMinimumGuestsError = (guestTouched.minimum || step2Submitted || minimumGuests !== "" || Boolean(guestInputErrors.minimum))
+    ? minimumGuestsError
+    : undefined;
+  const visibleMaximumGuestsError = (guestTouched.maximum || step2Submitted || maximumGuests !== "" || Boolean(guestInputErrors.maximum))
+    ? maximumGuestsError
+    : undefined;
+
+  const validationError =
+    useMemo(() => {
+      if (guestInputErrors.minimum) return {field: "minimumGuests", message: guestInputErrors.minimum};
+      if (guestInputErrors.maximum) return {field: "maximumGuests", message: guestInputErrors.maximum};
+      if (
+        name.trim().length < 2 ||
+        name.trim().length > (usesV2 ? 80 : 120)
+      ) {
+        return {field: "name", message: `Package name must be between 2 and ${usesV2 ? 80 : 120} characters.`};
+      }
+
+      if (
+        (description.trim().length > 0 && description.trim().length < 10) ||
+        description.trim().length > 2000
+      ) {
+        return {field: "description", message: "Description must be between 10 and 2000 characters."};
+      }
+
+      if (occasionError) {
+        return {field: "eventType", message: occasionError};
+      }
+
+      if (
+        !packageCategoryOptions.some(
+          (category) =>
+            category.code ===
+              serviceCategoryCode,
+        )
+      ) {
+        return {
+          field: "serviceCategoryCode",
+          message: "Choose an active catering service category for this package.",
+        };
+      }
+
+      if (
+        offerConfiguration.error
+      ) {
+        return {
+          field: "serviceOptions",
+          message:
+            offerConfiguration.error,
+        };
+      }
+
+      if (
+        !Number.isFinite(parsedPrice) ||
+        (usesV2 ? parsedPrice <= 0 : parsedPrice < 0) ||
+        parsedPrice > 10_000_000
+      ) {
+        return {field: "price", message: "Enter a valid package price."};
+      }
+
+      if (minimumGuestsError) {
+        return {field: "minimumGuests", message: minimumGuestsError};
+      }
+
+      if (maximumGuestsError) {
+        return {field: "maximumGuests", message: maximumGuestsError};
+      }
+
+      return null;
+    }, [
+      usesV2,
+      name,
+      description,
+      occasionError,
+      offerConfiguration.error,
+      parsedPrice,
+      minimumGuestsError,
+      maximumGuestsError,
+      packageCategoryOptions,
+      serviceCategoryCode,
+      guestInputErrors,
+    ]);
+
+
+  function packageClassificationError(): string | null {
+    const style = packageStyle.trim();
+
+    if (style && ([...style].length < 2 || [...style].length > 80)) {
+      return "Package style must contain 2 to 80 characters when provided.";
+    }
+
+    if (style && /[\p{Cc}\p{Cf}\p{Cs}\p{Zl}\p{Zp}\p{Default_Ignorable_Code_Point}]/u.test(style)) {
+      return "Remove unsupported characters from the package style.";
+    }
+
+    return null;
+  }
+
+  function editorProgress(): EditorProgress {
+    const tiers: NonNullable<EditorProgress["tiers"]> = {};
+    for (const tier of ["drop_off", "buffet_setup", "full_service"] as const) {
+      const value = offerDraft.serviceOptions[tier];
+      tiers[tier] = {
+        enabled: value.enabled,
+        priceText: value.price,
+        includedServices: parseInclusions(value.includedServicesText),
+        ...tierExtraInclusions(value),
+      };
+    }
+    return {
+      name, description, serviceCategoryCode,
+      ...(privateFeature && privateLabels.length ? {privateOccasionLabels: privateLabels} : {}),
+      ...(offerStructure ? {offerStructure} : {}),
+      ...(packageStyle.trim() ?
+        {packageStyle: packageStyle.trim()} : {}),
+      occasion: {occasionSchemaVersion: 2, occasionScope,
+        occasionIds: occasionScope === "all" ? [] : selectedOccasions},
+      pricingModel, ...(canSetDropOffLimit ? {maxDropOffOrderQuantityText} : {}), minimumGuestsText: minimumGuests, maximumGuestsText: maximumGuests,
+      tiers, foodInclusions, ...(usesV2 || foodChoiceGroups.length ? {foodChoiceGroups} : {}),
+      ...(usesV2 && offerStructure === "individual" ?
+        {individualFoodDraft} : {}),
+      serviceInclusions: parseInclusions(serviceInclusionsText),
+      decorInclusions: parseInclusions(decorInclusionsText),
+      furnitureInclusions: parseInclusions(furnitureInclusionsText),
+      equipmentInclusions: initialEditorProgress?.progress.equipmentInclusions ?? [],
+      themes: offerDraft.themeOptions.map((theme) => ({
+        editorThemeId: theme.id, name: theme.name,
+        description: theme.description, assetIds: [],
+      })),
+      marketingAssetIds: [],
+      ...(allowFullPayment || allowDownPayment ? {
+        paymentPolicy,
+        ...(paymentPolicy === "deposit_then_balance" ? {fullPaymentAllowed: allowFullPayment} : {}),
+      } : {}),
+      depositPercentageText: depositPercentage,
+    };
+  }
+
+  function editorSnapshot() {
+    return JSON.stringify([editorProgress(), offerDraft, images]);
+  }
+
+  const [initialSnapshot] = useState(editorSnapshot);
+  const [savedOnDevice, setSavedOnDevice] = useState(Boolean(localProgress));
+  const currentEditorSnapshot = editorSnapshot();
+  const canRetryPublishOnly = Boolean(createdDraft && createdDraft.snapshot === currentEditorSnapshot);
+  const localSnapshot = localDraftKey ? JSON.stringify({progress: editorProgress(), currentStep: step, syncedDraft: savedProgress}) : null;
+  const hasChanges = currentEditorSnapshot !== initialSnapshot;
+
+  useEffect(() => {
+    if (!localDraftKey || !localSnapshot || (!hasChanges && !localProgress) || canRetryPublishOnly) return;
+    try {
+      localStorage.setItem(localDraftKey, localSnapshot);
+      setSavedOnDevice(true);
+    } catch {
+      setSavedOnDevice(false);
+    }
+  }, [localDraftKey, localSnapshot, hasChanges, localProgress, canRetryPublishOnly]);
+  useImperativeHandle(editorRef, () => ({
+    hasUnsavedChanges: () => !canRetryPublishOnly && (hasChanges || Boolean(localProgress)),
+    saveDraftAndExit: handleSaveDraftAndExit,
+  }));
+
+  async function persistProgress(): Promise<SavedEditorDraft> {
+      const input = {
+        editorDraftId: savedProgress?.editorDraftId ?? null,
+        expectedRevision: savedProgress?.revision ?? 0,
+        currentStep: step as 0 | 1 | 2 | 3 | 4,
+        progress: editorProgress(),
+      };
+      const signature = JSON.stringify(input);
+      if (pendingProgress.current?.signature !== signature) {
+        pendingProgress.current = {signature, key: crypto.randomUUID()};
+      }
+      const saved = await savePackageProgress({
+        ...input, idempotencyKey: pendingProgress.current.key,
+      });
+      pendingProgress.current = null;
+      setSavedProgress(saved);
+      onProgressSaved?.(saved);
+      return saved;
+  }
+
+  const savingProgress = useRef(false);
+
+  useEffect(() => {
+    if (!localDraftKey || !packageEditorProgressEnabled) return;
+    function syncOnReconnect() {
+      if ((hasChanges || localProgress) && !images.length &&
+          !offerDraft.themeOptions.some((theme) => theme.images.length)) {
+        void handleSaveProgress(false);
+      }
+    }
+    window.addEventListener("online", syncOnReconnect);
+    return () => window.removeEventListener("online", syncOnReconnect);
+  });
+
+  async function handleSaveProgress(exit = true): Promise<void> {
+    if (editing || submitting || savingProgress.current) return;
+    // The current server deliberately rejects unverified or unattached media.
+    // Do not create a misleading "saved" acknowledgement for media not recoverable.
+    if (images.length > 0 || offerDraft.themeOptions.some((theme) => theme.images.length > 0)) {
+      setProgressError("Save Draft & Exit cannot preserve selected package or theme images yet. Remove these image selections before saving unfinished progress, or use a supported package-save flow when your package is ready.");
+      return;
+    }
+    savingProgress.current = true;
+    setProgressSaving(true);
+    onSubmittingChange?.(true);
+    setProgressError(null);
+    let saved = false;
+    try {
+      await persistProgress();
+      saved = true;
+    } catch (caught) {
+      setProgressError(packageProgressError(caught));
+    } finally {
+      savingProgress.current = false;
+      setProgressSaving(false);
+      onSubmittingChange?.(false);
+    }
+    if (saved && exit) onProgressExit?.();
+  }
+
+  const publishBlockedReason =
+    offerStructure === "individual"
+      ? "Individual food packages can only be saved as drafts."
+      : usesV2 && !packageV2PublicationEnabled
+        ? editingPublished
+          ? "Updating published packages is currently unavailable on this environment."
+          : "Publishing is currently unavailable on this environment. You can still save as a draft."
+        : !usesV2 && editing && Boolean(initialPackage?.pricingModel)
+          ? "This legacy draft requires V2 recovery before publishing. Save as a draft first."
+          : null;
+  const baseSaveDisabled =
+    submitting || progressSaving || privateOccasionBlocked || Boolean(occasionSaveGate) ||
+    Boolean(validationError) || Boolean(paymentTermsError) || Boolean(depositError) || Boolean(foodError) || Boolean(dropOffLimitError);
+
+  async function handleSaveDraftAndExit(): Promise<void> {
+    if (submitting || savingProgress.current) return;
+    if (!editing && packageEditorProgressEnabled) {
+      await handleSaveProgress(true);
+      return;
+    }
+    const canSaveRealDraft =
+      !privateOccasionBlocked &&
+      !occasionSaveGate &&
+      !occasionError &&
+      !validationError &&
+      !paymentTermsError &&
+      !depositError &&
+      !foodError &&
+      !dropOffLimitError &&
+      !offerConfiguration.error &&
+      !packageClassificationError() &&
+      (!editingPublished || !publishBlockedReason);
+    if (canSaveRealDraft) {
+      await handlePackageSubmit(editingPublished ? "update_published" : "draft", {skipConfirm: true, allowAnyStep: true});
+      return;
+    }
+    if (!editing && localDraftKey && localSnapshot) {
+      try {
+        localStorage.setItem(localDraftKey, localSnapshot);
+        setSavedOnDevice(true);
+      } catch {
+        setError("Could not save draft on this device. Complete the required fields to save your draft.");
+        return;
+      }
+      onProgressExit?.();
+      return;
+    }
+    const firstError =
+      (editingPublished ? publishBlockedReason : null) ||
+      occasionError ||
+      validationError?.message ||
+      paymentTermsError ||
+      depositError ||
+      dropOffLimitError ||
+      offerConfiguration.error ||
+      foodError ||
+      packageClassificationError() ||
+      (editingPublished
+        ? "Complete all required fields before saving changes."
+        : "Complete all required fields before saving this draft.");
+    setError(firstError);
+  }
+
+  async function handlePackageSubmit(
+    mode: "draft" | "publish" | "update_published",
+    options?: {skipConfirm?: boolean; allowAnyStep?: boolean},
+  ) {
+    if ((!options?.allowAnyStep && step !== 4) || submissionPending.current || submitting || privateOccasionBlocked || occasionSaveGate || occasionError || validationError || paymentTermsError || depositError || foodError || dropOffLimitError ||
+      offerConfiguration.error || packageClassificationError()) {
+      return;
+    }
+    if ((mode === "publish" || mode === "update_published") && publishBlockedReason) {
+      setError(publishBlockedReason);
+      return;
+    }
+    // The final network mutation is an independent, explicit user decision.
+    // A fast second click on Next must not silently save or publish a package.
+    if (!options?.skipConfirm) {
+      if (mode === "update_published") {
+        if (!await confirm({
+          message: "Save changes to published package?",
+          supportingText: `Changes to "${name.trim() || "This package"}" will immediately update your live published package for new bookings. Existing bookings keep their original package details.`,
+          confirmLabel: "Save Changes",
+        })) return;
+      } else if (mode === "publish") {
+        if (!await confirm({
+          message: "Publish package?",
+          supportingText: canRetryPublishOnly
+            ? `"${name.trim() || "This package"}" is already saved as a draft and will now be published so customers can discover and book it.`
+            : `"${name.trim() || "This package"}" will be saved and published so customers can discover and book it.`,
+          confirmLabel: canRetryPublishOnly ? "Retry Publish" : "Publish Package",
+        })) return;
+      } else if (usesV2 && !await confirm({
+        message: editing || createdDraft ? "Save changes to your package draft?" : "Save package as draft?",
+        supportingText: "Your package will be saved as a private draft. It will not be published or visible to customers until you publish it.",
+        confirmLabel: "Save as Draft",
+      })) {
+        return;
+      }
+    }
+    if (submissionPending.current || submitting || draftSaved) return;
+
+    submissionPending.current = true;
+    setSubmitting(true);
+    setSubmittingMode(mode);
+    onSubmittingChange?.(true);
+    setError(null);
+
+    try {
+      let savedTarget: {packageId: string; revision: number | null; isV2: boolean};
+      let nextSnapshot = currentEditorSnapshot;
+
+      if (mode === "publish" && canRetryPublishOnly && createdDraft) {
+        savedTarget = {
+          packageId: createdDraft.packageId,
+          revision: createdDraft.revision,
+          isV2: createdDraft.isV2,
+        };
+      } else if (usesV2 && savedProgress && !createdDraft) {
+        if (images.length || offerDraft.themeOptions.some((theme) => theme.images.length)) {
+          throw new Error("PROGRESS_MEDIA_UNSUPPORTED");
+        }
+        const saved = await persistProgress();
+        const completed = await completeV2PackageProgress({editorDraftId:saved.editorDraftId, expectedRevision:saved.revision,
+          expectedPackageRevision:null, idempotencyKey:crypto.randomUUID()});
+        savedTarget = {
+          packageId: completed?.packageId ?? "",
+          revision: completed?.packageRevision ?? 1,
+          isV2: true,
+        };
+      } else {
+        let latestImages = images;
+        let latestOfferDraft = offerDraft;
+        const uploaded = await uploadCatalogImages(images, (saved) => {
+          latestImages = latestImages.map((image) => image.id === saved.id ? saved : image);
+          setImages((current) => current.map((image) => image.id === saved.id ? saved : image));
+        });
+        latestImages = uploaded;
+        const uploadedThemes =
+          await uploadProviderPackageThemeImages(
+            offerDraft,
+            offerConfiguration,
+            (themeId, uploadedImages) => {
+              latestOfferDraft = {
+                ...latestOfferDraft,
+                themeOptions: latestOfferDraft.themeOptions.map((theme) =>
+                  theme.id === themeId ? {...theme, images: uploadedImages} : theme,
+                ),
+              };
+              setOfferDraft((current) => ({
+                ...current,
+                themeOptions:
+                  current.themeOptions.map(
+                    (theme) =>
+                      theme.id === themeId
+                        ? {
+                            ...theme,
+                            images:
+                              uploadedImages,
+                          }
+                        : theme,
+                  ),
+              }));
+            },
+          );
+        nextSnapshot = JSON.stringify([editorProgress(), latestOfferDraft, latestImages]);
+        const input: ProviderPackageInput = {
+          ...(pricingModel !== "legacy" ? {pricingModel} : {}),
+          ...(offerStructure ? {offerStructure} : {}),
+          ...(packageStyle.trim() ? {packageStyle: packageStyle.trim()} : {}),
+          name: name.trim(),
+          description:
+            description.trim(),
+          eventType,
+          serviceCategoryCode,
+          price: parsedPrice,
+          serviceOptions:
+            offerConfiguration.serviceOptions,
+          themeOptions:
+            uploadedThemes,
+
+          paymentPolicy,
+          ...(paymentPolicy === "deposit_then_balance" ? {fullPaymentAllowed: allowFullPayment} : {}),
+          depositPercentage: paymentPolicy === "full_payment" ? 100 : parsedDepositPercentage,
+
+          minimumGuests:
+            parsedMinimumGuests,
+          maximumGuests:
+            parsedMaximumGuests,
+          imageUrl: uploaded[0]?.url ?? "",
+          imageUrls: uploaded.map((image) => image.url),
+          foodInclusions: parsePackageDishes(foodInclusions).map((dish) => dish.raw),
+          decorInclusions:
+            parseInclusions(
+              decorInclusionsText,
+            ),
+          furnitureInclusions:
+            parseInclusions(
+              furnitureInclusionsText,
+            ),
+          serviceInclusions:
+            parseInclusions(
+              serviceInclusionsText,
+            ),
+        };
+
+        if (usesV2) {
+          const {eventType: _eventType, ...fields} = input;
+          void _eventType;
+          const serviceOptions = Object.fromEntries(Object.entries(fields.serviceOptions).map(([tier, option]) => [tier, {
+            ...option,
+            ...tierExtraInclusions(offerDraft.serviceOptions[tier as keyof typeof offerDraft.serviceOptions]),
+          }]));
+          const v2: CreateProviderPackageV2Request = {...fields, serviceOptions,
+            ...(privateFeature && (privateLabels.length > 0 || hasSavedPrivateLabels)
+              ? {privateOccasionLabels: privateLabels} : {}),
+            ...(canSetDropOffLimit ? {maxDropOffOrderQuantity: dropOffLimit} : {}),
+            equipmentInclusions: initialPackage?.v2?.equipmentInclusions ?? initialEditorProgress?.progress.equipmentInclusions ?? [],
+            ...(offerStructure ? {offerStructure} : {}),
+            ...(packageStyle.trim() ? {packageStyle: packageStyle.trim()} : {}),
+            ...(foodChoiceGroups.length ? {foodChoiceGroups: parseFoodChoiceGroupsV2(foodChoiceGroups)} : {}),
+            sharedContractVersion:2, offerSchemaVersion:2, occasionSchemaVersion:2,
+            occasionScope, occasionIds:occasionScope === "all" ? [] : selectedOccasions,
+            idempotencyKey:crypto.randomUUID()};
+          if (createdDraft?.isV2 && createdDraft.packageId && createdDraft.revision !== null) {
+            const payload = {...v2, packageId: createdDraft.packageId, expectedRevision: createdDraft.revision};
+            const updated = editingPublished
+              ? await updateV2PackageDraft(payload, "published")
+              : await updateV2PackageDraft(payload);
+            savedTarget = {
+              packageId: updated?.packageId ?? createdDraft.packageId,
+              revision: updated?.packageRevision ?? createdDraft.revision + 1,
+              isV2: true,
+            };
+          } else if (initialPackage?.v2) {
+            const payload = {...v2, packageId:initialPackage.id, expectedRevision:initialPackage.v2.revision};
+            const updated = editingPublished
+              ? await updateV2PackageDraft(payload, "published")
+              : await updateV2PackageDraft(payload);
+            savedTarget = {
+              packageId: updated?.packageId ?? initialPackage.id,
+              revision: updated?.packageRevision ?? initialPackage.v2.revision + 1,
+              isV2: true,
+            };
+          } else {
+            const created = await createV2PackageDraft(v2);
+            savedTarget = {
+              packageId: created?.packageId ?? "",
+              revision: created?.packageRevision ?? 1,
+              isV2: true,
+            };
+          }
+        } else if (createdDraft || editing) {
+          const targetId = createdDraft?.packageId || initialPackage!.id;
+          if (editingPublished) {
+            await updateProviderPackage(targetId, input, "published");
+          } else {
+            await updateProviderPackage(targetId, input);
+          }
+          savedTarget = {packageId: targetId, revision: null, isV2: false};
+        } else {
+          const created = await createProviderPackage(input);
+          savedTarget = {packageId: created?.packageId ?? "", revision: null, isV2: false};
+        }
+      }
+
+      if (savedTarget.packageId) {
+        setCreatedDraft({...savedTarget, snapshot: nextSnapshot});
+      }
+      if (localDraftKey) {
+        try { localStorage.removeItem(localDraftKey); } catch { /* ignore storage cleanup errors */ }
+        setSavedOnDevice(false);
+      }
+
+      if (mode === "draft" || mode === "update_published") {
+        if (usesV2 || mode === "update_published") setDraftSaved(true);
+        await onSaved();
+        return;
+      }
+
+      if (!savedTarget.packageId) {
+        throw new Error("INVALID_DRAFT_RESPONSE");
+      }
+
+      try {
+        if (savedTarget.isV2 && savedTarget.revision !== null) {
+          await publishProviderPackage(savedTarget.packageId, {revision: savedTarget.revision});
+        } else {
+          await publishProviderPackage(savedTarget.packageId);
+        }
+        setDraftSaved(true);
+        await onSaved();
+      } catch (publishCaught) {
+        setError(`Your package was saved as a draft, but could not be published yet. ${providerPackagePublishError(publishCaught)} Retry publishing now or keep it as a draft to publish later from Packages.`);
+      }
+    } catch (caught) {
+      setPendingV2(usesV2 && hasPendingV2Draft());
+      setError(caught instanceof Error && caught.message === "PROGRESS_MEDIA_UNSUPPORTED"
+        ? "Saved progress cannot attach images yet. Remove images before completing this progress draft."
+        : providerPackageSaveError(caught));
+    } finally {
+      submissionPending.current = false;
+      setSubmitting(false);
+      setSubmittingMode(null);
+      onSubmittingChange?.(false);
+    }
+  }
+
+  if (
+    packageCategoryOptions.length === 0
+  ) {
+    return (
+      <div
+        role="alert"
+        className="rounded-lg border border-destructive/30 bg-destructive/5 p-4"
+      >
+        <p className="font-medium text-foreground">
+          Package setup is unavailable
+        </p>
+
+        <p className="mt-1 text-sm text-muted-foreground">
+          Your business does not have an active catering service category available for packages. Update your provider profile before creating or editing a package.
+        </p>
+
+        <div className="mt-4">
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={onCancel}
+          >
+            Close
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <form
+      noValidate
+      // Only the explicit save button may request confirmation. Native form
+      // submission must never turn a navigation click into a save action.
+      onSubmit={(event) => event.preventDefault()}
+      className={dialogLayout ? "flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden" : "min-w-0"}
+    >
+      {confirmationDialog}
+      <fieldset
+        disabled={submitting || progressSaving || pendingV2 || draftSaved}
+        className={
+          dialogLayout
+            ? "flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
+            : "grid min-w-0 gap-5"
+        }
+      >
+      <nav aria-label="Package creation progress" className={dialogLayout ? "shrink-0 border-b border-border px-5 py-3 sm:px-6" : undefined}>
+      <ol className="grid grid-cols-5 gap-2">{steps.map((label, index) => <li key={label} aria-current={step === index ? "step" : undefined} className={step === index ? "rounded-lg bg-primary p-2 text-xs font-bold text-primary-foreground" : "rounded-lg bg-muted p-2 text-xs text-muted-foreground"}>{index + 1}<span className="hidden sm:block">{label}</span>
+      </li>)}</ol>
+      </nav>
+      <div ref={scrollContainer} role={dialogLayout ? "region" : undefined} aria-label={dialogLayout ? "Package details" : undefined} tabIndex={dialogLayout ? 0 : undefined}
+        className={
+        dialogLayout
+          ? "mx-2 grid min-h-0 flex-1 content-start gap-4 overflow-y-auto overscroll-contain px-3 py-4 [scrollbar-gutter:stable] [scrollbar-width:thin] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring sm:mx-3"
+          : "grid min-w-0 gap-5"
+      }>
+      <h3 ref={stepHeading} tabIndex={-1} className="text-lg font-bold focus:outline-none">Step {step + 1}: {steps[step]}</h3>
+      <section hidden={step !== 0} className="space-y-4">
+      <div className="grid min-w-0 gap-4 sm:grid-cols-2">
+        <FormField
+          label="Package name"
+          className="relative min-w-0 sm:col-span-2" labelClassName="pr-20"
+          error={validationError?.field === "name" ? validationError.message : undefined}
+          required
+        >
+          <span className="absolute right-0 top-0 text-xs tabular-nums text-muted-foreground">{name.length}/{usesV2 ? 80 : 120}</span>
+          <Input
+            value={name}
+            onChange={(event) =>
+              setName(event.target.value)
+            }
+            maxLength={usesV2 ? 80 : 120}
+            autoComplete="off"
+            placeholder="e.g., Busog Na Set or Wedding Buffet Package"
+          />
+          <p className="mt-1 text-xs text-muted-foreground">
+            Use a name customers can easily recognize.
+          </p>
+        </FormField>
+
+      <FormField
+        className="min-w-0 sm:col-start-1"
+        label="Service category"
+        error={
+          validationError?.field ===
+            "serviceCategoryCode"
+            ? validationError.message
+            : undefined
+        }
+        required
+      >
+        {packageCategoryOptions.length === 1 && serviceCategoryCode === packageCategoryOptions[0].code ? (
+          <Input readOnly className="bg-muted" value={packageCategoryOptions[0].name} />
+        ) : <Select
+          value={serviceCategoryCode}
+          onChange={(event) =>
+            setServiceCategoryCode(
+              event.target.value,
+            )
+          }
+          className="min-h-10 w-full rounded-md border bg-background px-3 text-sm"
+        >
+          <option value="">
+            Choose a service category
+          </option>
+
+          {packageCategoryOptions.map(
+            (category) => (
+              <option
+                key={category.code}
+                value={category.code}
+              >
+                {category.name}
+              </option>
+            ),
+          )}
+        </Select>}
+
+        {packageCategoryOptions.length === 1 && serviceCategoryCode === packageCategoryOptions[0].code ? <p className="text-xs text-muted-foreground">This is your authorized service category.</p> : null}
+        {editing &&
+        initialPackage?.serviceCategoryCode ===
+          null ? (
+          <p className="text-xs leading-5 text-muted-foreground">
+            This legacy package does not have a service category yet. Choose one before saving.
+          </p>
+        ) : null}
+      </FormField>
+
+        <FormField label="Suitable occasions" required error={occasionError} className="relative min-w-0" labelClassName="pr-36">
+          <label className="absolute right-0 top-0 flex items-center gap-1.5 text-xs">
+            <input type="checkbox" className="accent-primary" checked={occasionScope === "all"}
+              disabled={!occasionCatalog || !availableEventTypes.length}
+              onChange={(event) => {
+                setOccasionScope(event.target.checked ? "all" : "specific");
+                setSelectedOccasions([]);
+                setPrivateLabels([]);
+                otherAutoAdded.current = false;
+                setOccasionToAdd("");
+                setError(null);
+              }} />
+            Fits All Occasions
+          </label>
+          <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-start gap-2">
+            <Select ref={occasionSelector} value={occasionToAdd} required={false}
+              onChange={(event) => { setOccasionToAdd(event.target.value); setCustomOccasionError(""); }}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") event.preventDefault();
+              }}>
+              <option value="" hidden>Choose suitable occasions</option>
+              {availableEventTypes.map((value) => {
+                const coveredByCustom = value === otherOccasion && privateLabels.length > 0;
+                const alreadySelected = occasionScope === "specific" && selectedOccasions.includes(value);
+                return (
+                  <option key={value} value={value} disabled={alreadySelected || coveredByCustom}>
+                    {occasionLabel(value)}{coveredByCustom ? " (included for custom occasions)" : alreadySelected ? " (selected)" : ""}
+                  </option>
+                );
+              })}
+              {privateFeature && otherOccasion && privateOccasionStatus === "ready" && (
+                <>
+                  {privateLibrary.map(label => (
+                    <option key={label} value={privateChoicePrefix + label}
+                      disabled={privateLabels.some(selected => privateOccasionKey(selected) === privateOccasionKey(label))}>{label}</option>
+                  ))}
+                  <option value={customChoice}>Create custom occasion</option>
+                </>
+              )}
+            </Select>
+            <Button type="button" variant="secondary" aria-label="Add selected occasion"
+              disabled={addingCustom ? !customOccasion.trim() : !occasionToAdd.startsWith(privateChoicePrefix) && (!availableEventTypes.includes(occasionToAdd) || (occasionScope === "specific" && selectedOccasions.includes(occasionToAdd)))}
+              onClick={addOccasion}>Add</Button>
+          </div>
+          {addingCustom && (
+            <div className="grid gap-1.5">
+              <label htmlFor="private-package-occasion" className="text-sm font-semibold">Custom occasion name</label>
+              <Input id="private-package-occasion" value={customOccasion} maxLength={MAX_PRIVATE_OCCASION_LENGTH}
+                onChange={event => { setCustomOccasion(event.target.value); setCustomOccasionError(""); }}
+                onKeyDown={event => { if (event.key === "Enter") { event.preventDefault(); addOccasion(); } }} />
+              <p className="text-xs text-muted-foreground">Shown on your storefront and package page. Marketplace filters list this package under Other.</p>
+            </div>
+          )}
+          {customOccasionError && <p role="alert" className="text-sm text-destructive">{customOccasionError}</p>}
+          {privateFeature && privateOccasionStatus === "error" && <p role="status" className="text-xs text-muted-foreground">Your custom occasions couldn’t load. Reopen the editor to manage them.</p>}
+          {privateFeature && !otherOccasion && privateOccasionStatus === "ready" && <p className="text-xs text-muted-foreground">Custom occasions are available when this category supports Other.</p>}
+          {retainingLegacyScope ? <p className="text-sm text-muted-foreground">Approved occasion choices are unavailable. You can save this draft with its existing occasion and category; changing either requires reloading the approved choices.</p> : null}
+          {occasionSaveGate ? <p role="status" className="text-sm text-muted-foreground">{occasionSaveGate}</p> : null}
+          {selectedOccasions.length > 0 || privateLabels.length > 0 ? (
+            <div className="grid gap-1.5">
+              <ul aria-label="Selected occasions" className="flex flex-wrap gap-2">
+                {selectedOccasions
+                  .filter((value) => !(value === otherOccasion && privateLabels.length > 0))
+                  .map((value) => (
+                  <li key={value} className="inline-flex min-h-8 max-w-full items-center gap-1 rounded-full border border-primary/30 bg-primary/10 pl-2.5 text-xs font-semibold text-primary-strong">
+                    <span className="min-w-0 [overflow-wrap:anywhere]">{occasionLabel(value)}{retainingLegacyScope ? " (retained legacy occasion)" : availableEventTypes.some((allowed) => allowed === value) ? "" : " (no longer supported)"}</span>
+                    <Button type="button" variant="ghost" className="h-[30px] min-h-[30px] w-8 min-w-8 shrink-0 rounded-full p-0" aria-label={`Remove ${occasionLabel(value)} occasion`}
+                      onClick={() => {
+                        setSelectedOccasions((current) => current.filter((item) => item !== value));
+                        if (value === otherOccasion) otherAutoAdded.current = false;
+                        setError(null);
+                        occasionSelector.current?.focus();
+                      }}><X aria-hidden="true" className="size-3.5" /></Button>
+                  </li>
+                ))}
+                {privateLabels.map(label => (
+                  <li key={label} className="inline-flex min-h-8 max-w-full items-center gap-1 rounded-full border border-primary/30 bg-primary/10 pl-2.5 text-xs font-semibold text-primary-strong">
+                    <span className="min-w-0 [overflow-wrap:anywhere]">{label} (custom)</span>
+                    <Button type="button" variant="ghost" className="h-[30px] min-h-[30px] w-8 min-w-8 shrink-0 rounded-full p-0" aria-label={`Remove ${label} custom occasion`}
+                      onClick={() => {
+                        const next = privateLabels.filter(item => item !== label);
+                        setPrivateLabels(next);
+                        if (next.length === 0 && otherAutoAdded.current && otherOccasion) {
+                          otherAutoAdded.current = false;
+                          setSelectedOccasions(current => current.filter(item => item !== otherOccasion));
+                        }
+                        setError(null);
+                        occasionSelector.current?.focus();
+                      }}>
+                      <X aria-hidden="true" className="size-3.5" />
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+              {privateLabels.length > 0 ? (
+                <p className="text-xs text-muted-foreground">
+                  Custom occasions appear on your storefront and package page. Marketplace filters list this package under Other.
+                </p>
+              ) : null}
+            </div>
+          ) : null}
+        </FormField>
+
+      </div>
+      <FormField
+        label="Description (optional)"
+        className="relative" labelClassName="pr-24"
+        error={validationError?.field === "description" ? validationError.message : undefined}
+      >
+        <span className="absolute right-0 top-0 text-xs tabular-nums text-muted-foreground">{description.length}/2000</span>
+        <Textarea
+          value={description}
+          onChange={(event) =>
+            setDescription(
+              event.target.value,
+            )
+          }
+          maxLength={2000}
+          rows={3}
+          placeholder="Describe your package, what makes it special, and who it is suitable for."
+          className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+        />
+        <p className="mt-1 text-xs leading-5 text-muted-foreground">
+          Keep this easy to understand. Exact dishes, quantities,
+          prices, and service inclusions belong in the next steps.
+        </p>
+      </FormField>
+
+      </section>
+      <section hidden={step !== 1} className="space-y-4">
+      <FormField label="Pricing model" required>
+      <Select value={pricingModel} onChange={(event) => setPricingModel(event.target.value as typeof pricingModel)}>{editing && !initialPackage.pricingModel ? <option value="legacy">Legacy fixed price</option> : null}<option value="per_pax">Per Pax - price per person</option>
+      <option value="per_bundle">Per Bundle - fixed price for a guest range</option>
+      </Select>
+      <p className="text-sm text-muted-foreground">Prices are charged per person for Per Pax. One fixed price covers the package&apos;s guest range for Per Bundle.</p>
+      <p className="text-xs text-muted-foreground">{usesV2
+        ? "Save a valid V2 draft before publishing. Publication also requires current provider eligibility and server approval."
+        : "This draft has no saved V2 contract. Review and retain its details; conversion requires a reviewed recovery before publishing."}</p>
+      </FormField>
+      <ProviderPackageOfferBuilder
+        section="pricing"
+        priceUnit={pricingModel === "per_pax" ? "per person" : "fixed package price"}
+        value={offerDraft}
+        onChange={(next) => {
+          setOfferInteracted(true);
+          setOfferDraft(next);
+        }}
+        disabled={submitting}
+        error={
+          offerInteracted &&
+          validationError?.field ===
+            "serviceOptions"
+            ? validationError.message
+            : undefined
+        }
+        legacyNotice={
+          editing &&
+          Object.keys(
+            initialPackage.serviceOptions,
+          ).length === 0
+            ? "This legacy package remains readable, but you must configure at least one service tier before saving changes."
+            : undefined
+        }
+      />
+      {canSetDropOffLimit && (
+        <FormField
+          label="Max quantity per order"
+          description={`How many packages a customer can order at once for Drop-Off (1–${MAX_DROP_OFF_ORDER_QUANTITY}). Set to 1 to allow only one package per order.`}
+          error={dropOffLimitError ?? undefined}
+          required
+        >
+          <ProviderPackageIntegerInput
+            minimum={1}
+            maximum={MAX_DROP_OFF_ORDER_QUANTITY}
+            disabled={submitting}
+            invalid={Boolean(dropOffLimitError)}
+            showInlineError={false}
+            overflowMessage={`Maximum is ${MAX_DROP_OFF_ORDER_QUANTITY} per order.`}
+            zeroMessage="Must be at least 1 per order."
+            nonNumericMessage={`Use numbers only (1 to ${MAX_DROP_OFF_ORDER_QUANTITY}).`}
+            value={maxDropOffOrderQuantityText}
+            onChange={(nextValue, inputError) => {
+              setMaxDropOffOrderQuantityText(nextValue);
+              setDropOffLimitInputError(inputError);
+              if (!inputError) setError(null);
+            }}
+          />
+        </FormField>
+      )}
+      <section aria-label="Payment and starting price" className="space-y-4 rounded-2xl border border-border bg-muted/20 p-4 sm:p-5">
+      <h4 className="text-sm font-bold uppercase text-primary-strong">Payment terms</h4>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <FormField
+          label="Starting price"
+          error={validationError?.field === "price" ? validationError.message : undefined}
+          required
+        >
+          <ProviderPackageMoneyInput
+            value={Number.isFinite(parsedPrice) ? String(parsedPrice) : ""}
+            readOnly
+            onChange={() => {}}
+            description="Automatically set to the lowest enabled service-tier price."
+          />
+        </FormField>
+
+        <div className="grid gap-4 sm:col-span-2">
+          <fieldset className="grid gap-2">
+            <legend className="mb-2 text-sm font-bold">
+              Payment terms <span aria-hidden="true" className="text-destructive">*</span>
+            </legend>
+            <div className="flex flex-wrap gap-x-6 gap-y-2">
+              <label className="flex min-h-10 items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  className="accent-primary"
+                  checked={allowFullPayment}
+                  onChange={(event) => {
+                    setAllowFullPayment(event.target.checked);
+                    setError(null);
+                  }}
+                />
+                Full Payment
+              </label>
+              <label className="flex min-h-10 items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  className="accent-primary"
+                  checked={allowDownPayment}
+                  onChange={(event) => {
+                    setAllowDownPayment(event.target.checked);
+                    setError(null);
+                  }}
+                />
+                Down Payment
+              </label>
+            </div>
+            {paymentTermsError ? (
+              <p role="alert" className="text-xs text-destructive">
+                {paymentTermsError}
+              </p>
+            ) : (
+              <p className="text-xs leading-5 text-muted-foreground">
+                {allowFullPayment && allowDownPayment
+                  ? "Customers can pay the required down payment first (with the remaining balance due 24 hours before the scheduled event start) or pay the full amount upfront. Short-notice bookings under 72 hours require full payment."
+                  : allowDownPayment
+                    ? "Customers pay the required down payment first and must pay the remaining balance 24 hours before the scheduled event start. Short-notice bookings under 72 hours still require full payment under FEASTA policy."
+                    : "Customers pay the full amount after you accept their booking request."}
+              </p>
+            )}
+            <p className="text-xs leading-5 text-muted-foreground">
+              Need flexible terms for a specific customer? You can still offer arranged payment terms when reviewing an eligible booking request.
+            </p>
+          </fieldset>
+          {allowDownPayment ? (
+            <div className="grid gap-4 sm:grid-cols-2">
+              <FormField label="Down payment required (%)" error={depositError} required
+                description={`Current FEASTA policy allows ${minimumDepositPercentageAllowed}%–${maximumDepositPercentageAllowed}%.`}>
+                <Input type="number" min={minimumDepositPercentageAllowed} max={maximumDepositPercentageAllowed}
+                  step="any" value={depositPercentage} onChange={(event) => setDepositPercentage(event.target.value)} />
+              </FormField>
+              <div className="grid content-start gap-2 text-sm">
+                <p className="font-semibold">Remaining balance deadline</p>
+                <p>24 hours before the scheduled event start</p>
+                <p className="text-muted-foreground">FEASTA automatically sets the remaining balance deadline based on the Customer&apos;s event date and start time.</p>
+              </div>
+            </div>
+          ) : null}
+        </div>
+      </div>
+
+      </section>
+      <section aria-label="Guest capacity" className="space-y-4 rounded-2xl border border-border bg-muted/20 p-4 sm:p-5">
+      <h4 className="text-sm font-bold uppercase text-primary-strong">Guest capacity</h4>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <FormField
+          label="Minimum guests"
+          error={visibleMinimumGuestsError}
+          required
+        >
+          <ProviderPackageIntegerInput minimum={minGuestsPerEvent} maximum={minGuestsUpperBound}
+              invalid={Boolean(visibleMinimumGuestsError)} showInlineError={false}
+              overflowMessage={requiresStrictlyHigherMax ? `Must be less than ${guestCapacityLimit} guests.` : `Cannot exceed ${guestCapacityLimit} guests.`}
+              value={minimumGuests}
+              onBlur={() => setGuestTouched((current) => ({...current, minimum: true}))}
+              onChange={(value, minimum) => {
+                setMinimumGuests(value);
+                setGuestTouched((current) => ({...current, minimum: true}));
+                setGuestInputErrors((errors) => ({...errors, minimum}));
+                if (!minimum) setError(null);
+              }} />
+        </FormField>
+
+        <FormField
+          label="Maximum guests"
+          error={visibleMaximumGuestsError}
+          required
+        >
+          <ProviderPackageIntegerInput minimum={maxGuestsLowerBound} maximum={guestCapacityLimit}
+              invalid={Boolean(visibleMaximumGuestsError)} showInlineError={false}
+              overflowMessage={`Cannot exceed ${guestCapacityLimit} guests.`}
+              value={maximumGuests}
+              onBlur={() => setGuestTouched((current) => ({...current, maximum: true}))}
+              onChange={(value, maximum) => {
+                setMaximumGuests(value);
+                setGuestTouched((current) => ({...current, maximum: true}));
+                setGuestInputErrors((errors) => ({...errors, maximum}));
+                if (!maximum) setError(null);
+              }} />
+        </FormField>
+      </div>
+
+      <p className="-mt-2 text-xs text-muted-foreground">
+        Your business is configured for{" "}
+        <span className="font-medium text-foreground">
+            {minGuestsPerEvent}–
+            {guestCapacityLimit} guests
+        </span>{" "}
+        per event.
+        </p>
+      </section>
+
+      </section>
+      <section hidden={step !== 2} className="space-y-4">
+        {offerStructure === "customizable" ? (
+          <p className="text-sm text-muted-foreground">
+            Customizable package: list dishes included for every
+            customer, then configure the dishes customers must select.
+          </p>
+        ) : null}
+        {offerStructure === "individual" ? (
+          <div className="grid gap-4">
+            <p role="status" className="rounded-xl border border-border bg-muted/20 p-4 text-sm">
+              Individual food items can be edited in private progress.
+              Final package saving and customer booking remain unavailable.
+            </p>
+            <ProviderPackageIndividualFood
+              value={individualFoodDraft}
+              onChange={setIndividualFoodDraft}
+              disabled={submitting || progressSaving}
+            />
+          </div>
+        ) : (offerStructure === "fixed" || !usesV2 || foodInclusions.length > 0) ? (
+          <ProviderPackageFoodMenu
+            value={foodInclusions}
+            onChange={setFoodInclusions}
+            disabled={submitting || progressSaving}
+          />
+        ) : null}
+        {usesV2 && offerStructure === "fixed" ? (
+          <ProviderPackageFoodChoices
+            value={foodChoiceGroups}
+            onChange={setFoodChoiceGroups}
+            disabled={submitting || progressSaving}
+          />
+        ) : usesV2 && offerStructure !== "individual" ? (
+          <ProviderPackageParentGroupRules
+            value={foodChoiceGroups}
+            onChange={setFoodChoiceGroups}
+            disabled={submitting || progressSaving}
+          />
+        ) : null}
+        {foodError && !(offerStructure === "fixed" && foodError === foodStructureError) ? <p role="alert" className="text-sm text-destructive">{foodError}</p> : null}
+      </section>
+      <section hidden={step !== 3} className="space-y-4">
+      <ProviderPackageOfferBuilder section="themes" value={offerDraft} onChange={setOfferDraft} disabled={submitting} />
+      <ProviderPackageOfferBuilder section="tier-inclusions" value={offerDraft}
+        onChange={setOfferDraft} disabled={submitting} />
+      <section aria-label="Images" className="grid gap-3 rounded-2xl border border-border bg-muted/20 p-4 sm:p-5"><h3 className="text-sm font-bold uppercase text-primary-strong">Package images</h3>
+        <CatalogImageUploader images={images} onChange={setImages} disabled={submitting} />
+        <p className="text-xs text-muted-foreground">
+          Images selected here remain in this editing session until a
+          supported package save uploads them. Save Draft &amp; Exit
+          does not preserve package or theme images yet.
+          Remove image selections before saving unfinished progress.
+        </p>
+      </section>
+
+
+
+      <section aria-label="Optional inclusions" className="grid gap-4 rounded-2xl border border-border bg-muted/20 p-4 sm:grid-cols-2 sm:p-5">
+      <div className="sm:col-span-2"><h3 className="text-sm font-bold uppercase text-primary-strong">Optional inclusions</h3>
+      <p className="mt-1 text-sm text-muted-foreground">Optional — add inclusions to help customers understand what this package covers. Every inclusion field is optional. These shared inclusions apply across enabled tiers. V2 tier-specific inclusions are configured above.</p></div>
+
+      {capabilities.decorations ? <InclusionTextarea
+        label="Decoration inclusions"
+        value={decorInclusionsText}
+        onChange={
+          setDecorInclusionsText
+        }
+      /> : null}
+
+      {capabilities.furniture ? <InclusionTextarea
+        label="Furniture inclusions"
+        value={
+          furnitureInclusionsText
+        }
+        onChange={
+          setFurnitureInclusionsText
+        }
+      /> : null}
+
+      <InclusionTextarea
+        label="Service inclusions"
+        value={serviceInclusionsText}
+        onChange={
+          setServiceInclusionsText
+        }
+      />
+      </section>
+
+      </section>
+      <div hidden={step !== 4}>
+        <ProviderPackageReview name={name} description={description} eventType={occasionScope === "all" ? "Fits All Occasions" :
+          [...selectedOccasions.filter(id => !(id === otherOccasion && privateLabels.length > 0)).map(occasionLabel), ...privateLabels.map(label => `${label} (custom)`)].join(", ")}
+          serviceCategory={packageCategoryOptions.find((category) => category.code === serviceCategoryCode)?.name ?? ""}
+          pricingModel={pricingModel} minimumGuests={minimumGuests} maximumGuests={maximumGuests}
+          maxDropOffOrderQuantity={canSetDropOffLimit && isDropOffOrderQuantity(dropOffLimit) ? dropOffLimit : undefined}
+          serviceOptions={offerConfiguration.serviceOptions} food={foodInclusions} foodChoiceGroups={usesV2 ? foodChoiceGroups : []} decor={decorInclusionsText}
+          furniture={furnitureInclusionsText} services={serviceInclusionsText} offerDraft={offerDraft}
+          images={images} paymentPolicy={paymentPolicy} fullPaymentAllowed={allowFullPayment} depositPercentage={depositPercentage}
+          canPublish={!publishBlockedReason}
+          editingPublished={editingPublished}
+          />
+      </div>
+      </div>
+      <div className={dialogLayout ? "grid shrink-0 gap-3 border-t border-border bg-card px-5 py-4 sm:px-6" : "grid gap-3"}>
+      {step === 4 && (validationError || paymentTermsError || depositError || foodError || dropOffLimitError) ? <p role="alert" className="text-sm text-destructive">{validationError?.message || paymentTermsError || depositError || foodError || dropOffLimitError}</p> : null}
+      {step === 4 && publishBlockedReason ? <p role="status" className="text-xs text-muted-foreground">{publishBlockedReason}</p> : null}
+      {savedOnDevice ? <p role="status" className="text-xs text-muted-foreground">
+        Package details saved on this device. Reopen New package to continue. Selected images need to be added again after a reload.
+      </p> : null}
+      {savedProgress ? <p role="status" className="text-xs text-muted-foreground">Private progress saved (revision {savedProgress.revision}). This is not a package draft or publication.</p> : null}
+      {progressError ? <p role="alert" className="text-sm text-destructive">{progressError}</p> : null}
+      {error && !(step === 0 && error === occasionError) ? (
+        <div
+          role="alert"
+          className="text-sm text-destructive"
+        >
+          {error}
+          {/^Step [1-4]:/u.test(error) ? <Button type="button" variant="secondary" onClick={() => goToStep(Number(error.charAt(5)) - 1)}>Return to Step {error.charAt(5)}</Button> : null}
+        </div>
+      ) : null}
+
+      <div
+        role="group"
+        aria-label="Package wizard actions"
+        className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between [&_button]:text-sm"
+      >
+        <div className="order-2 flex min-w-0 flex-wrap items-center justify-between gap-2 sm:order-1 sm:justify-start">
+          <Button
+            type="button"
+            variant="ghost"
+            size="compact"
+            disabled={submitting || progressSaving}
+            onClick={() => {
+              if (step === 4 && canRetryPublishOnly) {
+                void onSaved();
+              } else {
+                onCancel();
+              }
+            }}
+          >
+            {step === 4 && canRetryPublishOnly ? "Close" : "Cancel"}
+          </Button>
+          {step > 0 ? (
+            <Button
+              type="button"
+              variant="secondary"
+              size="compact"
+              disabled={submitting || progressSaving}
+              onClick={() => goToStep(step - 1)}
+            >
+              Back
+            </Button>
+          ) : null}
+          {step < 4 && !editing && packageEditorProgressEnabled ? (
+            <Button
+              type="button"
+              variant="secondary"
+              size="compact"
+              disabled={submitting || progressSaving}
+              onClick={() => void handleSaveProgress()}
+            >
+              {progressSaving ? "Saving draft..." : onProgressExit ? "Save Draft & Exit" : "Save Draft"}
+            </Button>
+          ) : null}
+        </div>
+        {step < 4 && !editing && packageEditorProgressEnabled ? (
+          <div className="order-3 min-w-0 text-center sm:order-2">
+            <p className="mx-auto max-w-prose text-xs leading-5 text-muted-foreground">
+              Save Draft &amp; Exit keeps your place in the wizard.
+            </p>
+          </div>
+        ) : null}
+        <div className="order-1 flex min-w-0 flex-col-reverse gap-2 sm:order-3 sm:flex-row sm:items-center">
+          {step < 4 ? (
+            <Button
+              key="next-step"
+              type="button"
+              size="compact"
+              className="w-full sm:w-auto sm:min-w-28"
+              disabled={submitting || progressSaving}
+              onClick={() => {
+                const fields = step === 0 ? ["name", "description", "eventType", "serviceCategoryCode"] : step === 1 ? ["price", "minimumGuests", "maximumGuests", "serviceOptions"] : step === 3 ? ["serviceOptions"] : [];
+                const pricingError = step === 1 ? serializeProviderPackageOfferDraft({...offerDraft, themeOptions: []}).error : null;
+                if (step === 1) setStep2Submitted(true);
+                const guestError = step === 1 ? (minimumGuestsError || maximumGuestsError || null) : null;
+                const message = (step === 2 ? packageClassificationError() || foodError : null) || pricingError || guestError || (validationError && fields.includes(validationError.field) && !(step === 1 && validationError.field === "serviceOptions") ? validationError.message : null) || (step === 1 ? dropOffLimitError || paymentTermsError || depositError : null);
+                if (message) { setError(message); return; }
+                goToStep(step + 1);
+              }}
+            >
+              Next
+            </Button>
+          ) : editingPublished ? (
+            <Button
+              key="save-published"
+              type="button"
+              variant="primary"
+              size="compact"
+              className="w-full sm:w-auto"
+              onClick={() => void handlePackageSubmit("update_published")}
+              disabled={baseSaveDisabled || Boolean(publishBlockedReason)}
+              loading={submitting && submittingMode === "update_published"}
+              loadingLabel="Saving changes"
+            >
+              Save Changes
+            </Button>
+          ) : (
+            <>
+              {canRetryPublishOnly ? (
+                <Button
+                  key="keep-draft"
+                  type="button"
+                  variant="secondary"
+                  size="compact"
+                  className="w-full sm:w-auto"
+                  disabled={submitting || progressSaving}
+                  onClick={() => void onSaved()}
+                >
+                  Keep as Draft
+                </Button>
+              ) : (
+                <Button
+                  key="save-draft"
+                  type="button"
+                  variant="secondary"
+                  size="compact"
+                  className="w-full sm:w-auto"
+                  onClick={() => void handlePackageSubmit("draft")}
+                  disabled={baseSaveDisabled}
+                  loading={submitting && submittingMode === "draft"}
+                  loadingLabel="Saving draft"
+                >
+                  Save as Draft
+                </Button>
+              )}
+              <Button
+                key="publish-package"
+                type="button"
+                variant="primary"
+                size="compact"
+                className="w-full sm:w-auto"
+                onClick={() => void handlePackageSubmit("publish")}
+                disabled={baseSaveDisabled || Boolean(publishBlockedReason)}
+                loading={submitting && submittingMode === "publish"}
+                loadingLabel="Publishing package"
+              >
+                {canRetryPublishOnly ? "Retry Publish" : "Publish Package"}
+              </Button>
+            </>
+          )}
+        </div>
+      </div>
+      </div>
+      </fieldset>
+      {pendingV2 ? <div role="alert" className="space-y-2 p-4">
+        <p>A previous save has no confirmed result. Retry that exact request before making another package.</p>
+        <Button type="button" disabled={submitting} onClick={async () => {
+          setSubmitting(true);
+          onSubmittingChange?.(true);
+          try { await retryPendingV2Draft(); setPendingV2(false); setDraftSaved(true); await onSaved(); }
+          catch (caught) { setPendingV2(hasPendingV2Draft()); setError(providerPackageSaveError(caught)); }
+          finally { setSubmitting(false); onSubmittingChange?.(false); }
+        }}>Retry pending save</Button>
+      </div> : null}
+      {draftSaved ? <div role="status" className="p-4">{editingPublished ? "Published package updated successfully." : "Private package draft saved successfully."}
+        <Button type="button" onClick={() => void onSaved()}>Refresh saved packages</Button>
+      </div> : null}
+    </form>
+  );
+}
+
+function InclusionTextarea({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  onChange: (
+    value: string,
+  ) => void;
+}) {
+  const count =
+    parseInclusions(value).length;
+
+  return (
+    <div className="grid content-start gap-2 rounded-xl border border-border bg-background p-3">
+        <FormField label={label}>
+        <Textarea
+            value={value}
+            onChange={(event) =>
+            onChange(
+                event.target.value,
+            )
+            }
+            rows={3}
+            className="min-h-24 w-full rounded-md border bg-background px-3 py-2 text-sm"
+            placeholder="Enter one inclusion per line"
+        />
+        </FormField>
+
+        <p className="text-xs text-muted-foreground">
+        {count}/50 items. Enter one item per line.
+        </p>
+    </div>
+    );
+}
+
+function parseInclusions(
+  value: string,
+): string[] {
+  return [
+    ...new Set(
+      value
+        .split(/\r?\n/u)
+        .map((item) =>
+          item.trim(),
+        )
+        .filter(Boolean),
+    ),
+  ].slice(0, 50);
+}
+
+function formatEventType(
+  value: string,
+): string {
+  return value
+    .replaceAll("_", " ")
+    .replace(
+      /\b\w/g,
+      (character) =>
+        character.toUpperCase(),
+    );
+}

@@ -1,0 +1,45 @@
+import {writeFileSync} from 'node:fs';
+const event = {eventType:'wedding',eventDate:'2030-06-20',eventTime:'10:00',eventEndTime:'12:00',guestCount:100,eventLocation:'Ormoc City',eventAddress:'Event hall',specialRequest:'Vegetarian guests 🌿'};
+const common = {event,sharedContractVersion:2,expectedPackageRevision:3,serviceTier:'full_service',packageThemeId:'garden',foodChoiceSelections:[{groupId:'main',optionIds:['chicken']}],selectedFoods:[],selectedDecorations:['Flowers'],selectedFurniture:['Tables'],willArrangeOwnAddOns:false,customerArrangedAddOnsNote:'',estimatedTotal:10500,pricingContext:{currency:'PHP',pricingModel:'per_pax',displayedServicePrice:100}};
+const web = {...common,themeInspiration:{notes:'Garden 🌸',referenceSetupId:'setup_123'},selectedEventServices:[{id:'service_123',providerId:'provider_456',providerName:'Band',name:'Music',category:'Entertainment',price:500,source:'feasta_addon_provider'}]};
+const mobile = {...common,themeChoice:'custom',customTheme:'Rustic garden 🌸',specialRequest:'Provider-specific instructions',selectedAddOns:[{serviceId:'service_123',expectedRevision:2,addonId:'music',providerId:'provider_456',source:'feasta_addon_provider',name:'Music',providerBusinessName:'Band',providerType:'addon_provider',category:'Entertainment',price:500}]};
+function entry(kind,id,configuration=null) {
+  const e = {kind,providerId:'provider_123',selectionId:id,variantId:null,identity:'',providerName:'Provider',name:'Selection',estimatedPrice:10000,imageUrl:'https://example.test/image.jpg',expectedRevision:3,configuration,href:null,menu:null};
+  e.identity = [kind,e.providerId,id].join(':'); return e;
+}
+const packageWeb = {...entry('catering_package','package_web',web),href:'/customer/packages/package_web'};
+const packageMobile = entry('catering_package','package_mobile',mobile);
+const marketplace = entry('marketplace_service','service_123',{...mobile,sharedContractVersion:null,expectedPackageRevision:null,foodChoiceSelections:[],packageThemeId:null});
+const customMenu = {...entry('custom_menu','menu_123'),expectedRevision:null,variantId:'serving_123',identity:'custom_menu:provider_123:menu_123:serving_123',href:'/customer/providers/provider_123',menu:{key:'custom-menu:provider_123:menu_123',servingOptionName:'Tray',servingDescription:'Large tray',servingMinimumGuests:10,servingMaximumGuests:20}};
+const document = {version:1,ownerUid:'customer_A',revision:0,currency:'PHP',entries:[packageWeb,packageMobile,marketplace,customMenu],schedule:event,migration:{version:1,completed:true}};
+const invalid = [];
+function reject(name,mutate) { const d=structuredClone(document); mutate(d); invalid.push({name,document:d,ownerUid:'customer_A'}); }
+reject('unknown top-level authority',d=>d.bookingToken='secret');
+reject('unknown nested authority',d=>d.entries[0].configuration.consentToken='secret');
+reject('owner mismatch',d=>d.ownerUid='customer_B');
+reject('wrong version',d=>d.version=2);
+reject('negative revision',d=>d.revision=-1);
+reject('fractional revision',d=>d.revision=0.5);
+reject('unsafe revision',d=>d.revision=9007199254740992);
+reject('duplicate identities',d=>d.entries.push(d.entries[0]));
+reject('untyped identity',d=>d.entries[0].identity='package_web');
+reject('provider mismatch identity',d=>d.entries[0].providerId='another_provider');
+reject('forbidden path ID',d=>d.entries[0].selectionId='../x');
+reject('newline ID',d=>d.entries[0].selectionId+='\n');
+reject('missing field',d=>delete d.entries[0].name);
+reject('unknown kind',d=>d.entries[0].kind='booking');
+reject('invalid calendar date',d=>d.entries[0].configuration.event.eventDate='2030-02-30');
+reject('backward time',d=>d.entries[0].configuration.event.eventEndTime='09:00');
+reject('negative estimate',d=>d.entries[0].estimatedPrice=-1);
+reject('duplicate food options',d=>d.entries[0].configuration.foodChoiceSelections[0].optionIds.push('chicken'));
+reject('unknown add-on field',d=>d.entries[1].configuration.selectedAddOns[0].paymentStatus='paid');
+reject('invalid menu variant',d=>d.entries[3].variantId=null);
+reject('menu booking configuration',d=>d.entries[3].configuration=web);
+reject('menu guest range',d=>d.entries[3].menu.servingMinimumGuests=30);
+reject('insecure image',d=>d.entries[0].imageUrl='http://example.test/image.jpg');
+reject('external href',d=>d.entries[0].href='//example.test');
+reject('migration reset',d=>d.migration.completed=false);
+reject('25 distinct entries',d=>d.entries=Array.from({length:25},(_,i)=>entry('catering_package','package_'+i)));
+reject('oversized entry',d=>{d.entries=[entry('catering_package','package_large',{...mobile,customTheme:'🌸'.repeat(4800),selectedFoods:Array.from({length:50},(_,i)=>String(i)+'🌸'.repeat(70))})];});
+reject('oversized document',d=>{d.entries=Array.from({length:24},(_,i)=>entry('catering_package','package_'+i,{...mobile,customTheme:'x'.repeat(5000)}));});
+writeFileSync(new URL('../contracts/customer-event-list/fixtures.json',import.meta.url),JSON.stringify({document,invalid},null,2)+'\n');
